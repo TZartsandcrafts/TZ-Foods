@@ -1,0 +1,2044 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#8B5A2B">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="食材库存">
+<title>食材库存 Pantry</title>
+<style>
+  :root{
+    --cream:#F5EBDD;
+    --cream-2:#EFE1CC;
+    --caramel-light:#D9A566;
+    --almond:#C08552;
+    --deep-caramel:#8B5A2B;
+    --cocoa:#4A2E1E;
+    --cocoa-2:#3A2216;
+    --card-bg:#FFFFFF;
+    --warn:#C4512E;
+    --warn-bg:#F5E3D4;
+    --danger:#8C2F1E;
+    --danger-bg:#F7DCD3;
+    --fresh:#6B7A3D;
+    --fresh-bg:#E9EDDC;
+    --line:#E3D2B4;
+    --shadow:0 1px 3px rgba(74,46,30,0.08);
+    --radius:14px;
+    --radius-sm:9px;
+    --safe-top:env(safe-area-inset-top,0px);
+    --safe-bottom:env(safe-area-inset-bottom,0px);
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",Arial,"Noto Sans SC",sans-serif;
+    background:var(--cream);
+    color:var(--cocoa);
+    min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+  }
+  button, input, select, textarea{ font-family:inherit; }
+  h1,h2,h3,p{ margin:0; }
+  #app{
+    max-width:480px;
+    margin:0 auto;
+    min-height:100vh;
+    background:var(--cream);
+    padding-bottom:calc(84px + var(--safe-bottom));
+    position:relative;
+  }
+
+  /* ---------- Top bar ---------- */
+  .topbar{
+    position:sticky; top:0; z-index:20;
+    background:var(--cream);
+    padding:calc(14px + var(--safe-top)) 18px 12px;
+    display:flex; align-items:center; justify-content:space-between;
+    border-bottom:1px solid var(--line);
+  }
+  .topbar h1{ font-size:22px; font-weight:600; color:var(--cocoa); }
+  .topbar .sub{ font-size:13px; color:var(--deep-caramel); margin-top:2px; font-weight:400; }
+  .icon-btn{
+    width:42px; height:42px; border-radius:12px;
+    background:var(--card-bg); border:1px solid var(--line);
+    display:flex; align-items:center; justify-content:center;
+    color:var(--deep-caramel); flex-shrink:0;
+    cursor:pointer;
+  }
+  .icon-btn:active{ transform:scale(0.96); }
+  .icon-btn.filled{ background:var(--almond); border-color:var(--almond); color:#fff; }
+  .topbar-actions{ display:flex; gap:8px; }
+
+  /* ---------- Page header (sub pages) ---------- */
+  .page-header{
+    position:sticky; top:0; z-index:20;
+    background:var(--cream);
+    padding:calc(14px + var(--safe-top)) 14px 12px;
+    display:flex; align-items:center; gap:10px;
+    border-bottom:1px solid var(--line);
+  }
+  .page-header h1{ font-size:19px; font-weight:600; flex:1; }
+  .back-btn{
+    width:40px; height:40px; border-radius:12px;
+    display:flex; align-items:center; justify-content:center;
+    color:var(--cocoa); background:transparent; border:none; cursor:pointer; flex-shrink:0;
+  }
+  .back-btn:active{ background:var(--cream-2); }
+
+  .content{ padding:16px 18px 24px; }
+
+  /* ---------- Search & filters ---------- */
+  .search-bar{
+    display:flex; align-items:center; gap:8px;
+    background:var(--card-bg); border:1px solid var(--line);
+    border-radius:12px; padding:11px 14px; margin-bottom:14px;
+  }
+  .search-bar input{
+    border:none; outline:none; background:transparent; flex:1;
+    font-size:16px; color:var(--cocoa);
+  }
+  .search-bar input::placeholder{ color:#B79B78; }
+  .search-bar i{ font-size:19px; color:var(--deep-caramel); }
+
+  .chip-row{ display:flex; gap:8px; overflow-x:auto; padding-bottom:4px; margin-bottom:6px; scrollbar-width:none; }
+  .chip-row::-webkit-scrollbar{ display:none; }
+  .chip{
+    flex-shrink:0; font-size:14px; font-weight:500; padding:9px 16px;
+    border-radius:20px; border:1px solid var(--line); background:var(--card-bg);
+    color:var(--deep-caramel); cursor:pointer; white-space:nowrap;
+  }
+  .chip.active{ background:var(--almond); border-color:var(--almond); color:#fff; }
+  .chip i{ font-size:15px; vertical-align:-2px; margin-right:4px; }
+
+  .sort-row{ display:flex; align-items:center; justify-content:space-between; margin:14px 0 12px; }
+  .sort-row .label{ font-size:13px; color:var(--deep-caramel); }
+  .sort-pills{ display:flex; gap:6px; }
+  .sort-pill{
+    font-size:12.5px; padding:6px 12px; border-radius:16px; border:1px solid var(--line);
+    background:var(--card-bg); color:var(--deep-caramel); cursor:pointer;
+  }
+  .sort-pill.active{ background:var(--cocoa); border-color:var(--cocoa); color:#fff; }
+
+  /* ---------- Item cards ---------- */
+  .item-card{
+    background:var(--card-bg); border-radius:12px; padding:14px;
+    margin-bottom:10px; display:flex; align-items:center; gap:12px;
+    border-left:4px solid var(--line); box-shadow:var(--shadow); cursor:pointer;
+  }
+  .item-card:active{ transform:scale(0.99); }
+  .item-icon{
+    width:46px; height:46px; border-radius:11px; background:var(--cream);
+    display:flex; align-items:center; justify-content:center; flex-shrink:0;
+    font-size:22px; color:var(--deep-caramel);
+  }
+  .item-info{ flex:1; min-width:0; }
+  .item-name{ font-size:16px; font-weight:500; color:var(--cocoa); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .item-meta{ font-size:13px; color:var(--deep-caramel); margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .status-badge{ font-size:12.5px; font-weight:500; padding:5px 10px; border-radius:8px; flex-shrink:0; white-space:nowrap; }
+  .status-expired{ border-color:var(--danger); color:var(--danger); background:var(--danger-bg); }
+  .status-soon{ border-color:var(--warn); color:var(--warn); background:var(--warn-bg); }
+  .status-fresh{ border-color:var(--fresh); color:var(--fresh); background:var(--fresh-bg); }
+
+  .empty-state{ text-align:center; padding:60px 24px; color:var(--deep-caramel); }
+  .empty-state i{ font-size:40px; color:var(--caramel-light); margin-bottom:12px; display:block; }
+  .empty-state p{ font-size:15px; line-height:1.6; }
+
+  /* ---------- Bottom nav ---------- */
+  .bottom-nav{
+    position:fixed; bottom:0; left:50%; transform:translateX(-50%);
+    width:100%; max-width:480px;
+    background:var(--card-bg); border-top:1px solid var(--line);
+    padding:8px 8px calc(8px + var(--safe-bottom));
+    display:flex; align-items:center; justify-content:space-around;
+    z-index:30;
+  }
+  .nav-item{
+    display:flex; flex-direction:column; align-items:center; gap:3px;
+    color:#B79B78; background:none; border:none; cursor:pointer;
+    padding:6px 10px; flex:1; font-size:11px; font-weight:500;
+  }
+  .nav-item i{ font-size:23px; }
+  .nav-item.active{ color:var(--deep-caramel); }
+  .nav-scan{
+    width:54px; height:54px; border-radius:50%; background:var(--almond);
+    display:flex; align-items:center; justify-content:center; color:#fff;
+    margin-top:-26px; box-shadow:0 3px 8px rgba(139,90,43,0.35); flex:none;
+  }
+  .nav-scan i{ font-size:25px; }
+
+  /* ---------- Buttons ---------- */
+  .btn{
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    font-size:16px; font-weight:500; padding:14px; border-radius:12px;
+    border:1px solid var(--line); background:var(--card-bg); color:var(--cocoa);
+    cursor:pointer; width:100%;
+  }
+  .btn:active{ transform:scale(0.98); }
+  .btn-primary{ background:var(--almond); border-color:var(--almond); color:#fff; }
+  .btn-outline{ background:transparent; border:1px solid var(--deep-caramel); color:var(--deep-caramel); }
+  .btn-danger{ background:transparent; border:1px solid var(--danger); color:var(--danger); }
+  .btn-sm{ padding:10px; font-size:14px; width:auto; }
+  .btn-row{ display:flex; gap:10px; }
+  .btn-row .btn{ flex:1; }
+  .fab-row{ display:flex; flex-direction:column; gap:10px; margin-top:18px; }
+
+  /* ---------- Forms ---------- */
+  .field{ margin-bottom:18px; }
+  .field label{ display:block; font-size:14px; font-weight:500; color:var(--deep-caramel); margin-bottom:7px; }
+  .field .hint{ font-size:12.5px; color:#B79B78; margin-top:5px; }
+  .field input[type=text], .field input[type=number], .field input[type=date], .field textarea{
+    width:100%; font-size:16px; padding:13px 14px; border-radius:11px;
+    border:1px solid var(--line); background:var(--card-bg); color:var(--cocoa); outline:none;
+  }
+  .field input:focus, .field textarea:focus{ border-color:var(--almond); }
+  .field textarea{ resize:vertical; min-height:70px; }
+  .field-row{ display:flex; gap:10px; }
+  .field-row .field{ flex:1; }
+  .tag-select{ display:flex; flex-wrap:wrap; gap:8px; }
+  .tag-option{
+    font-size:14px; padding:9px 15px; border-radius:20px; border:1px solid var(--line);
+    background:var(--card-bg); color:var(--deep-caramel); cursor:pointer;
+  }
+  .tag-option.active{ background:var(--deep-caramel); border-color:var(--deep-caramel); color:#fff; }
+  .tag-option.add-new{ border-style:dashed; color:var(--almond); }
+  .section-title{ font-size:15px; font-weight:600; color:var(--cocoa); margin:26px 0 14px; padding-top:16px; border-top:1px solid var(--line); }
+  .section-title:first-child{ margin-top:0; padding-top:0; border-top:none; }
+  .form-group{ background:var(--card-bg); border-radius:12px; padding:16px; margin-bottom:14px; border:1px solid var(--line); }
+  .edited-badge{ font-size:11px; color:var(--warn); background:var(--warn-bg); padding:2px 8px; border-radius:6px; margin-left:8px; font-weight:500; }
+
+  /* ---------- List rows (settings, tags) ---------- */
+  .list-row{
+    display:flex; align-items:center; justify-content:space-between;
+    background:var(--card-bg); border:1px solid var(--line); border-radius:12px;
+    padding:15px 16px; margin-bottom:9px;
+  }
+  .list-row .row-label{ font-size:16px; color:var(--cocoa); }
+  .list-row .row-sub{ font-size:12.5px; color:var(--deep-caramel); margin-top:2px; }
+  .list-row i.chev{ font-size:18px; color:#B79B78; }
+  .row-del{ color:var(--danger); background:none; border:none; font-size:20px; cursor:pointer; padding:6px; }
+
+  /* ---------- Modal / sheet ---------- */
+  .modal-wrap{
+    position:fixed; inset:0; background:rgba(74,46,30,0.4); z-index:50;
+    display:flex; align-items:flex-end; justify-content:center;
+  }
+  .modal-sheet{
+    background:var(--cream); width:100%; max-width:480px; border-radius:20px 20px 0 0;
+    max-height:88vh; overflow-y:auto; padding:20px 18px calc(24px + var(--safe-bottom));
+  }
+  .modal-sheet h2{ font-size:18px; font-weight:600; margin-bottom:16px; }
+  .modal-close{ position:absolute; right:18px; top:16px; }
+
+  /* ---------- Nutrition grid ---------- */
+  .nutri-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .nutri-cell{ background:var(--cream); border-radius:10px; padding:12px; }
+  .nutri-cell .val{ font-size:19px; font-weight:600; color:var(--cocoa); }
+  .nutri-cell .unit{ font-size:12px; font-weight:400; color:var(--deep-caramel); }
+  .nutri-cell .lbl{ font-size:12.5px; color:var(--deep-caramel); margin-top:2px; }
+
+  .toast{
+    position:fixed; bottom:calc(96px + var(--safe-bottom)); left:50%; transform:translateX(-50%);
+    background:var(--cocoa); color:#fff; padding:12px 22px; border-radius:24px;
+    font-size:14px; z-index:80; box-shadow:0 4px 12px rgba(0,0,0,0.2);
+  }
+
+  .scan-wrap{ position:relative; background:#000; border-radius:16px; overflow:hidden; aspect-ratio:3/4; }
+  .scan-wrap video{ width:100%; height:100%; object-fit:cover; display:block; }
+  .scan-frame{ position:absolute; inset:15% 12%; border:2.5px solid #fff; border-radius:14px; box-shadow:0 0 0 999px rgba(0,0,0,0.35); }
+  .scan-status{ position:absolute; bottom:16px; left:0; right:0; text-align:center; color:#fff; font-size:14px; }
+
+  .recipe-card{ background:var(--card-bg); border-radius:12px; padding:16px; margin-bottom:12px; border:1px solid var(--line); box-shadow:var(--shadow); cursor:pointer; }
+  .recipe-card:active{ transform:scale(0.99); }
+  .recipe-card .rname{ font-size:17px; font-weight:600; color:var(--cocoa); }
+  .recipe-card .rmeta{ font-size:13px; color:var(--deep-caramel); margin-top:4px; }
+  .recipe-card .rcal{ font-size:14px; color:var(--almond); font-weight:500; margin-top:8px; }
+
+  .ing-row{ display:flex; align-items:center; gap:10px; background:var(--card-bg); border:1px solid var(--line); border-radius:11px; padding:12px 14px; margin-bottom:9px; }
+  .ing-row .ing-info{ flex:1; }
+  .ing-row .ing-name{ font-size:15px; font-weight:500; color:var(--cocoa); }
+  .ing-row .ing-amt{ font-size:12.5px; color:var(--deep-caramel); margin-top:2px; }
+  .ing-row .ing-del{ color:var(--danger); background:none; border:none; font-size:19px; cursor:pointer; }
+
+  .picker-item{ display:flex; align-items:center; justify-content:space-between; padding:14px 4px; border-bottom:1px solid var(--line); cursor:pointer; }
+  .picker-item .pname{ font-size:16px; color:var(--cocoa); }
+  .picker-item .pmeta{ font-size:12.5px; color:var(--deep-caramel); margin-top:2px; }
+
+  a{ color:var(--almond); }
+  .lang-toggle{ display:flex; border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  .lang-toggle button{ flex:1; padding:12px; background:var(--card-bg); border:none; font-size:15px; color:var(--deep-caramel); cursor:pointer; }
+  .lang-toggle button.active{ background:var(--deep-caramel); color:#fff; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="modal-root"></div>
+<div id="toast-root"></div>
+<script>
+'use strict';
+
+/* ======================= CONSTANTS ======================= */
+var DEFAULT_CATEGORIES = ['调味料','面粉/谷物','罐头','零食','蔬果','肉类','乳制品','饮品','烘焙原料'];
+var DEFAULT_LOCATIONS = ['冰箱冷藏','冷冻柜','储藏柜','烘焙柜','厨房台面'];
+var UNIT_OPTIONS = ['g','kg','ml','l','个'];
+var OIL_TYPES = [
+  {id:'vegetable', zh:'色拉油', en:'Vegetable oil', kcalPerG:8.8},
+  {id:'olive', zh:'橄榄油', en:'Olive oil', kcalPerG:8.8},
+  {id:'butter', zh:'黄油', en:'Butter', kcalPerG:7.2},
+  {id:'other', zh:'其他', en:'Other', kcalPerG:9.0}
+];
+var NUTRI_KEYS = ['calories','protein','fat','carbs','fiber','sugar','sodium'];
+
+var I18N = {
+  zh:{
+    appName:'食材库存', appSub:'库存 · 食谱 · 营养',
+    navHome:'库存', navRecipes:'食谱', navScan:'扫码', navSettings:'设置',
+    searchPlaceholder:'搜索食品名称 / 品牌',
+    filterAll:'全部',
+    sortLabel:'排序', sortExpiry:'有效期', sortName:'名称', sortPurchase:'购买日期',
+    emptyInventory:'库存还是空的', emptyInventoryHint:'点击下方按钮扫码或手动添加第一件食材吧',
+    scanAdd:'扫码添加', manualAdd:'手动添加',
+    statusExpired:'已过期', statusSoonPrefix:'', statusSoonDays:'天内', statusFresh:'新鲜', statusToday:'今天到期',
+    // item form
+    itemFormTitleAdd:'添加食材', itemFormTitleEdit:'编辑食材',
+    fieldName:'名称', fieldNamePh:'例如：鸡蛋', fieldBrand:'品牌', fieldBrandPh:'例如：某某牧场',
+    fieldBarcode:'条码',
+    fieldCategory:'分类', fieldLocation:'存放位置',
+    fieldQty:'数量', fieldUnit:'单位',
+    fieldSecondaryQty:'次要计量(可选)', fieldSecondaryUnit:'次要单位',
+    fieldExpiry:'有效期至', fieldPurchaseDate:'购买日期', fieldPrice:'价格',
+    fieldNotes:'备注', fieldNotesPh:'其他备注信息',
+    sectionBasic:'基本信息', sectionQty:'数量与单位', sectionNutrition:'营养信息(每100g/100ml)', sectionOther:'其他信息',
+    nutriCalories:'热量', nutriProtein:'蛋白质', nutriFat:'脂肪', nutriCarbs:'碳水化合物',
+    nutriFiber:'膳食纤维', nutriSugar:'糖', nutriSodium:'钠',
+    manuallyEdited:'已手动修正',
+    aiExtracted:'AI识别，请核对',
+    sectionPhotoCapture:'拍照识别',
+    photoCaptureHint:'拍摄食品包装或营养成分表，自动识别名称与营养信息',
+    photoCaptureBtn:'拍照识别',
+    photoAnalyzing:'正在识别照片，请稍候…',
+    photoFound:'已识别，请核对信息',
+    photoNotFound:'未能从照片中识别出信息，请手动填写',
+    photoError:'识别失败，请重试或手动填写',
+    save:'保存', cancel:'取消', delete:'删除', edit:'编辑', add:'添加', confirm:'确认', close:'关闭',
+    addNewTag:'+ 新建', newTagPrompt:'输入新标签名称',
+    // detail
+    detailQtyLabel:'当前库存', recount:'补充计数', recountTitle:'补充计数',
+    recountHint:'拆包点数后，填入当前剩余的次要单位数量，系统会据此更新换算比例(主单位保持你上次填写/扣减后的数值)。',
+    recountUnitLabel:'次要单位名称(如：只/片/块)', recountQtyLabel:'当前实际剩余数量',
+    lastRecount:'最近点数', noSecondary:'尚未设置次要计量单位',
+    deleteConfirm:'确定要删除吗？此操作无法撤销。',
+    // scan
+    scanTitle:'扫码识别', scanHintCamera:'将条码放入框内，自动识别', scanManualEntry:'手动输入条码',
+    scanLookingUp:'正在查询商品信息…', scanNotFound:'未查询到商品信息，请手动填写',
+    scanFoundLocal:'在本地历史记录中找到', scanFoundOFF:'已从开放食品数据库获取信息',
+    scanUnsupported:'此浏览器不支持自动扫码识别，请手动输入条码或直接手动添加食材',
+    scanCameraError:'无法访问摄像头，请检查权限设置，或手动输入条码',
+    barcodeInputPh:'输入条码数字后查询',
+    lookupBtn:'查询',
+    // recipes
+    recipesTitle:'食谱', newRecipe:'新建食谱', emptyRecipes:'还没有食谱', emptyRecipesHint:'点击右下角按钮创建第一个食谱',
+    recipeFormTitleAdd:'新建食谱', recipeFormTitleEdit:'编辑食谱',
+    fieldRecipeName:'食谱名称', fieldRecipeNamePh:'例如：番茄炒蛋',
+    fieldServings:'份数', fieldInstructions:'做法步骤(可选)', fieldInstructionsPh:'简单记录做法…',
+    sectionIngredients:'食材', addFromInventory:'从库存选择', addExternal:'添加外部食材',
+    sectionOil:'额外用油(可选)', fieldOilAmount:'用油量(g)', fieldOilType:'油的种类',
+    sectionCookedWeight:'成品重量(可选)', fieldCookedWeight:'成品总重量(g)',
+    cookedWeightHint:'填写做完这道菜实际称重的重量，可显示"每100g成品热量"',
+    nutritionSummary:'营养总览',
+    perTotal:'总计', perServing:'每份', per100g:'每100g成品',
+    noIngredientsYet:'还没有添加食材',
+    pickFromInventory:'从库存中选择', pickExternal:'外部食材库', createNewIngredient:'+ 新建外部食材',
+    ingAmountLabel:'用量', ingUnitLabel:'单位',
+    newIngName:'食材名称', newIngNutriHint:'请填写每100g/100ml的营养信息',
+    // recipe detail
+    cookThis:'我做了这道菜', cookConfirmTitle:'确认扣减库存',
+    cookConfirmHint:'以下食材将按用量从库存扣减，确认无误后点击确认。',
+    cookConfirmNone:'该食材来自外部食材库，不扣减库存',
+    cookConfirmNoConversion:'单位无法自动换算，请稍后手动调整库存',
+    cookSuccess:'已扣减库存', cookConfirmBtn:'确认扣减', 
+    // settings
+    settingsTitle:'设置', language:'语言', manageCategories:'管理分类', manageLocations:'管理存放位置',
+    reminderDays:'临期预警天数', reminderDaysHint:'有效期在此天数内会显示"临期"提醒',
+    manageCategoriesTitle:'管理分类', manageLocationsTitle:'管理存放位置',
+    addCategoryPh:'新分类名称', addLocationPh:'新位置名称',
+    aboutTitle:'关于', aboutText:'数据保存在本设备/当前浏览器中，暂不支持云端同步。',
+    sectionBackup:'数据备份与恢复',
+    backupHint:'导出的文件会存到手机的下载/文件App里，即使清空浏览器数据，也能随时用它恢复。库存和食谱数据分开导出/恢复。',
+    exportInventoryBtn:'导出库存数据',
+    exportRecipesBtn:'导出食谱数据',
+    importInventoryBtn:'恢复库存数据',
+    importRecipesBtn:'恢复食谱数据',
+    importConfirmTitle:'确认恢复数据',
+    importInventoryConfirmMsg:'检测到备份文件包含 {n} 件库存食材。"合并"会保留当前设备和备份文件中的所有数据，同一件食材以最近修改时间为准；"替换"会完全清空当前数据后用备份覆盖，无法撤销。',
+    importRecipesConfirmMsg:'检测到备份文件包含 {n} 个食谱。"合并"会保留当前设备和备份文件中的所有数据，同一个食谱以最近修改时间为准；"替换"会完全清空当前数据后用备份覆盖，无法撤销。',
+    importReplaceBtn:'替换(完全覆盖)',
+    importMergeBtn:'合并(推荐，双方数据都保留)',
+    importMergeCaveat:'合并说明：新增和修改都会被保留。但如果你在另一边删除过某条记录，合并后它可能会重新出现——因为合并无法区分"从未同步过"和"被删除过"，这是本地离线合并的固有局限。',
+    importSuccess:'恢复成功',
+    importParseError:'文件解析失败，请确认选择的是有效的备份文件',
+    importWrongFile:'文件类型不匹配，请选择对应的备份文件',
+    exportedOn:'导出于',
+    tagInUseWarning:'仍有食材使用此标签，删除后这些食材将标记为"未分类"。',
+    days:'天',
+    unset:'未设置',
+  },
+  en:{
+    appName:'Pantry Tracker', appSub:'Inventory · Recipes · Nutrition',
+    navHome:'Inventory', navRecipes:'Recipes', navScan:'Scan', navSettings:'Settings',
+    searchPlaceholder:'Search name / brand',
+    filterAll:'All',
+    sortLabel:'Sort', sortExpiry:'Expiry', sortName:'Name', sortPurchase:'Purchase date',
+    emptyInventory:'Your pantry is empty', emptyInventoryHint:'Tap below to scan or manually add your first item',
+    scanAdd:'Scan to add', manualAdd:'Add manually',
+    statusExpired:'Expired', statusSoonPrefix:'', statusSoonDays:'d left', statusFresh:'Fresh', statusToday:'Due today',
+    itemFormTitleAdd:'Add item', itemFormTitleEdit:'Edit item',
+    fieldName:'Name', fieldNamePh:'e.g. Eggs', fieldBrand:'Brand', fieldBrandPh:'e.g. Farm Co.',
+    fieldBarcode:'Barcode',
+    fieldCategory:'Category', fieldLocation:'Location',
+    fieldQty:'Quantity', fieldUnit:'Unit',
+    fieldSecondaryQty:'Secondary count (optional)', fieldSecondaryUnit:'Secondary unit',
+    fieldExpiry:'Best before', fieldPurchaseDate:'Purchase date', fieldPrice:'Price',
+    fieldNotes:'Notes', fieldNotesPh:'Additional notes',
+    sectionBasic:'Basic info', sectionQty:'Quantity & unit', sectionNutrition:'Nutrition (per 100g/100ml)', sectionOther:'Other info',
+    nutriCalories:'Calories', nutriProtein:'Protein', nutriFat:'Fat', nutriCarbs:'Carbs',
+    nutriFiber:'Fiber', nutriSugar:'Sugar', nutriSodium:'Sodium',
+    manuallyEdited:'Edited',
+    aiExtracted:'AI extracted, please verify',
+    sectionPhotoCapture:'Photo recognition',
+    photoCaptureHint:'Take a photo of the package or nutrition label to auto-fill name and nutrition',
+    photoCaptureBtn:'Take photo',
+    photoAnalyzing:'Analyzing photo…',
+    photoFound:'Recognized — please verify',
+    photoNotFound:'Could not recognize anything from the photo, please fill in manually',
+    photoError:'Recognition failed, please retry or fill in manually',
+    save:'Save', cancel:'Cancel', delete:'Delete', edit:'Edit', add:'Add', confirm:'Confirm', close:'Close',
+    addNewTag:'+ New', newTagPrompt:'Enter new tag name',
+    detailQtyLabel:'Current stock', recount:'Recount', recountTitle:'Recount',
+    recountHint:'After unpacking and counting, enter the current remaining amount in the secondary unit. The conversion ratio updates from this.',
+    recountUnitLabel:'Secondary unit name (e.g. piece)', recountQtyLabel:'Current remaining count',
+    lastRecount:'Last recount', noSecondary:'No secondary unit set yet',
+    deleteConfirm:'Are you sure? This cannot be undone.',
+    scanTitle:'Scan barcode', scanHintCamera:'Align the barcode within the frame', scanManualEntry:'Enter barcode manually',
+    scanLookingUp:'Looking up product…', scanNotFound:'No product found, please fill in manually',
+    scanFoundLocal:'Found in local history', scanFoundOFF:'Fetched from Open Food Facts',
+    scanUnsupported:'This browser does not support auto barcode scanning. Please enter the barcode manually or add the item manually.',
+    scanCameraError:'Could not access camera. Check permissions or enter barcode manually.',
+    barcodeInputPh:'Enter barcode digits to look up',
+    lookupBtn:'Look up',
+    recipesTitle:'Recipes', newRecipe:'New recipe', emptyRecipes:'No recipes yet', emptyRecipesHint:'Tap the button below to create your first recipe',
+    recipeFormTitleAdd:'New recipe', recipeFormTitleEdit:'Edit recipe',
+    fieldRecipeName:'Recipe name', fieldRecipeNamePh:'e.g. Tomato & egg stir-fry',
+    fieldServings:'Servings', fieldInstructions:'Instructions (optional)', fieldInstructionsPh:'Jot down the steps…',
+    sectionIngredients:'Ingredients', addFromInventory:'Add from inventory', addExternal:'Add external ingredient',
+    sectionOil:'Extra oil (optional)', fieldOilAmount:'Oil amount (g)', fieldOilType:'Oil type',
+    sectionCookedWeight:'Cooked weight (optional)', fieldCookedWeight:'Total cooked weight (g)',
+    cookedWeightHint:'Weigh the finished dish to show calories per 100g of the final product.',
+    nutritionSummary:'Nutrition summary',
+    perTotal:'Total', perServing:'Per serving', per100g:'Per 100g cooked',
+    noIngredientsYet:'No ingredients added yet',
+    pickFromInventory:'Choose from inventory', pickExternal:'External ingredient library', createNewIngredient:'+ New external ingredient',
+    ingAmountLabel:'Amount', ingUnitLabel:'Unit',
+    newIngName:'Ingredient name', newIngNutriHint:'Enter nutrition per 100g/100ml',
+    cookThis:"I made this dish", cookConfirmTitle:'Confirm inventory deduction',
+    cookConfirmHint:'These items will be deducted from inventory based on the amount used. Confirm to proceed.',
+    cookConfirmNone:'External ingredient, not deducted from inventory',
+    cookConfirmNoConversion:'Unit cannot be auto-converted, please adjust inventory manually later',
+    cookSuccess:'Inventory updated', cookConfirmBtn:'Confirm deduction',
+    settingsTitle:'Settings', language:'Language', manageCategories:'Manage categories', manageLocations:'Manage locations',
+    reminderDays:'Expiry warning days', reminderDaysHint:'Items expiring within this many days show as "soon"',
+    manageCategoriesTitle:'Manage categories', manageLocationsTitle:'Manage locations',
+    addCategoryPh:'New category name', addLocationPh:'New location name',
+    aboutTitle:'About', aboutText:'Data is stored on this device/browser only. Cloud sync is not yet supported.',
+    sectionBackup:'Backup & Restore',
+    backupHint:'Exported files are saved to your phone\'s downloads/files app. Even if browser data is cleared, you can restore from them anytime. Inventory and recipes are exported/restored separately.',
+    exportInventoryBtn:'Export inventory data',
+    exportRecipesBtn:'Export recipe data',
+    importInventoryBtn:'Restore inventory data',
+    importRecipesBtn:'Restore recipe data',
+    importConfirmTitle:'Confirm data restore',
+    importInventoryConfirmMsg:'This backup file contains {n} inventory items. "Merge" keeps everything from both this device and the backup file, using the most recently edited copy when the same item exists on both sides. "Replace" wipes current data and overwrites it with the backup — this cannot be undone.',
+    importRecipesConfirmMsg:'This backup file contains {n} recipes. "Merge" keeps everything from both this device and the backup file, using the most recently edited copy when the same recipe exists on both sides. "Replace" wipes current data and overwrites it with the backup — this cannot be undone.',
+    importReplaceBtn:'Replace (overwrite everything)',
+    importMergeBtn:'Merge (recommended, keeps both)',
+    importMergeCaveat:'About merging: additions and edits are always kept. But if you deleted something on the other device, merging may bring it back — merging can\'t tell "never synced yet" apart from "deleted." That\'s an inherent limit of offline local merging.',
+    importSuccess:'Restored successfully',
+    importParseError:'Could not parse the file. Please select a valid backup file.',
+    importWrongFile:'File type does not match. Please select the correct backup file.',
+    exportedOn:'Exported on',
+    tagInUseWarning:'Some items still use this tag. They will be marked "uncategorized" after deletion.',
+    days:'days',
+    unset:'Not set',
+  }
+};
+
+/* ======================= STATE ======================= */
+var state = {
+  lang: 'zh',
+  reminderDays: 3,
+  items: [],
+  categories: DEFAULT_CATEGORIES.slice(),
+  locations: DEFAULT_LOCATIONS.slice(),
+  ingredients: [],
+  recipes: [],
+  loaded: false,
+  view: 'home',
+  params: {},
+  home: { search:'', category:null, location:null, sort:'expiry' },
+  scan: { running:false, stream:null, detector:null, resultDraft:null, mode:'camera' }
+};
+
+/* ======================= STORAGE LAYER ======================= */
+async function storageGet(key, fallback){
+  try{
+    var res = await window.storage.get(key, false);
+    if(!res || res.value === undefined || res.value === null) return fallback;
+    return JSON.parse(res.value);
+  }catch(e){
+    return fallback;
+  }
+}
+async function storageSet(key, value){
+  try{
+    await window.storage.set(key, JSON.stringify(value), false);
+    return true;
+  }catch(e){
+    console.error('storage set failed', key, e);
+    return false;
+  }
+}
+async function loadAll(){
+  var results = await Promise.all([
+    storageGet('items', []),
+    storageGet('categories', DEFAULT_CATEGORIES.slice()),
+    storageGet('locations', DEFAULT_LOCATIONS.slice()),
+    storageGet('ingredients', []),
+    storageGet('recipes', []),
+    storageGet('settings', {lang:'zh', reminderDays:3})
+  ]);
+  state.items = results[0];
+  state.categories = results[1];
+  state.locations = results[2];
+  state.ingredients = results[3];
+  state.recipes = results[4];
+  state.lang = results[5].lang || 'zh';
+  state.reminderDays = results[5].reminderDays != null ? results[5].reminderDays : 3;
+  state.loaded = true;
+}
+function saveItems(){ return storageSet('items', state.items); }
+function saveCategories(){ return storageSet('categories', state.categories); }
+function saveLocations(){ return storageSet('locations', state.locations); }
+function saveIngredients(){ return storageSet('ingredients', state.ingredients); }
+function saveRecipes(){ return storageSet('recipes', state.recipes); }
+function saveSettings(){ return storageSet('settings', {lang:state.lang, reminderDays:state.reminderDays}); }
+
+/* ======================= UTIL ======================= */
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,9); }
+function t(key){ var d = I18N[state.lang]; return (d && d[key] != null) ? d[key] : key; }
+function esc(s){
+  if(s == null) return '';
+  return String(s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+// Safely embeds a JS value as a literal inside an inline HTML attribute (e.g. onclick="fn(...)").
+// JSON.stringify alone is NOT safe here because it wraps strings in double quotes, which would
+// prematurely close a double-quoted HTML attribute. esc() HTML-encodes those quotes so the browser
+// decodes them back to real quotes before the JS ever runs.
+function aj(v){ return esc(JSON.stringify(v)); }
+function fmtNum(n, digits){
+  if(n == null || isNaN(n)) return '-';
+  digits = digits == null ? 0 : digits;
+  var r = Number(n).toFixed(digits);
+  r = r.replace(/\.0+$/,'').replace(/(\.\d*?)0+$/,'$1').replace(/\.$/,'');
+  return r;
+}
+function todayStr(){
+  var d = new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function daysUntil(dateStr){
+  if(!dateStr) return null;
+  var today = new Date(todayStr()+'T00:00:00');
+  var target = new Date(dateStr+'T00:00:00');
+  var diff = Math.round((target-today)/86400000);
+  return diff;
+}
+function expiryStatus(item){
+  if(!item.expiry_date) return {level:'fresh', label: t('unset')};
+  var d = daysUntil(item.expiry_date);
+  if(d < 0) return {level:'expired', label: t('statusExpired'), days:d};
+  if(d === 0) return {level:'soon', label: t('statusToday'), days:d};
+  if(d <= state.reminderDays) return {level:'soon', label: d + t('statusSoonDays'), days:d};
+  return {level:'fresh', label: t('statusFresh'), days:d};
+}
+function fmtDate(dateStr){
+  if(!dateStr) return '-';
+  return dateStr;
+}
+function debounce(fn, wait){
+  var timer = null;
+  return function(){
+    var args = arguments, ctx = this;
+    clearTimeout(timer);
+    timer = setTimeout(function(){ fn.apply(ctx, args); }, wait);
+  };
+}
+function showToast(msg){
+  var root = document.getElementById('toast-root');
+  root.innerHTML = '<div class="toast">'+esc(msg)+'</div>';
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(function(){ root.innerHTML=''; }, 2200);
+}
+function categoryLabel(catName){ return catName || (state.lang==='zh' ? '未分类' : 'Uncategorized'); }
+
+/* ======================= UNIT CONVERSION (per inventory item) ======================= */
+// item.primary_unit / primary_qty : the unit used at purchase time, source of truth
+// item.secondary_unit / secondary_qty : optional convenience unit (e.g. "只")
+// item.unit_ratio : primary units per 1 secondary unit, fixed at the moment of the last recount
+// item.last_recount_at : ISO date of the last recount
+function recountItem(item, secondaryUnit, secondaryQty){
+  var ratio = null;
+  if(secondaryQty > 0 && item.primary_qty != null){
+    ratio = item.primary_qty / secondaryQty;
+  }
+  item.secondary_unit = secondaryUnit;
+  item.secondary_qty = secondaryQty;
+  item.unit_ratio = ratio;
+  item.last_recount_at = todayStr();
+  item.updated_at = new Date().toISOString();
+}
+// Attempts to deduct `amount` of `unit` from an inventory item. Returns {ok, reason}
+function deductFromItem(item, amount, unit){
+  if(amount <= 0) return {ok:true};
+  if(unit === item.primary_unit){
+    item.primary_qty = Math.max(0, (item.primary_qty||0) - amount);
+    if(item.secondary_qty != null && item.unit_ratio){
+      item.secondary_qty = Math.max(0, item.secondary_qty - amount/item.unit_ratio);
+    }
+    item.updated_at = new Date().toISOString();
+    return {ok:true};
+  }
+  if(item.secondary_unit && unit === item.secondary_unit){
+    if(item.secondary_qty == null){ return {ok:false, reason:'no_conversion'}; }
+    item.secondary_qty = Math.max(0, item.secondary_qty - amount);
+    if(item.unit_ratio){
+      item.primary_qty = Math.max(0, (item.primary_qty||0) - amount*item.unit_ratio);
+    }
+    item.updated_at = new Date().toISOString();
+    return {ok:true};
+  }
+  return {ok:false, reason:'no_conversion'};
+}
+function qtyDisplay(item){
+  var parts = [fmtNum(item.primary_qty,2) + item.primary_unit];
+  if(item.secondary_unit && item.secondary_qty != null){
+    parts.push(fmtNum(item.secondary_qty,1) + item.secondary_unit);
+  }
+  return parts.join(' / ');
+}
+
+/* ======================= NUTRITION CALC ======================= */
+// Normalizes an amount+unit pair against a source item's own unit system into "per-100-basis units"
+// (i.e. grams for weight-based nutrition, ml for volume-based - we treat g/ml on the same 100-basis
+// since source nutrition is stored per 100g OR per 100ml depending on the product).
+function amountToBasisUnits(amount, unit, sourceItem){
+  // direct weight/volume units
+  if(unit === 'g' || unit === 'ml') return amount;
+  if(unit === 'kg' || unit === 'l') return amount*1000;
+  // count-based unit ("个" or a custom secondary unit like "只") - needs a ratio to weight
+  if(sourceItem && sourceItem.primary_unit && unit === sourceItem.primary_unit){
+    // primary unit itself is count-based (no weight known) - cannot convert to basis, return null
+    if(sourceItem.primary_unit === '个') return null;
+  }
+  if(sourceItem && sourceItem.secondary_unit === unit && sourceItem.unit_ratio){
+    // amount is in secondary count units -> convert to primary qty -> then to basis
+    var primaryEquivalent = amount * sourceItem.unit_ratio;
+    return amountToBasisUnits(primaryEquivalent, sourceItem.primary_unit, null);
+  }
+  if(unit === '个') return null; // unknown weight per unit
+  return amount; // fallback: assume already basis-compatible
+}
+function emptyNutrition(){
+  var n = {}; NUTRI_KEYS.forEach(function(k){ n[k]=0; }); return n;
+}
+function scaleNutrition(per100, basisUnits){
+  var out = emptyNutrition();
+  if(basisUnits == null || !per100) return out;
+  var factor = basisUnits/100;
+  NUTRI_KEYS.forEach(function(k){ out[k] = (Number(per100[k])||0)*factor; });
+  return out;
+}
+function addNutrition(a,b){
+  var out = emptyNutrition();
+  NUTRI_KEYS.forEach(function(k){ out[k] = (a[k]||0)+(b[k]||0); });
+  return out;
+}
+function getIngredientSource(ri){
+  // ri: recipe_ingredient {source_type:'inventory'|'external', source_id, amount, unit}
+  if(ri.source_type === 'inventory'){
+    return state.items.find(function(i){ return i.id===ri.source_id; });
+  }
+  return state.ingredients.find(function(i){ return i.id===ri.source_id; });
+}
+function calcRecipeNutrition(recipe){
+  var total = emptyNutrition();
+  var warnings = [];
+  (recipe.ingredients||[]).forEach(function(ri){
+    var src = getIngredientSource(ri);
+    if(!src){ warnings.push(ri.name_snapshot||'?'); return; }
+    var per100 = src.nutrition || emptyNutrition();
+    var basis = amountToBasisUnits(ri.amount, ri.unit, ri.source_type==='inventory'?src:null);
+    if(basis == null){ warnings.push(src.name); return; }
+    total = addNutrition(total, scaleNutrition(per100, basis));
+  });
+  // extra oil
+  var oilCal = 0, oilFat = 0;
+  if(recipe.extra_oil_amount){
+    var oilDef = OIL_TYPES.find(function(o){ return o.id===recipe.extra_oil_type; }) || OIL_TYPES[OIL_TYPES.length-1];
+    oilCal = recipe.extra_oil_amount * oilDef.kcalPerG;
+    oilFat = recipe.extra_oil_amount; // approx: oil is ~100% fat by weight
+    total.calories += oilCal;
+    total.fat += oilFat;
+  }
+  var servings = recipe.servings || 1;
+  var perServing = {}; NUTRI_KEYS.forEach(function(k){ perServing[k] = total[k]/servings; });
+  var per100g = null;
+  if(recipe.cooked_weight){
+    per100g = {}; NUTRI_KEYS.forEach(function(k){ per100g[k] = total[k]/recipe.cooked_weight*100; });
+  }
+  return {total:total, perServing:perServing, per100g:per100g, warnings:warnings};
+}
+
+/* ======================= ICONS (hand-built inline SVG, no external deps) ======================= */
+var ICONS = {
+  search:'<circle cx="10" cy="10" r="6"/><line x1="20" y1="20" x2="14.5" y2="14.5"/>',
+  back:'<polyline points="15 5 8 12 15 19"/>',
+  chevronRight:'<polyline points="9 5 16 12 9 19"/>',
+  plus:'<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+  x:'<line x1="5" y1="5" x2="19" y2="19"/><line x1="19" y1="5" x2="5" y2="19"/>',
+  check:'<polyline points="4 12 9 17 20 6"/>',
+  trash:'<polyline points="4 7 20 7"/><path d="M6 7v13a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7"/><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/>',
+  edit:'<path d="M4 20l4-1 10-10-3-3-10 10z"/><line x1="14.5" y1="6.5" x2="17.5" y2="9.5"/>',
+  box:'<rect x="4" y="4" width="16" height="16" rx="2"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="12" y1="4" x2="12" y2="12"/>',
+  book:'<path d="M4 4h11a3 3 0 0 1 3 3v13H7a3 3 0 0 1-3-3V4z"/><line x1="8" y1="8" x2="14" y2="8"/><line x1="8" y1="12" x2="14" y2="12"/>',
+  gear:'<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/>',
+  calendar:'<rect x="3" y="5" width="18" height="16" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="3" x2="8" y2="7"/><line x1="16" y1="3" x2="16" y2="7"/>',
+  droplet:'<path d="M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11z"/>',
+  scale:'<path d="M12 3v18"/><path d="M5 8h14"/><path d="M5 8l-2 6a3.5 3.5 0 0 0 7 0z"/><path d="M19 8l-2 6a3.5 3.5 0 0 0 7 0z"/>',
+  egg:'<path d="M12 3C8 8 5 13 5 16a7 7 0 0 0 14 0c0-3-3-8-7-13z"/>',
+  camera:'<path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13.5" r="3.4"/>'
+};
+function ic(name, size, extra){
+  size = size||20;
+  extra = extra||'';
+  if(name==='barcode'){
+    return '<svg width="'+size+'" height="'+size+'" viewBox="0 0 24 24" fill="currentColor" '+extra+'><rect x="3" y="5" width="2" height="14"/><rect x="7" y="5" width="1" height="14"/><rect x="10" y="5" width="3" height="14"/><rect x="15" y="5" width="1" height="14"/><rect x="18" y="5" width="2" height="14"/></svg>';
+  }
+  return '<svg width="'+size+'" height="'+size+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" '+extra+'>'+(ICONS[name]||'')+'</svg>';
+}
+
+/* ======================= ROUTER ======================= */
+function navigate(view, params){
+  stopScan();
+  state.view = view;
+  state.params = params || {};
+  render();
+  var app = document.getElementById('app');
+  if(app) app.scrollTop = 0;
+  window.scrollTo(0,0);
+}
+function render(){
+  var app = document.getElementById('app');
+  if(!app) return;
+  var html = '';
+  switch(state.view){
+    case 'home': html = renderHome(); break;
+    case 'itemForm': html = renderItemForm(); break;
+    case 'itemDetail': html = renderItemDetail(); break;
+    case 'scan': html = renderScan(); break;
+    case 'recipes': html = renderRecipesList(); break;
+    case 'recipeForm': html = renderRecipeForm(); break;
+    case 'recipeDetail': html = renderRecipeDetail(); break;
+    case 'settings': html = renderSettings(); break;
+    case 'manageTags': html = renderManageTags(); break;
+    case 'pickInventory': html = renderPickInventory(); break;
+    case 'pickExternal': html = renderPickExternal(); break;
+    default: html = renderHome();
+  }
+  app.innerHTML = html;
+  afterRender();
+}
+function bottomNav(){
+  var v = state.view;
+  var isHome = (v==='home'||v==='itemForm'||v==='itemDetail');
+  var isRecipes = (v==='recipes'||v==='recipeForm'||v==='recipeDetail'||v==='pickInventory'||v==='pickExternal');
+  var isSettings = (v==='settings'||v==='manageTags');
+  return '' +
+  '<div class="bottom-nav">'+
+    '<button class="nav-item '+(isHome&&v==='home'?'active':'')+'" onclick="navigate(\'home\')">'+ic('box',22)+'<span>'+t('navHome')+'</span></button>'+
+    '<button class="nav-item '+(v==='recipes'?'active':'')+'" onclick="navigate(\'recipes\')">'+ic('book',22)+'<span>'+t('navRecipes')+'</span></button>'+
+    '<button class="nav-scan" onclick="navigate(\'scan\')" aria-label="'+t('navScan')+'">'+ic('barcode',24)+'</button>'+
+    '<button class="nav-item" style="visibility:hidden"><span>.</span></button>'+
+    '<button class="nav-item '+(isSettings?'active':'')+'" onclick="navigate(\'settings\')">'+ic('gear',22)+'<span>'+t('navSettings')+'</span></button>'+
+  '</div>';
+}
+
+/* ======================= HOME (inventory list) ======================= */
+function getFilteredSortedItems(){
+  var q = (state.home.search||'').trim().toLowerCase();
+  var list = state.items.filter(function(it){
+    if(state.home.category && it.category !== state.home.category) return false;
+    if(state.home.location && it.location !== state.home.location) return false;
+    if(q){
+      var hay = ((it.name||'')+' '+(it.brand||'')).toLowerCase();
+      if(hay.indexOf(q) === -1) return false;
+    }
+    return true;
+  });
+  list.sort(function(a,b){
+    if(state.home.sort === 'name'){
+      return (a.name||'').localeCompare(b.name||'');
+    }
+    if(state.home.sort === 'purchase'){
+      return (b.purchase_date||'').localeCompare(a.purchase_date||'');
+    }
+    // default: expiry ascending, items without expiry date sink to bottom
+    var ad = a.expiry_date || '9999-99-99';
+    var bd = b.expiry_date || '9999-99-99';
+    return ad.localeCompare(bd);
+  });
+  return list;
+}
+function renderHome(){
+  var items = getFilteredSortedItems();
+  var catChips = '<div class="chip-row">'+
+    '<div class="chip '+(!state.home.category?'active':'')+'" onclick="setHomeFilter(\'category\',null)">'+t('filterAll')+'</div>'+
+    state.categories.map(function(c){
+      return '<div class="chip '+(state.home.category===c?'active':'')+'" onclick="setHomeFilter(\'category\','+aj(c)+')">'+esc(c)+'</div>';
+    }).join('')+
+  '</div>';
+  var locChips = '<div class="chip-row">'+
+    '<div class="chip '+(!state.home.location?'active':'')+'" onclick="setHomeFilter(\'location\',null)">'+t('filterAll')+'</div>'+
+    state.locations.map(function(l){
+      return '<div class="chip '+(state.home.location===l?'active':'')+'" onclick="setHomeFilter(\'location\','+aj(l)+')">'+esc(l)+'</div>';
+    }).join('')+
+  '</div>';
+  var listHtml = '<div id="item-list-container">'+renderItemListHtml(items)+'</div>';
+  return '' +
+  '<div class="topbar">'+
+    '<div><h1>'+t('appName')+'</h1><div class="sub">'+t('appSub')+'</div></div>'+
+    '<div class="topbar-actions">'+
+      '<div class="icon-btn" onclick="toggleLang()" title="EN/中">'+(state.lang==='zh'?'EN':'中')+'</div>'+
+    '</div>'+
+  '</div>'+
+  '<div class="content">'+
+    '<div class="search-bar">'+ic('search',19)+
+      '<input type="text" placeholder="'+t('searchPlaceholder')+'" value="'+esc(state.home.search)+'" oninput="onHomeSearch(this.value)">'+
+    '</div>'+
+    catChips + locChips +
+    '<div class="sort-row">'+
+      '<div class="label">'+t('sortLabel')+'</div>'+
+      '<div class="sort-pills">'+
+        '<div class="sort-pill '+(state.home.sort==='expiry'?'active':'')+'" onclick="setHomeSort(\'expiry\')">'+t('sortExpiry')+'</div>'+
+        '<div class="sort-pill '+(state.home.sort==='name'?'active':'')+'" onclick="setHomeSort(\'name\')">'+t('sortName')+'</div>'+
+        '<div class="sort-pill '+(state.home.sort==='purchase'?'active':'')+'" onclick="setHomeSort(\'purchase\')">'+t('sortPurchase')+'</div>'+
+      '</div>'+
+    '</div>'+
+    listHtml +
+    '<div class="fab-row">'+
+      '<button class="btn btn-primary" onclick="navigate(\'scan\')">'+ic('barcode',18)+' '+t('scanAdd')+'</button>'+
+      '<button class="btn btn-outline" onclick="openItemForm(null)">'+ic('plus',18)+' '+t('manualAdd')+'</button>'+
+    '</div>'+
+  '</div>'+
+  bottomNav();
+}
+function renderItemListHtml(items){
+  if(items.length===0){
+    if(state.items.length===0){
+      return '<div class="empty-state">'+ic('box',40)+'<p><strong>'+t('emptyInventory')+'</strong><br>'+t('emptyInventoryHint')+'</p></div>';
+    }
+    return '<div class="empty-state">'+ic('search',40)+'<p>'+(state.lang==='zh'?'没有符合条件的食材':'No items match your filters')+'</p></div>';
+  }
+  return items.map(function(it){
+    var st = expiryStatus(it);
+    var meta = (it.location?esc(it.location)+' · ':'') + qtyDisplay(it);
+    return '<div class="item-card" onclick="navigate(\'itemDetail\',{id:'+aj(it.id)+'})">'+
+      '<div class="item-icon">'+ic('box',22)+'</div>'+
+      '<div class="item-info">'+
+        '<div class="item-name">'+esc(it.name)+'</div>'+
+        '<div class="item-meta">'+meta+'</div>'+
+      '</div>'+
+      '<div class="status-badge status-'+st.level+'">'+esc(st.label)+'</div>'+
+    '</div>';
+  }).join('');
+}
+function setHomeFilter(kind, val){ state.home[kind]=val; render(); }
+function setHomeSort(v){ state.home.sort=v; render(); }
+function onHomeSearch(v){
+  state.home.search = v;
+  clearTimeout(onHomeSearch._t);
+  onHomeSearch._t = setTimeout(function(){
+    var c = document.getElementById('item-list-container');
+    if(c) c.innerHTML = renderItemListHtml(getFilteredSortedItems());
+  }, 200);
+}
+function toggleLang(){
+  state.lang = state.lang==='zh' ? 'en' : 'zh';
+  saveSettings();
+  render();
+}
+
+/* ======================= ITEM FORM (add/edit) ======================= */
+function blankItemDraft(){
+  return {
+    id: uid(), name:'', brand:'', barcode:'',
+    category:'', location:'',
+    primary_qty:1, primary_unit:'g',
+    secondary_qty:null, secondary_unit:'', unit_ratio:null, last_recount_at:null,
+    expiry_date:'', purchase_date: todayStr(), price:'',
+    notes:'', nutrition: emptyNutrition(), nutrition_edited:false,
+    photo_url:'', created_at: todayStr(), updated_at: new Date().toISOString()
+  };
+}
+function openItemForm(id, prefill){
+  if(id){
+    var existing = state.items.find(function(i){ return i.id===id; });
+    state.itemDraft = JSON.parse(JSON.stringify(existing));
+    state.itemDraft.nutrition = state.itemDraft.nutrition || emptyNutrition();
+  } else {
+    state.itemDraft = blankItemDraft();
+    if(prefill) Object.assign(state.itemDraft, prefill);
+  }
+  state.itemDraft._isNew = !id;
+  state.itemFormUI = { addingCategory:false, addingLocation:false, showSecondary: !!(state.itemDraft.secondary_unit) };
+  navigate('itemForm', {id:id});
+}
+function unitPills(fieldPath, current){
+  return UNIT_OPTIONS.map(function(u){
+    return '<div class="tag-option '+(current===u?'active':'')+'" onclick="setDraftUnit('+aj(fieldPath)+','+aj(u)+')">'+u+'</div>';
+  }).join('');
+}
+function setDraftUnit(field, u){ state.itemDraft[field]=u; render(); }
+function tagSelectHtml(kind, list, current, addingFlag){
+  var opts = list.map(function(c){
+    return '<div class="tag-option '+(current===c?'active':'')+'" onclick="setDraftTag('+aj(kind)+','+aj(c)+')">'+esc(c)+'</div>';
+  }).join('');
+  var addUi;
+  if(addingFlag){
+    addUi = '<div class="field" style="margin-top:10px;margin-bottom:0;"><div class="field-row">'+
+      '<input type="text" id="new-'+kind+'-input" placeholder="'+t('newTagPrompt')+'" style="flex:1;font-size:16px;padding:11px 12px;border-radius:10px;border:1px solid var(--line);">'+
+      '<button class="btn btn-primary btn-sm" onclick="confirmNewTag('+aj(kind)+')">'+t('add')+'</button>'+
+    '</div></div>';
+  } else {
+    addUi = '';
+  }
+  return '<div class="tag-select">'+opts+'<div class="tag-option add-new" onclick="toggleAddingTag('+aj(kind)+')">'+t('addNewTag')+'</div></div>'+addUi;
+}
+function setDraftTag(kind, val){ state.itemDraft[kind]=val; render(); }
+function toggleAddingTag(kind){
+  state.itemFormUI[kind==='category'?'addingCategory':'addingLocation'] = true;
+  render();
+  var el = document.getElementById('new-'+kind+'-input');
+  if(el) el.focus();
+}
+function confirmNewTag(kind){
+  var el = document.getElementById('new-'+kind+'-input');
+  var val = el ? el.value.trim() : '';
+  if(!val) return;
+  var list = kind==='category' ? state.categories : state.locations;
+  if(list.indexOf(val)===-1){
+    list.push(val);
+    if(kind==='category') saveCategories(); else saveLocations();
+  }
+  state.itemDraft[kind] = val;
+  state.itemFormUI[kind==='category'?'addingCategory':'addingLocation'] = false;
+  render();
+}
+function toggleSecondaryUnit(){
+  state.itemFormUI.showSecondary = !state.itemFormUI.showSecondary;
+  if(!state.itemFormUI.showSecondary){
+    state.itemDraft.secondary_unit=''; state.itemDraft.secondary_qty=null; state.itemDraft.unit_ratio=null;
+  }
+  render();
+}
+function nutriFieldsHtml(draftPath){
+  var labels = {calories:t('nutriCalories'),protein:t('nutriProtein'),fat:t('nutriFat'),carbs:t('nutriCarbs'),fiber:t('nutriFiber'),sugar:t('nutriSugar'),sodium:t('nutriSodium')};
+  var units = {calories:'kcal',protein:'g',fat:'g',carbs:'g',fiber:'g',sugar:'g',sodium:'mg'};
+  return '<div class="nutri-grid">'+NUTRI_KEYS.map(function(k){
+    return '<div class="field" style="margin-bottom:0;"><label>'+labels[k]+' <span style="color:#B79B78;font-weight:400;">('+units[k]+')</span></label>'+
+      '<input type="number" inputmode="decimal" value="'+(draftPath.nutrition[k]||0)+'" oninput="onNutriInput('+aj(k)+',this.value)"></div>';
+  }).join('')+'</div>';
+}
+function onNutriInput(key, val){
+  state.itemDraft.nutrition[key] = parseFloat(val)||0;
+  state.itemDraft.nutrition_edited = true;
+}
+function nutriBadgeHtml(d){
+  if(d.nutrition_edited) return '<span class="edited-badge">'+t('manuallyEdited')+'</span>';
+  if(d.nutrition_source === 'photo_ai') return '<span class="edited-badge" style="background:var(--fresh-bg);color:var(--fresh);">'+t('aiExtracted')+'</span>';
+  return '';
+}
+function renderItemForm(){
+  var d = state.itemDraft;
+  if(!d) return renderHome();
+  var ui = state.itemFormUI;
+  var secondaryBlock = ui.showSecondary ? (
+    '<div class="field-row">'+
+      '<div class="field"><label>'+t('fieldSecondaryQty')+'</label><input type="number" inputmode="decimal" value="'+(d.secondary_qty==null?'':d.secondary_qty)+'" oninput="d_num(\'secondary_qty\',this.value)"></div>'+
+      '<div class="field"><label>'+t('fieldSecondaryUnit')+'</label><input type="text" value="'+esc(d.secondary_unit)+'" placeholder="只/片/块" oninput="d_str(\'secondary_unit\',this.value)"></div>'+
+    '</div>'+
+    '<div class="hint" style="margin-top:-8px;margin-bottom:14px;">'+(state.lang==='zh'?'首次填写两个数值即建立初始换算比例，之后可在详情页"补充计数"随时校准。':'Filling both values sets the initial conversion ratio; you can recalibrate anytime via "Recount" on the detail page.')+'</div>'
+  ) : ('<div class="tag-option" style="display:inline-block;" onclick="toggleSecondaryUnit()">+ '+t('fieldSecondaryQty')+'</div>');
+  return '' +
+  '<div class="page-header">'+
+    '<button class="back-btn" onclick="cancelItemForm()">'+ic('back',22)+'</button>'+
+    '<h1>'+(d._isNew?t('itemFormTitleAdd'):t('itemFormTitleEdit'))+'</h1>'+
+  '</div>'+
+  '<div class="content">'+
+    '<div class="section-title">'+t('sectionBasic')+'</div>'+
+    '<div class="form-group">'+
+      '<div class="field"><label>'+t('fieldName')+' *</label><input type="text" value="'+esc(d.name)+'" placeholder="'+t('fieldNamePh')+'" oninput="d_str(\'name\',this.value)"></div>'+
+      '<div class="field"><label>'+t('fieldBrand')+'</label><input type="text" value="'+esc(d.brand)+'" placeholder="'+t('fieldBrandPh')+'" oninput="d_str(\'brand\',this.value)"></div>'+
+      (d.barcode ? '<div class="field" style="margin-bottom:0;"><label>'+t('fieldBarcode')+'</label><input type="text" value="'+esc(d.barcode)+'" oninput="d_str(\'barcode\',this.value)"></div>' : '')+
+    '</div>'+
+    '<div class="section-title">'+t('fieldCategory')+'</div>'+
+    tagSelectHtml('category', state.categories, d.category, ui.addingCategory)+
+    '<div class="section-title">'+t('fieldLocation')+'</div>'+
+    tagSelectHtml('location', state.locations, d.location, ui.addingLocation)+
+    '<div class="section-title">'+t('sectionQty')+'</div>'+
+    '<div class="form-group">'+
+      '<div class="field"><label>'+t('fieldQty')+'</label><input type="number" inputmode="decimal" value="'+(d.primary_qty==null?'':d.primary_qty)+'" oninput="d_num(\'primary_qty\',this.value)"></div>'+
+      '<div class="field" style="margin-bottom:'+(ui.showSecondary?'16px':'0')+';"><label>'+t('fieldUnit')+'</label><div class="tag-select">'+unitPills('primary_unit', d.primary_unit)+'</div></div>'+
+      secondaryBlock+
+    '</div>'+
+    '<div class="section-title">'+t('sectionOther')+'</div>'+
+    '<div class="form-group">'+
+      '<div class="field-row">'+
+        '<div class="field"><label>'+t('fieldExpiry')+'</label><input type="date" value="'+esc(d.expiry_date)+'" oninput="d_str(\'expiry_date\',this.value)"></div>'+
+        '<div class="field"><label>'+t('fieldPurchaseDate')+'</label><input type="date" value="'+esc(d.purchase_date)+'" oninput="d_str(\'purchase_date\',this.value)"></div>'+
+      '</div>'+
+      '<div class="field"><label>'+t('fieldPrice')+'</label><input type="number" inputmode="decimal" value="'+(d.price||'')+'" oninput="d_num(\'price\',this.value)"></div>'+
+      '<div class="field" style="margin-bottom:0;"><label>'+t('fieldNotes')+'</label><textarea placeholder="'+t('fieldNotesPh')+'" oninput="d_str(\'notes\',this.value)">'+esc(d.notes)+'</textarea></div>'+
+    '</div>'+
+    '<div class="section-title">'+t('sectionNutrition')+nutriBadgeHtml(d)+'</div>'+
+    '<div class="form-group">'+nutriFieldsHtml(d)+'</div>'+
+    '<div class="btn-row" style="margin-top:8px;">'+
+      '<button class="btn btn-outline" onclick="cancelItemForm()">'+t('cancel')+'</button>'+
+      '<button class="btn btn-primary" onclick="saveItemForm()">'+t('save')+'</button>'+
+    '</div>'+
+    (!d._isNew ? '<button class="btn btn-danger" style="margin-top:10px;" onclick="deleteItemFromForm()">'+ic('trash',16)+' '+t('delete')+'</button>' : '')+
+  '</div>';
+}
+function d_str(field, val){ state.itemDraft[field]=val; }
+function d_num(field, val){ state.itemDraft[field]= val===''? null : parseFloat(val); }
+function cancelItemForm(){ state.itemDraft=null; navigate('home'); }
+function saveItemForm(){
+  var d = state.itemDraft;
+  if(!d.name || !d.name.trim()){ showToast(state.lang==='zh'?'请填写名称':'Please enter a name'); return; }
+  if(d.secondary_qty!=null && d.secondary_unit && d.unit_ratio==null && d.primary_qty){
+    d.unit_ratio = d.primary_qty / (d.secondary_qty||1);
+    d.last_recount_at = todayStr();
+  }
+  d.updated_at = new Date().toISOString();
+  var idx = state.items.findIndex(function(i){ return i.id===d.id; });
+  if(idx===-1) state.items.push(d); else state.items[idx]=d;
+  saveItems();
+  state.itemDraft=null;
+  showToast(state.lang==='zh'?'已保存':'Saved');
+  navigate('itemDetail',{id:d.id});
+}
+function deleteItemFromForm(){
+  if(!confirm(t('deleteConfirm'))) return;
+  state.items = state.items.filter(function(i){ return i.id!==state.itemDraft.id; });
+  saveItems();
+  state.itemDraft=null;
+  navigate('home');
+}
+
+/* ======================= ITEM DETAIL ======================= */
+function renderItemDetail(){
+  var id = state.params.id;
+  var it = state.items.find(function(i){ return i.id===id; });
+  if(!it) return renderHome();
+  var st = expiryStatus(it);
+  var labels = {calories:t('nutriCalories'),protein:t('nutriProtein'),fat:t('nutriFat'),carbs:t('nutriCarbs'),fiber:t('nutriFiber'),sugar:t('nutriSugar'),sodium:t('nutriSodium')};
+  var units = {calories:'kcal',protein:'g',fat:'g',carbs:'g',fiber:'g',sugar:'g',sodium:'mg'};
+  var n = it.nutrition || emptyNutrition();
+  var nutriHtml = '<div class="nutri-grid">'+NUTRI_KEYS.map(function(k){
+    return '<div class="nutri-cell"><div class="val">'+fmtNum(n[k],1)+' <span class="unit">'+units[k]+'</span></div><div class="lbl">'+labels[k]+'</div></div>';
+  }).join('')+'</div>';
+  return '' +
+  '<div class="page-header">'+
+    '<button class="back-btn" onclick="navigate(\'home\')">'+ic('back',22)+'</button>'+
+    '<h1>'+esc(it.name)+'</h1>'+
+    '<button class="icon-btn" onclick="openItemForm('+aj(it.id)+')">'+ic('edit',18)+'</button>'+
+  '</div>'+
+  '<div class="content">'+
+    (it.brand ? '<p style="color:var(--deep-caramel);font-size:14px;margin-bottom:14px;">'+esc(it.brand)+'</p>' : '')+
+    '<div class="status-badge status-'+st.level+'" style="font-size:15px;padding:8px 14px;display:inline-block;margin-bottom:16px;">'+esc(st.label)+(it.expiry_date?' · '+esc(it.expiry_date):'')+'</div>'+
+    '<div class="form-group">'+
+      '<div class="list-row" style="border:none;padding:0;margin-bottom:0;">'+
+        '<div><div class="row-label">'+t('detailQtyLabel')+'</div><div class="row-sub">'+qtyDisplay(it)+'</div></div>'+
+        '<button class="btn btn-outline btn-sm" onclick="openRecount('+aj(it.id)+')">'+t('recount')+'</button>'+
+      '</div>'+
+      (it.secondary_unit ? '<div class="hint" style="margin-top:10px;">'+t('lastRecount')+': '+esc(it.last_recount_at||'-')+'</div>' : '<div class="hint" style="margin-top:10px;">'+t('noSecondary')+'</div>')+
+    '</div>'+
+    '<div class="form-group">'+
+      '<div class="list-row" style="border:none;padding:0;margin-bottom:10px;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldCategory')+'</span><span>'+esc(categoryLabel(it.category))+'</span></div>'+
+      '<div class="list-row" style="border:none;padding:0;margin-bottom:10px;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldLocation')+'</span><span>'+esc(it.location||t('unset'))+'</span></div>'+
+      '<div class="list-row" style="border:none;padding:0;margin-bottom:10px;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldPurchaseDate')+'</span><span>'+esc(it.purchase_date||'-')+'</span></div>'+
+      '<div class="list-row" style="border:none;padding:0;margin-bottom:0;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldPrice')+'</span><span>'+(it.price?esc(it.price):'-')+'</span></div>'+
+    '</div>'+
+    '<div class="section-title">'+t('sectionNutrition')+'</div>'+
+    nutriHtml+
+    (it.notes ? '<div class="section-title">'+t('fieldNotes')+'</div><div class="form-group"><p style="font-size:14.5px;line-height:1.6;">'+esc(it.notes)+'</p></div>' : '')+
+    '<button class="btn btn-danger" style="margin-top:22px;" onclick="deleteItemDetail('+aj(it.id)+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
+  '</div>'+
+  bottomNav();
+}
+function deleteItemDetail(id){
+  if(!confirm(t('deleteConfirm'))) return;
+  state.items = state.items.filter(function(i){ return i.id!==id; });
+  saveItems();
+  navigate('home');
+}
+function openRecount(id){
+  var it = state.items.find(function(i){ return i.id===id; });
+  if(!it) return;
+  showModal(
+    t('recountTitle'),
+    '<p class="hint" style="margin-bottom:16px;">'+t('recountHint')+'</p>'+
+    '<div class="field"><label>'+t('recountUnitLabel')+'</label><input type="text" id="recount-unit" value="'+esc(it.secondary_unit||'')+'" placeholder="只"></div>'+
+    '<div class="field"><label>'+t('recountQtyLabel')+'</label><input type="number" inputmode="decimal" id="recount-qty" value="'+(it.secondary_qty!=null?it.secondary_qty:'')+'"></div>'+
+    '<button class="btn btn-primary" onclick="confirmRecount('+aj(id)+')">'+t('confirm')+'</button>'
+  );
+}
+function confirmRecount(id){
+  var it = state.items.find(function(i){ return i.id===id; });
+  var unit = document.getElementById('recount-unit').value.trim();
+  var qty = parseFloat(document.getElementById('recount-qty').value);
+  if(!unit || isNaN(qty) || qty<=0){ showToast(state.lang==='zh'?'请填写完整':'Please fill in both fields'); return; }
+  recountItem(it, unit, qty);
+  saveItems();
+  closeModal();
+  showToast(state.lang==='zh'?'已更新':'Updated');
+  render();
+}
+
+/* ======================= MODAL ======================= */
+function showModal(title, bodyHtml){
+  var root = document.getElementById('modal-root');
+  root.innerHTML = '<div class="modal-wrap" onclick="if(event.target===this) closeModal()">'+
+    '<div class="modal-sheet" style="position:relative;">'+
+      '<button class="icon-btn modal-close" onclick="closeModal()">'+ic('x',18)+'</button>'+
+      '<h2>'+esc(title)+'</h2>'+
+      bodyHtml+
+    '</div>'+
+  '</div>';
+}
+function closeModal(){ var r=document.getElementById('modal-root'); if(r) r.innerHTML=''; }
+
+/* ======================= SCAN ======================= */
+var scanCtx = { stream:null, detecting:false, raf:null };
+function renderScan(){
+  return '' +
+  '<div class="page-header">'+
+    '<button class="back-btn" onclick="navigate(\'home\')">'+ic('back',22)+'</button>'+
+    '<h1>'+t('scanTitle')+'</h1>'+
+  '</div>'+
+  '<div class="content">'+
+    '<div class="scan-wrap">'+
+      '<video id="scan-video" playsinline muted autoplay></video>'+
+      '<div class="scan-frame"></div>'+
+      '<div class="scan-status" id="scan-status">'+t('scanHintCamera')+'</div>'+
+    '</div>'+
+    '<div class="section-title">'+t('scanManualEntry')+'</div>'+
+    '<div class="field-row">'+
+      '<input type="text" inputmode="numeric" id="manual-barcode-input" placeholder="'+t('barcodeInputPh')+'" style="flex:1;font-size:16px;padding:13px 14px;border-radius:11px;border:1px solid var(--line);" onkeydown="if(event.key===\'Enter\')manualBarcodeLookup()">'+
+      '<button class="btn btn-primary btn-sm" onclick="manualBarcodeLookup()">'+t('lookupBtn')+'</button>'+
+    '</div>'+
+    '<div class="section-title">'+t('sectionPhotoCapture')+'</div>'+
+    '<div class="form-group">'+
+      '<p class="hint" style="margin-bottom:12px;">'+t('photoCaptureHint')+'</p>'+
+      '<button class="btn btn-outline" onclick="triggerPhotoCapture()">'+ic('camera',18)+' '+t('photoCaptureBtn')+'</button>'+
+      '<input type="file" accept="image/*" capture="environment" id="photo-capture-input" style="display:none" onchange="onPhotoSelected(this)">'+
+      '<div id="photo-recognize-status" style="margin-top:10px;font-size:13.5px;color:var(--deep-caramel);"></div>'+
+    '</div>'+
+    '<button class="btn btn-outline" style="margin-top:4px;" onclick="openItemForm(null)">'+t('manualAdd')+'</button>'+
+  '</div>'+
+  bottomNav();
+}
+async function startScan(){
+  var video = document.getElementById('scan-video');
+  if(!video) return;
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    setScanStatus(t('scanCameraError'));
+    return;
+  }
+  try{
+    var stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}, audio:false});
+    scanCtx.stream = stream;
+    video.srcObject = stream;
+    await video.play();
+  }catch(e){
+    setScanStatus(t('scanCameraError'));
+    return;
+  }
+  if(!('BarcodeDetector' in window)){
+    setScanStatus(t('scanUnsupported'));
+    return;
+  }
+  try{
+    var formats = await window.BarcodeDetector.getSupportedFormats();
+    var detector = new window.BarcodeDetector({formats: formats});
+    scanCtx.detecting = true;
+    setScanStatus(t('scanHintCamera'));
+    detectLoop(video, detector);
+  }catch(e){
+    setScanStatus(t('scanUnsupported'));
+  }
+}
+function detectLoop(video, detector){
+  if(!scanCtx.detecting) return;
+  detector.detect(video).then(function(codes){
+    if(!scanCtx.detecting) return;
+    if(codes && codes.length>0){
+      scanCtx.detecting = false;
+      onBarcodeDetected(codes[0].rawValue);
+      return;
+    }
+    scanCtx.raf = requestAnimationFrame(function(){ detectLoop(video, detector); });
+  }).catch(function(){
+    if(scanCtx.detecting) scanCtx.raf = requestAnimationFrame(function(){ detectLoop(video, detector); });
+  });
+}
+function stopScan(){
+  scanCtx.detecting = false;
+  if(scanCtx.raf) cancelAnimationFrame(scanCtx.raf);
+  scanCtx.raf = null;
+  if(scanCtx.stream){
+    scanCtx.stream.getTracks().forEach(function(tr){ tr.stop(); });
+    scanCtx.stream = null;
+  }
+}
+function setScanStatus(msg){
+  var el = document.getElementById('scan-status');
+  if(el) el.textContent = msg;
+}
+function onBarcodeDetected(code){
+  stopScan();
+  lookupAndPrefill(code);
+}
+function manualBarcodeLookup(){
+  var el = document.getElementById('manual-barcode-input');
+  var code = el ? el.value.trim() : '';
+  if(!code) return;
+  stopScan();
+  lookupAndPrefill(code);
+}
+async function lookupAndPrefill(code){
+  setScanStatus(t('scanLookingUp'));
+  var result = await lookupBarcode(code);
+  if(result){
+    showToast(result.fromLocal ? t('scanFoundLocal') : t('scanFoundOFF'));
+    openItemForm(null, {
+      barcode: code,
+      name: result.name || '',
+      brand: result.brand || '',
+      photo_url: result.photo_url || '',
+      nutrition: result.nutrition || emptyNutrition(),
+      nutrition_edited: false
+    });
+  } else {
+    showToast(t('scanNotFound'));
+    openItemForm(null, {barcode: code});
+  }
+}
+async function lookupBarcode(barcode){
+  var localItem = state.items.find(function(i){ return i.barcode===barcode; });
+  if(localItem) return {name:localItem.name, brand:localItem.brand, nutrition:localItem.nutrition, photo_url:localItem.photo_url, fromLocal:true};
+  var localIng = state.ingredients.find(function(i){ return i.barcode===barcode; });
+  if(localIng) return {name:localIng.name, brand:localIng.brand, nutrition:localIng.nutrition, photo_url:localIng.photo_url, fromLocal:true};
+  try{
+    var res = await fetch('https://world.openfoodfacts.org/api/v2/product/'+encodeURIComponent(barcode)+'.json');
+    var data = await res.json();
+    if(data && data.status===1 && data.product){
+      var p = data.product;
+      var nut = p.nutriments || {};
+      return {
+        name: p.product_name || p.product_name_zh || p.generic_name || '',
+        brand: p.brands || '',
+        photo_url: p.image_url || p.image_front_url || '',
+        nutrition: {
+          calories: nut['energy-kcal_100g'] != null ? nut['energy-kcal_100g'] : (nut['energy-kcal_serving']||0),
+          protein: nut['proteins_100g']||0,
+          fat: nut['fat_100g']||0,
+          carbs: nut['carbohydrates_100g']||0,
+          fiber: nut['fiber_100g']||0,
+          sugar: nut['sugars_100g']||0,
+          sodium: nut['sodium_100g'] != null ? nut['sodium_100g']*1000 : 0
+        },
+        fromOFF:true
+      };
+    }
+    return null;
+  }catch(e){
+    return null;
+  }
+}
+
+/* ======================= PHOTO RECOGNITION (AI vision) ======================= */
+function triggerPhotoCapture(){
+  var el = document.getElementById('photo-capture-input');
+  if(el) el.click();
+}
+function setPhotoStatus(msg){
+  var el = document.getElementById('photo-recognize-status');
+  if(el) el.textContent = msg;
+}
+// Downscales the photo client-side (max ~1024px on the long edge, JPEG) before sending it for
+// analysis - keeps the payload small/fast and normalizes odd source formats (HEIC previews, etc.)
+function fileToResizedBase64(file, maxDim){
+  maxDim = maxDim || 1024;
+  return new Promise(function(resolve, reject){
+    var url = URL.createObjectURL(file);
+    var img = new Image();
+    img.onload = function(){
+      var w = img.width, h = img.height;
+      var scale = Math.min(1, maxDim / Math.max(w, h));
+      var cw = Math.max(1, Math.round(w * scale));
+      var ch = Math.max(1, Math.round(h * scale));
+      var canvas = document.createElement('canvas');
+      canvas.width = cw; canvas.height = ch;
+      var ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, cw, ch);
+      URL.revokeObjectURL(url);
+      var dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      var base64 = dataUrl.split(',')[1];
+      if(!base64){ reject(new Error('encode failed')); return; }
+      resolve({base64: base64, mimeType: 'image/jpeg'});
+    };
+    img.onerror = function(){ URL.revokeObjectURL(url); reject(new Error('image load failed')); };
+    img.src = url;
+  });
+}
+async function analyzePhotoForItem(base64Data, mimeType){
+  var prompt = [
+    '请分析这张食品包装或营养成分表照片，尽可能提取以下信息。只返回一个JSON对象本身，不要包含任何其他文字、解释、前后缀或markdown代码块标记（不要用```包裹）。',
+    '严格按此JSON格式返回：',
+    '{"name":"产品名称，看不清则为空字符串","brand":"品牌名称，看不清则为空字符串","barcode":"条码下方印刷的数字，看不到则为null","nutrition_found":true或false,"nutrition_basis":"100g或100ml或serving或unknown","serving_size_g":"仅当nutrition_basis为serving时填写每份重量克数(数字)，否则为null","nutrition":{"calories":数字(kcal)或null,"protein":数字(g)或null,"fat":数字(g)或null,"carbs":数字(g)或null,"fiber":数字(g)或null,"sugar":数字(g)或null,"sodium":数字(mg)或null},"confidence":"high或medium或low"}',
+    '注意：sodium字段必须换算成毫克(mg)，如果标签原文是克(g)请自行乘以1000。如果完全无法从图片中识别出任何有效信息，相应字段返回null、空字符串或false，不要编造数据。'
+  ].join('\n');
+  var res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1000,
+      messages: [{
+        role: 'user',
+        content: [
+          {type:'image', source:{type:'base64', media_type: mimeType, data: base64Data}},
+          {type:'text', text: prompt}
+        ]
+      }]
+    })
+  });
+  var data = await res.json();
+  var textBlock = null;
+  if(data && Array.isArray(data.content)){
+    for(var i=0;i<data.content.length;i++){
+      if(data.content[i].type === 'text'){ textBlock = data.content[i]; break; }
+    }
+  }
+  if(!textBlock || !textBlock.text) return null;
+  var clean = textBlock.text.replace(/```json/gi,'').replace(/```/g,'').trim();
+  try{
+    return JSON.parse(clean);
+  }catch(e){
+    return null;
+  }
+}
+function normalizeExtractedNutrition(result){
+  var n = emptyNutrition();
+  if(!result || !result.nutrition) return n;
+  NUTRI_KEYS.forEach(function(k){
+    var v = result.nutrition[k];
+    n[k] = (v != null && !isNaN(v)) ? Number(v) : 0;
+  });
+  if(result.nutrition_basis === 'serving' && result.serving_size_g){
+    var factor = 100 / Number(result.serving_size_g);
+    if(isFinite(factor)){
+      NUTRI_KEYS.forEach(function(k){ n[k] = n[k] * factor; });
+    }
+  }
+  return n;
+}
+async function onPhotoSelected(input){
+  var file = input.files && input.files[0];
+  if(!file) return;
+  setPhotoStatus(t('photoAnalyzing'));
+  try{
+    var resized = await fileToResizedBase64(file, 1024);
+    var result = await analyzePhotoForItem(resized.base64, resized.mimeType);
+    input.value = '';
+    setPhotoStatus('');
+    var hasName = result && result.name && result.name.trim();
+    var hasNutrition = result && result.nutrition_found;
+    if(!result || (!hasName && !hasNutrition)){
+      showToast(t('photoNotFound'));
+      openItemForm(null);
+      return;
+    }
+    showToast(t('photoFound'));
+    openItemForm(null, {
+      name: result.name || '',
+      brand: result.brand || '',
+      barcode: result.barcode || '',
+      nutrition: normalizeExtractedNutrition(result),
+      nutrition_edited: false,
+      nutrition_source: 'photo_ai'
+    });
+  }catch(e){
+    setPhotoStatus('');
+    showToast(t('photoError'));
+  }
+}
+
+/* ======================= RECIPES LIST ======================= */
+function renderRecipesList(){
+  var listHtml;
+  if(state.recipes.length===0){
+    listHtml = '<div class="empty-state">'+ic('book',40)+'<p><strong>'+t('emptyRecipes')+'</strong><br>'+t('emptyRecipesHint')+'</p></div>';
+  } else {
+    listHtml = state.recipes.map(function(r){
+      var nutri = calcRecipeNutrition(r);
+      return '<div class="recipe-card" onclick="navigate(\'recipeDetail\',{id:'+aj(r.id)+'})">'+
+        '<div class="rname">'+esc(r.name)+'</div>'+
+        '<div class="rmeta">'+(r.servings||1)+' '+t('fieldServings')+' · '+(r.ingredients||[]).length+' '+t('sectionIngredients')+'</div>'+
+        '<div class="rcal">'+fmtNum(nutri.perServing.calories,0)+' kcal / '+t('perServing').toLowerCase()+'</div>'+
+      '</div>';
+    }).join('');
+  }
+  return '' +
+  '<div class="topbar"><div><h1>'+t('recipesTitle')+'</h1></div></div>'+
+  '<div class="content">'+
+    listHtml+
+    '<button class="btn btn-primary" style="margin-top:16px;" onclick="openRecipeForm(null)">'+ic('plus',18)+' '+t('newRecipe')+'</button>'+
+  '</div>'+
+  bottomNav();
+}
+
+/* ======================= INGREDIENT PICKERS ======================= */
+function recipeUnitOptionsForItem(item){
+  var opts = ['g','kg','ml','l'];
+  if(item){
+    if(item.primary_unit && opts.indexOf(item.primary_unit)===-1) opts.unshift(item.primary_unit);
+    if(item.secondary_unit && opts.indexOf(item.secondary_unit)===-1) opts.unshift(item.secondary_unit);
+  }
+  return opts;
+}
+function renderPickInventory(){
+  var q = (state.pickSearch||'').toLowerCase();
+  var list = state.items.filter(function(i){ return !q || (i.name||'').toLowerCase().indexOf(q)!==-1; });
+  var itemsHtml = list.map(function(it){
+    return '<div class="picker-item" onclick="pickInventoryItem('+aj(it.id)+')">'+
+      '<div><div class="pname">'+esc(it.name)+'</div><div class="pmeta">'+qtyDisplay(it)+(it.location?' · '+esc(it.location):'')+'</div></div>'+
+      ic('chevronRight',18)+
+    '</div>';
+  }).join('') || '<div class="empty-state">'+ic('search',32)+'<p>'+(state.lang==='zh'?'没有找到食材':'No items found')+'</p></div>';
+  return '' +
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'recipeForm\')">'+ic('back',22)+'</button><h1>'+t('pickFromInventory')+'</h1></div>'+
+  '<div class="content">'+
+    '<div class="search-bar">'+ic('search',19)+'<input type="text" placeholder="'+t('searchPlaceholder')+'" value="'+esc(state.pickSearch||'')+'" oninput="onPickSearch(this.value)"></div>'+
+    '<div id="pick-list">'+itemsHtml+'</div>'+
+  '</div>';
+}
+function onPickSearch(v){
+  state.pickSearch = v;
+  clearTimeout(onPickSearch._t);
+  onPickSearch._t = setTimeout(function(){
+    var c = document.getElementById('pick-list');
+    if(c) c.outerHTML = (state.view==='pickInventory') ? ('<div id="pick-list">'+renderPickInventoryListOnly()+'</div>') : ('<div id="pick-list">'+renderPickExternalListOnly()+'</div>');
+  }, 200);
+}
+function renderPickInventoryListOnly(){
+  var q = (state.pickSearch||'').toLowerCase();
+  var list = state.items.filter(function(i){ return !q || (i.name||'').toLowerCase().indexOf(q)!==-1; });
+  return list.map(function(it){
+    return '<div class="picker-item" onclick="pickInventoryItem('+aj(it.id)+')">'+
+      '<div><div class="pname">'+esc(it.name)+'</div><div class="pmeta">'+qtyDisplay(it)+(it.location?' · '+esc(it.location):'')+'</div></div>'+
+      ic('chevronRight',18)+
+    '</div>';
+  }).join('') || '<div class="empty-state">'+ic('search',32)+'<p>'+(state.lang==='zh'?'没有找到食材':'No items found')+'</p></div>';
+}
+function pickInventoryItem(id){
+  var it = state.items.find(function(i){ return i.id===id; });
+  if(!it) return;
+  var unitOpts = recipeUnitOptionsForItem(it);
+  showModal(esc(it.name),
+    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="number" inputmode="decimal" id="ing-amount" value="100"></div>'+
+    '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u,idx){ return '<div class="tag-option '+(idx===0?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+u+'</div>'; }).join('')+'</div></div>'+
+    '<button class="btn btn-primary" onclick="confirmAddIngredient(\'inventory\','+aj(id)+','+aj(it.name)+')">'+t('add')+'</button>'
+  );
+}
+function selectPillIn(el, containerId){
+  var c = document.getElementById(containerId);
+  Array.prototype.forEach.call(c.children, function(ch){ ch.classList.remove('active'); });
+  el.classList.add('active');
+}
+function getActivePill(containerId){
+  var c = document.getElementById(containerId);
+  var active = c.querySelector('.active');
+  return active ? active.getAttribute('data-u') : null;
+}
+function confirmAddIngredient(sourceType, id, name){
+  var amount = parseFloat(document.getElementById('ing-amount').value);
+  var unit = getActivePill('ing-unit-pills');
+  if(!amount || amount<=0){ showToast(state.lang==='zh'?'请输入用量':'Please enter an amount'); return; }
+  addIngredientToRecipe(sourceType, id, name, amount, unit);
+}
+function addIngredientToRecipe(sourceType, sourceId, nameSnapshot, amount, unit){
+  state.recipeDraft.ingredients.push({id:uid(), source_type:sourceType, source_id:sourceId, name_snapshot:nameSnapshot, amount:amount, unit:unit});
+  closeModal();
+  navigate('recipeForm');
+}
+function renderPickExternal(){
+  var q = (state.pickSearch||'').toLowerCase();
+  var list = state.ingredients.filter(function(i){ return !q || (i.name||'').toLowerCase().indexOf(q)!==-1; });
+  var itemsHtml = list.map(function(ing){
+    return '<div class="picker-item" onclick="pickExternalItem('+aj(ing.id)+')">'+
+      '<div><div class="pname">'+esc(ing.name)+'</div><div class="pmeta">'+fmtNum(ing.nutrition.calories,0)+' kcal /100g</div></div>'+
+      ic('chevronRight',18)+
+    '</div>';
+  }).join('');
+  return '' +
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'recipeForm\')">'+ic('back',22)+'</button><h1>'+t('pickExternal')+'</h1></div>'+
+  '<div class="content">'+
+    '<div class="search-bar">'+ic('search',19)+'<input type="text" placeholder="'+t('searchPlaceholder')+'" value="'+esc(state.pickSearch||'')+'" oninput="onPickSearch(this.value)"></div>'+
+    '<button class="btn btn-outline" style="margin-bottom:14px;" onclick="openNewExternalIngredientModal()">'+t('createNewIngredient')+'</button>'+
+    '<div id="pick-list">'+itemsHtml+'</div>'+
+  '</div>';
+}
+function renderPickExternalListOnly(){
+  var q = (state.pickSearch||'').toLowerCase();
+  var list = state.ingredients.filter(function(i){ return !q || (i.name||'').toLowerCase().indexOf(q)!==-1; });
+  return list.map(function(ing){
+    return '<div class="picker-item" onclick="pickExternalItem('+aj(ing.id)+')">'+
+      '<div><div class="pname">'+esc(ing.name)+'</div><div class="pmeta">'+fmtNum(ing.nutrition.calories,0)+' kcal /100g</div></div>'+
+      ic('chevronRight',18)+
+    '</div>';
+  }).join('');
+}
+function pickExternalItem(id){
+  var ing = state.ingredients.find(function(i){ return i.id===id; });
+  if(!ing) return;
+  showModal(esc(ing.name),
+    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="number" inputmode="decimal" id="ing-amount" value="100"></div>'+
+    '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+['g','kg','ml','l'].map(function(u,idx){ return '<div class="tag-option '+(idx===0?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+u+'</div>'; }).join('')+'</div></div>'+
+    '<button class="btn btn-primary" onclick="confirmAddIngredient(\'external\','+aj(id)+','+aj(ing.name)+')">'+t('add')+'</button>'
+  );
+}
+function openNewExternalIngredientModal(){
+  var labels = {calories:t('nutriCalories'),protein:t('nutriProtein'),fat:t('nutriFat'),carbs:t('nutriCarbs'),fiber:t('nutriFiber'),sugar:t('nutriSugar'),sodium:t('nutriSodium')};
+  var nutriInputs = NUTRI_KEYS.map(function(k){
+    return '<div class="field" style="margin-bottom:10px;"><label style="font-size:12.5px;">'+labels[k]+'</label><input type="number" inputmode="decimal" id="newing-'+k+'" value="0"></div>';
+  }).join('');
+  showModal(t('createNewIngredient'),
+    '<div class="field"><label>'+t('newIngName')+'</label><input type="text" id="newing-name" placeholder="'+t('newIngName')+'"></div>'+
+    '<p class="hint" style="margin-bottom:10px;">'+t('newIngNutriHint')+'</p>'+
+    '<div class="nutri-grid">'+nutriInputs+'</div>'+
+    '<div class="field" style="margin-top:14px;"><label>'+t('ingAmountLabel')+'</label><input type="number" inputmode="decimal" id="ing-amount" value="100"></div>'+
+    '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+['g','kg','ml','l'].map(function(u,idx){ return '<div class="tag-option '+(idx===0?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+u+'</div>'; }).join('')+'</div></div>'+
+    '<button class="btn btn-primary" onclick="createExternalIngredientAndAdd()">'+t('add')+'</button>'
+  );
+}
+function createExternalIngredientAndAdd(){
+  var name = document.getElementById('newing-name').value.trim();
+  if(!name){ showToast(state.lang==='zh'?'请输入食材名称':'Please enter a name'); return; }
+  var nutrition = {};
+  NUTRI_KEYS.forEach(function(k){ nutrition[k] = parseFloat(document.getElementById('newing-'+k).value)||0; });
+  var ing = {id:uid(), name:name, nutrition:nutrition, created_at:todayStr(), updated_at:new Date().toISOString()};
+  state.ingredients.push(ing);
+  saveIngredients();
+  var amount = parseFloat(document.getElementById('ing-amount').value)||100;
+  var unit = getActivePill('ing-unit-pills');
+  addIngredientToRecipe('external', ing.id, ing.name, amount, unit);
+}
+
+/* ======================= RECIPE FORM ======================= */
+function openRecipeForm(id){
+  if(id){
+    var existing = state.recipes.find(function(r){ return r.id===id; });
+    state.recipeDraft = JSON.parse(JSON.stringify(existing));
+  } else {
+    state.recipeDraft = {id:uid(), name:'', servings:2, instructions:'', ingredients:[], extra_oil_amount:0, extra_oil_type:'vegetable', cooked_weight:null, created_at:todayStr(), updated_at:new Date().toISOString()};
+  }
+  state.recipeDraft._isNew = !id;
+  navigate('recipeForm', {id:id});
+}
+function ingredientRowsHtml(){
+  var ings = state.recipeDraft.ingredients||[];
+  if(ings.length===0) return '<p class="hint" style="margin-bottom:12px;">'+t('noIngredientsYet')+'</p>';
+  return ings.map(function(ri,idx){
+    return '<div class="ing-row"><div class="ing-info"><div class="ing-name">'+esc(ri.name_snapshot)+
+      (ri.source_type==='external' ? ' <span style="font-size:11px;color:var(--almond);">('+t('pickExternal')+')</span>' : '')+
+      '</div><div class="ing-amt">'+fmtNum(ri.amount,1)+' '+esc(ri.unit)+'</div></div>'+
+      '<button class="ing-del" onclick="removeRecipeIngredient('+idx+')">'+ic('trash',17)+'</button></div>';
+  }).join('');
+}
+function removeRecipeIngredient(idx){
+  state.recipeDraft.ingredients.splice(idx,1);
+  render();
+}
+function oilTypePills(){
+  return OIL_TYPES.map(function(o){
+    var lbl = state.lang==='zh'?o.zh:o.en;
+    return '<div class="tag-option '+(state.recipeDraft.extra_oil_type===o.id?'active':'')+'" onclick="setOilType('+aj(o.id)+')">'+lbl+'</div>';
+  }).join('');
+}
+function setOilType(id){ state.recipeDraft.extra_oil_type=id; render(); }
+function r_str(field,val){ state.recipeDraft[field]=val; }
+function r_num(field,val){
+  state.recipeDraft[field] = val===''? null : parseFloat(val);
+  updateNutritionSummaryDOM();
+}
+function nutritionSummaryHtml(){
+  var nutri = calcRecipeNutrition(state.recipeDraft);
+  var labels = {calories:t('nutriCalories'),protein:t('nutriProtein'),fat:t('nutriFat'),carbs:t('nutriCarbs'),fiber:t('nutriFiber'),sugar:t('nutriSugar'),sodium:t('nutriSodium')};
+  var units = {calories:'kcal',protein:'g',fat:'g',carbs:'g',fiber:'g',sugar:'g',sodium:'mg'};
+  function block(title, data){
+    return '<div style="margin-bottom:14px;"><div style="font-size:13px;font-weight:600;color:var(--almond);margin-bottom:8px;">'+title+'</div><div class="nutri-grid">'+
+      NUTRI_KEYS.map(function(k){
+        return '<div class="nutri-cell"><div class="val">'+fmtNum(data[k], k==='calories'?0:1)+' <span class="unit">'+units[k]+'</span></div><div class="lbl">'+labels[k]+'</div></div>';
+      }).join('')+'</div></div>';
+  }
+  var html = block(t('perTotal'), nutri.total) + block(t('perServing'), nutri.perServing);
+  if(nutri.per100g) html += block(t('per100g'), nutri.per100g);
+  if(nutri.warnings && nutri.warnings.length){
+    html += '<p class="hint" style="color:var(--warn);">'+(state.lang==='zh'?'以下食材因单位无法自动换算，未计入营养统计：':'These ingredients could not be auto-converted and are excluded from the totals: ')+nutri.warnings.map(esc).join('、')+'</p>';
+  }
+  return html;
+}
+function updateNutritionSummaryDOM(){
+  var el = document.getElementById('nutri-summary-container');
+  if(el) el.innerHTML = nutritionSummaryHtml();
+}
+function renderRecipeForm(){
+  var d = state.recipeDraft;
+  if(!d) return renderRecipesList();
+  return '' +
+  '<div class="page-header">'+
+    '<button class="back-btn" onclick="cancelRecipeForm()">'+ic('back',22)+'</button>'+
+    '<h1>'+(d._isNew?t('recipeFormTitleAdd'):t('recipeFormTitleEdit'))+'</h1>'+
+  '</div>'+
+  '<div class="content">'+
+    '<div class="form-group">'+
+      '<div class="field"><label>'+t('fieldRecipeName')+' *</label><input type="text" value="'+esc(d.name)+'" placeholder="'+t('fieldRecipeNamePh')+'" oninput="r_str(\'name\',this.value)"></div>'+
+      '<div class="field" style="margin-bottom:0;"><label>'+t('fieldServings')+'</label><input type="number" inputmode="decimal" value="'+(d.servings==null?'':d.servings)+'" oninput="r_num(\'servings\',this.value)"></div>'+
+    '</div>'+
+    '<div class="section-title">'+t('sectionIngredients')+'</div>'+
+    '<div class="form-group">'+
+      ingredientRowsHtml()+
+      '<div class="btn-row">'+
+        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="goPickInventory()">'+t('addFromInventory')+'</button>'+
+        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="goPickExternal()">'+t('addExternal')+'</button>'+
+      '</div>'+
+    '</div>'+
+    '<div class="section-title">'+t('sectionOil')+'</div>'+
+    '<div class="form-group">'+
+      '<div class="field"><label>'+t('fieldOilAmount')+'</label><input type="number" inputmode="decimal" value="'+(d.extra_oil_amount||0)+'" oninput="r_num(\'extra_oil_amount\',this.value)"></div>'+
+      '<div class="field" style="margin-bottom:0;"><label>'+t('fieldOilType')+'</label><div class="tag-select">'+oilTypePills()+'</div></div>'+
+    '</div>'+
+    '<div class="section-title">'+t('sectionCookedWeight')+'</div>'+
+    '<div class="form-group">'+
+      '<div class="field" style="margin-bottom:6px;"><label>'+t('fieldCookedWeight')+'</label><input type="number" inputmode="decimal" value="'+(d.cooked_weight==null?'':d.cooked_weight)+'" oninput="r_num(\'cooked_weight\',this.value)"></div>'+
+      '<div class="hint">'+t('cookedWeightHint')+'</div>'+
+    '</div>'+
+    '<div class="section-title">'+t('fieldInstructions')+'</div>'+
+    '<div class="form-group">'+
+      '<textarea placeholder="'+t('fieldInstructionsPh')+'" oninput="r_str(\'instructions\',this.value)">'+esc(d.instructions)+'</textarea>'+
+    '</div>'+
+    '<div class="section-title">'+t('nutritionSummary')+'</div>'+
+    '<div class="form-group" id="nutri-summary-container">'+nutritionSummaryHtml()+'</div>'+
+    '<div class="btn-row" style="margin-top:8px;">'+
+      '<button class="btn btn-outline" onclick="cancelRecipeForm()">'+t('cancel')+'</button>'+
+      '<button class="btn btn-primary" onclick="saveRecipeForm()">'+t('save')+'</button>'+
+    '</div>'+
+    (!d._isNew ? '<button class="btn btn-danger" style="margin-top:10px;" onclick="deleteRecipeFromForm()">'+ic('trash',16)+' '+t('delete')+'</button>' : '')+
+  '</div>';
+}
+function goPickInventory(){ state.pickSearch=''; navigate('pickInventory'); }
+function goPickExternal(){ state.pickSearch=''; navigate('pickExternal'); }
+function cancelRecipeForm(){ state.recipeDraft=null; navigate('recipes'); }
+function saveRecipeForm(){
+  var d = state.recipeDraft;
+  if(!d.name || !d.name.trim()){ showToast(state.lang==='zh'?'请填写食谱名称':'Please enter a recipe name'); return; }
+  if(!d.servings || d.servings<=0) d.servings=1;
+  d.updated_at = new Date().toISOString();
+  var idx = state.recipes.findIndex(function(r){ return r.id===d.id; });
+  if(idx===-1) state.recipes.push(d); else state.recipes[idx]=d;
+  saveRecipes();
+  state.recipeDraft=null;
+  showToast(state.lang==='zh'?'已保存':'Saved');
+  navigate('recipeDetail',{id:d.id});
+}
+function deleteRecipeFromForm(){
+  if(!confirm(t('deleteConfirm'))) return;
+  state.recipes = state.recipes.filter(function(r){ return r.id!==state.recipeDraft.id; });
+  saveRecipes();
+  state.recipeDraft=null;
+  navigate('recipes');
+}
+
+/* ======================= RECIPE DETAIL ======================= */
+function renderRecipeDetail(){
+  var id = state.params.id;
+  var r = state.recipes.find(function(x){ return x.id===id; });
+  if(!r) return renderRecipesList();
+  var nutri = calcRecipeNutrition(r);
+  var labels = {calories:t('nutriCalories'),protein:t('nutriProtein'),fat:t('nutriFat'),carbs:t('nutriCarbs'),fiber:t('nutriFiber'),sugar:t('nutriSugar'),sodium:t('nutriSodium')};
+  var units = {calories:'kcal',protein:'g',fat:'g',carbs:'g',fiber:'g',sugar:'g',sodium:'mg'};
+  function block(title, data){
+    return '<div style="margin-bottom:14px;"><div style="font-size:13px;font-weight:600;color:var(--almond);margin-bottom:8px;">'+title+'</div><div class="nutri-grid">'+
+      NUTRI_KEYS.map(function(k){
+        return '<div class="nutri-cell"><div class="val">'+fmtNum(data[k], k==='calories'?0:1)+' <span class="unit">'+units[k]+'</span></div><div class="lbl">'+labels[k]+'</div></div>';
+      }).join('')+'</div></div>';
+  }
+  var nutriHtml = block(t('perTotal'), nutri.total) + block(t('perServing'), nutri.perServing);
+  if(nutri.per100g) nutriHtml += block(t('per100g'), nutri.per100g);
+  var ingHtml = (r.ingredients||[]).map(function(ri){
+    return '<div class="ing-row" style="cursor:default;"><div class="ing-info"><div class="ing-name">'+esc(ri.name_snapshot)+'</div><div class="ing-amt">'+fmtNum(ri.amount,1)+' '+esc(ri.unit)+'</div></div></div>';
+  }).join('');
+  return '' +
+  '<div class="page-header">'+
+    '<button class="back-btn" onclick="navigate(\'recipes\')">'+ic('back',22)+'</button>'+
+    '<h1>'+esc(r.name)+'</h1>'+
+    '<button class="icon-btn" onclick="openRecipeForm('+aj(r.id)+')">'+ic('edit',18)+'</button>'+
+  '</div>'+
+  '<div class="content">'+
+    '<p style="color:var(--deep-caramel);font-size:14px;margin-bottom:16px;">'+r.servings+' '+t('fieldServings')+' · '+(r.ingredients||[]).length+' '+t('sectionIngredients')+'</p>'+
+    '<div class="section-title" style="margin-top:0;">'+t('nutritionSummary')+'</div>'+
+    '<div class="form-group">'+nutriHtml+
+      (nutri.warnings && nutri.warnings.length ? '<p class="hint" style="color:var(--warn);">'+(state.lang==='zh'?'部分食材未计入(单位无法换算)：':'Excluded (unit not convertible): ')+nutri.warnings.map(esc).join('、')+'</p>' : '')+
+    '</div>'+
+    '<div class="section-title">'+t('sectionIngredients')+'</div>'+
+    '<div class="form-group">'+(ingHtml||('<p class="hint">'+t('noIngredientsYet')+'</p>'))+'</div>'+
+    (r.instructions ? '<div class="section-title">'+t('fieldInstructions')+'</div><div class="form-group"><p style="font-size:14.5px;line-height:1.7;white-space:pre-wrap;">'+esc(r.instructions)+'</p></div>' : '')+
+    '<button class="btn btn-primary" style="margin-top:18px;" onclick="openCookConfirm('+aj(r.id)+')">'+t('cookThis')+'</button>'+
+    '<button class="btn btn-danger" style="margin-top:10px;" onclick="deleteRecipeDetail('+aj(r.id)+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
+  '</div>'+
+  bottomNav();
+}
+function deleteRecipeDetail(id){
+  if(!confirm(t('deleteConfirm'))) return;
+  state.recipes = state.recipes.filter(function(r){ return r.id!==id; });
+  saveRecipes();
+  navigate('recipes');
+}
+function openCookConfirm(recipeId){
+  var r = state.recipes.find(function(x){ return x.id===recipeId; });
+  var lines = r.ingredients.map(function(ri){
+    if(ri.source_type==='external'){
+      return {text: esc(ri.name_snapshot)+': '+fmtNum(ri.amount,1)+' '+esc(ri.unit), note:t('cookConfirmNone')};
+    }
+    var item = state.items.find(function(i){ return i.id===ri.source_id; });
+    if(!item){
+      return {text: esc(ri.name_snapshot)+': '+fmtNum(ri.amount,1)+' '+esc(ri.unit), note:(state.lang==='zh'?'(已从库存中移除)':'(removed from inventory)')};
+    }
+    var canDeduct = (ri.unit===item.primary_unit) || (item.secondary_unit && ri.unit===item.secondary_unit && item.secondary_qty!=null);
+    return {text: esc(item.name)+': '+fmtNum(ri.amount,1)+' '+esc(ri.unit), note: canDeduct?'':t('cookConfirmNoConversion')};
+  });
+  var bodyHtml = '<p class="hint" style="margin-bottom:14px;">'+t('cookConfirmHint')+'</p>' +
+    lines.map(function(l){
+      return '<div class="list-row"><div><div class="row-label" style="font-size:15px;">'+l.text+'</div>'+(l.note?'<div class="row-sub" style="color:var(--warn);">'+l.note+'</div>':'')+'</div></div>';
+    }).join('') +
+    '<button class="btn btn-primary" style="margin-top:14px;" onclick="confirmCook('+aj(recipeId)+')">'+t('cookConfirmBtn')+'</button>';
+  showModal(t('cookConfirmTitle'), bodyHtml);
+}
+function confirmCook(recipeId){
+  var r = state.recipes.find(function(x){ return x.id===recipeId; });
+  r.ingredients.forEach(function(ri){
+    if(ri.source_type!=='inventory') return;
+    var item = state.items.find(function(i){ return i.id===ri.source_id; });
+    if(!item) return;
+    deductFromItem(item, ri.amount, ri.unit);
+  });
+  saveItems();
+  closeModal();
+  showToast(t('cookSuccess'));
+  render();
+}
+
+/* ======================= SETTINGS ======================= */
+function renderSettings(){
+  return '' +
+  '<div class="topbar"><div><h1>'+t('settingsTitle')+'</h1></div></div>'+
+  '<div class="content">'+
+    '<div class="section-title" style="margin-top:0;">'+t('language')+'</div>'+
+    '<div class="lang-toggle" style="margin-bottom:8px;">'+
+      '<button class="'+(state.lang==='zh'?'active':'')+'" onclick="setLang(\'zh\')">中文</button>'+
+      '<button class="'+(state.lang==='en'?'active':'')+'" onclick="setLang(\'en\')">English</button>'+
+    '</div>'+
+    '<div class="section-title">'+t('reminderDays')+'</div>'+
+    '<div class="form-group">'+
+      '<input type="number" inputmode="numeric" value="'+state.reminderDays+'" oninput="setReminderDays(this.value)" style="width:100%;font-size:16px;padding:13px 14px;border-radius:11px;border:1px solid var(--line);">'+
+      '<div class="hint">'+t('reminderDaysHint')+'</div>'+
+    '</div>'+
+    '<div class="section-title">'+(state.lang==='zh'?'分类与位置':'Categories & Locations')+'</div>'+
+    '<div class="list-row" onclick="navigate(\'manageTags\',{kind:\'category\'})" style="cursor:pointer;">'+
+      '<div class="row-label">'+t('manageCategories')+'</div>'+ic('chevronRight',18)+
+    '</div>'+
+    '<div class="list-row" onclick="navigate(\'manageTags\',{kind:\'location\'})" style="cursor:pointer;">'+
+      '<div class="row-label">'+t('manageLocations')+'</div>'+ic('chevronRight',18)+
+    '</div>'+
+    '<div class="section-title">'+t('sectionBackup')+'</div>'+
+    '<div class="form-group">'+
+      '<p class="hint" style="margin-bottom:14px;">'+t('backupHint')+'</p>'+
+      '<div style="font-size:13px;font-weight:600;color:var(--almond);margin-bottom:8px;">'+t('navHome')+'</div>'+
+      '<div class="btn-row" style="margin-bottom:16px;">'+
+        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="exportInventoryData()">'+ic('box',16)+' '+t('exportInventoryBtn')+'</button>'+
+        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="triggerImportInventory()">'+t('importInventoryBtn')+'</button>'+
+      '</div>'+
+      '<input type="file" accept="application/json,.json" id="import-inventory-input" style="display:none" onchange="onImportInventoryFile(this)">'+
+      '<div style="font-size:13px;font-weight:600;color:var(--almond);margin-bottom:8px;">'+t('navRecipes')+'</div>'+
+      '<div class="btn-row">'+
+        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="exportRecipesData()">'+ic('book',16)+' '+t('exportRecipesBtn')+'</button>'+
+        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="triggerImportRecipes()">'+t('importRecipesBtn')+'</button>'+
+      '</div>'+
+      '<input type="file" accept="application/json,.json" id="import-recipes-input" style="display:none" onchange="onImportRecipesFile(this)">'+
+    '</div>'+
+    '<div class="section-title">'+t('aboutTitle')+'</div>'+
+    '<div class="form-group"><p style="font-size:13.5px;line-height:1.7;color:var(--deep-caramel);">'+t('aboutText')+'</p></div>'+
+  '</div>'+
+  bottomNav();
+}
+function setLang(l){ state.lang=l; saveSettings(); render(); }
+function setReminderDays(v){
+  var n = parseInt(v,10);
+  state.reminderDays = isNaN(n) ? 0 : n;
+  saveSettings();
+}
+
+/* ======================= BACKUP / RESTORE ======================= */
+function downloadJSON(filename, dataObj){
+  var blob = new Blob([JSON.stringify(dataObj, null, 2)], {type:'application/json'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+}
+function exportInventoryData(){
+  var payload = {
+    type: 'pantry_inventory_backup',
+    version: 1,
+    exported_at: new Date().toISOString(),
+    items: state.items,
+    categories: state.categories,
+    locations: state.locations
+  };
+  downloadJSON('pantry-inventory-backup-'+todayStr()+'.json', payload);
+  showToast(state.lang==='zh' ? '库存数据已导出' : 'Inventory data exported');
+}
+function exportRecipesData(){
+  var payload = {
+    type: 'pantry_recipes_backup',
+    version: 1,
+    exported_at: new Date().toISOString(),
+    recipes: state.recipes,
+    ingredients: state.ingredients
+  };
+  downloadJSON('pantry-recipes-backup-'+todayStr()+'.json', payload);
+  showToast(state.lang==='zh' ? '食谱数据已导出' : 'Recipes data exported');
+}
+function triggerImportInventory(){ var el=document.getElementById('import-inventory-input'); if(el) el.click(); }
+function triggerImportRecipes(){ var el=document.getElementById('import-recipes-input'); if(el) el.click(); }
+var _pendingImport = null;
+
+// Union-merge by id: records only on one side are kept as-is; records on both sides keep
+// whichever copy has the newer updated_at (falling back to created_at, then just keeping
+// the existing copy if neither side has a timestamp). Nothing is ever deleted by a merge -
+// see the UI copy for the one honest caveat this implies (see importMergeCaveat).
+function mergeById(existingList, incomingList){
+  var map = {}, order = [];
+  (existingList||[]).forEach(function(r){ if(!(r.id in map)) order.push(r.id); map[r.id]=r; });
+  (incomingList||[]).forEach(function(incoming){
+    var existing = map[incoming.id];
+    if(!existing){
+      order.push(incoming.id);
+      map[incoming.id] = incoming;
+    } else {
+      var et = existing.updated_at || existing.created_at || '';
+      var it = incoming.updated_at || incoming.created_at || '';
+      if(it > et) map[incoming.id] = incoming;
+    }
+  });
+  return order.map(function(id){ return map[id]; });
+}
+function mergeStringArrays(existing, incoming){
+  var seen = {}, out = [];
+  (existing||[]).concat(incoming||[]).forEach(function(s){
+    if(s && !seen[s]){ seen[s]=true; out.push(s); }
+  });
+  return out;
+}
+function openImportConfirmModal(kind, data, count){
+  _pendingImport = {kind:kind, data:data};
+  var msgKey = kind==='inventory' ? 'importInventoryConfirmMsg' : 'importRecipesConfirmMsg';
+  var msg = t(msgKey).replace('{n}', count);
+  var meta = data.exported_at ? ('<p class="hint" style="margin-bottom:10px;">'+t('exportedOn')+': '+esc(new Date(data.exported_at).toLocaleString())+'</p>') : '';
+  var body = meta +
+    '<p class="hint" style="margin-bottom:16px;">'+esc(msg)+'</p>'+
+    '<button class="btn btn-primary" style="margin-bottom:10px;" onclick="confirmImport(\'merge\')">'+t('importMergeBtn')+'</button>'+
+    '<p class="hint" style="margin-bottom:16px;color:var(--warn);">'+t('importMergeCaveat')+'</p>'+
+    '<button class="btn btn-danger" onclick="confirmImport(\'replace\')">'+t('importReplaceBtn')+'</button>';
+  showModal(t('importConfirmTitle'), body);
+}
+function onImportInventoryFile(input){
+  var file = input.files && input.files[0];
+  if(!file) return;
+  var reader = new FileReader();
+  reader.onload = function(){
+    input.value = '';
+    var data;
+    try{ data = JSON.parse(reader.result); }catch(e){ showToast(t('importParseError')); return; }
+    if(!data || data.type !== 'pantry_inventory_backup' || !Array.isArray(data.items)){
+      showToast(t('importWrongFile')); return;
+    }
+    openImportConfirmModal('inventory', data, data.items.length);
+  };
+  reader.readAsText(file);
+}
+function onImportRecipesFile(input){
+  var file = input.files && input.files[0];
+  if(!file) return;
+  var reader = new FileReader();
+  reader.onload = function(){
+    input.value = '';
+    var data;
+    try{ data = JSON.parse(reader.result); }catch(e){ showToast(t('importParseError')); return; }
+    if(!data || data.type !== 'pantry_recipes_backup' || !Array.isArray(data.recipes)){
+      showToast(t('importWrongFile')); return;
+    }
+    openImportConfirmModal('recipes', data, data.recipes.length);
+  };
+  reader.readAsText(file);
+}
+function confirmImport(mode){
+  if(!_pendingImport) return;
+  var data = _pendingImport.data;
+  if(_pendingImport.kind === 'inventory'){
+    if(mode === 'merge'){
+      state.items = mergeById(state.items, data.items||[]);
+      state.categories = mergeStringArrays(state.categories, data.categories||[]);
+      state.locations = mergeStringArrays(state.locations, data.locations||[]);
+    } else {
+      state.items = data.items || [];
+      state.categories = (data.categories && data.categories.length) ? data.categories : DEFAULT_CATEGORIES.slice();
+      state.locations = (data.locations && data.locations.length) ? data.locations : DEFAULT_LOCATIONS.slice();
+    }
+    saveItems(); saveCategories(); saveLocations();
+  } else if(_pendingImport.kind === 'recipes'){
+    if(mode === 'merge'){
+      state.recipes = mergeById(state.recipes, data.recipes||[]);
+      state.ingredients = mergeById(state.ingredients, data.ingredients||[]);
+    } else {
+      state.recipes = data.recipes || [];
+      state.ingredients = data.ingredients || [];
+    }
+    saveRecipes(); saveIngredients();
+  }
+  _pendingImport = null;
+  closeModal();
+  showToast(t('importSuccess'));
+  render();
+}
+
+/* ======================= MANAGE TAGS ======================= */
+function renderManageTags(){
+  var kind = state.params.kind || 'category';
+  var list = kind==='category' ? state.categories : state.locations;
+  var title = kind==='category' ? t('manageCategoriesTitle') : t('manageLocationsTitle');
+  var ph = kind==='category' ? t('addCategoryPh') : t('addLocationPh');
+  var rows = list.map(function(name){
+    return '<div class="list-row"><div class="row-label">'+esc(name)+'</div>'+
+      '<button class="row-del" onclick="deleteTagItem('+aj(kind)+','+aj(name)+')">'+ic('trash',18)+'</button></div>';
+  }).join('') || '<p class="hint">'+(state.lang==='zh'?'还没有标签':'No tags yet')+'</p>';
+  return '' +
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'settings\')">'+ic('back',22)+'</button><h1>'+title+'</h1></div>'+
+  '<div class="content">'+
+    rows+
+    '<div class="field-row" style="margin-top:16px;">'+
+      '<input type="text" id="new-tag-manage-input" placeholder="'+ph+'" style="flex:1;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);">'+
+      '<button class="btn btn-primary btn-sm" onclick="addTagManage('+aj(kind)+')">'+t('add')+'</button>'+
+    '</div>'+
+  '</div>';
+}
+function addTagManage(kind){
+  var el = document.getElementById('new-tag-manage-input');
+  var val = el ? el.value.trim() : '';
+  if(!val) return;
+  var list = kind==='category' ? state.categories : state.locations;
+  if(list.indexOf(val)===-1){
+    list.push(val);
+    if(kind==='category') saveCategories(); else saveLocations();
+  }
+  render();
+}
+function deleteTagItem(kind, name){
+  var inUse = state.items.some(function(i){ return kind==='category' ? i.category===name : i.location===name; });
+  if(inUse && !confirm(t('tagInUseWarning'))) return;
+  if(kind==='category'){
+    state.categories = state.categories.filter(function(c){ return c!==name; });
+    state.items.forEach(function(i){ if(i.category===name) i.category=''; });
+    saveCategories(); saveItems();
+  } else {
+    state.locations = state.locations.filter(function(l){ return l!==name; });
+    state.items.forEach(function(i){ if(i.location===name) i.location=''; });
+    saveLocations(); saveItems();
+  }
+  render();
+}
+
+/* ======================= AFTER RENDER HOOK ======================= */
+function afterRender(){
+  if(state.view === 'scan'){
+    startScan();
+  }
+}
+
+/* ======================= INIT / BOOTSTRAP ======================= */
+function renderLoading(){
+  return '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;color:var(--deep-caramel);gap:10px;">'+
+    '<div style="font-size:15px;">Loading…</div>'+
+  '</div>';
+}
+async function initApp(){
+  var app = document.getElementById('app');
+  app.innerHTML = renderLoading();
+  try{
+    await loadAll();
+  }catch(e){
+    console.error('init load failed', e);
+    state.loaded = true;
+  }
+  render();
+}
+if(document.readyState === 'loading'){
+  document.addEventListener('DOMContentLoaded', initApp);
+} else {
+  initApp();
+}
+window.addEventListener('pagehide', stopScan);
+window.addEventListener('beforeunload', stopScan);
+</script>
+</body>
+</html>
