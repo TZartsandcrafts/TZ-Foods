@@ -201,6 +201,8 @@
   .field input:focus, .field textarea:focus{ border-color:var(--almond); }
   .field textarea{ resize:vertical; min-height:70px; }
   .field-row{ display:flex; gap:10px; }
+  .field-row .field{ min-width:0; }
+  .field input[type=date]{ min-width:0; width:100%; -webkit-appearance:none; appearance:none; }
   .field-row .field{ flex:1; }
   .tag-select{ display:flex; flex-wrap:wrap; gap:8px; }
   .tag-option{
@@ -319,6 +321,11 @@ var I18N = {
     nutriCalories:'热量', nutriProtein:'蛋白质', nutriFat:'脂肪', nutriCarbs:'碳水化合物',
     nutriFiber:'膳食纤维', nutriSugar:'糖', nutriSodium:'钠',
     manuallyEdited:'已手动修正',
+    nutriBasisAmount:'营养数值对应的量', nutriBasisUnit:'单位',
+    nutriBasisHint:'包装上营养表如果不是按每100g/100ml标注的（比如"每88g"、"每份"），把包装上写的具体重量填在这里，下面直接填包装上印的原始数值，保存时会自动换算成每100g/100ml存储。',
+    expiryModeDirect:'直接填写', expiryModeCalc:'生产日期+保质期',
+    fieldProductionDate:'生产日期', fieldShelfLife:'保质期',
+    computedExpiryPrefix:'自动计算出的有效期至：',
     aiExtracted:'AI识别，请核对',
     sectionPhotoCapture:'拍照识别',
     photoCaptureHint:'拍摄食品包装或营养成分表，自动识别名称与营养信息',
@@ -419,6 +426,11 @@ var I18N = {
     nutriCalories:'Calories', nutriProtein:'Protein', nutriFat:'Fat', nutriCarbs:'Carbs',
     nutriFiber:'Fiber', nutriSugar:'Sugar', nutriSodium:'Sodium',
     manuallyEdited:'Edited',
+    nutriBasisAmount:'These values are per', nutriBasisUnit:'Unit',
+    nutriBasisHint:'If the label\'s nutrition table isn\'t per 100g/100ml (e.g. "per 88g" or "per serving"), enter that exact amount here and type the numbers straight off the label below — they\'ll be auto-converted to per 100g/100ml on save.',
+    expiryModeDirect:'Enter directly', expiryModeCalc:'Production date + shelf life',
+    fieldProductionDate:'Production date', fieldShelfLife:'Shelf life',
+    computedExpiryPrefix:'Calculated best-before date:',
     aiExtracted:'AI extracted, please verify',
     sectionPhotoCapture:'Photo recognition',
     photoCaptureHint:'Take a photo of the package or nutrition label to auto-fill name and nutrition',
@@ -855,9 +867,6 @@ function renderHome(){
   return '' +
   '<div class="topbar">'+
     '<div><h1>'+t('appName')+'</h1><div class="sub">'+t('appSub')+'</div></div>'+
-    '<div class="topbar-actions">'+
-      '<div class="icon-btn" onclick="toggleLang()" title="EN/中">'+(state.lang==='zh'?'EN':'中')+'</div>'+
-    '</div>'+
   '</div>'+
   '<div class="content">'+
     '<div class="search-bar">'+ic('search',19)+
@@ -924,6 +933,7 @@ function blankItemDraft(){
     primary_qty:1, primary_unit:'g',
     secondary_qty:null, secondary_unit:'', unit_ratio:null, last_recount_at:null,
     expiry_date:'', purchase_date: todayStr(), price:'',
+    production_date:'', shelf_life_amount:null, shelf_life_unit:'days',
     notes:'', nutrition: emptyNutrition(), nutrition_edited:false,
     photo_url:'', created_at: todayStr(), updated_at: new Date().toISOString()
   };
@@ -938,7 +948,7 @@ function openItemForm(id, prefill){
     if(prefill) Object.assign(state.itemDraft, prefill);
   }
   state.itemDraft._isNew = !id;
-  state.itemFormUI = { addingCategory:false, addingLocation:false, showSecondary: !!(state.itemDraft.secondary_unit) };
+  state.itemFormUI = { addingCategory:false, addingLocation:false, showSecondary: !!(state.itemDraft.secondary_unit), nutriBasisAmount:100, nutriBasisUnit:'g', expiryMode: state.itemDraft.production_date ? 'calc' : 'direct' };
   navigate('itemForm', {id:id});
 }
 function unitPills(fieldPath, current){
@@ -989,14 +999,94 @@ function toggleSecondaryUnit(){
   }
   render();
 }
+/* ---- expiry date: "direct entry" vs "production date + shelf life" ---- */
+var SHELF_LIFE_UNITS = ['days','weeks','months','years'];
+function shelfLifeUnitLabel(u){
+  var map = {
+    days:{zh:'天',en:'days'}, weeks:{zh:'周',en:'weeks'},
+    months:{zh:'个月',en:'months'}, years:{zh:'年',en:'years'}
+  };
+  return map[u][state.lang];
+}
+function addToDate(dateStr, amount, unit){
+  if(!dateStr || !amount) return '';
+  var d = new Date(dateStr+'T00:00:00');
+  if(isNaN(d.getTime())) return '';
+  if(unit==='days') d.setDate(d.getDate()+amount);
+  else if(unit==='weeks') d.setDate(d.getDate()+amount*7);
+  else if(unit==='months') d.setMonth(d.getMonth()+amount);
+  else if(unit==='years') d.setFullYear(d.getFullYear()+amount);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function setExpiryMode(mode){
+  state.itemFormUI.expiryMode = mode;
+  render();
+}
+function d_production_date(val){
+  state.itemDraft.production_date = val;
+  recomputeExpiryFromProduction();
+}
+function d_shelf_life_amount(val){
+  state.itemDraft.shelf_life_amount = val===''? null : parseFloat(val);
+  recomputeExpiryFromProduction();
+}
+function setShelfLifeUnit(u){
+  state.itemDraft.shelf_life_unit = u;
+  recomputeExpiryFromProduction();
+  render();
+}
+function recomputeExpiryFromProduction(){
+  var d = state.itemDraft;
+  if(d.production_date && d.shelf_life_amount){
+    d.expiry_date = addToDate(d.production_date, d.shelf_life_amount, d.shelf_life_unit||'days');
+    var el = document.getElementById('computed-expiry-preview');
+    if(el) el.textContent = d.expiry_date ? (t('computedExpiryPrefix')+' '+d.expiry_date) : '';
+  }
+}
+function expiryFieldHtml(d, ui){
+  var mode = ui.expiryMode || 'direct';
+  var toggle = '<div class="field"><label>'+t('fieldExpiry')+'</label>'+
+    '<div class="tag-select" style="margin-bottom:10px;">'+
+      '<div class="tag-option '+(mode==='direct'?'active':'')+'" onclick="setExpiryMode(\'direct\')">'+t('expiryModeDirect')+'</div>'+
+      '<div class="tag-option '+(mode==='calc'?'active':'')+'" onclick="setExpiryMode(\'calc\')">'+t('expiryModeCalc')+'</div>'+
+    '</div></div>';
+  if(mode==='direct'){
+    return toggle + '<input type="date" value="'+esc(d.expiry_date)+'" oninput="d_str(\'expiry_date\',this.value)">' +
+      '<div style="margin-bottom:18px;"></div>';
+  }
+  var pills = SHELF_LIFE_UNITS.map(function(u){
+    return '<div class="tag-option '+((d.shelf_life_unit||'days')===u?'active':'')+'" onclick="setShelfLifeUnit('+aj(u)+')">'+shelfLifeUnitLabel(u)+'</div>';
+  }).join('');
+  return toggle +
+    '<div class="field-row">'+
+      '<div class="field"><label>'+t('fieldProductionDate')+'</label><input type="date" value="'+esc(d.production_date||'')+'" oninput="d_production_date(this.value)"></div>'+
+      '<div class="field"><label>'+t('fieldShelfLife')+'</label><input type="number" inputmode="decimal" value="'+(d.shelf_life_amount==null?'':d.shelf_life_amount)+'" oninput="d_shelf_life_amount(this.value)"></div>'+
+    '</div>'+
+    '<div class="tag-select" style="margin-bottom:8px;">'+pills+'</div>'+
+    '<div class="hint" id="computed-expiry-preview" style="margin-bottom:18px;">'+(d.expiry_date?(t('computedExpiryPrefix')+' '+d.expiry_date):'')+'</div>';
+}
 function nutriFieldsHtml(draftPath){
   var labels = {calories:t('nutriCalories'),protein:t('nutriProtein'),fat:t('nutriFat'),carbs:t('nutriCarbs'),fiber:t('nutriFiber'),sugar:t('nutriSugar'),sodium:t('nutriSodium')};
   var units = {calories:'kcal',protein:'g',fat:'g',carbs:'g',fiber:'g',sugar:'g',sodium:'mg'};
-  return '<div class="nutri-grid">'+NUTRI_KEYS.map(function(k){
+  var basisAmount = state.itemFormUI.nutriBasisAmount;
+  var basisUnit = state.itemFormUI.nutriBasisUnit;
+  var basisRow = '' +
+    '<div class="field-row" style="margin-bottom:14px;">'+
+      '<div class="field" style="margin-bottom:0;"><label>'+t('nutriBasisAmount')+'</label><input type="number" inputmode="decimal" id="nutri-basis-amount" value="'+basisAmount+'" oninput="setNutriBasisAmount(this.value)"></div>'+
+      '<div class="field" style="margin-bottom:0;"><label>'+t('nutriBasisUnit')+'</label><div class="tag-select">'+['g','ml'].map(function(u){ return '<div class="tag-option '+(basisUnit===u?'active':'')+'" onclick="setNutriBasisUnit('+aj(u)+')">'+u+'</div>'; }).join('')+'</div></div>'+
+    '</div>'+
+    '<div class="hint" style="margin-top:-6px;margin-bottom:14px;">'+t('nutriBasisHint')+'</div>';
+  var grid = '<div class="nutri-grid">'+NUTRI_KEYS.map(function(k){
     return '<div class="field" style="margin-bottom:0;"><label>'+labels[k]+' <span style="color:#B79B78;font-weight:400;">('+units[k]+')</span></label>'+
       '<input type="number" inputmode="decimal" value="'+(draftPath.nutrition[k]||0)+'" oninput="onNutriInput('+aj(k)+',this.value)"></div>';
   }).join('')+'</div>';
+  return basisRow + grid;
 }
+function setNutriBasisAmount(v){
+  var n = parseFloat(v);
+  state.itemFormUI.nutriBasisAmount = (v==='') ? null : (isNaN(n)? null : n);
+}
+function setNutriBasisUnit(u){ state.itemFormUI.nutriBasisUnit = u; render(); }
 function onNutriInput(key, val){
   state.itemDraft.nutrition[key] = parseFloat(val)||0;
   state.itemDraft.nutrition_edited = true;
@@ -1041,10 +1131,8 @@ function renderItemForm(){
     '</div>'+
     '<div class="section-title">'+t('sectionOther')+'</div>'+
     '<div class="form-group">'+
-      '<div class="field-row">'+
-        '<div class="field"><label>'+t('fieldExpiry')+'</label><input type="date" value="'+esc(d.expiry_date)+'" oninput="d_str(\'expiry_date\',this.value)"></div>'+
-        '<div class="field"><label>'+t('fieldPurchaseDate')+'</label><input type="date" value="'+esc(d.purchase_date)+'" oninput="d_str(\'purchase_date\',this.value)"></div>'+
-      '</div>'+
+      expiryFieldHtml(d, ui)+
+      '<div class="field"><label>'+t('fieldPurchaseDate')+'</label><input type="date" value="'+esc(d.purchase_date)+'" oninput="d_str(\'purchase_date\',this.value)"></div>'+
       '<div class="field"><label>'+t('fieldPrice')+'</label><input type="number" inputmode="decimal" value="'+(d.price||'')+'" oninput="d_num(\'price\',this.value)"></div>'+
       '<div class="field" style="margin-bottom:0;"><label>'+t('fieldNotes')+'</label><textarea placeholder="'+t('fieldNotesPh')+'" oninput="d_str(\'notes\',this.value)">'+esc(d.notes)+'</textarea></div>'+
     '</div>'+
@@ -1066,6 +1154,11 @@ function saveItemForm(){
   if(d.secondary_qty!=null && d.secondary_unit && d.unit_ratio==null && d.primary_qty){
     d.unit_ratio = d.primary_qty / (d.secondary_qty||1);
     d.last_recount_at = todayStr();
+  }
+  var basisAmount = state.itemFormUI && state.itemFormUI.nutriBasisAmount;
+  if(basisAmount && basisAmount > 0 && basisAmount !== 100){
+    var factor = 100 / basisAmount;
+    NUTRI_KEYS.forEach(function(k){ d.nutrition[k] = (d.nutrition[k]||0) * factor; });
   }
   d.updated_at = new Date().toISOString();
   var idx = state.items.findIndex(function(i){ return i.id===d.id; });
@@ -1298,8 +1391,11 @@ async function lookupBarcode(barcode){
     if(data && data.status===1 && data.product){
       var p = data.product;
       var nut = p.nutriments || {};
+      var pickedName = state.lang==='zh'
+        ? (p.product_name_zh || p.product_name_en || p.product_name || p.generic_name_zh || p.generic_name_en || p.generic_name || '')
+        : (p.product_name_en || p.product_name || p.generic_name_en || p.generic_name || '');
       return {
-        name: p.product_name || p.product_name_zh || p.generic_name || '',
+        name: pickedName,
         brand: p.brands || '',
         photo_url: p.image_url || p.image_front_url || '',
         nutrition: {
@@ -1365,9 +1461,7 @@ async function analyzePhotoForItem(base64Data, mimeType){
   ].join('\n');
   // Standalone build: calls YOUR OWN backend proxy (configured in Settings) instead of
   // api.anthropic.com directly, since a browser can't safely call the Anthropic API
-  // client-side (no CORS, and an API key would be exposed). The proxy is expected to accept
-  // this same {model,max_tokens,messages} body and return the raw Anthropic Messages API
-  // response shape. See README.md for a minimal example proxy.
+  // client-side (no CORS, and an API key would be exposed). See README.md.
   var res = await fetch(state.aiProxyUrl, {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
@@ -2076,7 +2170,7 @@ async function requestPersistentStorage(){
       var already = await navigator.storage.persisted();
       state.storagePersisted = already || await navigator.storage.persist();
     } else {
-      state.storagePersisted = null; // API not supported on this browser
+      state.storagePersisted = null;
     }
   }catch(e){
     state.storagePersisted = null;
