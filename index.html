@@ -351,6 +351,8 @@ var I18N = {
     scanLookingUp:'正在查询商品信息…', scanNotFound:'未查询到商品信息，请手动填写',
     scanFoundLocal:'在本地历史记录中找到', scanFoundOFF:'已从开放食品数据库获取信息',
     scanUnsupported:'此浏览器不支持自动扫码识别，请手动输入条码或直接手动添加食材',
+    scanLoadingLib:'首次使用扫码，正在加载识别组件（需要联网，几秒钟）…',
+    scanLibLoadError:'识别组件加载失败（请检查网络），可手动输入条码',
     scanCameraError:'无法访问摄像头，请检查权限设置，或手动输入条码',
     barcodeInputPh:'输入条码数字后查询',
     lookupBtn:'查询',
@@ -454,6 +456,8 @@ var I18N = {
     scanLookingUp:'Looking up product…', scanNotFound:'No product found, please fill in manually',
     scanFoundLocal:'Found in local history', scanFoundOFF:'Fetched from Open Food Facts',
     scanUnsupported:'This browser does not support auto barcode scanning. Please enter the barcode manually or add the item manually.',
+    scanLoadingLib:'Loading the scanner component for the first time (needs network, a few seconds)…',
+    scanLibLoadError:'Scanner component failed to load (check your network) — you can still enter the barcode manually',
     scanCameraError:'Could not access camera. Check permissions or enter barcode manually.',
     barcodeInputPh:'Enter barcode digits to look up',
     lookupBtn:'Look up',
@@ -1301,28 +1305,27 @@ async function startScan(){
     setScanStatus(t('scanCameraError'));
     return;
   }
-  try{
-    var stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}, audio:false});
-    scanCtx.stream = stream;
-    video.srcObject = stream;
-    await video.play();
-  }catch(e){
-    setScanStatus(t('scanCameraError'));
-    return;
+  if('BarcodeDetector' in window){
+    try{
+      var stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}, audio:false});
+      scanCtx.stream = stream;
+      video.srcObject = stream;
+      await video.play();
+      var formats = await window.BarcodeDetector.getSupportedFormats();
+      var detector = new window.BarcodeDetector({formats: formats});
+      scanCtx.detecting = true;
+      setScanStatus(t('scanHintCamera'));
+      detectLoop(video, detector);
+      return;
+    }catch(e){
+      setScanStatus(t('scanCameraError'));
+      return;
+    }
   }
-  if(!('BarcodeDetector' in window)){
-    setScanStatus(t('scanUnsupported'));
-    return;
-  }
-  try{
-    var formats = await window.BarcodeDetector.getSupportedFormats();
-    var detector = new window.BarcodeDetector({formats: formats});
-    scanCtx.detecting = true;
-    setScanStatus(t('scanHintCamera'));
-    detectLoop(video, detector);
-  }catch(e){
-    setScanStatus(t('scanUnsupported'));
-  }
+  // Native BarcodeDetector isn't available (this is the normal case on iOS Safari, since
+  // WebKit hasn't implemented the Shape Detection API). Fall back to a pure-JS decoder
+  // (ZXing) loaded on demand - it processes camera frames itself, no native API needed.
+  startZXingScan(video);
 }
 function detectLoop(video, detector){
   if(!scanCtx.detecting) return;
@@ -1338,6 +1341,43 @@ function detectLoop(video, detector){
     if(scanCtx.detecting) scanCtx.raf = requestAnimationFrame(function(){ detectLoop(video, detector); });
   });
 }
+var _zxingLoadPromise = null;
+function loadZXing(){
+  if(window.ZXingBrowser) return Promise.resolve();
+  if(_zxingLoadPromise) return _zxingLoadPromise;
+  _zxingLoadPromise = new Promise(function(resolve, reject){
+    var s = document.createElement('script');
+    s.src = 'https://unpkg.com/@zxing/browser@latest';
+    s.onload = function(){ resolve(); };
+    s.onerror = function(){ _zxingLoadPromise = null; reject(new Error('zxing load failed')); };
+    document.head.appendChild(s);
+  });
+  return _zxingLoadPromise;
+}
+async function startZXingScan(video){
+  setScanStatus(t('scanLoadingLib'));
+  try{
+    await loadZXing();
+  }catch(e){
+    setScanStatus(t('scanLibLoadError'));
+    return;
+  }
+  try{
+    var codeReader = new ZXingBrowser.BrowserMultiFormatReader();
+    scanCtx.detecting = true;
+    setScanStatus(t('scanHintCamera'));
+    var controls = await codeReader.decodeFromVideoDevice(undefined, video, function(result){
+      if(result && scanCtx.detecting){
+        scanCtx.detecting = false;
+        if(scanCtx.zxingControls){ try{ scanCtx.zxingControls.stop(); }catch(e2){} scanCtx.zxingControls=null; }
+        onBarcodeDetected(result.getText());
+      }
+    });
+    scanCtx.zxingControls = controls;
+  }catch(e){
+    setScanStatus(t('scanCameraError'));
+  }
+}
 function stopScan(){
   scanCtx.detecting = false;
   if(scanCtx.raf) cancelAnimationFrame(scanCtx.raf);
@@ -1345,6 +1385,10 @@ function stopScan(){
   if(scanCtx.stream){
     scanCtx.stream.getTracks().forEach(function(tr){ tr.stop(); });
     scanCtx.stream = null;
+  }
+  if(scanCtx.zxingControls){
+    try{ scanCtx.zxingControls.stop(); }catch(e){}
+    scanCtx.zxingControls = null;
   }
 }
 function setScanStatus(msg){
