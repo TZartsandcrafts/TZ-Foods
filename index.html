@@ -137,7 +137,7 @@
   .item-icon{
     width:46px; height:46px; border-radius:11px; background:var(--cream);
     display:flex; align-items:center; justify-content:center; flex-shrink:0;
-    font-size:22px; color:var(--deep-caramel);
+    font-size:22px; color:var(--deep-caramel); overflow:hidden;
   }
   .item-info{ flex:1; min-width:0; }
   .item-name{ font-size:16px; font-weight:500; color:var(--cocoa); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -168,11 +168,20 @@
   .nav-item i{ font-size:23px; }
   .nav-item.active{ color:var(--deep-caramel); }
   .nav-scan{
-    width:54px; height:54px; border-radius:50%; background:var(--almond);
+    width:64px; height:64px; border-radius:50%; background:var(--almond);
     display:flex; align-items:center; justify-content:center; color:#fff;
-    margin-top:-26px; box-shadow:0 3px 8px rgba(139,90,43,0.35); flex:none;
+    margin-top:-30px; box-shadow:0 3px 10px rgba(139,90,43,0.4); flex:none;
+    border:4px solid var(--card-bg);
   }
-  .nav-scan i{ font-size:25px; }
+  .nav-scan i{ font-size:27px; }
+  .dup-badge{
+    font-size:11px; font-weight:500; color:var(--deep-caramel); background:var(--cream);
+    border-radius:8px; padding:1px 6px; margin-left:6px; vertical-align:1px; white-space:nowrap;
+  }
+  .photo-preview-wrap{ position:relative; width:100%; max-width:220px; }
+  .photo-preview{ width:100%; max-width:220px; border-radius:12px; display:block; border:1px solid var(--line); }
+  .photo-remove-btn{ position:absolute; top:6px; right:6px; width:30px; height:30px; background:rgba(0,0,0,0.55); color:#fff; border-color:transparent; }
+  .photo-upload-btn{ cursor:pointer; align-items:center; justify-content:center; }
 
   /* ---------- Buttons ---------- */
   .btn{
@@ -289,6 +298,7 @@
 /* ======================= CONSTANTS ======================= */
 var DEFAULT_CATEGORIES = ['调味料','面粉/谷物','罐头','零食','蔬果','肉类','乳制品','饮品','烘焙原料'];
 var DEFAULT_LOCATIONS = ['冰箱冷藏','冷冻柜','储藏柜','烘焙柜','厨房台面'];
+var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食谱笔记'];
 var UNIT_OPTIONS = ['g','kg','ml','l','个'];
 var OIL_TYPES = [
   {id:'vegetable', zh:'色拉油', en:'Vegetable oil', kcalPerG:8.8},
@@ -301,7 +311,8 @@ var NUTRI_KEYS = ['calories','protein','fat','carbs','fiber','sugar','sodium'];
 var I18N = {
   zh:{
     appName:'食材库存', appSub:'库存 · 食谱 · 营养',
-    navHome:'库存', navRecipes:'食谱', navScan:'扫码', navSettings:'设置',
+    navHome:'库存', navRecipes:'食谱', navScan:'扫码', navNotes:'笔记', navSettings:'设置',
+    remainingQtyLabel:'剩余',
     searchPlaceholder:'搜索食品名称 / 品牌',
     filterAll:'全部',
     sortLabel:'排序', sortExpiry:'有效期', sortName:'名称', sortPurchase:'购买日期',
@@ -406,10 +417,31 @@ var I18N = {
     tagInUseWarning:'仍有食材使用此标签，删除后这些食材将标记为"未分类"。',
     days:'天',
     unset:'未设置',
+    // photo upload
+    fieldPhoto:'图片', fieldPhotoUploadBtn:'上传/拍摄图片',
+    fieldPhotoHint:'图片会自动压缩后单独存入本机的 IndexedDB，不占用食材数据的存储空间；设置页导出备份时会自动把图片一起打包进去，恢复时也会自动带回来。',
+    photoProcessing:'正在处理图片…', photoTooLarge:'图片仍然偏大，请换一张更简单/更小的图片试试',
+    photoProcessFailed:'图片处理失败，请换一张试试',
+    // notes
+    navNotesTitle:'笔记',
+    notesTitle:'笔记', newNote:'新建笔记',
+    emptyNotes:'还没有笔记', emptyNotesHint:'点击下方按钮记录你的第一条心得吧',
+    searchNotesPlaceholder:'搜索笔记标题 / 内容',
+    noteFormTitleAdd:'新建笔记', noteFormTitleEdit:'编辑笔记',
+    fieldNoteTitle:'标题', fieldNoteTitlePh:'例如：这个牌子的酱油偏咸',
+    fieldNoteContent:'内容', fieldNoteContentPh:'记录你的心得、经验、改良建议…',
+    fieldNoteCategory:'笔记分类',
+    linkedItems:'关联食材', linkedRecipes:'关联食谱',
+    noLinkedItems:'库存中还没有食材可关联', noLinkedRecipes:'还没有食谱可关联',
+    noteUpdatedAt:'更新于',
+    manageNoteCategories:'管理笔记分类', manageNoteCategoriesTitle:'管理笔记分类', addNoteCategoryPh:'新分类名称',
+    exportNotesBtn:'导出笔记数据', importNotesBtn:'恢复笔记数据',
+    importNotesConfirmMsg:'检测到备份文件包含 {n} 条笔记。"合并"会保留当前设备和备份文件中的所有数据，同一条笔记以最近修改时间为准；"替换"会完全清空当前数据后用备份覆盖，无法撤销。',
   },
   en:{
     appName:'Pantry Tracker', appSub:'Inventory · Recipes · Nutrition',
-    navHome:'Inventory', navRecipes:'Recipes', navScan:'Scan', navSettings:'Settings',
+    navHome:'Inventory', navRecipes:'Recipes', navScan:'Scan', navNotes:'Notes', navSettings:'Settings',
+    remainingQtyLabel:'Remaining',
     searchPlaceholder:'Search name / brand',
     filterAll:'All',
     sortLabel:'Sort', sortExpiry:'Expiry', sortName:'Name', sortPurchase:'Purchase date',
@@ -508,6 +540,25 @@ var I18N = {
     tagInUseWarning:'Some items still use this tag. They will be marked "uncategorized" after deletion.',
     days:'days',
     unset:'Not set',
+    // photo upload
+    fieldPhoto:'Photo', fieldPhotoUploadBtn:'Add Photo',
+    fieldPhotoHint:'Photos are compressed and stored separately in this device\'s IndexedDB, so they don\'t take up space in your item data. Exporting a backup from Settings automatically bundles photos in, and restoring brings them back too.',
+    photoProcessing:'Processing image…', photoTooLarge:'Image is still too large, please try a smaller/simpler photo',
+    photoProcessFailed:'Failed to process image, please try another one',
+    // notes
+    notesTitle:'Notes', newNote:'New Note',
+    emptyNotes:'No notes yet', emptyNotesHint:'Tap the button below to add your first note',
+    searchNotesPlaceholder:'Search note title / content',
+    noteFormTitleAdd:'New Note', noteFormTitleEdit:'Edit Note',
+    fieldNoteTitle:'Title', fieldNoteTitlePh:'e.g. This soy sauce brand is quite salty',
+    fieldNoteContent:'Content', fieldNoteContentPh:'Write down your notes, tips, or adjustments…',
+    fieldNoteCategory:'Note Category',
+    linkedItems:'Linked Items', linkedRecipes:'Linked Recipes',
+    noLinkedItems:'No inventory items to link yet', noLinkedRecipes:'No recipes to link yet',
+    noteUpdatedAt:'Updated',
+    manageNoteCategories:'Manage Note Categories', manageNoteCategoriesTitle:'Manage Note Categories', addNoteCategoryPh:'New category name',
+    exportNotesBtn:'Export notes data', importNotesBtn:'Restore notes data',
+    importNotesConfirmMsg:'The backup file contains {n} notes. "Merge" keeps all data from both this device and the backup, using the most recently modified version of each note. "Replace" wipes current data and overwrites it with the backup - this cannot be undone.',
   }
 };
 
@@ -521,10 +572,15 @@ var state = {
   locations: DEFAULT_LOCATIONS.slice(),
   ingredients: [],
   recipes: [],
+  notes: [],
+  noteCategories: DEFAULT_NOTE_CATEGORIES.slice(),
+  noteDraft: null,
+  noteFormUI: {},
+  notesUI: { search:'', category:null },
   loaded: false,
   view: 'home',
   params: {},
-  home: { search:'', category:null, location:null, sort:'expiry' },
+  home: { search:'', category:null, location:null, sort:'expiry', sortDir:'asc' },
   scan: { running:false, stream:null, detector:null, resultDraft:null, mode:'camera' }
 };
 
@@ -556,7 +612,9 @@ async function loadAll(){
     storageGet('locations', DEFAULT_LOCATIONS.slice()),
     storageGet('ingredients', []),
     storageGet('recipes', []),
-    storageGet('settings', {lang:'zh', reminderDays:3})
+    storageGet('settings', {lang:'zh', reminderDays:3}),
+    storageGet('notes', []),
+    storageGet('noteCategories', DEFAULT_NOTE_CATEGORIES.slice())
   ]);
   state.items = results[0];
   state.categories = results[1];
@@ -566,6 +624,8 @@ async function loadAll(){
   state.lang = results[5].lang || 'zh';
   state.reminderDays = results[5].reminderDays != null ? results[5].reminderDays : 3;
   state.aiProxyUrl = results[5].aiProxyUrl || '';
+  state.notes = results[6];
+  state.noteCategories = (results[7] && results[7].length) ? results[7] : DEFAULT_NOTE_CATEGORIES.slice();
   state.loaded = true;
 }
 function saveItems(){ return storageSet('items', state.items); }
@@ -574,6 +634,111 @@ function saveLocations(){ return storageSet('locations', state.locations); }
 function saveIngredients(){ return storageSet('ingredients', state.ingredients); }
 function saveRecipes(){ return storageSet('recipes', state.recipes); }
 function saveSettings(){ return storageSet('settings', {lang:state.lang, reminderDays:state.reminderDays, aiProxyUrl:state.aiProxyUrl}); }
+function saveNotes(){ return storageSet('notes', state.notes); }
+function saveNoteCategories(){ return storageSet('noteCategories', state.noteCategories); }
+
+/* ---- Photo storage (IndexedDB) -----------------------------------------
+   Photos are kept OUT of localStorage entirely and stored as compressed base64
+   strings in IndexedDB instead. Each item only carries a lightweight reference
+   string in its `photo_url` field:
+     ''              -> no photo
+     'photo:<id>'     -> locally-uploaded photo, actual data lives in IndexedDB
+     'https://...'    -> remote photo (e.g. from an Open Food Facts barcode
+                         lookup); displayed directly, never touches IndexedDB
+   This keeps the localStorage item list small and fast to save/load regardless
+   of how many photos exist, and avoids ever hitting the (much smaller)
+   localStorage quota because of photos. See README for the full rationale. */
+var PHOTO_IDB = {
+  _db: null,
+  db: function(){
+    var self = this;
+    if(self._db) return Promise.resolve(self._db);
+    return new Promise(function(resolve, reject){
+      var req = indexedDB.open('pantry_photodb', 1);
+      req.onupgradeneeded = function(e){ e.target.result.createObjectStore('photos'); };
+      req.onsuccess = function(e){ self._db = e.target.result; resolve(self._db); };
+      req.onerror = function(e){ reject(e.target.error); };
+    });
+  },
+  get: function(id){
+    return this.db().then(function(db){
+      return new Promise(function(resolve, reject){
+        var tx = db.transaction('photos','readonly');
+        var r = tx.objectStore('photos').get(id);
+        r.onsuccess = function(e){ resolve(e.target.result || null); };
+        r.onerror = function(e){ reject(e.target.error); };
+      });
+    }).catch(function(){ return null; });
+  },
+  put: function(id, data){
+    return this.db().then(function(db){
+      return new Promise(function(resolve, reject){
+        var tx = db.transaction('photos','readwrite');
+        var r = tx.objectStore('photos').put(data, id);
+        r.onsuccess = function(){ resolve(id); };
+        r.onerror = function(e){ reject(e.target.error); };
+      });
+    });
+  },
+  del: function(id){
+    if(!id) return Promise.resolve();
+    return this.db().then(function(db){
+      return new Promise(function(resolve){
+        var tx = db.transaction('photos','readwrite');
+        var r = tx.objectStore('photos').delete(id);
+        r.onsuccess = function(){ resolve(); };
+        r.onerror = function(){ resolve(); };
+      });
+    }).catch(function(){});
+  },
+  isRef: function(s){ return !!(s && s.indexOf('photo:')===0); }
+};
+var photoCache = {}; // in-memory cache: id -> base64 data URL, populated as photos are hydrated
+function savePhotoToIDB(base64){
+  var id = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2,8);
+  return PHOTO_IDB.put(id, base64).then(function(){
+    photoCache[id] = base64;
+    return 'photo:'+id;
+  });
+}
+function deletePhotoRef(ref){
+  if(PHOTO_IDB.isRef(ref)){
+    var id = ref.slice(6);
+    delete photoCache[id];
+    PHOTO_IDB.del(id);
+  }
+}
+// Renders an <img> for a photo_url value. Local IndexedDB refs render as a
+// placeholder first (filled in asynchronously by hydratePhotos()); remote
+// URLs and already-cached local photos render immediately.
+function photoImgHtml(ref, styleStr, extraAttrs){
+  if(!ref) return '';
+  extraAttrs = extraAttrs || '';
+  if(PHOTO_IDB.isRef(ref)){
+    var id = ref.slice(6);
+    if(photoCache[id]) return '<img src="'+esc(photoCache[id])+'" '+extraAttrs+' style="'+styleStr+'">';
+    return '<img data-photo-ref="'+esc(ref)+'" '+extraAttrs+' style="'+styleStr+'background:var(--cream);">';
+  }
+  return '<img src="'+esc(ref)+'" '+extraAttrs+' style="'+styleStr+'">';
+}
+// Fills in any placeholder <img data-photo-ref> elements left by photoImgHtml
+// after they've been inserted into the DOM. Called from afterRender().
+function hydratePhotos(){
+  var imgs = document.querySelectorAll('img[data-photo-ref]');
+  imgs.forEach(function(img){
+    var ref = img.getAttribute('data-photo-ref');
+    var id = ref.slice(6);
+    if(photoCache[id]){
+      img.src = photoCache[id];
+      img.removeAttribute('data-photo-ref');
+      return;
+    }
+    PHOTO_IDB.get(id).then(function(data){
+      if(data){ photoCache[id] = data; img.src = data; }
+      img.removeAttribute('data-photo-ref');
+    });
+  });
+}
 
 /* ======================= UTIL ======================= */
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,9); }
@@ -770,7 +935,9 @@ var ICONS = {
   droplet:'<path d="M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11z"/>',
   scale:'<path d="M12 3v18"/><path d="M5 8h14"/><path d="M5 8l-2 6a3.5 3.5 0 0 0 7 0z"/><path d="M19 8l-2 6a3.5 3.5 0 0 0 7 0z"/>',
   egg:'<path d="M12 3C8 8 5 13 5 16a7 7 0 0 0 14 0c0-3-3-8-7-13z"/>',
-  camera:'<path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13.5" r="3.4"/>'
+  camera:'<path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13.5" r="3.4"/>',
+  note:'<path d="M6 3h9l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M15 3v5h5"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="15.5" x2="16" y2="15.5"/><line x1="8" y1="9" x2="11" y2="9"/>',
+  link:'<path d="M9 15l6-6"/><path d="M13 5l1.5-1.5a3.5 3.5 0 0 1 5 5L18 10"/><path d="M11 19l-1.5 1.5a3.5 3.5 0 0 1-5-5L6 14"/>'
 };
 function ic(name, size, extra){
   size = size||20;
@@ -807,6 +974,9 @@ function render(){
     case 'manageTags': html = renderManageTags(); break;
     case 'pickInventory': html = renderPickInventory(); break;
     case 'pickExternal': html = renderPickExternal(); break;
+    case 'notes': html = renderNotesList(); break;
+    case 'noteForm': html = renderNoteForm(); break;
+    case 'noteDetail': html = renderNoteDetail(); break;
     default: html = renderHome();
   }
   app.innerHTML = html;
@@ -816,13 +986,14 @@ function bottomNav(){
   var v = state.view;
   var isHome = (v==='home'||v==='itemForm'||v==='itemDetail');
   var isRecipes = (v==='recipes'||v==='recipeForm'||v==='recipeDetail'||v==='pickInventory'||v==='pickExternal');
+  var isNotes = (v==='notes'||v==='noteForm'||v==='noteDetail');
   var isSettings = (v==='settings'||v==='manageTags');
   return '' +
   '<div class="bottom-nav">'+
     '<button class="nav-item '+(isHome&&v==='home'?'active':'')+'" onclick="navigate(\'home\')">'+ic('box',22)+'<span>'+t('navHome')+'</span></button>'+
     '<button class="nav-item '+(v==='recipes'?'active':'')+'" onclick="navigate(\'recipes\')">'+ic('book',22)+'<span>'+t('navRecipes')+'</span></button>'+
-    '<button class="nav-scan" onclick="navigate(\'scan\')" aria-label="'+t('navScan')+'">'+ic('barcode',24)+'</button>'+
-    '<button class="nav-item" style="visibility:hidden"><span>.</span></button>'+
+    '<button class="nav-scan" onclick="navigate(\'scan\')" aria-label="'+t('navScan')+'">'+ic('barcode',26)+'</button>'+
+    '<button class="nav-item '+(isNotes?'active':'')+'" onclick="navigate(\'notes\')">'+ic('note',22)+'<span>'+t('navNotes')+'</span></button>'+
     '<button class="nav-item '+(isSettings?'active':'')+'" onclick="navigate(\'settings\')">'+ic('gear',22)+'<span>'+t('navSettings')+'</span></button>'+
   '</div>';
 }
@@ -839,17 +1010,20 @@ function getFilteredSortedItems(){
     }
     return true;
   });
+  var dir = state.home.sortDir==='desc' ? -1 : 1;
   list.sort(function(a,b){
+    var cmp;
     if(state.home.sort === 'name'){
-      return (a.name||'').localeCompare(b.name||'');
+      cmp = (a.name||'').localeCompare(b.name||'');
+    } else if(state.home.sort === 'purchase'){
+      cmp = (a.purchase_date||'').localeCompare(b.purchase_date||'');
+    } else {
+      // expiry: items without an expiry date sink to the bottom regardless of direction
+      var ad = a.expiry_date || '9999-99-99';
+      var bd = b.expiry_date || '9999-99-99';
+      cmp = ad.localeCompare(bd);
     }
-    if(state.home.sort === 'purchase'){
-      return (b.purchase_date||'').localeCompare(a.purchase_date||'');
-    }
-    // default: expiry ascending, items without expiry date sink to bottom
-    var ad = a.expiry_date || '9999-99-99';
-    var bd = b.expiry_date || '9999-99-99';
-    return ad.localeCompare(bd);
+    return cmp * dir;
   });
   return list;
 }
@@ -868,9 +1042,10 @@ function renderHome(){
     }).join('')+
   '</div>';
   var listHtml = '<div id="item-list-container">'+renderItemListHtml(items)+'</div>';
+  function sortArrow(key){ return state.home.sort===key ? (state.home.sortDir==='desc'?' ↓':' ↑') : ''; }
   return '' +
   '<div class="topbar">'+
-    '<div><h1>'+t('appName')+'</h1><div class="sub">'+t('appSub')+'</div></div>'+
+    '<div><h1>📦 '+t('navHome')+'</h1></div>'+
   '</div>'+
   '<div class="content">'+
     '<div class="search-bar">'+ic('search',19)+
@@ -880,18 +1055,42 @@ function renderHome(){
     '<div class="sort-row">'+
       '<div class="label">'+t('sortLabel')+'</div>'+
       '<div class="sort-pills">'+
-        '<div class="sort-pill '+(state.home.sort==='expiry'?'active':'')+'" onclick="setHomeSort(\'expiry\')">'+t('sortExpiry')+'</div>'+
-        '<div class="sort-pill '+(state.home.sort==='name'?'active':'')+'" onclick="setHomeSort(\'name\')">'+t('sortName')+'</div>'+
-        '<div class="sort-pill '+(state.home.sort==='purchase'?'active':'')+'" onclick="setHomeSort(\'purchase\')">'+t('sortPurchase')+'</div>'+
+        '<div class="sort-pill '+(state.home.sort==='expiry'?'active':'')+'" onclick="setHomeSort(\'expiry\')">'+t('sortExpiry')+sortArrow('expiry')+'</div>'+
+        '<div class="sort-pill '+(state.home.sort==='name'?'active':'')+'" onclick="setHomeSort(\'name\')">'+t('sortName')+sortArrow('name')+'</div>'+
+        '<div class="sort-pill '+(state.home.sort==='purchase'?'active':'')+'" onclick="setHomeSort(\'purchase\')">'+t('sortPurchase')+sortArrow('purchase')+'</div>'+
       '</div>'+
     '</div>'+
     listHtml +
-    '<div class="fab-row">'+
-      '<button class="btn btn-primary" onclick="navigate(\'scan\')">'+ic('barcode',18)+' '+t('scanAdd')+'</button>'+
-      '<button class="btn btn-outline" onclick="openItemForm(null)">'+ic('plus',18)+' '+t('manualAdd')+'</button>'+
-    '</div>'+
   '</div>'+
   bottomNav();
+}
+// Formats an ISO date (YYYY-MM-DD) as YYYY.MM.DD for display.
+function fmtDateDots(dateStr){
+  if(!dateStr) return '';
+  return dateStr.replace(/-/g,'.');
+}
+// Turns a count of days into a human "N个月/N天/N年" style label (always positive-phrased;
+// the caller adds "前"/"ago" for past dates).
+function relativeTimeLabel(days){
+  var abs = Math.abs(days);
+  if(abs >= 365){
+    var y = Math.max(1, Math.round(abs/365));
+    return y + (state.lang==='zh' ? '年' : (y===1?' year':' years'));
+  }
+  if(abs >= 30){
+    var m = Math.max(1, Math.round(abs/30));
+    return m + (state.lang==='zh' ? '个月' : (m===1?' month':' months'));
+  }
+  return abs + (state.lang==='zh' ? '天' : (abs===1?' day':' days'));
+}
+// Human-friendly "time to/since expiry" text used on the badge, e.g. "16天", "11个月", "1年",
+// or "11个月前" for already-expired items. Returns '' when there's no expiry date set.
+function expiryRelativeText(item){
+  if(!item.expiry_date) return '';
+  var d = daysUntil(item.expiry_date);
+  if(d === 0) return t('statusToday');
+  if(d < 0) return relativeTimeLabel(-d) + (state.lang==='zh' ? '前' : ' ago');
+  return relativeTimeLabel(d);
 }
 function renderItemListHtml(items){
   if(items.length===0){
@@ -900,21 +1099,39 @@ function renderItemListHtml(items){
     }
     return '<div class="empty-state">'+ic('search',40)+'<p>'+(state.lang==='zh'?'没有符合条件的食材':'No items match your filters')+'</p></div>';
   }
+  // Count same-name items so batches purchased at different times (see README note on
+  // duplicate names) show a small "×N" hint instead of silently looking like one entry.
+  var nameCounts = {};
+  items.forEach(function(it){ var k=(it.name||'').trim(); nameCounts[k]=(nameCounts[k]||0)+1; });
   return items.map(function(it){
     var st = expiryStatus(it);
-    var meta = (it.location?esc(it.location)+' · ':'') + qtyDisplay(it);
+    var meta = (it.location?esc(it.location)+' · ':'') + t('remainingQtyLabel')+' '+qtyDisplay(it);
+    var expiryLine = it.expiry_date ? (t('fieldExpiry')+' '+fmtDateDots(it.expiry_date)) : t('unset');
+    var badgeText = it.expiry_date ? expiryRelativeText(it) : t('unset');
+    var dupCount = nameCounts[(it.name||'').trim()];
+    var dupBadge = dupCount > 1 ? '<span class="dup-badge">×'+dupCount+'</span>' : '';
+    var thumb = it.photo_url ? photoImgHtml(it.photo_url, 'width:100%;height:100%;object-fit:cover;') : ic('box',22);
     return '<div class="item-card" onclick="navigate(\'itemDetail\',{id:'+aj(it.id)+'})">'+
-      '<div class="item-icon">'+ic('box',22)+'</div>'+
+      '<div class="item-icon">'+thumb+'</div>'+
       '<div class="item-info">'+
-        '<div class="item-name">'+esc(it.name)+'</div>'+
+        '<div class="item-name">'+esc(it.name)+dupBadge+'</div>'+
         '<div class="item-meta">'+meta+'</div>'+
+        '<div class="item-meta">'+esc(expiryLine)+'</div>'+
       '</div>'+
-      '<div class="status-badge status-'+st.level+'">'+esc(st.label)+'</div>'+
+      '<div class="status-badge status-'+st.level+'">'+esc(badgeText)+'</div>'+
     '</div>';
   }).join('');
 }
 function setHomeFilter(kind, val){ state.home[kind]=val; render(); }
-function setHomeSort(v){ state.home.sort=v; render(); }
+function setHomeSort(v){
+  if(state.home.sort === v){
+    state.home.sortDir = state.home.sortDir==='desc' ? 'asc' : 'desc';
+  } else {
+    state.home.sort = v;
+    state.home.sortDir = 'asc';
+  }
+  render();
+}
 function onHomeSearch(v){
   state.home.search = v;
   clearTimeout(onHomeSearch._t);
@@ -1123,6 +1340,15 @@ function renderItemForm(){
       '<div class="field"><label>'+t('fieldBrand')+'</label><input type="text" value="'+esc(d.brand)+'" placeholder="'+t('fieldBrandPh')+'" oninput="d_str(\'brand\',this.value)"></div>'+
       (d.barcode ? '<div class="field" style="margin-bottom:0;"><label>'+t('fieldBarcode')+'</label><input type="text" value="'+esc(d.barcode)+'" oninput="d_str(\'barcode\',this.value)"></div>' : '')+
     '</div>'+
+    '<div class="section-title">'+t('fieldPhoto')+'</div>'+
+    '<div class="form-group">'+
+      (d.photo_url ?
+        ('<div class="photo-preview-wrap">'+photoImgHtml(d.photo_url, 'width:100%;border-radius:12px;display:block;border:1px solid var(--line);object-fit:cover;')+'<button type="button" class="icon-btn photo-remove-btn" onclick="removeItemPhoto()">'+ic('x',16)+'</button></div>')
+        :
+        ('<label class="btn btn-outline photo-upload-btn" style="display:flex;">'+ic('camera',18)+' '+t('fieldPhotoUploadBtn')+'<input type="file" accept="image/*" style="display:none" onchange="onItemPhotoSelected(this)"></label>')
+      )+
+      '<div class="hint" id="item-photo-status">'+t('fieldPhotoHint')+'</div>'+
+    '</div>'+
     '<div class="section-title">'+t('fieldCategory')+'</div>'+
     tagSelectHtml('category', state.categories, d.category, ui.addingCategory)+
     '<div class="section-title">'+t('fieldLocation')+'</div>'+
@@ -1151,6 +1377,73 @@ function renderItemForm(){
 }
 function d_str(field, val){ state.itemDraft[field]=val; }
 function d_num(field, val){ state.itemDraft[field]= val===''? null : parseFloat(val); }
+/* ---- photo upload with client-side compression ----
+   Photos are stored as base64 data URLs directly on the item (localStorage-friendly: no
+   separate file storage needed, and it travels naturally with export/import backups).
+   To keep localStorage usage sane we resize to a max dimension and re-encode as JPEG,
+   shrinking further in a few passes if the result is still large, and refuse outright
+   past a hard cap so one photo can't blow up the whole backup/quota. */
+function compressImageFile(file, maxDim, quality){
+  return new Promise(function(resolve, reject){
+    var reader = new FileReader();
+    reader.onload = function(e){
+      var img = new Image();
+      img.onload = function(){
+        var w = img.width, h = img.height;
+        var scale = Math.min(1, maxDim / Math.max(w, h));
+        var cw = Math.max(1, Math.round(w * scale));
+        var ch = Math.max(1, Math.round(h * scale));
+        var canvas = document.createElement('canvas');
+        canvas.width = cw; canvas.height = ch;
+        var ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, cw, ch);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = function(){ reject(new Error('image decode failed')); };
+      img.src = e.target.result;
+    };
+    reader.onerror = function(){ reject(new Error('file read failed')); };
+    reader.readAsDataURL(file);
+  });
+}
+async function onItemPhotoSelected(input){
+  var file = input.files && input.files[0];
+  if(!file) return;
+  var statusEl = document.getElementById('item-photo-status');
+  if(statusEl) statusEl.textContent = t('photoProcessing');
+  try{
+    var maxDim = 900, quality = 0.72;
+    var dataUrl = await compressImageFile(file, maxDim, quality);
+    var tries = 0;
+    // Target ~180KB; each pass shrinks dimensions and quality a bit further.
+    while(dataUrl.length > 180*1024 && tries < 5){
+      maxDim = Math.round(maxDim * 0.8);
+      quality = Math.max(0.4, quality - 0.1);
+      dataUrl = await compressImageFile(file, maxDim, quality);
+      tries++;
+    }
+    if(dataUrl.length > 260*1024){
+      if(statusEl) statusEl.textContent = t('photoTooLarge');
+      showToast(t('photoTooLarge'));
+      input.value = '';
+      return;
+    }
+    // Replacing an existing locally-stored photo: free up its IndexedDB entry first.
+    deletePhotoRef(state.itemDraft.photo_url);
+    var ref = await savePhotoToIDB(dataUrl);
+    state.itemDraft.photo_url = ref;
+    render();
+  }catch(e){
+    if(statusEl) statusEl.textContent = t('photoProcessFailed');
+    showToast(t('photoProcessFailed'));
+  }
+  input.value = '';
+}
+function removeItemPhoto(){
+  deletePhotoRef(state.itemDraft.photo_url);
+  state.itemDraft.photo_url = '';
+  render();
+}
 function cancelItemForm(){ state.itemDraft=null; navigate('home'); }
 function saveItemForm(){
   var d = state.itemDraft;
@@ -1174,6 +1467,7 @@ function saveItemForm(){
 }
 function deleteItemFromForm(){
   if(!confirm(t('deleteConfirm'))) return;
+  deletePhotoRef(state.itemDraft.photo_url);
   state.items = state.items.filter(function(i){ return i.id!==state.itemDraft.id; });
   saveItems();
   state.itemDraft=null;
@@ -1199,8 +1493,9 @@ function renderItemDetail(){
     '<button class="icon-btn" onclick="openItemForm('+aj(it.id)+')">'+ic('edit',18)+'</button>'+
   '</div>'+
   '<div class="content">'+
+    (it.photo_url ? photoImgHtml(it.photo_url, 'width:100%;max-width:280px;border-radius:14px;display:block;margin-bottom:14px;border:1px solid var(--line);object-fit:cover;') : '')+
     (it.brand ? '<p style="color:var(--deep-caramel);font-size:14px;margin-bottom:14px;">'+esc(it.brand)+'</p>' : '')+
-    '<div class="status-badge status-'+st.level+'" style="font-size:15px;padding:8px 14px;display:inline-block;margin-bottom:16px;">'+esc(st.label)+(it.expiry_date?' · '+esc(it.expiry_date):'')+'</div>'+
+    '<div class="status-badge status-'+st.level+'" style="font-size:15px;padding:8px 14px;display:inline-block;margin-bottom:16px;">'+(it.expiry_date?esc(expiryRelativeText(it))+' · '+esc(t('fieldExpiry'))+' '+esc(fmtDateDots(it.expiry_date)):esc(st.label))+'</div>'+
     '<div class="form-group">'+
       '<div class="list-row" style="border:none;padding:0;margin-bottom:0;">'+
         '<div><div class="row-label">'+t('detailQtyLabel')+'</div><div class="row-sub">'+qtyDisplay(it)+'</div></div>'+
@@ -1223,6 +1518,8 @@ function renderItemDetail(){
 }
 function deleteItemDetail(id){
   if(!confirm(t('deleteConfirm'))) return;
+  var it = state.items.find(function(i){ return i.id===id; });
+  if(it) deletePhotoRef(it.photo_url);
   state.items = state.items.filter(function(i){ return i.id!==id; });
   saveItems();
   navigate('home');
@@ -1342,16 +1639,23 @@ function detectLoop(video, detector){
   });
 }
 var _zxingLoadPromise = null;
+function loadScript(src){
+  return new Promise(function(resolve, reject){
+    var s = document.createElement('script');
+    s.src = src;
+    s.onload = function(){ resolve(); };
+    s.onerror = function(){ reject(new Error('script load failed: '+src)); };
+    document.head.appendChild(s);
+  });
+}
 function loadZXing(){
   if(window.ZXingBrowser) return Promise.resolve();
   if(_zxingLoadPromise) return _zxingLoadPromise;
-  _zxingLoadPromise = new Promise(function(resolve, reject){
-    var s = document.createElement('script');
-    s.src = 'https://unpkg.com/@zxing/browser@latest';
-    s.onload = function(){ resolve(); };
-    s.onerror = function(){ _zxingLoadPromise = null; reject(new Error('zxing load failed')); };
-    document.head.appendChild(s);
-  });
+  // Load the core library first (defines ZXing.DecodeHintType, needed for the TRY_HARDER
+  // hint below) then the browser layer (defines ZXingBrowser.BrowserMultiFormatReader).
+  _zxingLoadPromise = loadScript('https://unpkg.com/@zxing/library@latest')
+    .then(function(){ return loadScript('https://unpkg.com/@zxing/browser@latest'); })
+    .catch(function(e){ _zxingLoadPromise = null; throw e; });
   return _zxingLoadPromise;
 }
 async function startZXingScan(video){
@@ -1363,7 +1667,11 @@ async function startZXingScan(video){
     return;
   }
   try{
-    var codeReader = new ZXingBrowser.BrowserMultiFormatReader();
+    var hints = new Map();
+    if(window.ZXing && ZXing.DecodeHintType){
+      hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+    }
+    var codeReader = new ZXingBrowser.BrowserMultiFormatReader(hints.size ? hints : undefined);
     scanCtx.detecting = true;
     setScanStatus(t('scanHintCamera'));
     var controls = await codeReader.decodeFromVideoDevice(undefined, video, function(result){
@@ -1598,7 +1906,7 @@ function renderRecipesList(){
     }).join('');
   }
   return '' +
-  '<div class="topbar"><div><h1>'+t('recipesTitle')+'</h1></div></div>'+
+  '<div class="topbar"><div><h1>📖 '+t('recipesTitle')+'</h1></div></div>'+
   '<div class="content">'+
     listHtml+
     '<button class="btn btn-primary" style="margin-top:16px;" onclick="openRecipeForm(null)">'+ic('plus',18)+' '+t('newRecipe')+'</button>'+
@@ -1947,10 +2255,218 @@ function confirmCook(recipeId){
   render();
 }
 
+/* ======================= NOTES ======================= */
+function blankNoteDraft(){
+  return {
+    id: uid(), title:'', content:'', category:'',
+    linkedItemIds:[], linkedRecipeIds:[],
+    created_at: todayStr(), updated_at: new Date().toISOString()
+  };
+}
+function openNoteForm(id){
+  if(id){
+    var existing = state.notes.find(function(n){ return n.id===id; });
+    state.noteDraft = JSON.parse(JSON.stringify(existing));
+    state.noteDraft.linkedItemIds = state.noteDraft.linkedItemIds || [];
+    state.noteDraft.linkedRecipeIds = state.noteDraft.linkedRecipeIds || [];
+  } else {
+    state.noteDraft = blankNoteDraft();
+  }
+  state.noteDraft._isNew = !id;
+  state.noteFormUI = { addingCategory:false };
+  navigate('noteForm', {id:id});
+}
+function nd_str(field, val){ state.noteDraft[field]=val; }
+function setNoteDraftCategory(c){ state.noteDraft.category=c; render(); }
+function toggleAddingNoteCategory(){
+  state.noteFormUI.addingCategory = true;
+  render();
+  var el = document.getElementById('new-noteCategory-input');
+  if(el) el.focus();
+}
+function confirmNewNoteCategory(){
+  var el = document.getElementById('new-noteCategory-input');
+  var val = el ? el.value.trim() : '';
+  if(!val) return;
+  if(state.noteCategories.indexOf(val)===-1){
+    state.noteCategories.push(val);
+    saveNoteCategories();
+  }
+  state.noteDraft.category = val;
+  state.noteFormUI.addingCategory = false;
+  render();
+}
+function noteCategorySelectHtml(){
+  var opts = state.noteCategories.map(function(c){
+    return '<div class="tag-option '+(state.noteDraft.category===c?'active':'')+'" onclick="setNoteDraftCategory('+aj(c)+')">'+esc(c)+'</div>';
+  }).join('');
+  var addUi = state.noteFormUI.addingCategory ?
+    '<div class="field" style="margin-top:10px;margin-bottom:0;"><div class="field-row">'+
+      '<input type="text" id="new-noteCategory-input" placeholder="'+t('newTagPrompt')+'" style="flex:1;font-size:16px;padding:11px 12px;border-radius:10px;border:1px solid var(--line);">'+
+      '<button class="btn btn-primary btn-sm" onclick="confirmNewNoteCategory()">'+t('add')+'</button>'+
+    '</div></div>' : '';
+  return '<div class="tag-select">'+opts+'<div class="tag-option add-new" onclick="toggleAddingNoteCategory()">'+t('addNewTag')+'</div></div>'+addUi;
+}
+function toggleLinkItem(id){
+  var arr = state.noteDraft.linkedItemIds;
+  var i = arr.indexOf(id);
+  if(i===-1) arr.push(id); else arr.splice(i,1);
+  render();
+}
+function toggleLinkRecipe(id){
+  var arr = state.noteDraft.linkedRecipeIds;
+  var i = arr.indexOf(id);
+  if(i===-1) arr.push(id); else arr.splice(i,1);
+  render();
+}
+function noteLinkPickerHtml(){
+  var itemChips = state.items.map(function(it){
+    var active = state.noteDraft.linkedItemIds.indexOf(it.id)>-1;
+    return '<div class="tag-option '+(active?'active':'')+'" onclick="toggleLinkItem('+aj(it.id)+')">'+esc(it.name)+'</div>';
+  }).join('') || '<p class="hint">'+t('noLinkedItems')+'</p>';
+  var recipeChips = state.recipes.map(function(r){
+    var active = state.noteDraft.linkedRecipeIds.indexOf(r.id)>-1;
+    return '<div class="tag-option '+(active?'active':'')+'" onclick="toggleLinkRecipe('+aj(r.id)+')">'+esc(r.name)+'</div>';
+  }).join('') || '<p class="hint">'+t('noLinkedRecipes')+'</p>';
+  return '<div class="section-title">'+t('linkedItems')+'</div><div class="tag-select">'+itemChips+'</div>'+
+    '<div class="section-title">'+t('linkedRecipes')+'</div><div class="tag-select">'+recipeChips+'</div>';
+}
+function renderNoteForm(){
+  var d = state.noteDraft;
+  if(!d) return renderNotesList();
+  return '' +
+  '<div class="page-header">'+
+    '<button class="back-btn" onclick="cancelNoteForm()">'+ic('back',22)+'</button>'+
+    '<h1>'+(d._isNew?t('noteFormTitleAdd'):t('noteFormTitleEdit'))+'</h1>'+
+  '</div>'+
+  '<div class="content">'+
+    '<div class="form-group">'+
+      '<div class="field"><label>'+t('fieldNoteTitle')+' *</label><input type="text" value="'+esc(d.title)+'" placeholder="'+t('fieldNoteTitlePh')+'" oninput="nd_str(\'title\',this.value)"></div>'+
+      '<div class="field" style="margin-bottom:0;"><label>'+t('fieldNoteContent')+'</label><textarea style="min-height:140px;" placeholder="'+t('fieldNoteContentPh')+'" oninput="nd_str(\'content\',this.value)">'+esc(d.content)+'</textarea></div>'+
+    '</div>'+
+    '<div class="section-title">'+t('fieldNoteCategory')+'</div>'+
+    noteCategorySelectHtml()+
+    noteLinkPickerHtml()+
+    '<div class="btn-row" style="margin-top:8px;">'+
+      '<button class="btn btn-outline" onclick="cancelNoteForm()">'+t('cancel')+'</button>'+
+      '<button class="btn btn-primary" onclick="saveNoteForm()">'+t('save')+'</button>'+
+    '</div>'+
+    (!d._isNew ? '<button class="btn btn-danger" style="margin-top:10px;" onclick="deleteNoteFromForm()">'+ic('trash',16)+' '+t('delete')+'</button>' : '')+
+  '</div>';
+}
+function cancelNoteForm(){ state.noteDraft=null; navigate('notes'); }
+function saveNoteForm(){
+  var d = state.noteDraft;
+  if(!d.title || !d.title.trim()){ showToast(state.lang==='zh'?'请填写标题':'Please enter a title'); return; }
+  d.updated_at = new Date().toISOString();
+  var idx = state.notes.findIndex(function(n){ return n.id===d.id; });
+  if(idx===-1) state.notes.push(d); else state.notes[idx]=d;
+  saveNotes();
+  state.noteDraft=null;
+  showToast(state.lang==='zh'?'已保存':'Saved');
+  navigate('noteDetail',{id:d.id});
+}
+function deleteNoteFromForm(){
+  if(!confirm(t('deleteConfirm'))) return;
+  state.notes = state.notes.filter(function(n){ return n.id!==state.noteDraft.id; });
+  saveNotes();
+  state.noteDraft=null;
+  navigate('notes');
+}
+function deleteNoteDetail(id){
+  if(!confirm(t('deleteConfirm'))) return;
+  state.notes = state.notes.filter(function(n){ return n.id!==id; });
+  saveNotes();
+  navigate('notes');
+}
+function getFilteredNotes(){
+  var q = (state.notesUI.search||'').trim().toLowerCase();
+  return state.notes.filter(function(n){
+    if(state.notesUI.category && n.category !== state.notesUI.category) return false;
+    if(q){
+      var hay = ((n.title||'')+' '+(n.content||'')).toLowerCase();
+      if(hay.indexOf(q)===-1) return false;
+    }
+    return true;
+  }).slice().sort(function(a,b){ return (b.updated_at||'').localeCompare(a.updated_at||''); });
+}
+function renderNotesListHtml(list){
+  if(list.length===0){
+    if(state.notes.length===0){
+      return '<div class="empty-state">'+ic('note',40)+'<p><strong>'+t('emptyNotes')+'</strong><br>'+t('emptyNotesHint')+'</p></div>';
+    }
+    return '<div class="empty-state">'+ic('search',40)+'<p>'+(state.lang==='zh'?'没有符合条件的笔记':'No notes match your filters')+'</p></div>';
+  }
+  return list.map(function(n){
+    var preview = (n.content||'').replace(/\s+/g,' ').trim().slice(0,60);
+    var linkCount = (n.linkedItemIds||[]).length + (n.linkedRecipeIds||[]).length;
+    var meta = (n.category?esc(n.category)+' · ':'')+esc(preview);
+    return '<div class="item-card" onclick="navigate(\'noteDetail\',{id:'+aj(n.id)+'})">'+
+      '<div class="item-icon">'+ic('note',20)+'</div>'+
+      '<div class="item-info">'+
+        '<div class="item-name">'+esc(n.title)+'</div>'+
+        '<div class="item-meta">'+meta+'</div>'+
+      '</div>'+
+      (linkCount ? '<div class="status-badge status-fresh">'+ic('link',13)+' '+linkCount+'</div>' : '')+
+    '</div>';
+  }).join('');
+}
+function renderNotesList(){
+  var list = getFilteredNotes();
+  var catChips = '<div class="chip-row">'+
+    '<div class="chip '+(!state.notesUI.category?'active':'')+'" onclick="setNotesFilter(null)">'+t('filterAll')+'</div>'+
+    state.noteCategories.map(function(c){
+      return '<div class="chip '+(state.notesUI.category===c?'active':'')+'" onclick="setNotesFilter('+aj(c)+')">'+esc(c)+'</div>';
+    }).join('')+
+  '</div>';
+  return '' +
+  '<div class="topbar"><div><h1>📝 '+t('notesTitle')+'</h1></div></div>'+
+  '<div class="content">'+
+    '<div class="search-bar">'+ic('search',19)+
+      '<input type="text" placeholder="'+t('searchNotesPlaceholder')+'" value="'+esc(state.notesUI.search)+'" oninput="onNotesSearch(this.value)">'+
+    '</div>'+
+    catChips +
+    '<div id="notes-list-container">'+renderNotesListHtml(list)+'</div>'+
+    '<button class="btn btn-primary" style="margin-top:16px;" onclick="openNoteForm(null)">'+ic('plus',18)+' '+t('newNote')+'</button>'+
+  '</div>'+
+  bottomNav();
+}
+function setNotesFilter(c){ state.notesUI.category=c; render(); }
+function onNotesSearch(v){
+  state.notesUI.search = v;
+  clearTimeout(onNotesSearch._t);
+  onNotesSearch._t = setTimeout(function(){
+    var c = document.getElementById('notes-list-container');
+    if(c) c.innerHTML = renderNotesListHtml(getFilteredNotes());
+  }, 200);
+}
+function renderNoteDetail(){
+  var id = state.params.id;
+  var n = state.notes.find(function(x){ return x.id===id; });
+  if(!n) return renderNotesList();
+  var linkedItems = (n.linkedItemIds||[]).map(function(iid){ return state.items.find(function(it){ return it.id===iid; }); }).filter(Boolean);
+  var linkedRecipes = (n.linkedRecipeIds||[]).map(function(rid){ return state.recipes.find(function(r){ return r.id===rid; }); }).filter(Boolean);
+  return '' +
+  '<div class="page-header">'+
+    '<button class="back-btn" onclick="navigate(\'notes\')">'+ic('back',22)+'</button>'+
+    '<h1>'+esc(n.title)+'</h1>'+
+    '<button class="icon-btn" onclick="openNoteForm('+aj(n.id)+')">'+ic('edit',18)+'</button>'+
+  '</div>'+
+  '<div class="content">'+
+    (n.category ? '<div class="chip active" style="display:inline-block;margin-bottom:12px;">'+esc(n.category)+'</div>' : '')+
+    '<div class="form-group"><p style="font-size:15px;line-height:1.7;white-space:pre-wrap;">'+esc(n.content||'')+'</p></div>'+
+    (linkedItems.length ? '<div class="section-title">'+t('linkedItems')+'</div><div class="tag-select">'+linkedItems.map(function(it){ return '<div class="tag-option active" onclick="navigate(\'itemDetail\',{id:'+aj(it.id)+'})">'+esc(it.name)+'</div>'; }).join('')+'</div>' : '')+
+    (linkedRecipes.length ? '<div class="section-title">'+t('linkedRecipes')+'</div><div class="tag-select">'+linkedRecipes.map(function(r){ return '<div class="tag-option active" onclick="navigate(\'recipeDetail\',{id:'+aj(r.id)+'})">'+esc(r.name)+'</div>'; }).join('')+'</div>' : '')+
+    '<div class="hint" style="margin-top:16px;">'+t('noteUpdatedAt')+' '+esc((n.updated_at||'').slice(0,10))+'</div>'+
+    '<button class="btn btn-danger" style="margin-top:22px;" onclick="deleteNoteDetail('+aj(n.id)+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
+  '</div>'+
+  bottomNav();
+}
+
 /* ======================= SETTINGS ======================= */
 function renderSettings(){
   return '' +
-  '<div class="topbar"><div><h1>'+t('settingsTitle')+'</h1></div></div>'+
+  '<div class="topbar"><div><h1>⚙️ '+t('settingsTitle')+'</h1></div></div>'+
   '<div class="content">'+
     '<div class="section-title" style="margin-top:0;">'+t('language')+'</div>'+
     '<div class="lang-toggle" style="margin-bottom:8px;">'+
@@ -1974,6 +2490,9 @@ function renderSettings(){
     '<div class="list-row" onclick="navigate(\'manageTags\',{kind:\'location\'})" style="cursor:pointer;">'+
       '<div class="row-label">'+t('manageLocations')+'</div>'+ic('chevronRight',18)+
     '</div>'+
+    '<div class="list-row" onclick="navigate(\'manageTags\',{kind:\'noteCategory\'})" style="cursor:pointer;">'+
+      '<div class="row-label">'+t('manageNoteCategories')+'</div>'+ic('chevronRight',18)+
+    '</div>'+
     '<div class="section-title">'+t('sectionBackup')+'</div>'+
     '<div class="form-group">'+
       '<p class="hint" style="margin-bottom:14px;">'+t('backupHint')+'</p>'+
@@ -1984,11 +2503,17 @@ function renderSettings(){
       '</div>'+
       '<input type="file" accept="application/json,.json" id="import-inventory-input" style="display:none" onchange="onImportInventoryFile(this)">'+
       '<div style="font-size:13px;font-weight:600;color:var(--almond);margin-bottom:8px;">'+t('navRecipes')+'</div>'+
-      '<div class="btn-row">'+
+      '<div class="btn-row" style="margin-bottom:16px;">'+
         '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="exportRecipesData()">'+ic('book',16)+' '+t('exportRecipesBtn')+'</button>'+
         '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="triggerImportRecipes()">'+t('importRecipesBtn')+'</button>'+
       '</div>'+
       '<input type="file" accept="application/json,.json" id="import-recipes-input" style="display:none" onchange="onImportRecipesFile(this)">'+
+      '<div style="font-size:13px;font-weight:600;color:var(--almond);margin-bottom:8px;">'+t('navNotes')+'</div>'+
+      '<div class="btn-row">'+
+        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="exportNotesData()">'+ic('note',16)+' '+t('exportNotesBtn')+'</button>'+
+        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="triggerImportNotes()">'+t('importNotesBtn')+'</button>'+
+      '</div>'+
+      '<input type="file" accept="application/json,.json" id="import-notes-input" style="display:none" onchange="onImportNotesFile(this)">'+
     '</div>'+
     '<div class="section-title">'+t('aboutTitle')+'</div>'+
     '<div class="form-group">'+
@@ -2023,17 +2548,31 @@ function downloadJSON(filename, dataObj){
   document.body.removeChild(a);
   setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
 }
-function exportInventoryData(){
+// Resolves every item's photo_url to a self-contained value for export: local
+// IndexedDB refs ('photo:id') are inlined as base64 data URLs so the backup file
+// carries its own photos and can be restored on a different device; remote URLs
+// pass through untouched.
+function itemsWithInlinedPhotos(items){
+  return Promise.all((items||[]).map(function(it){
+    if(!it.photo_url || !PHOTO_IDB.isRef(it.photo_url)) return Promise.resolve(it);
+    return PHOTO_IDB.get(it.photo_url.slice(6)).then(function(data){
+      return data ? Object.assign({}, it, {photo_url: data}) : Object.assign({}, it, {photo_url: ''});
+    });
+  }));
+}
+async function exportInventoryData(){
+  showToast(state.lang==='zh' ? '正在打包图片…' : 'Bundling photos…');
+  var itemsOut = await itemsWithInlinedPhotos(state.items);
   var payload = {
     type: 'pantry_inventory_backup',
     version: 1,
     exported_at: new Date().toISOString(),
-    items: state.items,
+    items: itemsOut,
     categories: state.categories,
     locations: state.locations
   };
   downloadJSON('pantry-inventory-backup-'+todayStr()+'.json', payload);
-  showToast(state.lang==='zh' ? '库存数据已导出' : 'Inventory data exported');
+  showToast(state.lang==='zh' ? '库存数据已导出（含图片）' : 'Inventory data exported (with photos)');
 }
 function exportRecipesData(){
   var payload = {
@@ -2046,8 +2585,20 @@ function exportRecipesData(){
   downloadJSON('pantry-recipes-backup-'+todayStr()+'.json', payload);
   showToast(state.lang==='zh' ? '食谱数据已导出' : 'Recipes data exported');
 }
+function exportNotesData(){
+  var payload = {
+    type: 'pantry_notes_backup',
+    version: 1,
+    exported_at: new Date().toISOString(),
+    notes: state.notes,
+    noteCategories: state.noteCategories
+  };
+  downloadJSON('pantry-notes-backup-'+todayStr()+'.json', payload);
+  showToast(state.lang==='zh' ? '笔记数据已导出' : 'Notes data exported');
+}
 function triggerImportInventory(){ var el=document.getElementById('import-inventory-input'); if(el) el.click(); }
 function triggerImportRecipes(){ var el=document.getElementById('import-recipes-input'); if(el) el.click(); }
+function triggerImportNotes(){ var el=document.getElementById('import-notes-input'); if(el) el.click(); }
 var _pendingImport = null;
 
 // Union-merge by id: records only on one side are kept as-is; records on both sides keep
@@ -2079,7 +2630,7 @@ function mergeStringArrays(existing, incoming){
 }
 function openImportConfirmModal(kind, data, count){
   _pendingImport = {kind:kind, data:data};
-  var msgKey = kind==='inventory' ? 'importInventoryConfirmMsg' : 'importRecipesConfirmMsg';
+  var msgKey = kind==='inventory' ? 'importInventoryConfirmMsg' : (kind==='recipes' ? 'importRecipesConfirmMsg' : 'importNotesConfirmMsg');
   var msg = t(msgKey).replace('{n}', count);
   var meta = data.exported_at ? ('<p class="hint" style="margin-bottom:10px;">'+t('exportedOn')+': '+esc(new Date(data.exported_at).toLocaleString())+'</p>') : '';
   var body = meta +
@@ -2119,16 +2670,44 @@ function onImportRecipesFile(input){
   };
   reader.readAsText(file);
 }
-function confirmImport(mode){
+function onImportNotesFile(input){
+  var file = input.files && input.files[0];
+  if(!file) return;
+  var reader = new FileReader();
+  reader.onload = function(){
+    input.value = '';
+    var data;
+    try{ data = JSON.parse(reader.result); }catch(e){ showToast(t('importParseError')); return; }
+    if(!data || data.type !== 'pantry_notes_backup' || !Array.isArray(data.notes)){
+      showToast(t('importWrongFile')); return;
+    }
+    openImportConfirmModal('notes', data, data.notes.length);
+  };
+  reader.readAsText(file);
+}
+// Takes freshly-imported items (which may carry inline base64 photos from a
+// portable backup) and moves any such photo into this device's IndexedDB,
+// replacing it with a local 'photo:id' reference. Remote URLs and items with
+// no photo pass through unchanged.
+function migrateImportedPhotos(items){
+  return Promise.all((items||[]).map(function(it){
+    if(!it.photo_url || it.photo_url.indexOf('data:') !== 0) return Promise.resolve(it);
+    return savePhotoToIDB(it.photo_url).then(function(ref){
+      return Object.assign({}, it, {photo_url: ref});
+    });
+  }));
+}
+async function confirmImport(mode){
   if(!_pendingImport) return;
   var data = _pendingImport.data;
   if(_pendingImport.kind === 'inventory'){
+    var incomingItems = await migrateImportedPhotos(data.items||[]);
     if(mode === 'merge'){
-      state.items = mergeById(state.items, data.items||[]);
+      state.items = mergeById(state.items, incomingItems);
       state.categories = mergeStringArrays(state.categories, data.categories||[]);
       state.locations = mergeStringArrays(state.locations, data.locations||[]);
     } else {
-      state.items = data.items || [];
+      state.items = incomingItems;
       state.categories = (data.categories && data.categories.length) ? data.categories : DEFAULT_CATEGORIES.slice();
       state.locations = (data.locations && data.locations.length) ? data.locations : DEFAULT_LOCATIONS.slice();
     }
@@ -2142,6 +2721,15 @@ function confirmImport(mode){
       state.ingredients = data.ingredients || [];
     }
     saveRecipes(); saveIngredients();
+  } else if(_pendingImport.kind === 'notes'){
+    if(mode === 'merge'){
+      state.notes = mergeById(state.notes, data.notes||[]);
+      state.noteCategories = mergeStringArrays(state.noteCategories, data.noteCategories||[]);
+    } else {
+      state.notes = data.notes || [];
+      state.noteCategories = (data.noteCategories && data.noteCategories.length) ? data.noteCategories : DEFAULT_NOTE_CATEGORIES.slice();
+    }
+    saveNotes(); saveNoteCategories();
   }
   _pendingImport = null;
   closeModal();
@@ -2150,11 +2738,21 @@ function confirmImport(mode){
 }
 
 /* ======================= MANAGE TAGS ======================= */
+function tagListForKind(kind){
+  if(kind==='category') return state.categories;
+  if(kind==='location') return state.locations;
+  return state.noteCategories;
+}
+function saveTagListForKind(kind){
+  if(kind==='category') return saveCategories();
+  if(kind==='location') return saveLocations();
+  return saveNoteCategories();
+}
 function renderManageTags(){
   var kind = state.params.kind || 'category';
-  var list = kind==='category' ? state.categories : state.locations;
-  var title = kind==='category' ? t('manageCategoriesTitle') : t('manageLocationsTitle');
-  var ph = kind==='category' ? t('addCategoryPh') : t('addLocationPh');
+  var list = tagListForKind(kind);
+  var title = kind==='category' ? t('manageCategoriesTitle') : (kind==='location' ? t('manageLocationsTitle') : t('manageNoteCategoriesTitle'));
+  var ph = kind==='category' ? t('addCategoryPh') : (kind==='location' ? t('addLocationPh') : t('addNoteCategoryPh'));
   var rows = list.map(function(name){
     return '<div class="list-row"><div class="row-label">'+esc(name)+'</div>'+
       '<button class="row-del" onclick="deleteTagItem('+aj(kind)+','+aj(name)+')">'+ic('trash',18)+'</button></div>';
@@ -2173,30 +2771,38 @@ function addTagManage(kind){
   var el = document.getElementById('new-tag-manage-input');
   var val = el ? el.value.trim() : '';
   if(!val) return;
-  var list = kind==='category' ? state.categories : state.locations;
+  var list = tagListForKind(kind);
   if(list.indexOf(val)===-1){
     list.push(val);
-    if(kind==='category') saveCategories(); else saveLocations();
+    saveTagListForKind(kind);
   }
   render();
 }
 function deleteTagItem(kind, name){
-  var inUse = state.items.some(function(i){ return kind==='category' ? i.category===name : i.location===name; });
+  var inUse;
+  if(kind==='category') inUse = state.items.some(function(i){ return i.category===name; });
+  else if(kind==='location') inUse = state.items.some(function(i){ return i.location===name; });
+  else inUse = state.notes.some(function(n){ return n.category===name; });
   if(inUse && !confirm(t('tagInUseWarning'))) return;
   if(kind==='category'){
     state.categories = state.categories.filter(function(c){ return c!==name; });
     state.items.forEach(function(i){ if(i.category===name) i.category=''; });
     saveCategories(); saveItems();
-  } else {
+  } else if(kind==='location'){
     state.locations = state.locations.filter(function(l){ return l!==name; });
     state.items.forEach(function(i){ if(i.location===name) i.location=''; });
     saveLocations(); saveItems();
+  } else {
+    state.noteCategories = state.noteCategories.filter(function(c){ return c!==name; });
+    state.notes.forEach(function(n){ if(n.category===name) n.category=''; });
+    saveNoteCategories(); saveNotes();
   }
   render();
 }
 
 /* ======================= AFTER RENDER HOOK ======================= */
 function afterRender(){
+  hydratePhotos();
   if(state.view === 'scan'){
     startScan();
   }
