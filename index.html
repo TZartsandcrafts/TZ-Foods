@@ -118,7 +118,7 @@
   .chip.active{ background:var(--almond); border-color:var(--almond); color:#fff; }
   .chip i{ font-size:15px; vertical-align:-2px; margin-right:4px; }
 
-  .sort-row{ display:flex; align-items:center; justify-content:space-between; margin:14px 0 12px; }
+  .sort-row{ display:flex; align-items:center; justify-content:flex-end; margin:14px 0 12px; }
   .sort-row .label{ font-size:13px; color:var(--deep-caramel); }
   .sort-pills{ display:flex; gap:6px; }
   .sort-pill{
@@ -133,6 +133,9 @@
     margin-bottom:10px; display:flex; align-items:center; gap:12px;
     border-left:4px solid var(--line); box-shadow:var(--shadow); cursor:pointer;
   }
+  .item-card.card-expired{ border-left-color:var(--danger); }
+  .item-card.card-soon{ border-left-color:var(--warn); }
+  .item-card.card-fresh{ border-left-color:var(--fresh); }
   .item-card:active{ transform:scale(0.99); }
   .item-icon{
     width:46px; height:46px; border-radius:11px; background:var(--cream);
@@ -198,7 +201,12 @@
   #sidebar-drawer.open{ transform:translateX(0); }
   .sidebar-header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
   .sidebar-header h2{ font-size:18px; font-weight:600; color:var(--cocoa); }
-  .sidebar-section-title{ font-size:12px; font-weight:600; color:var(--deep-caramel); margin:18px 0 8px; text-transform:uppercase; letter-spacing:.04em; }
+  .sidebar-section-title{
+    font-size:16px; font-weight:700; color:var(--cocoa); margin:18px 0 8px;
+    display:flex; align-items:center; justify-content:space-between; padding:2px 2px;
+  }
+  .sidebar-section-title.collapsible{ cursor:pointer; user-select:none; }
+  .sidebar-section-title.collapsible:active{ opacity:0.7; }
   .sidebar-item{
     padding:10px 10px; border-radius:10px; font-size:15px; color:var(--cocoa);
     cursor:pointer; user-select:none;
@@ -363,7 +371,7 @@ var I18N = {
     remainingQtyLabel:'剩余',
     searchPlaceholder:'搜索食品名称 / 品牌',
     filterAll:'全部',
-    sortLabel:'排序', sortExpiry:'有效期', sortName:'名称', sortPurchase:'购买日期',
+    sortLabel:'排序', sortExpiry:'过期', sortName:'名称', sortPurchase:'购入',
     emptyInventory:'库存还是空的', emptyInventoryHint:'点击下方按钮扫码或手动添加第一件食材吧',
     scanAdd:'扫码添加', manualAdd:'手动添加',
     statusExpired:'已过期', statusSoonPrefix:'', statusSoonDays:'天内', statusFresh:'新鲜', statusToday:'今天到期',
@@ -371,7 +379,7 @@ var I18N = {
     itemFormTitleAdd:'添加食材', itemFormTitleEdit:'编辑食材',
     fieldName:'名称', fieldNamePh:'例如：鸡蛋', fieldBrand:'品牌', fieldBrandPh:'例如：某某牧场',
     fieldBarcode:'条码',
-    fieldCategory:'分类', fieldLocation:'存放位置',
+    fieldCategory:'分类', fieldLocation:'位置',
     fieldQty:'数量', fieldUnit:'单位',
     fieldSecondaryQty:'次要计量(可选)', fieldSecondaryUnit:'次要单位',
     fieldExpiry:'有效期至', fieldPurchaseDate:'购买日期', fieldPrice:'价格',
@@ -486,7 +494,7 @@ var I18N = {
     exportNotesBtn:'导出笔记数据', importNotesBtn:'恢复笔记数据',
     importNotesConfirmMsg:'检测到备份文件包含 {n} 条笔记。"合并"会保留当前设备和备份文件中的所有数据，同一条笔记以最近修改时间为准；"替换"会完全清空当前数据后用备份覆盖，无法撤销。',
     // sidebars
-    statTotal:'食材总数', statExpired:'已过期', statSoon:'即将过期',
+    statTotal:'总数', statExpired:'过期', statSoon:'临期',
     fieldRecipeCategory:'分类', fieldRecipeSubCategory:'子分类',
     recipeCategoryLabel:'分类',
   },
@@ -640,7 +648,7 @@ var state = {
   loaded: false,
   view: 'home',
   params: {},
-  home: { search:'', category:null, location:null, sort:'expiry', sortDir:'asc' },
+  home: { search:'', category:null, location:null, sort:'expiry', sortDir:'asc', sidebarCollapsed:{category:false, location:false} },
   scan: { running:false, stream:null, detector:null, resultDraft:null, mode:'camera' }
 };
 
@@ -1205,7 +1213,6 @@ function renderHome(){
     '</div>'+
     activeFilterHtml +
     '<div class="sort-row">'+
-      '<div class="label">'+t('sortLabel')+'</div>'+
       '<div class="sort-pills">'+
         '<div class="sort-pill '+(state.home.sort==='expiry'?'active':'')+'" onclick="setHomeSort(\'expiry\')">'+t('sortExpiry')+sortArrow('expiry')+'</div>'+
         '<div class="sort-pill '+(state.home.sort==='name'?'active':'')+'" onclick="setHomeSort(\'name\')">'+t('sortName')+sortArrow('name')+'</div>'+
@@ -1263,7 +1270,7 @@ function renderItemListHtml(items){
     var dupCount = nameCounts[(it.name||'').trim()];
     var dupBadge = dupCount > 1 ? '<span class="dup-badge">×'+dupCount+'</span>' : '';
     var thumb = it.photo_url ? photoImgHtml(it.photo_url, 'width:100%;height:100%;object-fit:cover;') : ic('box',22);
-    return '<div class="item-card" onclick="navigate(\'itemDetail\',{id:'+aj(it.id)+'})">'+
+    return '<div class="item-card card-'+st.level+'" onclick="navigate(\'itemDetail\',{id:'+aj(it.id)+'})">'+
       '<div class="item-icon">'+thumb+'</div>'+
       '<div class="item-info">'+
         '<div class="item-name">'+esc(it.name)+dupBadge+'</div>'+
@@ -1287,21 +1294,29 @@ function renderHomeSidebarContent(){
   var soon = state.items.filter(function(it){ return expiryStatus(it).level==='soon'; }).length;
   var statsHtml = '<div class="sidebar-stat-row">'+
     '<div class="sidebar-stat-card"><div class="sidebar-stat-num">'+total+'</div><div class="sidebar-stat-label">'+t('statTotal')+'</div></div>'+
-    '<div class="sidebar-stat-card"><div class="sidebar-stat-num" style="color:#c0392b;">'+expired+'</div><div class="sidebar-stat-label">'+t('statExpired')+'</div></div>'+
-    '<div class="sidebar-stat-card"><div class="sidebar-stat-num" style="color:var(--almond);">'+soon+'</div><div class="sidebar-stat-label">'+t('statSoon')+'</div></div>'+
+    '<div class="sidebar-stat-card"><div class="sidebar-stat-num" style="color:var(--danger);">'+expired+'</div><div class="sidebar-stat-label">'+t('statExpired')+'</div></div>'+
+    '<div class="sidebar-stat-card"><div class="sidebar-stat-num" style="color:var(--warn);">'+soon+'</div><div class="sidebar-stat-label">'+t('statSoon')+'</div></div>'+
   '</div>';
-  var catHtml = '<div class="sidebar-section-title">'+t('fieldCategory')+'</div>'+
-    '<div class="sidebar-item '+(!state.home.category?'active':'')+'" onclick="sidebarSetHomeFilter(\'category\',null)">'+t('filterAll')+'</div>'+
+  var catOpen = !state.home.sidebarCollapsed.category;
+  var locOpen = !state.home.sidebarCollapsed.location;
+  var catHtml = '<div class="sidebar-section-title collapsible" onclick="toggleHomeSidebarSection(\'category\')">'+t('fieldCategory')+
+      ic('chevronRight',15,'style="transform:rotate('+(catOpen?'90':'0')+'deg);transition:transform .15s;"')+'</div>'+
+    (catOpen ? ('<div class="sidebar-item '+(!state.home.category?'active':'')+'" onclick="sidebarSetHomeFilter(\'category\',null)">'+t('filterAll')+'</div>'+
     state.categories.map(function(c){
       return '<div class="sidebar-item '+(state.home.category===c?'active':'')+'" onclick="sidebarSetHomeFilter(\'category\','+aj(c)+')">'+esc(c)+'</div>';
-    }).join('');
-  var locHtml = '<div class="sidebar-section-title">'+t('fieldLocation')+'</div>'+
-    '<div class="sidebar-item '+(!state.home.location?'active':'')+'" onclick="sidebarSetHomeFilter(\'location\',null)">'+t('filterAll')+'</div>'+
+    }).join('')) : '');
+  var locHtml = '<div class="sidebar-section-title collapsible" onclick="toggleHomeSidebarSection(\'location\')">'+t('fieldLocation')+
+      ic('chevronRight',15,'style="transform:rotate('+(locOpen?'90':'0')+'deg);transition:transform .15s;"')+'</div>'+
+    (locOpen ? ('<div class="sidebar-item '+(!state.home.location?'active':'')+'" onclick="sidebarSetHomeFilter(\'location\',null)">'+t('filterAll')+'</div>'+
     state.locations.map(function(l){
       return '<div class="sidebar-item '+(state.home.location===l?'active':'')+'" onclick="sidebarSetHomeFilter(\'location\','+aj(l)+')">'+esc(l)+'</div>';
-    }).join('');
+    }).join('')) : '');
   return '<div class="sidebar-header"><h2>📦 '+t('navHome')+'</h2><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div>'+
     statsHtml + catHtml + locHtml;
+}
+function toggleHomeSidebarSection(kind){
+  state.home.sidebarCollapsed[kind] = !state.home.sidebarCollapsed[kind];
+  refreshSidebarContent();
 }
 function setHomeSort(v){
   if(state.home.sort === v){
