@@ -183,6 +183,48 @@
   .photo-remove-btn{ position:absolute; top:6px; right:6px; width:30px; height:30px; background:rgba(0,0,0,0.55); color:#fff; border-color:transparent; }
   .photo-upload-btn{ cursor:pointer; align-items:center; justify-content:center; }
 
+  /* ---------- Sidebar (per-page filter drawer) ---------- */
+  #sidebar-overlay{
+    position:fixed; inset:0; background:rgba(30,20,10,0.4); z-index:40;
+    opacity:0; pointer-events:none; transition:opacity .22s ease;
+  }
+  #sidebar-overlay.open{ opacity:1; pointer-events:auto; }
+  #sidebar-drawer{
+    position:fixed; top:0; left:0; bottom:0; width:80%; max-width:300px;
+    background:var(--card-bg); z-index:41; transform:translateX(-100%);
+    transition:transform .24s cubic-bezier(.3,.9,.4,1); box-shadow:3px 0 20px rgba(0,0,0,0.18);
+    overflow-y:auto; padding:calc(16px + var(--safe-top)) 16px calc(20px + var(--safe-bottom));
+  }
+  #sidebar-drawer.open{ transform:translateX(0); }
+  .sidebar-header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+  .sidebar-header h2{ font-size:18px; font-weight:600; color:var(--cocoa); }
+  .sidebar-section-title{ font-size:12px; font-weight:600; color:var(--deep-caramel); margin:18px 0 8px; text-transform:uppercase; letter-spacing:.04em; }
+  .sidebar-item{
+    padding:10px 10px; border-radius:10px; font-size:15px; color:var(--cocoa);
+    cursor:pointer; user-select:none;
+  }
+  .sidebar-item.active{ background:var(--cream); color:var(--almond); font-weight:600; }
+  .sidebar-item:active{ background:var(--cream-2); }
+  .sidebar-group-header{
+    display:flex; align-items:center; justify-content:space-between; padding:10px 10px;
+    border-radius:10px; cursor:pointer; user-select:none;
+  }
+  .sidebar-group-header:active{ background:var(--cream-2); }
+  .sidebar-subs{ padding-left:12px; }
+  .sidebar-stat-row{ display:flex; gap:8px; margin-bottom:6px; }
+  .sidebar-stat-card{ background:var(--cream); border-radius:12px; padding:10px 8px; flex:1; text-align:center; }
+  .sidebar-stat-num{ font-size:19px; font-weight:700; color:var(--cocoa); line-height:1.2; }
+  .sidebar-stat-label{ font-size:11px; color:var(--deep-caramel); margin-top:2px; }
+  .sidebar-add-row{ display:flex; gap:6px; margin-top:10px; }
+  .sidebar-add-row input{ flex:1; font-size:14px; padding:9px 10px; border-radius:9px; border:1px solid var(--line); }
+  .active-filter-bar{
+    display:flex; align-items:center; justify-content:space-between; gap:8px;
+    background:var(--cream); border-radius:10px; padding:9px 12px; font-size:13px;
+    color:var(--deep-caramel); margin-bottom:10px; cursor:pointer;
+  }
+  .active-filter-bar span{ display:flex; align-items:center; gap:6px; }
+  .active-filter-clear{ background:none; border:none; color:var(--deep-caramel); display:flex; align-items:center; cursor:pointer; padding:2px; }
+
   /* ---------- Buttons ---------- */
   .btn{
     display:flex; align-items:center; justify-content:center; gap:8px;
@@ -290,6 +332,8 @@
 </head>
 <body>
 <div id="app"></div>
+<div id="sidebar-overlay" onclick="closeSidebar()"></div>
+<div id="sidebar-drawer"></div>
 <div id="modal-root"></div>
 <div id="toast-root"></div>
 <script>
@@ -299,6 +343,10 @@
 var DEFAULT_CATEGORIES = ['调味料','面粉/谷物','罐头','零食','蔬果','肉类','乳制品','饮品','烘焙原料'];
 var DEFAULT_LOCATIONS = ['冰箱冷藏','冷冻柜','储藏柜','烘焙柜','厨房台面'];
 var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食谱笔记'];
+var DEFAULT_RECIPE_CATEGORY_GROUPS = [
+  {id:'cooking', name:'烹饪', subs:[]},
+  {id:'baking', name:'烘焙', subs:[]}
+];
 var UNIT_OPTIONS = ['g','kg','ml','l','个'];
 var OIL_TYPES = [
   {id:'vegetable', zh:'色拉油', en:'Vegetable oil', kcalPerG:8.8},
@@ -437,6 +485,10 @@ var I18N = {
     manageNoteCategories:'管理笔记分类', manageNoteCategoriesTitle:'管理笔记分类', addNoteCategoryPh:'新分类名称',
     exportNotesBtn:'导出笔记数据', importNotesBtn:'恢复笔记数据',
     importNotesConfirmMsg:'检测到备份文件包含 {n} 条笔记。"合并"会保留当前设备和备份文件中的所有数据，同一条笔记以最近修改时间为准；"替换"会完全清空当前数据后用备份覆盖，无法撤销。',
+    // sidebars
+    statTotal:'食材总数', statExpired:'已过期', statSoon:'即将过期',
+    fieldRecipeCategory:'分类', fieldRecipeSubCategory:'子分类',
+    recipeCategoryLabel:'分类',
   },
   en:{
     appName:'Pantry Tracker', appSub:'Inventory · Recipes · Nutrition',
@@ -559,6 +611,10 @@ var I18N = {
     manageNoteCategories:'Manage Note Categories', manageNoteCategoriesTitle:'Manage Note Categories', addNoteCategoryPh:'New category name',
     exportNotesBtn:'Export notes data', importNotesBtn:'Restore notes data',
     importNotesConfirmMsg:'The backup file contains {n} notes. "Merge" keeps all data from both this device and the backup, using the most recently modified version of each note. "Replace" wipes current data and overwrites it with the backup - this cannot be undone.',
+    // sidebars
+    statTotal:'Total items', statExpired:'Expired', statSoon:'Expiring soon',
+    fieldRecipeCategory:'Category', fieldRecipeSubCategory:'Sub-category',
+    recipeCategoryLabel:'Category',
   }
 };
 
@@ -577,6 +633,10 @@ var state = {
   noteDraft: null,
   noteFormUI: {},
   notesUI: { search:'', category:null },
+  recipeCategoryGroups: JSON.parse(JSON.stringify(DEFAULT_RECIPE_CATEGORY_GROUPS)),
+  recipesUI: { groupId:null, sub:null, expandedGroup:null },
+  recipeFormUI: {},
+  sidebarOpen: null,
   loaded: false,
   view: 'home',
   params: {},
@@ -614,7 +674,8 @@ async function loadAll(){
     storageGet('recipes', []),
     storageGet('settings', {lang:'zh', reminderDays:3}),
     storageGet('notes', []),
-    storageGet('noteCategories', DEFAULT_NOTE_CATEGORIES.slice())
+    storageGet('noteCategories', DEFAULT_NOTE_CATEGORIES.slice()),
+    storageGet('recipeCategoryGroups', JSON.parse(JSON.stringify(DEFAULT_RECIPE_CATEGORY_GROUPS)))
   ]);
   state.items = results[0];
   state.categories = results[1];
@@ -626,6 +687,7 @@ async function loadAll(){
   state.aiProxyUrl = results[5].aiProxyUrl || '';
   state.notes = results[6];
   state.noteCategories = (results[7] && results[7].length) ? results[7] : DEFAULT_NOTE_CATEGORIES.slice();
+  state.recipeCategoryGroups = (results[8] && results[8].length) ? results[8] : JSON.parse(JSON.stringify(DEFAULT_RECIPE_CATEGORY_GROUPS));
   state.loaded = true;
 }
 function saveItems(){ return storageSet('items', state.items); }
@@ -636,6 +698,7 @@ function saveRecipes(){ return storageSet('recipes', state.recipes); }
 function saveSettings(){ return storageSet('settings', {lang:state.lang, reminderDays:state.reminderDays, aiProxyUrl:state.aiProxyUrl}); }
 function saveNotes(){ return storageSet('notes', state.notes); }
 function saveNoteCategories(){ return storageSet('noteCategories', state.noteCategories); }
+function saveRecipeCategoryGroups(){ return storageSet('recipeCategoryGroups', state.recipeCategoryGroups); }
 
 /* ---- Photo storage (IndexedDB) -----------------------------------------
    Photos are kept OUT of localStorage entirely and stored as compressed base64
@@ -937,7 +1000,8 @@ var ICONS = {
   egg:'<path d="M12 3C8 8 5 13 5 16a7 7 0 0 0 14 0c0-3-3-8-7-13z"/>',
   camera:'<path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13.5" r="3.4"/>',
   note:'<path d="M6 3h9l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M15 3v5h5"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="15.5" x2="16" y2="15.5"/><line x1="8" y1="9" x2="11" y2="9"/>',
-  link:'<path d="M9 15l6-6"/><path d="M13 5l1.5-1.5a3.5 3.5 0 0 1 5 5L18 10"/><path d="M11 19l-1.5 1.5a3.5 3.5 0 0 1-5-5L6 14"/>'
+  link:'<path d="M9 15l6-6"/><path d="M13 5l1.5-1.5a3.5 3.5 0 0 1 5 5L18 10"/><path d="M11 19l-1.5 1.5a3.5 3.5 0 0 1-5-5L6 14"/>',
+  menu:'<line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="14" y2="17"/>'
 };
 function ic(name, size, extra){
   size = size||20;
@@ -951,6 +1015,7 @@ function ic(name, size, extra){
 /* ======================= ROUTER ======================= */
 function navigate(view, params){
   stopScan();
+  closeSidebar();
   state.view = view;
   state.params = params || {};
   render();
@@ -998,6 +1063,99 @@ function bottomNav(){
   '</div>';
 }
 
+/* ======================= SIDEBAR (per-page filter drawer) ======================= */
+// The three list pages (inventory / recipes / notes) each get an off-canvas sidebar
+// for filtering + quick stats. The drawer/overlay elements live outside #app so they
+// survive normal render() calls untouched (only their class/innerHTML is toggled),
+// which is what lets the open/close CSS transition animate smoothly.
+function sidebarPageForCurrentView(){
+  if(state.view==='home') return 'home';
+  if(state.view==='recipes') return 'recipes';
+  if(state.view==='notes') return 'notes';
+  return null;
+}
+function sidebarContentFor(page){
+  if(page==='home') return renderHomeSidebarContent();
+  if(page==='recipes') return renderRecipeSidebarContent();
+  if(page==='notes') return renderNotesSidebarContent();
+  return '';
+}
+function openSidebar(page){
+  if(!page) return;
+  state.sidebarOpen = page;
+  var drawer = document.getElementById('sidebar-drawer');
+  var overlay = document.getElementById('sidebar-overlay');
+  if(!drawer || !overlay) return;
+  drawer.innerHTML = sidebarContentFor(page);
+  overlay.classList.add('open');
+  requestAnimationFrame(function(){
+    requestAnimationFrame(function(){ drawer.classList.add('open'); });
+  });
+}
+function closeSidebar(){
+  state.sidebarOpen = null;
+  var drawer = document.getElementById('sidebar-drawer');
+  var overlay = document.getElementById('sidebar-overlay');
+  if(!drawer || !overlay) return;
+  drawer.classList.remove('open');
+  overlay.classList.remove('open');
+}
+function toggleSidebar(page){
+  if(state.sidebarOpen === page) closeSidebar(); else openSidebar(page);
+}
+// Refreshes the drawer's own content in place (e.g. expanding a recipe category group)
+// without touching the open/closed animation state.
+function refreshSidebarContent(){
+  if(!state.sidebarOpen) return;
+  var drawer = document.getElementById('sidebar-drawer');
+  if(drawer) drawer.innerHTML = sidebarContentFor(state.sidebarOpen);
+}
+function menuButtonHtml(page){
+  return '<div class="topbar-actions"><button class="icon-btn" onclick="toggleSidebar('+aj(page)+')" aria-label="'+t('navSettings')+'">'+ic('menu',20)+'</button></div>';
+}
+// Edge-swipe gesture: swipe right starting within ~24px of the left screen edge opens
+// the current page's sidebar (mirrors the standard iOS/Android edge-drawer gesture, and
+// deliberately does NOT trigger on swipes starting elsewhere so it never fights with the
+// horizontally-scrollable chip rows used throughout the app).
+(function initSidebarGestures(){
+  var startX=null, startY=null, tracking=false;
+  document.addEventListener('touchstart', function(e){
+    if(state.sidebarOpen) return;
+    var page = sidebarPageForCurrentView();
+    if(!page) return;
+    var t0 = e.touches[0];
+    startX = t0.clientX; startY = t0.clientY;
+    tracking = startX <= 24;
+  }, {passive:true});
+  document.addEventListener('touchend', function(e){
+    if(!tracking){ startX=null; startY=null; return; }
+    tracking = false;
+    var t0 = e.changedTouches[0];
+    var dx = t0.clientX - startX, dy = t0.clientY - startY;
+    if(dx > 60 && Math.abs(dy) < 60){
+      var page = sidebarPageForCurrentView();
+      if(page) openSidebar(page);
+    }
+  }, {passive:true});
+  // Swipe-left anywhere on the open drawer closes it (in addition to tapping the backdrop).
+  document.addEventListener('touchstart', function(e){
+    if(!state.sidebarOpen) return;
+    var drawer = document.getElementById('sidebar-drawer');
+    if(!drawer || !drawer.contains(e.target)) return;
+    var t0 = e.touches[0];
+    drawer._touchStartX = t0.clientX; drawer._touchStartY = t0.clientY;
+  }, {passive:true});
+  document.addEventListener('touchend', function(e){
+    if(!state.sidebarOpen) return;
+    var drawer = document.getElementById('sidebar-drawer');
+    if(!drawer || drawer._touchStartX==null) return;
+    var t0 = e.changedTouches[0];
+    var dx = t0.clientX - drawer._touchStartX, dy = t0.clientY - drawer._touchStartY;
+    drawer._touchStartX = null;
+    if(dx < -60 && Math.abs(dy) < 60) closeSidebar();
+  }, {passive:true});
+})();
+
 /* ======================= HOME (inventory list) ======================= */
 function getFilteredSortedItems(){
   var q = (state.home.search||'').trim().toLowerCase();
@@ -1029,29 +1187,23 @@ function getFilteredSortedItems(){
 }
 function renderHome(){
   var items = getFilteredSortedItems();
-  var catChips = '<div class="chip-row">'+
-    '<div class="chip '+(!state.home.category?'active':'')+'" onclick="setHomeFilter(\'category\',null)">'+t('filterAll')+'</div>'+
-    state.categories.map(function(c){
-      return '<div class="chip '+(state.home.category===c?'active':'')+'" onclick="setHomeFilter(\'category\','+aj(c)+')">'+esc(c)+'</div>';
-    }).join('')+
-  '</div>';
-  var locChips = '<div class="chip-row">'+
-    '<div class="chip '+(!state.home.location?'active':'')+'" onclick="setHomeFilter(\'location\',null)">'+t('filterAll')+'</div>'+
-    state.locations.map(function(l){
-      return '<div class="chip '+(state.home.location===l?'active':'')+'" onclick="setHomeFilter(\'location\','+aj(l)+')">'+esc(l)+'</div>';
-    }).join('')+
-  '</div>';
   var listHtml = '<div id="item-list-container">'+renderItemListHtml(items)+'</div>';
   function sortArrow(key){ return state.home.sort===key ? (state.home.sortDir==='desc'?' ↓':' ↑') : ''; }
+  var filterParts = [];
+  if(state.home.category) filterParts.push(esc(state.home.category));
+  if(state.home.location) filterParts.push(esc(state.home.location));
+  var activeFilterHtml = filterParts.length ?
+    '<div class="active-filter-bar"><span onclick="toggleSidebar(\'home\')">'+ic('menu',14)+' '+filterParts.join(' · ')+'</span><button class="active-filter-clear" onclick="clearHomeFilters()">'+ic('x',13)+'</button></div>' : '';
   return '' +
   '<div class="topbar">'+
     '<div><h1>📦 '+t('navHome')+'</h1></div>'+
+    menuButtonHtml('home')+
   '</div>'+
   '<div class="content">'+
     '<div class="search-bar">'+ic('search',19)+
       '<input type="text" placeholder="'+t('searchPlaceholder')+'" value="'+esc(state.home.search)+'" oninput="onHomeSearch(this.value)">'+
     '</div>'+
-    catChips + locChips +
+    activeFilterHtml +
     '<div class="sort-row">'+
       '<div class="label">'+t('sortLabel')+'</div>'+
       '<div class="sort-pills">'+
@@ -1123,6 +1275,34 @@ function renderItemListHtml(items){
   }).join('');
 }
 function setHomeFilter(kind, val){ state.home[kind]=val; render(); }
+function clearHomeFilters(){ state.home.category=null; state.home.location=null; render(); }
+function sidebarSetHomeFilter(kind, val){
+  state.home[kind] = val;
+  closeSidebar();
+  render();
+}
+function renderHomeSidebarContent(){
+  var total = state.items.length;
+  var expired = state.items.filter(function(it){ return expiryStatus(it).level==='expired'; }).length;
+  var soon = state.items.filter(function(it){ return expiryStatus(it).level==='soon'; }).length;
+  var statsHtml = '<div class="sidebar-stat-row">'+
+    '<div class="sidebar-stat-card"><div class="sidebar-stat-num">'+total+'</div><div class="sidebar-stat-label">'+t('statTotal')+'</div></div>'+
+    '<div class="sidebar-stat-card"><div class="sidebar-stat-num" style="color:#c0392b;">'+expired+'</div><div class="sidebar-stat-label">'+t('statExpired')+'</div></div>'+
+    '<div class="sidebar-stat-card"><div class="sidebar-stat-num" style="color:var(--almond);">'+soon+'</div><div class="sidebar-stat-label">'+t('statSoon')+'</div></div>'+
+  '</div>';
+  var catHtml = '<div class="sidebar-section-title">'+t('fieldCategory')+'</div>'+
+    '<div class="sidebar-item '+(!state.home.category?'active':'')+'" onclick="sidebarSetHomeFilter(\'category\',null)">'+t('filterAll')+'</div>'+
+    state.categories.map(function(c){
+      return '<div class="sidebar-item '+(state.home.category===c?'active':'')+'" onclick="sidebarSetHomeFilter(\'category\','+aj(c)+')">'+esc(c)+'</div>';
+    }).join('');
+  var locHtml = '<div class="sidebar-section-title">'+t('fieldLocation')+'</div>'+
+    '<div class="sidebar-item '+(!state.home.location?'active':'')+'" onclick="sidebarSetHomeFilter(\'location\',null)">'+t('filterAll')+'</div>'+
+    state.locations.map(function(l){
+      return '<div class="sidebar-item '+(state.home.location===l?'active':'')+'" onclick="sidebarSetHomeFilter(\'location\','+aj(l)+')">'+esc(l)+'</div>';
+    }).join('');
+  return '<div class="sidebar-header"><h2>📦 '+t('navHome')+'</h2><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div>'+
+    statsHtml + catHtml + locHtml;
+}
 function setHomeSort(v){
   if(state.home.sort === v){
     state.home.sortDir = state.home.sortDir==='desc' ? 'asc' : 'desc';
@@ -1891,27 +2071,101 @@ async function onPhotoSelected(input){
 }
 
 /* ======================= RECIPES LIST ======================= */
+function recipeGroupById(id){
+  return state.recipeCategoryGroups.find(function(g){ return g.id===id; });
+}
+function recipeCategoryLabel(r){
+  if(!r.category_group) return '';
+  var g = recipeGroupById(r.category_group);
+  if(!g) return '';
+  return r.category_sub ? (g.name+' · '+r.category_sub) : g.name;
+}
+function getFilteredRecipes(){
+  return state.recipes.filter(function(r){
+    if(state.recipesUI.groupId && r.category_group !== state.recipesUI.groupId) return false;
+    if(state.recipesUI.sub && r.category_sub !== state.recipesUI.sub) return false;
+    return true;
+  });
+}
 function renderRecipesList(){
+  var filtered = getFilteredRecipes();
   var listHtml;
-  if(state.recipes.length===0){
-    listHtml = '<div class="empty-state">'+ic('book',40)+'<p><strong>'+t('emptyRecipes')+'</strong><br>'+t('emptyRecipesHint')+'</p></div>';
+  if(filtered.length===0){
+    if(state.recipes.length===0){
+      listHtml = '<div class="empty-state">'+ic('book',40)+'<p><strong>'+t('emptyRecipes')+'</strong><br>'+t('emptyRecipesHint')+'</p></div>';
+    } else {
+      listHtml = '<div class="empty-state">'+ic('search',40)+'<p>'+(state.lang==='zh'?'没有符合条件的食谱':'No recipes match your filters')+'</p></div>';
+    }
   } else {
-    listHtml = state.recipes.map(function(r){
+    listHtml = filtered.map(function(r){
       var nutri = calcRecipeNutrition(r);
+      var catLabel = recipeCategoryLabel(r);
       return '<div class="recipe-card" onclick="navigate(\'recipeDetail\',{id:'+aj(r.id)+'})">'+
         '<div class="rname">'+esc(r.name)+'</div>'+
-        '<div class="rmeta">'+(r.servings||1)+' '+t('fieldServings')+' · '+(r.ingredients||[]).length+' '+t('sectionIngredients')+'</div>'+
+        '<div class="rmeta">'+(catLabel?esc(catLabel)+' · ':'')+(r.servings||1)+' '+t('fieldServings')+' · '+(r.ingredients||[]).length+' '+t('sectionIngredients')+'</div>'+
         '<div class="rcal">'+fmtNum(nutri.perServing.calories,0)+' kcal / '+t('perServing').toLowerCase()+'</div>'+
       '</div>';
     }).join('');
   }
+  var filterLabel = '';
+  if(state.recipesUI.groupId){
+    var g = recipeGroupById(state.recipesUI.groupId);
+    filterLabel = g ? (state.recipesUI.sub ? (g.name+' · '+state.recipesUI.sub) : g.name) : '';
+  }
+  var activeFilterHtml = filterLabel ?
+    '<div class="active-filter-bar"><span onclick="toggleSidebar(\'recipes\')">'+ic('menu',14)+' '+esc(filterLabel)+'</span><button class="active-filter-clear" onclick="clearRecipeFilters()">'+ic('x',13)+'</button></div>' : '';
   return '' +
-  '<div class="topbar"><div><h1>📖 '+t('recipesTitle')+'</h1></div></div>'+
+  '<div class="topbar"><div><h1>📖 '+t('recipesTitle')+'</h1></div>'+menuButtonHtml('recipes')+'</div>'+
   '<div class="content">'+
+    activeFilterHtml +
     listHtml+
     '<button class="btn btn-primary" style="margin-top:16px;" onclick="openRecipeForm(null)">'+ic('plus',18)+' '+t('newRecipe')+'</button>'+
   '</div>'+
   bottomNav();
+}
+function clearRecipeFilters(){ state.recipesUI.groupId=null; state.recipesUI.sub=null; render(); }
+function sidebarSetRecipeFilter(groupId, sub){
+  state.recipesUI.groupId = groupId;
+  state.recipesUI.sub = sub;
+  closeSidebar();
+  render();
+}
+function toggleRecipeSidebarGroup(id){
+  state.recipesUI.expandedGroup = (state.recipesUI.expandedGroup===id) ? null : id;
+  refreshSidebarContent();
+}
+function renderRecipeSidebarContent(){
+  var groupsHtml = state.recipeCategoryGroups.map(function(g){
+    var expanded = state.recipesUI.expandedGroup === g.id;
+    var groupActive = state.recipesUI.groupId===g.id && !state.recipesUI.sub;
+    var subItems = (g.subs||[]).map(function(s){
+      var active = state.recipesUI.groupId===g.id && state.recipesUI.sub===s;
+      return '<div class="sidebar-item '+(active?'active':'')+'" onclick="sidebarSetRecipeFilter('+aj(g.id)+','+aj(s)+')">'+esc(s)+'</div>';
+    }).join('');
+    return '<div class="sidebar-group">'+
+      '<div class="sidebar-group-header">'+
+        '<span class="sidebar-item '+(groupActive?'active':'')+'" style="flex:1;padding:8px 4px;" onclick="sidebarSetRecipeFilter('+aj(g.id)+',null)">'+esc(g.name)+'</span>'+
+        '<span style="padding:6px;color:var(--deep-caramel);" onclick="toggleRecipeSidebarGroup('+aj(g.id)+')">'+ic('chevronRight',16,'style="transform:rotate('+(expanded?'90':'0')+'deg);transition:transform .15s;display:block;"')+'</span>'+
+      '</div>'+
+      (expanded ? '<div class="sidebar-subs">'+subItems+
+        '<div class="sidebar-add-row"><input type="text" id="new-recipe-sub-sidebar-'+esc(g.id)+'" placeholder="'+t('newTagPrompt')+'"><button class="btn btn-primary btn-sm" onclick="addRecipeSubFromSidebar('+aj(g.id)+')">'+t('add')+'</button></div>'
+        +'</div>' : '')+
+    '</div>';
+  }).join('');
+  return '<div class="sidebar-header"><h2>📖 '+t('recipesTitle')+'</h2><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div>'+
+    '<div class="sidebar-item '+(!state.recipesUI.groupId?'active':'')+'" onclick="sidebarSetRecipeFilter(null,null)">'+t('filterAll')+'</div>'+
+    groupsHtml;
+}
+function addRecipeSubFromSidebar(groupId){
+  var el = document.getElementById('new-recipe-sub-sidebar-'+groupId);
+  var val = el ? el.value.trim() : '';
+  if(!val) return;
+  var g = recipeGroupById(groupId);
+  if(g && g.subs.indexOf(val)===-1){
+    g.subs.push(val);
+    saveRecipeCategoryGroups();
+  }
+  refreshSidebarContent();
 }
 
 /* ======================= INGREDIENT PICKERS ======================= */
@@ -2056,10 +2310,13 @@ function openRecipeForm(id){
   if(id){
     var existing = state.recipes.find(function(r){ return r.id===id; });
     state.recipeDraft = JSON.parse(JSON.stringify(existing));
+    if(state.recipeDraft.category_group==null) state.recipeDraft.category_group = '';
+    if(state.recipeDraft.category_sub==null) state.recipeDraft.category_sub = '';
   } else {
-    state.recipeDraft = {id:uid(), name:'', servings:2, instructions:'', ingredients:[], extra_oil_amount:0, extra_oil_type:'vegetable', cooked_weight:null, created_at:todayStr(), updated_at:new Date().toISOString()};
+    state.recipeDraft = {id:uid(), name:'', servings:2, instructions:'', ingredients:[], extra_oil_amount:0, extra_oil_type:'vegetable', cooked_weight:null, category_group:'', category_sub:'', created_at:todayStr(), updated_at:new Date().toISOString()};
   }
   state.recipeDraft._isNew = !id;
+  state.recipeFormUI = {};
   navigate('recipeForm', {id:id});
 }
 function ingredientRowsHtml(){
@@ -2109,6 +2366,72 @@ function updateNutritionSummaryDOM(){
   var el = document.getElementById('nutri-summary-container');
   if(el) el.innerHTML = nutritionSummaryHtml();
 }
+function recipeCategoryPickerHtml(){
+  var d = state.recipeDraft;
+  var groupChips = state.recipeCategoryGroups.map(function(g){
+    return '<div class="tag-option '+(d.category_group===g.id?'active':'')+'" onclick="setRecipeCategoryGroup('+aj(g.id)+')">'+esc(g.name)+'</div>';
+  }).join('') + '<div class="tag-option add-new" onclick="toggleAddingRecipeGroup()">'+t('addNewTag')+'</div>';
+  var addGroupUi = state.recipeFormUI.addingGroup ?
+    '<div class="field" style="margin-top:10px;margin-bottom:0;"><div class="field-row">'+
+      '<input type="text" id="new-recipe-group-input" placeholder="'+t('newTagPrompt')+'" style="flex:1;font-size:16px;padding:11px 12px;border-radius:10px;border:1px solid var(--line);">'+
+      '<button class="btn btn-primary btn-sm" onclick="confirmNewRecipeGroup()">'+t('add')+'</button>'+
+    '</div></div>' : '';
+  var subHtml = '';
+  var group = recipeGroupById(d.category_group);
+  if(group){
+    var subChips = (group.subs||[]).map(function(s){
+      return '<div class="tag-option '+(d.category_sub===s?'active':'')+'" onclick="setRecipeCategorySub('+aj(s)+')">'+esc(s)+'</div>';
+    }).join('') + '<div class="tag-option add-new" onclick="toggleAddingRecipeSub()">'+t('addNewTag')+'</div>';
+    var addSubUi = state.recipeFormUI.addingSub ?
+      '<div class="field" style="margin-top:10px;margin-bottom:0;"><div class="field-row">'+
+        '<input type="text" id="new-recipe-sub-input" placeholder="'+t('newTagPrompt')+'" style="flex:1;font-size:16px;padding:11px 12px;border-radius:10px;border:1px solid var(--line);">'+
+        '<button class="btn btn-primary btn-sm" onclick="confirmNewRecipeSub()">'+t('add')+'</button>'+
+      '</div></div>' : '';
+    subHtml = '<div class="field" style="margin-top:14px;margin-bottom:0;"><label>'+t('fieldRecipeSubCategory')+'</label><div class="tag-select">'+subChips+'</div>'+addSubUi+'</div>';
+  }
+  return '<div class="field" style="margin-bottom:0;"><label>'+t('fieldRecipeCategory')+'</label><div class="tag-select">'+groupChips+'</div>'+addGroupUi+'</div>'+subHtml;
+}
+function setRecipeCategoryGroup(id){
+  state.recipeDraft.category_group = id;
+  state.recipeDraft.category_sub = '';
+  render();
+}
+function setRecipeCategorySub(s){ state.recipeDraft.category_sub = s; render(); }
+function toggleAddingRecipeGroup(){
+  state.recipeFormUI.addingGroup = true;
+  render();
+  var el = document.getElementById('new-recipe-group-input'); if(el) el.focus();
+}
+function confirmNewRecipeGroup(){
+  var el = document.getElementById('new-recipe-group-input');
+  var val = el ? el.value.trim() : '';
+  if(!val) return;
+  var id = 'g'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+  state.recipeCategoryGroups.push({id:id, name:val, subs:[]});
+  saveRecipeCategoryGroups();
+  state.recipeDraft.category_group = id;
+  state.recipeDraft.category_sub = '';
+  state.recipeFormUI.addingGroup = false;
+  render();
+}
+function toggleAddingRecipeSub(){
+  state.recipeFormUI.addingSub = true;
+  render();
+  var el = document.getElementById('new-recipe-sub-input'); if(el) el.focus();
+}
+function confirmNewRecipeSub(){
+  var el = document.getElementById('new-recipe-sub-input');
+  var val = el ? el.value.trim() : '';
+  if(!val) return;
+  var group = recipeGroupById(state.recipeDraft.category_group);
+  if(group && group.subs.indexOf(val)===-1){
+    group.subs.push(val);
+    saveRecipeCategoryGroups();
+  }
+  state.recipeDraft.category_sub = val;
+  state.recipeFormUI.addingSub = false;
+  render();
+}
 function renderRecipeForm(){
   var d = state.recipeDraft;
   if(!d) return renderRecipesList();
@@ -2121,6 +2444,10 @@ function renderRecipeForm(){
     '<div class="form-group">'+
       '<div class="field"><label>'+t('fieldRecipeName')+' *</label><input type="text" value="'+esc(d.name)+'" placeholder="'+t('fieldRecipeNamePh')+'" oninput="r_str(\'name\',this.value)"></div>'+
       '<div class="field" style="margin-bottom:0;"><label>'+t('fieldServings')+'</label><input type="number" inputmode="decimal" value="'+(d.servings==null?'':d.servings)+'" oninput="r_num(\'servings\',this.value)"></div>'+
+    '</div>'+
+    '<div class="section-title">'+t('fieldRecipeCategory')+'</div>'+
+    '<div class="form-group">'+
+      recipeCategoryPickerHtml()+
     '</div>'+
     '<div class="section-title">'+t('sectionIngredients')+'</div>'+
     '<div class="form-group">'+
@@ -2413,25 +2740,36 @@ function renderNotesListHtml(list){
 }
 function renderNotesList(){
   var list = getFilteredNotes();
-  var catChips = '<div class="chip-row">'+
-    '<div class="chip '+(!state.notesUI.category?'active':'')+'" onclick="setNotesFilter(null)">'+t('filterAll')+'</div>'+
-    state.noteCategories.map(function(c){
-      return '<div class="chip '+(state.notesUI.category===c?'active':'')+'" onclick="setNotesFilter('+aj(c)+')">'+esc(c)+'</div>';
-    }).join('')+
-  '</div>';
+  var activeFilterHtml = state.notesUI.category ?
+    '<div class="active-filter-bar"><span onclick="toggleSidebar(\'notes\')">'+ic('menu',14)+' '+esc(state.notesUI.category)+'</span><button class="active-filter-clear" onclick="clearNotesFilter()">'+ic('x',13)+'</button></div>' : '';
   return '' +
-  '<div class="topbar"><div><h1>📝 '+t('notesTitle')+'</h1></div></div>'+
+  '<div class="topbar"><div><h1>📝 '+t('notesTitle')+'</h1></div>'+menuButtonHtml('notes')+'</div>'+
   '<div class="content">'+
     '<div class="search-bar">'+ic('search',19)+
       '<input type="text" placeholder="'+t('searchNotesPlaceholder')+'" value="'+esc(state.notesUI.search)+'" oninput="onNotesSearch(this.value)">'+
     '</div>'+
-    catChips +
+    activeFilterHtml +
     '<div id="notes-list-container">'+renderNotesListHtml(list)+'</div>'+
     '<button class="btn btn-primary" style="margin-top:16px;" onclick="openNoteForm(null)">'+ic('plus',18)+' '+t('newNote')+'</button>'+
   '</div>'+
   bottomNav();
 }
 function setNotesFilter(c){ state.notesUI.category=c; render(); }
+function clearNotesFilter(){ state.notesUI.category=null; render(); }
+function sidebarSetNotesCategory(c){
+  state.notesUI.category = c;
+  closeSidebar();
+  render();
+}
+function renderNotesSidebarContent(){
+  var catHtml = state.noteCategories.map(function(c){
+    return '<div class="sidebar-item '+(state.notesUI.category===c?'active':'')+'" onclick="sidebarSetNotesCategory('+aj(c)+')">'+esc(c)+'</div>';
+  }).join('');
+  return '<div class="sidebar-header"><h2>📝 '+t('notesTitle')+'</h2><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div>'+
+    '<div class="sidebar-section-title">'+t('fieldNoteCategory')+'</div>'+
+    '<div class="sidebar-item '+(!state.notesUI.category?'active':'')+'" onclick="sidebarSetNotesCategory(null)">'+t('filterAll')+'</div>'+
+    catHtml;
+}
 function onNotesSearch(v){
   state.notesUI.search = v;
   clearTimeout(onNotesSearch._t);
