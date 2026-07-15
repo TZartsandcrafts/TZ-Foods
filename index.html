@@ -232,6 +232,14 @@
   }
   .active-filter-bar span{ display:flex; align-items:center; gap:6px; }
   .active-filter-clear{ background:none; border:none; color:var(--deep-caramel); display:flex; align-items:center; cursor:pointer; padding:2px; }
+  .item-card.archived-card{
+    border-left-color:var(--line); filter:grayscale(0.45); opacity:0.82;
+  }
+  .item-card.archived-card .item-name{ color:var(--deep-caramel); }
+  .readonly-banner{
+    display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--deep-caramel);
+    background:var(--cream); border-radius:8px; padding:6px 10px; margin-bottom:10px; width:fit-content;
+  }
 
   /* ---------- Buttons ---------- */
   .btn{
@@ -497,6 +505,23 @@ var I18N = {
     statTotal:'总数', statExpired:'过期', statSoon:'临期',
     fieldRecipeCategory:'分类', fieldRecipeSubCategory:'子分类',
     recipeCategoryLabel:'分类',
+    // archive
+    navArchive:'存档', archiveTitle:'存档', searchArchivePlaceholder:'搜索已存档食材',
+    emptyArchive:'还没有存档的食材', emptyArchiveHint:'在食材详情页点击"存档"，可以把已用完或不再需要跟踪的食材归档保存',
+    archivedAt:'存档于', archiveConfirmMsg:'确定要存档这条记录吗？存档后会从库存列表移出，可以在"存档"页面查看，但不能再编辑。',
+    archiveBtn:'存档', archivedToast:'已存档',
+    deleteArchivedConfirmMsg:'确定要永久删除这条存档记录吗？此操作无法撤销。', deleteArchivedBtn:'永久删除',
+    sidebarToolsLabel:'更多工具',
+    // price history
+    navPriceHistory:'历史价格', priceHistoryTitle:'历史价格', searchHistoryPlaceholder:'输入食材名称查看价格走势',
+    historyPromptEmpty:'输入名称后查看价格走势图', historyNoData:'没有找到相关的购买记录', historyRelatedItems:'相关购买记录',
+    // stats
+    navStats:'统计', statsTitle:'统计', searchStatsPlaceholder:'输入食材名称',
+    statsRangeLabel:'时间范围', rangeWeek:'最近7天', rangeMonth:'最近30天', rangeYear:'最近一年', rangeYTD:'今年至今', rangeCustom:'自定义',
+    statsStartDate:'起始日期', statsEndDate:'结束日期', runStatsBtn:'统计',
+    statsTotalQtyLabel:'总量', statsTotalPriceLabel:'总价',
+    statsNoResults:'没有符合条件的存档记录', statsPromptEmpty:'输入食材名称并选择时间范围后点击"统计"',
+    statsMatchedItems:'参与统计的食材',
   },
   en:{
     appName:'Pantry Tracker', appSub:'Inventory · Recipes · Nutrition',
@@ -623,6 +648,23 @@ var I18N = {
     statTotal:'Total items', statExpired:'Expired', statSoon:'Expiring soon',
     fieldRecipeCategory:'Category', fieldRecipeSubCategory:'Sub-category',
     recipeCategoryLabel:'Category',
+    // archive
+    navArchive:'Archive', archiveTitle:'Archive', searchArchivePlaceholder:'Search archived items',
+    emptyArchive:'No archived items yet', emptyArchiveHint:'Tap "Archive" on an item\'s detail page to file it away once it\'s used up or no longer needs tracking',
+    archivedAt:'Archived on', archiveConfirmMsg:'Archive this item? It will move out of your active inventory list into Archive, and can no longer be edited.',
+    archiveBtn:'Archive', archivedToast:'Archived',
+    deleteArchivedConfirmMsg:'Permanently delete this archived record? This cannot be undone.', deleteArchivedBtn:'Delete permanently',
+    sidebarToolsLabel:'More tools',
+    // price history
+    navPriceHistory:'Price History', priceHistoryTitle:'Price History', searchHistoryPlaceholder:'Enter an item name to see its price trend',
+    historyPromptEmpty:'Enter a name to see its price trend', historyNoData:'No purchase records found', historyRelatedItems:'Related purchases',
+    // stats
+    navStats:'Stats', statsTitle:'Stats', searchStatsPlaceholder:'Enter an item name',
+    statsRangeLabel:'Time range', rangeWeek:'Last 7 days', rangeMonth:'Last 30 days', rangeYear:'Last year', rangeYTD:'Year to date', rangeCustom:'Custom',
+    statsStartDate:'Start date', statsEndDate:'End date', runStatsBtn:'Calculate',
+    statsTotalQtyLabel:'Total quantity', statsTotalPriceLabel:'Total spent',
+    statsNoResults:'No archived records match', statsPromptEmpty:'Enter a name and pick a time range, then tap "Calculate"',
+    statsMatchedItems:'Items included',
   }
 };
 
@@ -644,6 +686,9 @@ var state = {
   recipeCategoryGroups: JSON.parse(JSON.stringify(DEFAULT_RECIPE_CATEGORY_GROUPS)),
   recipesUI: { groupId:null, sub:null, expandedGroup:null },
   recipeFormUI: {},
+  archiveUI: { search:'' },
+  statsUI: { search:'', rangeMode:'year', startDate:'', endDate:'', ran:false },
+  historyUI: { search:'' },
   sidebarOpen: null,
   loaded: false,
   view: 'home',
@@ -836,6 +881,11 @@ function todayStr(){
   var d = new Date();
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
+function addDaysStr(dateStr, days){
+  var d = new Date(dateStr+'T00:00:00');
+  d.setDate(d.getDate()+days);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
 function daysUntil(dateStr){
   if(!dateStr) return null;
   var today = new Date(todayStr()+'T00:00:00');
@@ -915,6 +965,36 @@ function qtyDisplay(item){
     parts.push(fmtNum(item.secondary_qty,1) + item.secondary_unit);
   }
   return parts.join(' / ');
+}
+// Everything that reads as "the current inventory" (home list, sidebar stats, the recipe
+// ingredient-source picker) should only ever see non-archived items. Archived items still
+// live in state.items (so ids stay stable for old recipes/notes that reference them, and
+// export/import stays a single simple array) — they're just filtered out everywhere except
+// the dedicated Archive/Stats/History screens.
+function activeItems(){
+  return state.items.filter(function(it){ return !it.archived; });
+}
+function itemDisplayName(it){
+  var n = (it.brand ? (it.brand+' ') : '') + (it.name||'');
+  return esc(n);
+}
+function archiveItem(id){
+  var it = state.items.find(function(i){ return i.id===id; });
+  if(!it) return;
+  if(!confirm(t('archiveConfirmMsg'))) return;
+  it.archived = true;
+  it.archived_at = new Date().toISOString();
+  saveItems();
+  navigate('home');
+  showToast(t('archivedToast'));
+}
+function deleteArchivedItem(id){
+  if(!confirm(t('deleteArchivedConfirmMsg'))) return;
+  var it = state.items.find(function(i){ return i.id===id; });
+  if(it) deletePhotoRef(it.photo_url);
+  state.items = state.items.filter(function(i){ return i.id!==id; });
+  saveItems();
+  navigate('archive');
 }
 
 /* ======================= NUTRITION CALC ======================= */
@@ -1009,7 +1089,8 @@ var ICONS = {
   camera:'<path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13.5" r="3.4"/>',
   note:'<path d="M6 3h9l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M15 3v5h5"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="15.5" x2="16" y2="15.5"/><line x1="8" y1="9" x2="11" y2="9"/>',
   link:'<path d="M9 15l6-6"/><path d="M13 5l1.5-1.5a3.5 3.5 0 0 1 5 5L18 10"/><path d="M11 19l-1.5 1.5a3.5 3.5 0 0 1-5-5L6 14"/>',
-  menu:'<line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="14" y2="17"/>'
+  menu:'<line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="14" y2="17"/>',
+  archive:'<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M4 8v10a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V8"/><line x1="10" y1="12" x2="14" y2="12"/>'
 };
 function ic(name, size, extra){
   size = size||20;
@@ -1050,6 +1131,10 @@ function render(){
     case 'notes': html = renderNotesList(); break;
     case 'noteForm': html = renderNoteForm(); break;
     case 'noteDetail': html = renderNoteDetail(); break;
+    case 'archive': html = renderArchiveList(); break;
+    case 'itemViewOnly': html = renderItemViewOnly(); break;
+    case 'stats': html = renderStats(); break;
+    case 'priceHistory': html = renderPriceHistory(); break;
     default: html = renderHome();
   }
   app.innerHTML = html;
@@ -1167,7 +1252,7 @@ function menuButtonHtml(page){
 /* ======================= HOME (inventory list) ======================= */
 function getFilteredSortedItems(){
   var q = (state.home.search||'').trim().toLowerCase();
-  var list = state.items.filter(function(it){
+  var list = activeItems().filter(function(it){
     if(state.home.category && it.category !== state.home.category) return false;
     if(state.home.location && it.location !== state.home.location) return false;
     if(q){
@@ -1253,7 +1338,7 @@ function expiryRelativeText(item){
 }
 function renderItemListHtml(items){
   if(items.length===0){
-    if(state.items.length===0){
+    if(activeItems().length===0){
       return '<div class="empty-state">'+ic('box',40)+'<p><strong>'+t('emptyInventory')+'</strong><br>'+t('emptyInventoryHint')+'</p></div>';
     }
     return '<div class="empty-state">'+ic('search',40)+'<p>'+(state.lang==='zh'?'没有符合条件的食材':'No items match your filters')+'</p></div>';
@@ -1273,7 +1358,7 @@ function renderItemListHtml(items){
     return '<div class="item-card card-'+st.level+'" onclick="navigate(\'itemDetail\',{id:'+aj(it.id)+'})">'+
       '<div class="item-icon">'+thumb+'</div>'+
       '<div class="item-info">'+
-        '<div class="item-name">'+esc(it.name)+dupBadge+'</div>'+
+        '<div class="item-name">'+itemDisplayName(it)+dupBadge+'</div>'+
         '<div class="item-meta">'+meta+'</div>'+
         '<div class="item-meta">'+esc(expiryLine)+'</div>'+
       '</div>'+
@@ -1289,9 +1374,9 @@ function sidebarSetHomeFilter(kind, val){
   render();
 }
 function renderHomeSidebarContent(){
-  var total = state.items.length;
-  var expired = state.items.filter(function(it){ return expiryStatus(it).level==='expired'; }).length;
-  var soon = state.items.filter(function(it){ return expiryStatus(it).level==='soon'; }).length;
+  var total = activeItems().length;
+  var expired = activeItems().filter(function(it){ return expiryStatus(it).level==='expired'; }).length;
+  var soon = activeItems().filter(function(it){ return expiryStatus(it).level==='soon'; }).length;
   var statsHtml = '<div class="sidebar-stat-row">'+
     '<div class="sidebar-stat-card"><div class="sidebar-stat-num">'+total+'</div><div class="sidebar-stat-label">'+t('statTotal')+'</div></div>'+
     '<div class="sidebar-stat-card"><div class="sidebar-stat-num" style="color:var(--danger);">'+expired+'</div><div class="sidebar-stat-label">'+t('statExpired')+'</div></div>'+
@@ -1311,8 +1396,12 @@ function renderHomeSidebarContent(){
     state.locations.map(function(l){
       return '<div class="sidebar-item '+(state.home.location===l?'active':'')+'" onclick="sidebarSetHomeFilter(\'location\','+aj(l)+')">'+esc(l)+'</div>';
     }).join('')) : '');
+  var toolsHtml = '<div class="sidebar-section-title">'+t('sidebarToolsLabel')+'</div>'+
+    '<div class="sidebar-item" onclick="closeSidebar();navigate(\'archive\')">'+t('navArchive')+'</div>'+
+    '<div class="sidebar-item" onclick="closeSidebar();navigate(\'priceHistory\')">'+t('navPriceHistory')+'</div>'+
+    '<div class="sidebar-item" onclick="closeSidebar();navigate(\'stats\')">'+t('navStats')+'</div>';
   return '<div class="sidebar-header"><h2>📦 '+t('navHome')+'</h2><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div>'+
-    statsHtml + catHtml + locHtml;
+    statsHtml + catHtml + locHtml + toolsHtml;
 }
 function toggleHomeSidebarSection(kind){
   state.home.sidebarCollapsed[kind] = !state.home.sidebarCollapsed[kind];
@@ -1654,7 +1743,16 @@ function saveItemForm(){
   }
   d.updated_at = new Date().toISOString();
   var idx = state.items.findIndex(function(i){ return i.id===d.id; });
-  if(idx===-1) state.items.push(d); else state.items[idx]=d;
+  if(idx===-1){
+    // purchased_qty is a one-time snapshot of "how much was bought this purchase" — unlike
+    // primary_qty (which gets eaten away by recipe deductions/manual edits over time), this
+    // never changes again, so Stats can later report accurate totals even after an item's
+    // current quantity has dropped to near zero.
+    d.purchased_qty = d.primary_qty;
+    state.items.push(d);
+  } else {
+    state.items[idx]=d;
+  }
   saveItems();
   state.itemDraft=null;
   showToast(state.lang==='zh'?'已保存':'Saved');
@@ -1707,7 +1805,10 @@ function renderItemDetail(){
     '<div class="section-title">'+t('sectionNutrition')+'</div>'+
     nutriHtml+
     (it.notes ? '<div class="section-title">'+t('fieldNotes')+'</div><div class="form-group"><p style="font-size:14.5px;line-height:1.6;">'+esc(it.notes)+'</p></div>' : '')+
-    '<button class="btn btn-danger" style="margin-top:22px;" onclick="deleteItemDetail('+aj(it.id)+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
+    '<div class="btn-row" style="margin-top:22px;">'+
+      '<button class="btn btn-outline" onclick="archiveItem('+aj(it.id)+')">'+ic('archive',16)+' '+t('archiveBtn')+'</button>'+
+      '<button class="btn btn-danger" onclick="deleteItemDetail('+aj(it.id)+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
+    '</div>'+
   '</div>'+
   bottomNav();
 }
@@ -1740,6 +1841,269 @@ function confirmRecount(id){
   closeModal();
   showToast(state.lang==='zh'?'已更新':'Updated');
   render();
+}
+
+/* ======================= ARCHIVE ======================= */
+// Archiving is manual-only (see README): the person taps "Archive" on an item they've used
+// up or no longer want to track. Archived items stay in state.items (so old recipes/notes
+// that reference their id keep resolving) but are filtered out of every "live inventory"
+// view via activeItems(), and can only be viewed read-only or permanently deleted from here.
+function getArchivedItems(){
+  return state.items.filter(function(it){ return it.archived; })
+    .sort(function(a,b){ return (b.archived_at||'').localeCompare(a.archived_at||''); });
+}
+function getFilteredArchivedItems(){
+  var q = (state.archiveUI.search||'').trim().toLowerCase();
+  return getArchivedItems().filter(function(it){
+    if(!q) return true;
+    var hay = ((it.name||'')+' '+(it.brand||'')).toLowerCase();
+    return hay.indexOf(q) !== -1;
+  });
+}
+function readOnlyListItemHtml(it, fromView){
+  var dateLabel = it.archived_at ? fmtDateDots((it.archived_at||'').slice(0,10)) : (it.purchase_date ? fmtDateDots(it.purchase_date) : '');
+  var metaLabel = it.archived ? (t('archivedAt')+' '+dateLabel) : (it.purchase_date ? (t('fieldPurchaseDate')+' '+dateLabel) : '');
+  var thumb = it.photo_url ? photoImgHtml(it.photo_url, 'width:100%;height:100%;object-fit:cover;filter:grayscale(0.35);') : ic('box',22);
+  return '<div class="item-card archived-card" onclick="navigate(\'itemViewOnly\',{id:'+aj(it.id)+',from:'+aj(fromView)+'})">'+
+    '<div class="item-icon">'+thumb+'</div>'+
+    '<div class="item-info">'+
+      '<div class="item-name">'+itemDisplayName(it)+'</div>'+
+      '<div class="item-meta">'+esc(metaLabel)+'</div>'+
+    '</div>'+
+  '</div>';
+}
+function renderArchiveListHtml(list){
+  if(list.length===0){
+    if(getArchivedItems().length===0){
+      return '<div class="empty-state">'+ic('archive',40)+'<p><strong>'+t('emptyArchive')+'</strong><br>'+t('emptyArchiveHint')+'</p></div>';
+    }
+    return '<div class="empty-state">'+ic('search',40)+'<p>'+(state.lang==='zh'?'没有符合条件的存档':'No archived items match')+'</p></div>';
+  }
+  return list.map(function(it){ return readOnlyListItemHtml(it, 'archive'); }).join('');
+}
+function renderArchiveList(){
+  var list = getFilteredArchivedItems();
+  return '' +
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'home\')">'+ic('back',22)+'</button><h1>'+t('archiveTitle')+'</h1></div>'+
+  '<div class="content">'+
+    '<div class="search-bar">'+ic('search',19)+'<input type="text" placeholder="'+t('searchArchivePlaceholder')+'" value="'+esc(state.archiveUI.search)+'" oninput="onArchiveSearch(this.value)"></div>'+
+    '<div id="archive-list-container">'+renderArchiveListHtml(list)+'</div>'+
+  '</div>'+
+  bottomNav();
+}
+function onArchiveSearch(v){
+  state.archiveUI.search = v;
+  clearTimeout(onArchiveSearch._t);
+  onArchiveSearch._t = setTimeout(function(){
+    var c = document.getElementById('archive-list-container');
+    if(c) c.innerHTML = renderArchiveListHtml(getFilteredArchivedItems());
+  }, 200);
+}
+
+/* ======================= READ-ONLY ITEM VIEW ======================= */
+// Shared by Archive, Stats, and Price History: whatever item you tap from any of those
+// three screens opens here — a stripped-down, non-editable version of the normal item
+// detail page (no edit button, no recount, no quantity-deduction actions). Archived items
+// additionally get a permanent-delete button; items that are still active (only reachable
+// here via Price History) get pure read-only viewing with no destructive actions at all.
+function renderItemViewOnly(){
+  var id = state.params.id;
+  var it = state.items.find(function(i){ return i.id===id; });
+  if(!it) return renderHome();
+  var backView = state.params.from || 'archive';
+  var st = expiryStatus(it);
+  var labels = {calories:t('nutriCalories'),protein:t('nutriProtein'),fat:t('nutriFat'),carbs:t('nutriCarbs'),fiber:t('nutriFiber'),sugar:t('nutriSugar'),sodium:t('nutriSodium')};
+  var units = {calories:'kcal',protein:'g',fat:'g',carbs:'g',fiber:'g',sugar:'g',sodium:'mg'};
+  var n = it.nutrition || emptyNutrition();
+  var nutriHtml = '<div class="nutri-grid">'+NUTRI_KEYS.map(function(k){
+    return '<div class="nutri-cell"><div class="val">'+fmtNum(n[k],1)+' <span class="unit">'+units[k]+'</span></div><div class="lbl">'+labels[k]+'</div></div>';
+  }).join('')+'</div>';
+  return '' +
+  '<div class="page-header">'+
+    '<button class="back-btn" onclick="navigate('+aj(backView)+')">'+ic('back',22)+'</button>'+
+    '<h1>'+itemDisplayName(it)+'</h1>'+
+  '</div>'+
+  '<div class="content">'+
+    (it.archived ? '<div class="readonly-banner">'+ic('archive',14)+' '+t('archivedAt')+' '+esc(fmtDateDots((it.archived_at||'').slice(0,10)))+'</div>' : '')+
+    (it.photo_url ? photoImgHtml(it.photo_url, 'width:100%;max-width:280px;border-radius:14px;display:block;margin:12px 0 14px;border:1px solid var(--line);object-fit:cover;'+(it.archived?'filter:grayscale(0.3);':'')) : '')+
+    '<div class="status-badge status-'+st.level+'" style="font-size:15px;padding:8px 14px;display:inline-block;margin-bottom:16px;">'+(it.expiry_date?esc(expiryRelativeText(it))+' · '+esc(t('fieldExpiry'))+' '+esc(fmtDateDots(it.expiry_date)):esc(st.label))+'</div>'+
+    '<div class="form-group">'+
+      '<div class="list-row" style="border:none;padding:0;margin-bottom:0;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('detailQtyLabel')+'</span><span>'+qtyDisplay(it)+'</span></div>'+
+    '</div>'+
+    '<div class="form-group">'+
+      '<div class="list-row" style="border:none;padding:0;margin-bottom:10px;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldCategory')+'</span><span>'+esc(categoryLabel(it.category))+'</span></div>'+
+      '<div class="list-row" style="border:none;padding:0;margin-bottom:10px;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldLocation')+'</span><span>'+esc(it.location||t('unset'))+'</span></div>'+
+      '<div class="list-row" style="border:none;padding:0;margin-bottom:10px;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldPurchaseDate')+'</span><span>'+esc(it.purchase_date||'-')+'</span></div>'+
+      '<div class="list-row" style="border:none;padding:0;margin-bottom:0;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldPrice')+'</span><span>'+(it.price?esc(it.price):'-')+'</span></div>'+
+    '</div>'+
+    '<div class="section-title">'+t('sectionNutrition')+'</div>'+
+    nutriHtml+
+    (it.notes ? '<div class="section-title">'+t('fieldNotes')+'</div><div class="form-group"><p style="font-size:14.5px;line-height:1.6;">'+esc(it.notes)+'</p></div>' : '')+
+    (it.archived ? '<button class="btn btn-danger" style="margin-top:22px;" onclick="deleteArchivedItem('+aj(it.id)+')">'+ic('trash',16)+' '+t('deleteArchivedBtn')+'</button>' : '')+
+  '</div>'+
+  bottomNav();
+}
+
+/* ======================= STATS ======================= */
+// "Used up" totals are scored against archived_at (the moment something was actually
+// finished/discarded), not purchase_date — see the design note in the chat history: someone
+// asking "how much X did I get through this year" wants to know about completed batches,
+// not ones still sitting half-used in the fridge. Quantity totals use purchased_qty (the
+// immutable snapshot from the day the item was added) rather than the current primary_qty,
+// since by the time something is archived its primary_qty may have already been eaten down
+// to near zero by recipe deductions.
+function getStatsDateRange(){
+  var end = todayStr();
+  var start;
+  var mode = state.statsUI.rangeMode;
+  if(mode==='week7') start = addDaysStr(end, -7);
+  else if(mode==='days30') start = addDaysStr(end, -30);
+  else if(mode==='year') start = addDaysStr(end, -365);
+  else if(mode==='ytd') start = end.slice(0,4)+'-01-01';
+  else { // custom
+    start = state.statsUI.startDate || '0001-01-01';
+    end = state.statsUI.endDate || end;
+  }
+  return {start:start, end:end};
+}
+function computeStats(){
+  var q = (state.statsUI.search||'').trim().toLowerCase();
+  if(!q) return {matches:[], qtyByUnit:{}, totalPrice:0, hasQuery:false};
+  var range = getStatsDateRange();
+  var matches = state.items.filter(function(it){
+    if(!it.archived || !it.archived_at) return false;
+    var hay = ((it.name||'')+' '+(it.brand||'')).toLowerCase();
+    if(hay.indexOf(q)===-1) return false;
+    var d = it.archived_at.slice(0,10);
+    return d >= range.start && d <= range.end;
+  }).sort(function(a,b){ return (b.archived_at||'').localeCompare(a.archived_at||''); });
+  var qtyByUnit = {};
+  var totalPrice = 0;
+  matches.forEach(function(it){
+    var qv = it.purchased_qty != null ? it.purchased_qty : it.primary_qty;
+    var u = it.primary_unit || '';
+    qtyByUnit[u] = (qtyByUnit[u]||0) + (qv||0);
+    totalPrice += (it.price||0);
+  });
+  return {matches:matches, qtyByUnit:qtyByUnit, totalPrice:totalPrice, hasQuery:true};
+}
+function setStatsRange(mode){ state.statsUI.rangeMode = mode; render(); }
+function onStatsSearchInput(v){ state.statsUI.search = v; }
+function onStatsDateInput(field, v){ state.statsUI[field] = v; }
+function runStats(){
+  var el = document.getElementById('stats-search-input');
+  state.statsUI.search = el ? el.value : state.statsUI.search;
+  state.statsUI.ran = true;
+  render();
+}
+function renderStats(){
+  var rangePills = [
+    ['week7','rangeWeek'],['days30','rangeMonth'],['year','rangeYear'],['ytd','rangeYTD'],['custom','rangeCustom']
+  ].map(function(pair){
+    return '<div class="sort-pill '+(state.statsUI.rangeMode===pair[0]?'active':'')+'" onclick="setStatsRange('+aj(pair[0])+')">'+t(pair[1])+'</div>';
+  }).join('');
+  var customDatesHtml = state.statsUI.rangeMode==='custom' ?
+    '<div class="field-row" style="margin-top:10px;">'+
+      '<div class="field" style="flex:1;margin-bottom:0;"><label>'+t('statsStartDate')+'</label><input type="date" value="'+esc(state.statsUI.startDate)+'" oninput="onStatsDateInput(\'startDate\',this.value)"></div>'+
+      '<div class="field" style="flex:1;margin-bottom:0;"><label>'+t('statsEndDate')+'</label><input type="date" value="'+esc(state.statsUI.endDate)+'" oninput="onStatsDateInput(\'endDate\',this.value)"></div>'+
+    '</div>' : '';
+  var resultsHtml;
+  if(!state.statsUI.ran || !(state.statsUI.search||'').trim()){
+    resultsHtml = '<div class="empty-state">'+ic('search',36)+'<p>'+t('statsPromptEmpty')+'</p></div>';
+  } else {
+    var result = computeStats();
+    if(result.matches.length===0){
+      resultsHtml = '<div class="empty-state">'+ic('archive',36)+'<p>'+t('statsNoResults')+'</p></div>';
+    } else {
+      var qtyLine = Object.keys(result.qtyByUnit).map(function(u){ return fmtNum(result.qtyByUnit[u],2)+u; }).join(' + ');
+      var summaryHtml = '<div class="sidebar-stat-row" style="margin:14px 0;">'+
+        '<div class="sidebar-stat-card" style="flex:1.3;"><div class="sidebar-stat-num" style="font-size:16px;">'+esc(qtyLine)+'</div><div class="sidebar-stat-label">'+t('statsTotalQtyLabel')+'</div></div>'+
+        '<div class="sidebar-stat-card"><div class="sidebar-stat-num">'+fmtNum(result.totalPrice,2)+'</div><div class="sidebar-stat-label">'+t('statsTotalPriceLabel')+'</div></div>'+
+      '</div>';
+      var listHtml = '<div class="section-title">'+t('statsMatchedItems')+'</div>'+
+        result.matches.map(function(it){ return readOnlyListItemHtml(it, 'stats'); }).join('');
+      resultsHtml = summaryHtml + listHtml;
+    }
+  }
+  return '' +
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'home\')">'+ic('back',22)+'</button><h1>'+t('statsTitle')+'</h1></div>'+
+  '<div class="content">'+
+    '<div class="search-bar">'+ic('search',19)+'<input type="text" id="stats-search-input" placeholder="'+t('searchStatsPlaceholder')+'" value="'+esc(state.statsUI.search)+'" oninput="onStatsSearchInput(this.value)"></div>'+
+    '<div class="sidebar-section-title" style="font-size:14px;margin-top:14px;">'+t('statsRangeLabel')+'</div>'+
+    '<div class="sort-pills" style="flex-wrap:wrap;">'+rangePills+'</div>'+
+    customDatesHtml+
+    '<button class="btn btn-primary" style="margin-top:14px;width:100%;" onclick="runStats()">'+t('runStatsBtn')+'</button>'+
+    resultsHtml+
+  '</div>'+
+  bottomNav();
+}
+
+/* ======================= PRICE HISTORY ======================= */
+// Unlike Stats (archived-only, "used up" totals), price history is about "every time I've
+// ever paid for this" — it includes items still active in inventory as well as archived
+// ones, since the money was spent regardless of whether it's been eaten yet.
+function getPriceHistoryMatches(){
+  var q = (state.historyUI.search||'').trim().toLowerCase();
+  if(!q) return [];
+  return state.items.filter(function(it){
+    var hay = ((it.name||'')+' '+(it.brand||'')).toLowerCase();
+    return hay.indexOf(q)!==-1 && it.purchase_date && it.price!=null && it.price!=='';
+  }).sort(function(a,b){ return (a.purchase_date||'').localeCompare(b.purchase_date||''); });
+}
+function priceHistorySvg(points){
+  var w=340, h=190, padL=44, padR=16, padT=18, padB=30;
+  var prices = points.map(function(p){ return parseFloat(p.price)||0; });
+  var minP = Math.min.apply(null, prices), maxP = Math.max.apply(null, prices);
+  if(minP===maxP){ minP -= 1; maxP += 1; }
+  var innerW = w-padL-padR, innerH = h-padT-padB;
+  var minDate = new Date(points[0].purchase_date+'T00:00:00');
+  var maxDate = new Date(points[points.length-1].purchase_date+'T00:00:00');
+  var totalMs = (maxDate-minDate) || 1;
+  function x(i){
+    if(points.length===1) return padL+innerW/2;
+    var t = (new Date(points[i].purchase_date+'T00:00:00'))-minDate;
+    return padL + innerW*(t/totalMs);
+  }
+  function y(p){ return padT + innerH - innerH*(p-minP)/(maxP-minP); }
+  var pathD = points.map(function(p,i){ return (i===0?'M':'L')+x(i).toFixed(1)+','+y(parseFloat(p.price)||0).toFixed(1); }).join(' ');
+  var dots = points.map(function(p,i){ return '<circle cx="'+x(i).toFixed(1)+'" cy="'+y(parseFloat(p.price)||0).toFixed(1)+'" r="4" fill="var(--almond)" stroke="var(--card-bg)" stroke-width="1.5"/>'; }).join('');
+  var startLabel = '<text x="'+padL+'" y="'+(h-8)+'" font-size="10" fill="var(--deep-caramel)">'+esc(fmtDateDots(points[0].purchase_date))+'</text>';
+  var endLabel = points.length>1 ? '<text x="'+(w-padR)+'" y="'+(h-8)+'" font-size="10" fill="var(--deep-caramel)" text-anchor="end">'+esc(fmtDateDots(points[points.length-1].purchase_date))+'</text>' : '';
+  var maxLabel = '<text x="4" y="'+(padT+4)+'" font-size="10" fill="var(--deep-caramel)">'+fmtNum(maxP,2)+'</text>';
+  var minLabel = '<text x="4" y="'+(h-padB)+'" font-size="10" fill="var(--deep-caramel)">'+fmtNum(minP,2)+'</text>';
+  return '<svg viewBox="0 0 '+w+' '+h+'" style="width:100%;height:auto;display:block;">'+
+    '<line x1="'+padL+'" y1="'+padT+'" x2="'+padL+'" y2="'+(h-padB)+'" stroke="var(--line)" stroke-width="1"/>'+
+    '<line x1="'+padL+'" y1="'+(h-padB)+'" x2="'+(w-padR)+'" y2="'+(h-padB)+'" stroke="var(--line)" stroke-width="1"/>'+
+    '<path d="'+pathD+'" fill="none" stroke="var(--almond)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>'+
+    dots + startLabel + endLabel + maxLabel + minLabel +
+  '</svg>';
+}
+function onHistorySearch(v){
+  state.historyUI.search = v;
+  clearTimeout(onHistorySearch._t);
+  onHistorySearch._t = setTimeout(function(){
+    var c = document.getElementById('history-results-container');
+    if(c) c.innerHTML = renderHistoryResultsHtml();
+  }, 250);
+}
+function renderHistoryResultsHtml(){
+  var q = (state.historyUI.search||'').trim();
+  if(!q) return '<div class="empty-state">'+ic('search',36)+'<p>'+t('historyPromptEmpty')+'</p></div>';
+  var matches = getPriceHistoryMatches();
+  if(matches.length===0) return '<div class="empty-state">'+ic('archive',36)+'<p>'+t('historyNoData')+'</p></div>';
+  var chartHtml = '<div class="form-group" style="padding:14px 10px 6px;">'+priceHistorySvg(matches)+'</div>';
+  var listHtml = '<div class="section-title">'+t('historyRelatedItems')+'</div>'+
+    matches.slice().reverse().map(function(it){ return readOnlyListItemHtml(it, 'priceHistory'); }).join('');
+  return chartHtml + listHtml;
+}
+function renderPriceHistory(){
+  return '' +
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'home\')">'+ic('back',22)+'</button><h1>'+t('priceHistoryTitle')+'</h1></div>'+
+  '<div class="content">'+
+    '<div class="search-bar">'+ic('search',19)+'<input type="text" placeholder="'+t('searchHistoryPlaceholder')+'" value="'+esc(state.historyUI.search)+'" oninput="onHistorySearch(this.value)"></div>'+
+    '<div id="history-results-container">'+renderHistoryResultsHtml()+'</div>'+
+  '</div>'+
+  bottomNav();
 }
 
 /* ======================= MODAL ======================= */
@@ -2194,7 +2558,7 @@ function recipeUnitOptionsForItem(item){
 }
 function renderPickInventory(){
   var q = (state.pickSearch||'').toLowerCase();
-  var list = state.items.filter(function(i){ return !q || (i.name||'').toLowerCase().indexOf(q)!==-1; });
+  var list = activeItems().filter(function(i){ return !q || (i.name||'').toLowerCase().indexOf(q)!==-1; });
   var itemsHtml = list.map(function(it){
     return '<div class="picker-item" onclick="pickInventoryItem('+aj(it.id)+')">'+
       '<div><div class="pname">'+esc(it.name)+'</div><div class="pmeta">'+qtyDisplay(it)+(it.location?' · '+esc(it.location):'')+'</div></div>'+
@@ -2218,7 +2582,7 @@ function onPickSearch(v){
 }
 function renderPickInventoryListOnly(){
   var q = (state.pickSearch||'').toLowerCase();
-  var list = state.items.filter(function(i){ return !q || (i.name||'').toLowerCase().indexOf(q)!==-1; });
+  var list = activeItems().filter(function(i){ return !q || (i.name||'').toLowerCase().indexOf(q)!==-1; });
   return list.map(function(it){
     return '<div class="picker-item" onclick="pickInventoryItem('+aj(it.id)+')">'+
       '<div><div class="pname">'+esc(it.name)+'</div><div class="pmeta">'+qtyDisplay(it)+(it.location?' · '+esc(it.location):'')+'</div></div>'+
@@ -2808,7 +3172,10 @@ function renderNoteDetail(){
   '<div class="content">'+
     (n.category ? '<div class="chip active" style="display:inline-block;margin-bottom:12px;">'+esc(n.category)+'</div>' : '')+
     '<div class="form-group"><p style="font-size:15px;line-height:1.7;white-space:pre-wrap;">'+esc(n.content||'')+'</p></div>'+
-    (linkedItems.length ? '<div class="section-title">'+t('linkedItems')+'</div><div class="tag-select">'+linkedItems.map(function(it){ return '<div class="tag-option active" onclick="navigate(\'itemDetail\',{id:'+aj(it.id)+'})">'+esc(it.name)+'</div>'; }).join('')+'</div>' : '')+
+    (linkedItems.length ? '<div class="section-title">'+t('linkedItems')+'</div><div class="tag-select">'+linkedItems.map(function(it){
+      var target = it.archived ? ('navigate(\'itemViewOnly\',{id:'+aj(it.id)+',from:\'notes\'})') : ('navigate(\'itemDetail\',{id:'+aj(it.id)+'})');
+      return '<div class="tag-option active" onclick="'+target+'">'+esc(it.name)+'</div>';
+    }).join('')+'</div>' : '')+
     (linkedRecipes.length ? '<div class="section-title">'+t('linkedRecipes')+'</div><div class="tag-select">'+linkedRecipes.map(function(r){ return '<div class="tag-option active" onclick="navigate(\'recipeDetail\',{id:'+aj(r.id)+'})">'+esc(r.name)+'</div>'; }).join('')+'</div>' : '')+
     '<div class="hint" style="margin-top:16px;">'+t('noteUpdatedAt')+' '+esc((n.updated_at||'').slice(0,10))+'</div>'+
     '<button class="btn btn-danger" style="margin-top:22px;" onclick="deleteNoteDetail('+aj(n.id)+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
