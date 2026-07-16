@@ -130,21 +130,28 @@
   /* ---------- Item cards ---------- */
   .item-card{
     background:var(--card-bg); border-radius:12px; padding:14px;
-    margin-bottom:10px; display:flex; align-items:center; gap:12px;
+    margin-bottom:10px; display:flex; flex-direction:column; gap:8px;
     border-left:4px solid var(--line); box-shadow:var(--shadow); cursor:pointer;
   }
   .item-card.card-expired{ border-left-color:var(--danger); }
   .item-card.card-soon{ border-left-color:var(--warn); }
   .item-card.card-fresh{ border-left-color:var(--fresh); }
   .item-card:active{ transform:scale(0.99); }
+  .item-card-main{ display:flex; align-items:flex-start; gap:12px; }
   .item-icon{
     width:46px; height:46px; border-radius:11px; background:var(--cream);
     display:flex; align-items:center; justify-content:center; flex-shrink:0;
     font-size:22px; color:var(--deep-caramel); overflow:hidden;
   }
   .item-info{ flex:1; min-width:0; }
-  .item-name{ font-size:16px; font-weight:500; color:var(--cocoa); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .item-name{ font-size:16px; font-weight:500; color:var(--cocoa); white-space:normal; word-break:break-word; line-height:1.35; }
   .item-meta{ font-size:13px; color:var(--deep-caramel); margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .item-card-footer{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin-left:58px; }
+  .item-card-footer .expiry-line{ margin-top:0; white-space:normal; overflow:visible; text-overflow:clip; font-weight:500; }
+  .expiry-line.lvl-expired{ color:var(--danger); }
+  .expiry-line.lvl-soon{ color:var(--warn); }
+  .expiry-line.lvl-fresh{ color:var(--fresh); }
+  .expiry-date-highlight{ background:var(--danger-bg); border-radius:5px; padding:1px 6px; }
   .status-badge{ font-size:12.5px; font-weight:500; padding:5px 10px; border-radius:8px; flex-shrink:0; white-space:nowrap; }
   .status-expired{ border-color:var(--danger); color:var(--danger); background:var(--danger-bg); }
   .status-soon{ border-color:var(--warn); color:var(--warn); background:var(--warn-bg); }
@@ -213,6 +220,15 @@
   }
   .sidebar-item.active{ background:var(--cream); color:var(--almond); font-weight:600; }
   .sidebar-item:active{ background:var(--cream-2); }
+  .sidebar-item-row{ display:flex; align-items:center; gap:2px; border-radius:10px; }
+  .sidebar-item-row .sidebar-item{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sidebar-item-actions{ display:flex; gap:2px; flex-shrink:0; }
+  .sidebar-item-action-btn{
+    width:30px; height:30px; border-radius:8px; background:none; border:none;
+    display:flex; align-items:center; justify-content:center; color:#B79B78; cursor:pointer; flex-shrink:0;
+  }
+  .sidebar-item-action-btn:active{ background:var(--cream-2); color:var(--deep-caramel); }
+  .sidebar-item-action-btn.danger:active{ color:var(--danger); }
   .sidebar-group-header{
     display:flex; align-items:center; justify-content:space-between; padding:10px 10px;
     border-radius:10px; cursor:pointer; user-select:none;
@@ -221,6 +237,8 @@
   .sidebar-subs{ padding-left:12px; }
   .sidebar-stat-row{ display:flex; gap:8px; margin-bottom:6px; }
   .sidebar-stat-card{ background:var(--cream); border-radius:12px; padding:10px 8px; flex:1; text-align:center; }
+  .sidebar-stat-card.clickable{ cursor:pointer; user-select:none; }
+  .sidebar-stat-card.clickable:active{ background:var(--cream-2); transform:scale(0.97); }
   .sidebar-stat-num{ font-size:19px; font-weight:700; color:var(--cocoa); line-height:1.2; }
   .sidebar-stat-label{ font-size:11px; color:var(--deep-caramel); margin-top:2px; }
   .sidebar-add-row{ display:flex; gap:6px; margin-top:10px; }
@@ -511,9 +529,10 @@ var I18N = {
     archivedAt:'存档于', archiveConfirmMsg:'确定要存档这条记录吗？存档后会从库存列表移出，可以在"存档"页面查看，但不能再编辑。',
     archiveBtn:'存档', archivedToast:'已存档',
     deleteArchivedConfirmMsg:'确定要永久删除这条存档记录吗？此操作无法撤销。', deleteArchivedBtn:'永久删除',
-    sidebarToolsLabel:'更多工具',
+    sidebarToolsLabel:'更多',
+    editTagTitle:'重命名', tagDuplicate:'该名称已存在', renameBtn:'重命名',
     // price history
-    navPriceHistory:'历史价格', priceHistoryTitle:'历史价格', searchHistoryPlaceholder:'输入食材名称查看价格走势',
+    navPriceHistory:'历史', priceHistoryTitle:'历史价格', searchHistoryPlaceholder:'输入食材名称查看价格走势',
     historyPromptEmpty:'输入名称后查看价格走势图', historyNoData:'没有找到相关的购买记录', historyRelatedItems:'相关购买记录',
     // stats
     navStats:'统计', statsTitle:'统计', searchStatsPlaceholder:'输入食材名称',
@@ -654,9 +673,10 @@ var I18N = {
     archivedAt:'Archived on', archiveConfirmMsg:'Archive this item? It will move out of your active inventory list into Archive, and can no longer be edited.',
     archiveBtn:'Archive', archivedToast:'Archived',
     deleteArchivedConfirmMsg:'Permanently delete this archived record? This cannot be undone.', deleteArchivedBtn:'Delete permanently',
-    sidebarToolsLabel:'More tools',
+    sidebarToolsLabel:'More',
+    editTagTitle:'Rename', tagDuplicate:'This name already exists', renameBtn:'Rename',
     // price history
-    navPriceHistory:'Price History', priceHistoryTitle:'Price History', searchHistoryPlaceholder:'Enter an item name to see its price trend',
+    navPriceHistory:'History', priceHistoryTitle:'Price History', searchHistoryPlaceholder:'Enter an item name to see its price trend',
     historyPromptEmpty:'Enter a name to see its price trend', historyNoData:'No purchase records found', historyRelatedItems:'Related purchases',
     // stats
     navStats:'Stats', statsTitle:'Stats', searchStatsPlaceholder:'Enter an item name',
@@ -693,7 +713,7 @@ var state = {
   loaded: false,
   view: 'home',
   params: {},
-  home: { search:'', category:null, location:null, sort:'expiry', sortDir:'asc', sidebarCollapsed:{category:false, location:false} },
+  home: { search:'', category:null, location:null, sort:'expiry', sortDir:'asc', sidebarCollapsed:{category:false, location:false, tools:false} },
   scan: { running:false, stream:null, detector:null, resultDraft:null, mode:'camera' }
 };
 
@@ -1149,6 +1169,7 @@ function render(){
     case 'itemViewOnly': html = renderItemViewOnly(); break;
     case 'stats': html = renderStats(); break;
     case 'priceHistory': html = renderPriceHistory(); break;
+    case 'statFilteredList': html = renderStatFilteredList(); break;
     default: html = renderHome();
   }
   app.innerHTML = html;
@@ -1156,18 +1177,35 @@ function render(){
 }
 function bottomNav(){
   var v = state.view;
-  var isHome = (v==='home'||v==='itemForm'||v==='itemDetail');
+  var isHome = (v==='home'||v==='itemForm'||v==='itemDetail'||v==='archive'||v==='stats'||v==='priceHistory'||v==='itemViewOnly'||v==='statFilteredList');
   var isRecipes = (v==='recipes'||v==='recipeForm'||v==='recipeDetail'||v==='pickInventory'||v==='pickExternal');
   var isNotes = (v==='notes'||v==='noteForm'||v==='noteDetail');
   var isSettings = (v==='settings'||v==='manageTags');
   return '' +
   '<div class="bottom-nav">'+
-    '<button class="nav-item '+(isHome&&v==='home'?'active':'')+'" onclick="navigate(\'home\')">'+ic('box',22)+'<span>'+t('navHome')+'</span></button>'+
-    '<button class="nav-item '+(v==='recipes'?'active':'')+'" onclick="navigate(\'recipes\')">'+ic('book',22)+'<span>'+t('navRecipes')+'</span></button>'+
+    '<button class="nav-item '+(isHome&&v==='home'?'active':'')+'" onclick="navBottomHome()">'+ic('box',22)+'<span>'+t('navHome')+'</span></button>'+
+    '<button class="nav-item '+(v==='recipes'?'active':'')+'" onclick="navBottomRecipes()">'+ic('book',22)+'<span>'+t('navRecipes')+'</span></button>'+
     '<button class="nav-scan" onclick="navigate(\'scan\')" aria-label="'+t('navScan')+'">'+ic('barcode',26)+'</button>'+
-    '<button class="nav-item '+(isNotes?'active':'')+'" onclick="navigate(\'notes\')">'+ic('note',22)+'<span>'+t('navNotes')+'</span></button>'+
+    '<button class="nav-item '+(isNotes?'active':'')+'" onclick="navBottomNotes()">'+ic('note',22)+'<span>'+t('navNotes')+'</span></button>'+
     '<button class="nav-item '+(isSettings?'active':'')+'" onclick="navigate(\'settings\')">'+ic('gear',22)+'<span>'+t('navSettings')+'</span></button>'+
   '</div>';
+}
+// Bottom-nav taps always jump straight to that section's unfiltered main list, even from a
+// deep sub-page (item detail, archive, recipe form, etc.) or with filters/search active —
+// no more having to close the active-filter chip by hand first.
+function navBottomHome(){
+  state.home.category = null;
+  state.home.location = null;
+  navigate('home');
+}
+function navBottomRecipes(){
+  state.recipesUI.groupId = null;
+  state.recipesUI.sub = null;
+  navigate('recipes');
+}
+function navBottomNotes(){
+  state.notesUI.category = null;
+  navigate('notes');
 }
 
 /* ======================= SIDEBAR (per-page filter drawer) ======================= */
@@ -1176,7 +1214,7 @@ function bottomNav(){
 // survive normal render() calls untouched (only their class/innerHTML is toggled),
 // which is what lets the open/close CSS transition animate smoothly.
 function sidebarPageForCurrentView(){
-  if(state.view==='home') return 'home';
+  if(state.view==='home' || state.view==='archive' || state.view==='stats' || state.view==='priceHistory' || state.view==='statFilteredList') return 'home';
   if(state.view==='recipes') return 'recipes';
   if(state.view==='notes') return 'notes';
   return null;
@@ -1364,21 +1402,44 @@ function renderItemListHtml(items){
   return items.map(function(it){
     var st = expiryStatus(it);
     var meta = (it.location?esc(it.location)+' · ':'') + t('remainingQtyLabel')+' '+qtyDisplay(it);
-    var expiryLine = it.expiry_date ? (t('fieldExpiry')+' '+fmtDateDots(it.expiry_date)) : t('unset');
+    var expiryDateText = it.expiry_date ? fmtDateDots(it.expiry_date) : '';
+    var expiryLineHtml = it.expiry_date ?
+      (esc(t('fieldExpiry'))+' '+(st.level==='expired' ? '<span class="expiry-date-highlight">'+esc(expiryDateText)+'</span>' : esc(expiryDateText))) :
+      esc(t('unset'));
     var badgeText = it.expiry_date ? expiryRelativeText(it) : t('unset');
     var dupCount = nameCounts[(it.name||'').trim()];
     var dupBadge = dupCount > 1 ? '<span class="dup-badge">×'+dupCount+'</span>' : '';
     var thumb = it.photo_url ? photoImgHtml(it.photo_url, 'width:100%;height:100%;object-fit:cover;') : ic('box',22);
     return '<div class="item-card card-'+st.level+'" onclick="navigate(\'itemDetail\',{id:'+aj(it.id)+'})">'+
-      '<div class="item-icon">'+thumb+'</div>'+
-      '<div class="item-info">'+
-        '<div class="item-name">'+itemDisplayName(it)+dupBadge+'</div>'+
-        '<div class="item-meta">'+meta+'</div>'+
-        '<div class="item-meta">'+esc(expiryLine)+'</div>'+
+      '<div class="item-card-main">'+
+        '<div class="item-icon">'+thumb+'</div>'+
+        '<div class="item-info">'+
+          '<div class="item-name">'+itemDisplayName(it)+dupBadge+'</div>'+
+          '<div class="item-meta">'+meta+'</div>'+
+        '</div>'+
       '</div>'+
-      '<div class="status-badge status-'+st.level+'">'+esc(badgeText)+'</div>'+
+      '<div class="item-card-footer">'+
+        '<div class="item-meta expiry-line lvl-'+st.level+'">'+expiryLineHtml+'</div>'+
+        '<div class="status-badge status-'+st.level+'">'+esc(badgeText)+'</div>'+
+      '</div>'+
     '</div>';
   }).join('');
+}
+// Reached by tapping any of the three stat capsules (total / expired / expiring soon) at
+// the top of the inventory sidebar — opens a dedicated full-page list for that slice,
+// using the same editable item cards as the main inventory list.
+function renderStatFilteredList(){
+  var level = state.params.level || 'total';
+  var items = activeItems().filter(function(it){
+    if(level==='expired') return expiryStatus(it).level==='expired';
+    if(level==='soon') return expiryStatus(it).level==='soon';
+    return true;
+  });
+  var titleKey = level==='expired' ? 'statExpired' : (level==='soon' ? 'statSoon' : 'statTotal');
+  return '' +
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'home\')">'+ic('back',22)+'</button><h1>📦 '+t(titleKey)+'</h1></div>'+
+  '<div class="content">'+renderItemListHtml(items)+'</div>'+
+  bottomNav();
 }
 function setHomeFilter(kind, val){ state.home[kind]=val; render(); }
 function clearHomeFilters(){ state.home.category=null; state.home.location=null; render(); }
@@ -1387,33 +1448,49 @@ function sidebarSetHomeFilter(kind, val){
   closeSidebar();
   render();
 }
+function openHomeStatFilter(level){
+  closeSidebar();
+  navigate('statFilteredList', {level: level});
+}
 function renderHomeSidebarContent(){
   var total = activeItems().length;
   var expired = activeItems().filter(function(it){ return expiryStatus(it).level==='expired'; }).length;
   var soon = activeItems().filter(function(it){ return expiryStatus(it).level==='soon'; }).length;
   var statsHtml = '<div class="sidebar-stat-row">'+
-    '<div class="sidebar-stat-card"><div class="sidebar-stat-num">'+total+'</div><div class="sidebar-stat-label">'+t('statTotal')+'</div></div>'+
-    '<div class="sidebar-stat-card"><div class="sidebar-stat-num" style="color:var(--danger);">'+expired+'</div><div class="sidebar-stat-label">'+t('statExpired')+'</div></div>'+
-    '<div class="sidebar-stat-card"><div class="sidebar-stat-num" style="color:var(--warn);">'+soon+'</div><div class="sidebar-stat-label">'+t('statSoon')+'</div></div>'+
+    '<div class="sidebar-stat-card clickable" onclick="openHomeStatFilter(\'total\')"><div class="sidebar-stat-num">'+total+'</div><div class="sidebar-stat-label">'+t('statTotal')+'</div></div>'+
+    '<div class="sidebar-stat-card clickable" onclick="openHomeStatFilter(\'expired\')"><div class="sidebar-stat-num" style="color:var(--danger);">'+expired+'</div><div class="sidebar-stat-label">'+t('statExpired')+'</div></div>'+
+    '<div class="sidebar-stat-card clickable" onclick="openHomeStatFilter(\'soon\')"><div class="sidebar-stat-num" style="color:var(--warn);">'+soon+'</div><div class="sidebar-stat-label">'+t('statSoon')+'</div></div>'+
   '</div>';
   var catOpen = !state.home.sidebarCollapsed.category;
   var locOpen = !state.home.sidebarCollapsed.location;
+  var toolsOpen = !state.home.sidebarCollapsed.tools;
   var catHtml = '<div class="sidebar-section-title collapsible" onclick="toggleHomeSidebarSection(\'category\')">'+t('fieldCategory')+
       ic('chevronRight',15,'style="transform:rotate('+(catOpen?'90':'0')+'deg);transition:transform .15s;"')+'</div>'+
     (catOpen ? ('<div class="sidebar-item '+(!state.home.category?'active':'')+'" onclick="sidebarSetHomeFilter(\'category\',null)">'+t('filterAll')+'</div>'+
     state.categories.map(function(c){
-      return '<div class="sidebar-item '+(state.home.category===c?'active':'')+'" onclick="sidebarSetHomeFilter(\'category\','+aj(c)+')">'+esc(c)+'</div>';
+      return '<div class="sidebar-item-row"><div class="sidebar-item '+(state.home.category===c?'active':'')+'" onclick="sidebarSetHomeFilter(\'category\','+aj(c)+')">'+esc(c)+'</div>'+
+        '<div class="sidebar-item-actions">'+
+        '<button class="sidebar-item-action-btn" onclick="event.stopPropagation();openRenameTagModal(\'category\','+aj(c)+')">'+ic('edit',15)+'</button>'+
+        '<button class="sidebar-item-action-btn danger" onclick="event.stopPropagation();deleteTagItem(\'category\','+aj(c)+')">'+ic('trash',15)+'</button>'+
+        '</div></div>';
     }).join('')) : '');
   var locHtml = '<div class="sidebar-section-title collapsible" onclick="toggleHomeSidebarSection(\'location\')">'+t('fieldLocation')+
       ic('chevronRight',15,'style="transform:rotate('+(locOpen?'90':'0')+'deg);transition:transform .15s;"')+'</div>'+
     (locOpen ? ('<div class="sidebar-item '+(!state.home.location?'active':'')+'" onclick="sidebarSetHomeFilter(\'location\',null)">'+t('filterAll')+'</div>'+
     state.locations.map(function(l){
-      return '<div class="sidebar-item '+(state.home.location===l?'active':'')+'" onclick="sidebarSetHomeFilter(\'location\','+aj(l)+')">'+esc(l)+'</div>';
+      return '<div class="sidebar-item-row"><div class="sidebar-item '+(state.home.location===l?'active':'')+'" onclick="sidebarSetHomeFilter(\'location\','+aj(l)+')">'+esc(l)+'</div>'+
+        '<div class="sidebar-item-actions">'+
+        '<button class="sidebar-item-action-btn" onclick="event.stopPropagation();openRenameTagModal(\'location\','+aj(l)+')">'+ic('edit',15)+'</button>'+
+        '<button class="sidebar-item-action-btn danger" onclick="event.stopPropagation();deleteTagItem(\'location\','+aj(l)+')">'+ic('trash',15)+'</button>'+
+        '</div></div>';
     }).join('')) : '');
-  var toolsHtml = '<div class="sidebar-section-title">'+t('sidebarToolsLabel')+'</div>'+
-    '<div class="sidebar-item" onclick="closeSidebar();navigate(\'archive\')">'+t('navArchive')+'</div>'+
-    '<div class="sidebar-item" onclick="closeSidebar();navigate(\'priceHistory\')">'+t('navPriceHistory')+'</div>'+
-    '<div class="sidebar-item" onclick="closeSidebar();navigate(\'stats\')">'+t('navStats')+'</div>';
+  var toolsHtml = '<div class="sidebar-section-title collapsible" onclick="toggleHomeSidebarSection(\'tools\')">'+t('sidebarToolsLabel')+
+      ic('chevronRight',15,'style="transform:rotate('+(toolsOpen?'90':'0')+'deg);transition:transform .15s;"')+'</div>'+
+    (toolsOpen ? (
+      '<div class="sidebar-item" onclick="closeSidebar();navigate(\'archive\')">'+t('navArchive')+'</div>'+
+      '<div class="sidebar-item" onclick="closeSidebar();navigate(\'priceHistory\')">'+t('navPriceHistory')+'</div>'+
+      '<div class="sidebar-item" onclick="closeSidebar();navigate(\'stats\')">'+t('navStats')+'</div>'
+    ) : '');
   return '<div class="sidebar-header"><h2>📦 '+t('navHome')+'</h2><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div>'+
     statsHtml + catHtml + locHtml + toolsHtml;
 }
@@ -1879,10 +1956,12 @@ function readOnlyListItemHtml(it, fromView){
   var metaLabel = it.archived ? (t('archivedAt')+' '+dateLabel) : (it.purchase_date ? (t('fieldPurchaseDate')+' '+dateLabel) : '');
   var thumb = it.photo_url ? photoImgHtml(it.photo_url, 'width:100%;height:100%;object-fit:cover;filter:grayscale(0.35);') : ic('box',22);
   return '<div class="item-card archived-card" onclick="navigate(\'itemViewOnly\',{id:'+aj(it.id)+',from:'+aj(fromView)+'})">'+
-    '<div class="item-icon">'+thumb+'</div>'+
-    '<div class="item-info">'+
-      '<div class="item-name">'+itemDisplayName(it)+'</div>'+
-      '<div class="item-meta">'+esc(metaLabel)+'</div>'+
+    '<div class="item-card-main">'+
+      '<div class="item-icon">'+thumb+'</div>'+
+      '<div class="item-info">'+
+        '<div class="item-name">'+itemDisplayName(it)+'</div>'+
+        '<div class="item-meta">'+esc(metaLabel)+'</div>'+
+      '</div>'+
     '</div>'+
   '</div>';
 }
@@ -1898,7 +1977,7 @@ function renderArchiveListHtml(list){
 function renderArchiveList(){
   var list = getFilteredArchivedItems();
   return '' +
-  '<div class="page-header"><button class="back-btn" onclick="navigate(\'home\')">'+ic('back',22)+'</button><h1>'+t('archiveTitle')+'</h1></div>'+
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'home\')">'+ic('back',22)+'</button><h1>'+t('archiveTitle')+'</h1><button class="icon-btn" onclick="toggleSidebar(\'home\')">'+ic('menu',20)+'</button></div>'+
   '<div class="content">'+
     '<div class="search-bar">'+ic('search',19)+'<input type="text" placeholder="'+t('searchArchivePlaceholder')+'" value="'+esc(state.archiveUI.search)+'" oninput="onArchiveSearch(this.value)"></div>'+
     '<div id="archive-list-container">'+renderArchiveListHtml(list)+'</div>'+
@@ -2040,7 +2119,7 @@ function renderStats(){
     }
   }
   return '' +
-  '<div class="page-header"><button class="back-btn" onclick="navigate(\'home\')">'+ic('back',22)+'</button><h1>'+t('statsTitle')+'</h1></div>'+
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'home\')">'+ic('back',22)+'</button><h1>'+t('statsTitle')+'</h1><button class="icon-btn" onclick="toggleSidebar(\'home\')">'+ic('menu',20)+'</button></div>'+
   '<div class="content">'+
     '<div class="search-bar">'+ic('search',19)+'<input type="text" id="stats-search-input" placeholder="'+t('searchStatsPlaceholder')+'" value="'+esc(state.statsUI.search)+'" oninput="onStatsSearchInput(this.value)"></div>'+
     '<div class="sidebar-section-title" style="font-size:14px;margin-top:14px;">'+t('statsRangeLabel')+'</div>'+
@@ -2112,7 +2191,7 @@ function renderHistoryResultsHtml(){
 }
 function renderPriceHistory(){
   return '' +
-  '<div class="page-header"><button class="back-btn" onclick="navigate(\'home\')">'+ic('back',22)+'</button><h1>'+t('priceHistoryTitle')+'</h1></div>'+
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'home\')">'+ic('back',22)+'</button><h1>'+t('priceHistoryTitle')+'</h1><button class="icon-btn" onclick="toggleSidebar(\'home\')">'+ic('menu',20)+'</button></div>'+
   '<div class="content">'+
     '<div class="search-bar">'+ic('search',19)+'<input type="text" placeholder="'+t('searchHistoryPlaceholder')+'" value="'+esc(state.historyUI.search)+'" oninput="onHistorySearch(this.value)"></div>'+
     '<div id="history-results-container">'+renderHistoryResultsHtml()+'</div>'+
@@ -2533,11 +2612,19 @@ function renderRecipeSidebarContent(){
     var groupActive = state.recipesUI.groupId===g.id && !state.recipesUI.sub;
     var subItems = (g.subs||[]).map(function(s){
       var active = state.recipesUI.groupId===g.id && state.recipesUI.sub===s;
-      return '<div class="sidebar-item '+(active?'active':'')+'" onclick="sidebarSetRecipeFilter('+aj(g.id)+','+aj(s)+')">'+esc(s)+'</div>';
+      return '<div class="sidebar-item-row"><div class="sidebar-item '+(active?'active':'')+'" onclick="sidebarSetRecipeFilter('+aj(g.id)+','+aj(s)+')">'+esc(s)+'</div>'+
+        '<div class="sidebar-item-actions">'+
+        '<button class="sidebar-item-action-btn" onclick="event.stopPropagation();openRenameRecipeSubModal('+aj(g.id)+','+aj(s)+')">'+ic('edit',15)+'</button>'+
+        '<button class="sidebar-item-action-btn danger" onclick="event.stopPropagation();deleteRecipeSub('+aj(g.id)+','+aj(s)+')">'+ic('trash',15)+'</button>'+
+        '</div></div>';
     }).join('');
     return '<div class="sidebar-group">'+
       '<div class="sidebar-group-header">'+
-        '<span class="sidebar-item '+(groupActive?'active':'')+'" style="flex:1;padding:8px 4px;" onclick="sidebarSetRecipeFilter('+aj(g.id)+',null)">'+esc(g.name)+'</span>'+
+        '<span class="sidebar-item '+(groupActive?'active':'')+'" style="flex:1;padding:8px 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" onclick="sidebarSetRecipeFilter('+aj(g.id)+',null)">'+esc(g.name)+'</span>'+
+        '<div class="sidebar-item-actions">'+
+        '<button class="sidebar-item-action-btn" onclick="event.stopPropagation();openRenameRecipeGroupModal('+aj(g.id)+')">'+ic('edit',15)+'</button>'+
+        '<button class="sidebar-item-action-btn danger" onclick="event.stopPropagation();deleteRecipeGroup('+aj(g.id)+')">'+ic('trash',15)+'</button>'+
+        '</div>'+
         '<span style="padding:6px;color:var(--deep-caramel);" onclick="toggleRecipeSidebarGroup('+aj(g.id)+')">'+ic('chevronRight',16,'style="transform:rotate('+(expanded?'90':'0')+'deg);transition:transform .15s;display:block;"')+'</span>'+
       '</div>'+
       (expanded ? '<div class="sidebar-subs">'+subItems+
@@ -3156,7 +3243,11 @@ function sidebarSetNotesCategory(c){
 }
 function renderNotesSidebarContent(){
   var catHtml = state.noteCategories.map(function(c){
-    return '<div class="sidebar-item '+(state.notesUI.category===c?'active':'')+'" onclick="sidebarSetNotesCategory('+aj(c)+')">'+esc(c)+'</div>';
+    return '<div class="sidebar-item-row"><div class="sidebar-item '+(state.notesUI.category===c?'active':'')+'" onclick="sidebarSetNotesCategory('+aj(c)+')">'+esc(c)+'</div>'+
+      '<div class="sidebar-item-actions">'+
+      '<button class="sidebar-item-action-btn" onclick="event.stopPropagation();openRenameTagModal(\'noteCategory\','+aj(c)+')">'+ic('edit',15)+'</button>'+
+      '<button class="sidebar-item-action-btn danger" onclick="event.stopPropagation();deleteTagItem(\'noteCategory\','+aj(c)+')">'+ic('trash',15)+'</button>'+
+      '</div></div>';
   }).join('');
   return '<div class="sidebar-header"><h2>📝 '+t('notesTitle')+'</h2><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div>'+
     '<div class="sidebar-section-title">'+t('fieldNoteCategory')+'</div>'+
@@ -3489,7 +3580,10 @@ function renderManageTags(){
   var ph = kind==='category' ? t('addCategoryPh') : (kind==='location' ? t('addLocationPh') : t('addNoteCategoryPh'));
   var rows = list.map(function(name){
     return '<div class="list-row"><div class="row-label">'+esc(name)+'</div>'+
-      '<button class="row-del" onclick="deleteTagItem('+aj(kind)+','+aj(name)+')">'+ic('trash',18)+'</button></div>';
+      '<div style="display:flex;gap:4px;">'+
+      '<button class="row-del" onclick="openRenameTagModal('+aj(kind)+','+aj(name)+')">'+ic('edit',17)+'</button>'+
+      '<button class="row-del" onclick="deleteTagItem('+aj(kind)+','+aj(name)+')">'+ic('trash',18)+'</button>'+
+      '</div></div>';
   }).join('') || '<p class="hint">'+(state.lang==='zh'?'还没有标签':'No tags yet')+'</p>';
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'settings\')">'+ic('back',22)+'</button><h1>'+title+'</h1></div>'+
@@ -3521,17 +3615,136 @@ function deleteTagItem(kind, name){
   if(kind==='category'){
     state.categories = state.categories.filter(function(c){ return c!==name; });
     state.items.forEach(function(i){ if(i.category===name) i.category=''; });
+    if(state.home.category===name) state.home.category=null;
     saveCategories(); saveItems();
   } else if(kind==='location'){
     state.locations = state.locations.filter(function(l){ return l!==name; });
     state.items.forEach(function(i){ if(i.location===name) i.location=''; });
+    if(state.home.location===name) state.home.location=null;
     saveLocations(); saveItems();
   } else {
     state.noteCategories = state.noteCategories.filter(function(c){ return c!==name; });
     state.notes.forEach(function(n){ if(n.category===name) n.category=''; });
+    if(state.notesUI.category===name) state.notesUI.category=null;
     saveNoteCategories(); saveNotes();
   }
   render();
+  refreshSidebarContent();
+}
+// Sidebar-driven rename dialog (reuses the app's modal sheet rather than a native prompt()
+// so it matches the rest of the UI). Used for categories, locations, and note categories —
+// all three are plain string arrays keyed by tagListForKind/saveTagListForKind.
+function openRenameTagModal(kind, oldName){
+  var body = '<div class="field" style="margin-bottom:14px;">'+
+      '<input type="text" id="rename-tag-input" value="'+esc(oldName)+'" style="width:100%;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);background:var(--card-bg);color:var(--cocoa);">'+
+    '</div>'+
+    '<div class="btn-row"><button class="btn btn-outline" onclick="closeModal()">'+t('cancel')+'</button>'+
+    '<button class="btn btn-primary" onclick="confirmRenameTag('+aj(kind)+','+aj(oldName)+')">'+t('save')+'</button></div>';
+  showModal(t('editTagTitle'), body);
+  setTimeout(function(){
+    var el = document.getElementById('rename-tag-input');
+    if(el){ el.focus(); el.select(); }
+  }, 30);
+}
+function confirmRenameTag(kind, oldName){
+  var el = document.getElementById('rename-tag-input');
+  var val = el ? el.value.trim() : '';
+  if(!val || val===oldName){ closeModal(); return; }
+  var list = tagListForKind(kind);
+  if(list.indexOf(val)!==-1){ showToast(t('tagDuplicate')); return; }
+  var idx = list.indexOf(oldName);
+  if(idx===-1){ closeModal(); return; }
+  list[idx] = val;
+  if(kind==='category'){
+    state.items.forEach(function(i){ if(i.category===oldName) i.category=val; });
+    if(state.home.category===oldName) state.home.category=val;
+    saveCategories(); saveItems();
+  } else if(kind==='location'){
+    state.items.forEach(function(i){ if(i.location===oldName) i.location=val; });
+    if(state.home.location===oldName) state.home.location=val;
+    saveLocations(); saveItems();
+  } else {
+    state.notes.forEach(function(n){ if(n.category===oldName) n.category=val; });
+    if(state.notesUI.category===oldName) state.notesUI.category=val;
+    saveNoteCategories(); saveNotes();
+  }
+  closeModal();
+  render();
+  refreshSidebarContent();
+}
+// Recipe categories are two-level (group name + free-form sub tags inside g.subs[]), unlike
+// the flat string arrays above, so they get their own small set of rename/delete helpers.
+function openRenameRecipeGroupModal(groupId){
+  var g = recipeGroupById(groupId);
+  if(!g) return;
+  var body = '<div class="field" style="margin-bottom:14px;">'+
+      '<input type="text" id="rename-tag-input" value="'+esc(g.name)+'" style="width:100%;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);background:var(--card-bg);color:var(--cocoa);">'+
+    '</div>'+
+    '<div class="btn-row"><button class="btn btn-outline" onclick="closeModal()">'+t('cancel')+'</button>'+
+    '<button class="btn btn-primary" onclick="confirmRenameRecipeGroup('+aj(groupId)+')">'+t('save')+'</button></div>';
+  showModal(t('editTagTitle'), body);
+  setTimeout(function(){ var el=document.getElementById('rename-tag-input'); if(el){ el.focus(); el.select(); } }, 30);
+}
+function confirmRenameRecipeGroup(groupId){
+  var g = recipeGroupById(groupId);
+  var el = document.getElementById('rename-tag-input');
+  var val = el ? el.value.trim() : '';
+  if(!g || !val){ closeModal(); return; }
+  g.name = val;
+  saveRecipeCategoryGroups();
+  closeModal();
+  render();
+  refreshSidebarContent();
+}
+function deleteRecipeGroup(groupId){
+  var g = recipeGroupById(groupId);
+  if(!g) return;
+  var inUse = state.recipes.some(function(r){ return r.category_group===groupId; });
+  if(inUse && !confirm(t('tagInUseWarning'))) return;
+  state.recipeCategoryGroups = state.recipeCategoryGroups.filter(function(x){ return x.id!==groupId; });
+  state.recipes.forEach(function(r){ if(r.category_group===groupId){ r.category_group=''; r.category_sub=''; } });
+  if(state.recipesUI.groupId===groupId){ state.recipesUI.groupId=null; state.recipesUI.sub=null; }
+  if(state.recipesUI.expandedGroup===groupId) state.recipesUI.expandedGroup=null;
+  saveRecipeCategoryGroups();
+  render();
+  refreshSidebarContent();
+}
+function openRenameRecipeSubModal(groupId, oldSub){
+  var body = '<div class="field" style="margin-bottom:14px;">'+
+      '<input type="text" id="rename-tag-input" value="'+esc(oldSub)+'" style="width:100%;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);background:var(--card-bg);color:var(--cocoa);">'+
+    '</div>'+
+    '<div class="btn-row"><button class="btn btn-outline" onclick="closeModal()">'+t('cancel')+'</button>'+
+    '<button class="btn btn-primary" onclick="confirmRenameRecipeSub('+aj(groupId)+','+aj(oldSub)+')">'+t('save')+'</button></div>';
+  showModal(t('editTagTitle'), body);
+  setTimeout(function(){ var el=document.getElementById('rename-tag-input'); if(el){ el.focus(); el.select(); } }, 30);
+}
+function confirmRenameRecipeSub(groupId, oldSub){
+  var g = recipeGroupById(groupId);
+  var el = document.getElementById('rename-tag-input');
+  var val = el ? el.value.trim() : '';
+  if(!g || !val || val===oldSub){ closeModal(); return; }
+  if((g.subs||[]).indexOf(val)!==-1){ showToast(t('tagDuplicate')); return; }
+  var idx = g.subs.indexOf(oldSub);
+  if(idx===-1){ closeModal(); return; }
+  g.subs[idx] = val;
+  state.recipes.forEach(function(r){ if(r.category_group===groupId && r.category_sub===oldSub) r.category_sub=val; });
+  if(state.recipesUI.groupId===groupId && state.recipesUI.sub===oldSub) state.recipesUI.sub=val;
+  saveRecipeCategoryGroups();
+  closeModal();
+  render();
+  refreshSidebarContent();
+}
+function deleteRecipeSub(groupId, sub){
+  var g = recipeGroupById(groupId);
+  if(!g) return;
+  var inUse = state.recipes.some(function(r){ return r.category_group===groupId && r.category_sub===sub; });
+  if(inUse && !confirm(t('tagInUseWarning'))) return;
+  g.subs = (g.subs||[]).filter(function(s){ return s!==sub; });
+  state.recipes.forEach(function(r){ if(r.category_group===groupId && r.category_sub===sub) r.category_sub=''; });
+  if(state.recipesUI.groupId===groupId && state.recipesUI.sub===sub) state.recipesUI.sub=null;
+  saveRecipeCategoryGroups();
+  render();
+  refreshSidebarContent();
 }
 
 /* ======================= AFTER RENDER HOOK ======================= */
