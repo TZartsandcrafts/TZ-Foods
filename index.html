@@ -156,6 +156,17 @@
   .status-expired{ border-color:var(--danger); color:var(--danger); background:var(--danger-bg); }
   .status-soon{ border-color:var(--warn); color:var(--warn); background:var(--warn-bg); }
   .status-fresh{ border-color:var(--fresh); color:var(--fresh); background:var(--fresh-bg); }
+  /* ---------- Item card swipe-to-reveal actions ---------- */
+  .item-card-swipe{ position:relative; overflow:hidden; border-radius:12px; margin-bottom:10px; }
+  .item-card-swipe .item-card{ margin-bottom:0; position:relative; z-index:1; background:var(--card-bg); transition:transform .22s ease; touch-action:pan-y; }
+  .item-swipe-actions{ position:absolute; top:0; right:0; height:100%; display:flex; z-index:0; }
+  .swipe-action-btn{
+    width:64px; height:100%; border:none; display:flex; flex-direction:column; align-items:center;
+    justify-content:center; gap:4px; color:#fff; font-size:11px; cursor:pointer; flex-shrink:0;
+  }
+  .swipe-action-btn.action-edit{ background:var(--almond); }
+  .swipe-action-btn.action-archive{ background:var(--deep-caramel); }
+  .swipe-action-btn.action-delete{ background:var(--danger); }
 
   .empty-state{ text-align:center; padding:60px 24px; color:var(--deep-caramel); }
   .empty-state i{ font-size:40px; color:var(--caramel-light); margin-bottom:12px; display:block; }
@@ -220,7 +231,7 @@
   }
   .sidebar-item.active{ background:var(--cream); color:var(--almond); font-weight:600; }
   .sidebar-item:active{ background:var(--cream-2); }
-  .sidebar-item-row{ display:flex; align-items:center; gap:2px; border-radius:10px; }
+  .sidebar-item-row{ display:flex; align-items:center; gap:2px; border-radius:10px; position:relative; }
   .sidebar-item-row .sidebar-item{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .sidebar-item-actions{ display:flex; gap:2px; flex-shrink:0; }
   .sidebar-item-action-btn{
@@ -229,6 +240,22 @@
   }
   .sidebar-item-action-btn:active{ background:var(--cream-2); color:var(--deep-caramel); }
   .sidebar-item-action-btn.danger:active{ color:var(--danger); }
+  .sidebar-drag-handle{
+    width:22px; height:30px; display:flex; align-items:center; justify-content:center;
+    color:#CBB59A; flex-shrink:0; touch-action:none; cursor:grab;
+  }
+  .sidebar-item-row.dragging-row{
+    background:var(--cream); box-shadow:0 6px 16px rgba(90,60,30,0.18);
+    border-radius:10px; opacity:0.92;
+  }
+  .sidebar-quick-add-btn{
+    width:30px; height:30px; border-radius:8px; background:none; border:none;
+    display:flex; align-items:center; justify-content:center; color:var(--almond); cursor:pointer; flex-shrink:0;
+  }
+  .sidebar-quick-add-btn:active{ background:var(--cream-2); }
+  .sidebar-quick-add-row{ display:none; gap:6px; padding:6px 10px 10px; }
+  .sidebar-quick-add-row.open{ display:flex; }
+  .sidebar-quick-add-row input{ flex:1; font-size:14px; padding:9px 10px; border-radius:9px; border:1px solid var(--line); background:var(--card-bg); color:var(--cocoa); }
   .sidebar-group-header{
     display:flex; align-items:center; justify-content:space-between; padding:10px 10px;
     border-radius:10px; cursor:pointer; user-select:none;
@@ -1124,7 +1151,8 @@ var ICONS = {
   note:'<path d="M6 3h9l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M15 3v5h5"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="15.5" x2="16" y2="15.5"/><line x1="8" y1="9" x2="11" y2="9"/>',
   link:'<path d="M9 15l6-6"/><path d="M13 5l1.5-1.5a3.5 3.5 0 0 1 5 5L18 10"/><path d="M11 19l-1.5 1.5a3.5 3.5 0 0 1-5-5L6 14"/>',
   menu:'<line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="14" y2="17"/>',
-  archive:'<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M4 8v10a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V8"/><line x1="10" y1="12" x2="14" y2="12"/>'
+  archive:'<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M4 8v10a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V8"/><line x1="10" y1="12" x2="14" y2="12"/>',
+  grip:'<circle cx="9" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="9" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="9" cy="18" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="18" r="1.4" fill="currentColor" stroke="none"/>'
 };
 function ic(name, size, extra){
   size = size||20;
@@ -1301,6 +1329,180 @@ function menuButtonHtml(page){
   }, {passive:true});
 })();
 
+/* ---------- Item card swipe-to-reveal (edit / archive / delete) ---------- */
+// Mirrors the sidebar edge-swipe above: event delegation on document (not per-card listeners)
+// so it keeps working after every full innerHTML re-render. Only one row can be open at a
+// time; touching/dragging anywhere outside the open row closes it first.
+var itemSwipeOpenId = null;
+var itemSwipeSwallowClick = false;
+var ITEM_SWIPE_ACTIONS_WIDTH = 192;
+function closeItemSwipeRow(id){
+  if(itemSwipeOpenId===id) itemSwipeOpenId=null;
+  var wrap = document.querySelector('.item-card-swipe[data-item-id="'+id+'"]');
+  var cardEl = wrap ? wrap.querySelector('.item-card') : null;
+  if(cardEl){ cardEl.style.transition=''; cardEl.style.transform='translateX(0)'; }
+}
+function archiveItemFromSwipe(id){ closeItemSwipeRow(id); archiveItem(id); }
+function deleteItemFromSwipe(id){ closeItemSwipeRow(id); deleteItemDetail(id); }
+(function initItemSwipeGestures(){
+  var sx=0, sy=0, tracking=false, cardEl=null, itemId=null, startedOpen=false, moved=false;
+  document.addEventListener('touchstart', function(e){
+    var wrap = e.target.closest ? e.target.closest('.item-card-swipe') : null;
+    if(itemSwipeOpenId && (!wrap || wrap.getAttribute('data-item-id')!==itemSwipeOpenId)){
+      closeItemSwipeRow(itemSwipeOpenId);
+      itemSwipeSwallowClick = true;
+    }
+    if(!wrap){ tracking=false; cardEl=null; return; }
+    var t0 = e.touches[0];
+    sx=t0.clientX; sy=t0.clientY; tracking=true; moved=false;
+    cardEl = wrap.querySelector('.item-card');
+    itemId = wrap.getAttribute('data-item-id');
+    startedOpen = (itemId === itemSwipeOpenId);
+    if(cardEl) cardEl.style.transition='none';
+  }, {passive:true});
+  document.addEventListener('touchmove', function(e){
+    if(!tracking || !cardEl) return;
+    var t0=e.touches[0];
+    var dx=t0.clientX-sx, dy=t0.clientY-sy;
+    if(!moved && Math.abs(dx)<6 && Math.abs(dy)<6) return;
+    moved = true;
+    if(Math.abs(dy) > Math.abs(dx)){
+      tracking=false;
+      cardEl.style.transition='';
+      cardEl.style.transform = startedOpen ? ('translateX(-'+ITEM_SWIPE_ACTIONS_WIDTH+'px)') : 'translateX(0)';
+      return;
+    }
+    var base = startedOpen ? -ITEM_SWIPE_ACTIONS_WIDTH : 0;
+    var x = base + dx;
+    if(x>0) x=0;
+    if(x< -ITEM_SWIPE_ACTIONS_WIDTH) x=-ITEM_SWIPE_ACTIONS_WIDTH;
+    cardEl.style.transform = 'translateX('+x+'px)';
+  }, {passive:true});
+  document.addEventListener('touchend', function(e){
+    if(!tracking || !cardEl){ tracking=false; return; }
+    tracking=false;
+    cardEl.style.transition='';
+    var t0=e.changedTouches[0];
+    var dx=t0.clientX-sx;
+    var shouldOpen = startedOpen ? (dx > -40) : (dx < -40);
+    if(shouldOpen){
+      itemSwipeOpenId = itemId;
+      cardEl.style.transform = 'translateX(-'+ITEM_SWIPE_ACTIONS_WIDTH+'px)';
+    } else {
+      if(itemSwipeOpenId===itemId) itemSwipeOpenId=null;
+      cardEl.style.transform = 'translateX(0)';
+    }
+  }, {passive:true});
+  // A tap that lands outside the open row auto-closes it (handled in touchstart above);
+  // swallow that same tap's synthetic click so it doesn't also navigate into a different card.
+  document.addEventListener('click', function(e){
+    if(itemSwipeSwallowClick){
+      itemSwipeSwallowClick = false;
+      e.stopPropagation();
+      e.preventDefault();
+    }
+  }, true);
+})();
+
+/* ---------- Sidebar long-press drag reorder (categories / locations) ---------- */
+// Long-press the grip handle on a category/location row, then drag up/down to reorder.
+// Uses a "measure once, offset math, commit on release" approach rather than live DOM
+// node swapping, since it's more robust without the ability to test on a real device here:
+// siblings are shifted visually via translateY while dragging, and the underlying
+// state.categories/state.locations array is only reordered once, on touchend.
+(function initSidebarReorder(){
+  var LONG_PRESS_MS = 420;
+  var pressTimer = null;
+  var dragging = false, dragKind = null;
+  var dragRow = null, rows = [], rowH = 0, startY = 0, startIndex = 0, curIndex = 0, order = [];
+
+  document.addEventListener('touchstart', function(e){
+    var handle = e.target.closest ? e.target.closest('.sidebar-drag-handle') : null;
+    if(!handle) return;
+    var row = handle.closest('.sidebar-item-row');
+    var list = handle.closest('.sidebar-reorder-list');
+    if(!row || !list) return;
+    var t0 = e.touches[0];
+    var pressStartY = t0.clientY, pressStartX = t0.clientX;
+    var moved = false;
+    function onPreMove(ev){
+      var tt = ev.touches[0];
+      if(Math.abs(tt.clientY-pressStartY) > 10 || Math.abs(tt.clientX-pressStartX) > 10){
+        moved = true; clearTimeout(pressTimer); cleanupPre();
+      }
+    }
+    function onPreEnd(){ clearTimeout(pressTimer); cleanupPre(); }
+    function cleanupPre(){
+      document.removeEventListener('touchmove', onPreMove);
+      document.removeEventListener('touchend', onPreEnd);
+    }
+    document.addEventListener('touchmove', onPreMove, {passive:true});
+    document.addEventListener('touchend', onPreEnd, {passive:true});
+    clearTimeout(pressTimer);
+    pressTimer = setTimeout(function(){
+      cleanupPre();
+      if(moved) return;
+      beginDrag(row, list, pressStartY);
+    }, LONG_PRESS_MS);
+  }, {passive:true});
+
+  function beginDrag(row, list, y){
+    dragKind = list.getAttribute('data-reorder-kind');
+    rows = Array.prototype.filter.call(list.children, function(c){ return c.classList.contains('sidebar-item-row'); });
+    dragRow = row;
+    startIndex = rows.indexOf(row);
+    if(startIndex===-1){ dragRow=null; return; }
+    curIndex = startIndex;
+    order = (dragKind==='category' ? state.categories : state.locations).slice();
+    rowH = row.offsetHeight;
+    dragging = true;
+    startY = y;
+    row.classList.add('dragging-row');
+    row.style.position = 'relative';
+    row.style.zIndex = 20;
+    if(navigator.vibrate) navigator.vibrate(10);
+  }
+
+  document.addEventListener('touchmove', function(e){
+    if(!dragging || !dragRow) return;
+    e.preventDefault();
+    var t0 = e.touches[0];
+    var dy = t0.clientY - startY;
+    dragRow.style.transform = 'translateY('+dy+'px)';
+    var shift = Math.round(dy / rowH);
+    var newIndex = Math.max(0, Math.min(rows.length-1, startIndex + shift));
+    if(newIndex !== curIndex){
+      rows.forEach(function(r, i){
+        if(r===dragRow) return;
+        var off = 0;
+        if(newIndex > startIndex){ if(i > startIndex && i <= newIndex) off = -rowH; }
+        else if(newIndex < startIndex){ if(i >= newIndex && i < startIndex) off = rowH; }
+        r.style.transition = 'transform .15s ease';
+        r.style.transform = off ? ('translateY('+off+'px)') : '';
+      });
+      curIndex = newIndex;
+    }
+  }, {passive:false});
+
+  document.addEventListener('touchend', function(){
+    if(!dragging || !dragRow) return;
+    dragging = false;
+    dragRow.classList.remove('dragging-row');
+    dragRow.style.transition = '';
+    dragRow.style.transform = '';
+    dragRow.style.zIndex = '';
+    rows.forEach(function(r){ if(r!==dragRow){ r.style.transition=''; r.style.transform=''; } });
+    if(curIndex !== startIndex){
+      var moved = order.splice(startIndex,1)[0];
+      order.splice(curIndex,0,moved);
+      if(dragKind==='category'){ state.categories = order; saveCategories(); }
+      else { state.locations = order; saveLocations(); }
+      refreshSidebarContent();
+    }
+    dragRow = null; rows = [];
+  }, {passive:true});
+})();
+
 /* ======================= HOME (inventory list) ======================= */
 function getFilteredSortedItems(){
   var q = (state.home.search||'').trim().toLowerCase();
@@ -1410,17 +1612,24 @@ function renderItemListHtml(items){
     var dupCount = nameCounts[(it.name||'').trim()];
     var dupBadge = dupCount > 1 ? '<span class="dup-badge">×'+dupCount+'</span>' : '';
     var thumb = it.photo_url ? photoImgHtml(it.photo_url, 'width:100%;height:100%;object-fit:cover;') : ic('box',22);
-    return '<div class="item-card card-'+st.level+'" onclick="navigate(\'itemDetail\',{id:'+aj(it.id)+'})">'+
-      '<div class="item-card-main">'+
-        '<div class="item-icon">'+thumb+'</div>'+
-        '<div class="item-info">'+
-          '<div class="item-name">'+itemDisplayName(it)+dupBadge+'</div>'+
-          '<div class="item-meta">'+meta+'</div>'+
-        '</div>'+
+    return '<div class="item-card-swipe" data-item-id="'+esc(it.id)+'">'+
+      '<div class="item-swipe-actions">'+
+        '<button class="swipe-action-btn action-edit" onclick="event.stopPropagation();closeItemSwipeRow('+aj(it.id)+');openItemForm('+aj(it.id)+')">'+ic('edit',20)+'<span>'+esc(t('edit'))+'</span></button>'+
+        '<button class="swipe-action-btn action-archive" onclick="event.stopPropagation();archiveItemFromSwipe('+aj(it.id)+')">'+ic('archive',20)+'<span>'+esc(t('archiveBtn'))+'</span></button>'+
+        '<button class="swipe-action-btn action-delete" onclick="event.stopPropagation();deleteItemFromSwipe('+aj(it.id)+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button>'+
       '</div>'+
-      '<div class="item-card-footer">'+
-        '<div class="item-meta expiry-line lvl-'+st.level+'">'+expiryLineHtml+'</div>'+
-        '<div class="status-badge status-'+st.level+'">'+esc(badgeText)+'</div>'+
+      '<div class="item-card card-'+st.level+'" onclick="navigate(\'itemDetail\',{id:'+aj(it.id)+'})">'+
+        '<div class="item-card-main">'+
+          '<div class="item-icon">'+thumb+'</div>'+
+          '<div class="item-info">'+
+            '<div class="item-name">'+itemDisplayName(it)+dupBadge+'</div>'+
+            '<div class="item-meta">'+meta+'</div>'+
+          '</div>'+
+        '</div>'+
+        '<div class="item-card-footer">'+
+          '<div class="item-meta expiry-line lvl-'+st.level+'">'+expiryLineHtml+'</div>'+
+          '<div class="status-badge status-'+st.level+'">'+esc(badgeText)+'</div>'+
+        '</div>'+
       '</div>'+
     '</div>';
   }).join('');
@@ -1452,6 +1661,9 @@ function openHomeStatFilter(level){
   closeSidebar();
   navigate('statFilteredList', {level: level});
 }
+// Transient UI state for the sidebar's inline "+" quick-add rows (category / location /
+// noteCategory) - not persisted, resets on reload, mirrors itemSwipeOpenId's pattern above.
+var sidebarQuickAddOpen = {category:false, location:false, noteCategory:false};
 function renderHomeSidebarContent(){
   var total = activeItems().length;
   var expired = activeItems().filter(function(it){ return expiryStatus(it).level==='expired'; }).length;
@@ -1464,27 +1676,33 @@ function renderHomeSidebarContent(){
   var catOpen = !state.home.sidebarCollapsed.category;
   var locOpen = !state.home.sidebarCollapsed.location;
   var toolsOpen = !state.home.sidebarCollapsed.tools;
-  var catHtml = '<div class="sidebar-section-title collapsible" onclick="toggleHomeSidebarSection(\'category\')">'+t('fieldCategory')+
-      ic('chevronRight',15,'style="transform:rotate('+(catOpen?'90':'0')+'deg);transition:transform .15s;"')+'</div>'+
+  var catHtml = sidebarSectionTitleHtml('fieldCategory', 'category', catOpen) +
     (catOpen ? ('<div class="sidebar-item '+(!state.home.category?'active':'')+'" onclick="sidebarSetHomeFilter(\'category\',null)">'+t('filterAll')+'</div>'+
+    sidebarQuickAddRowHtml('category') +
+    '<div class="sidebar-reorder-list" data-reorder-kind="category">'+
     state.categories.map(function(c){
-      return '<div class="sidebar-item-row"><div class="sidebar-item '+(state.home.category===c?'active':'')+'" onclick="sidebarSetHomeFilter(\'category\','+aj(c)+')">'+esc(c)+'</div>'+
+      return '<div class="sidebar-item-row"><span class="sidebar-drag-handle">'+ic('grip',16)+'</span>'+
+        '<div class="sidebar-item '+(state.home.category===c?'active':'')+'" onclick="sidebarSetHomeFilter(\'category\','+aj(c)+')">'+esc(c)+'</div>'+
         '<div class="sidebar-item-actions">'+
         '<button class="sidebar-item-action-btn" onclick="event.stopPropagation();openRenameTagModal(\'category\','+aj(c)+')">'+ic('edit',15)+'</button>'+
         '<button class="sidebar-item-action-btn danger" onclick="event.stopPropagation();deleteTagItem(\'category\','+aj(c)+')">'+ic('trash',15)+'</button>'+
         '</div></div>';
-    }).join('')) : '');
-  var locHtml = '<div class="sidebar-section-title collapsible" onclick="toggleHomeSidebarSection(\'location\')">'+t('fieldLocation')+
-      ic('chevronRight',15,'style="transform:rotate('+(locOpen?'90':'0')+'deg);transition:transform .15s;"')+'</div>'+
+    }).join('') +
+    '</div>') : '');
+  var locHtml = sidebarSectionTitleHtml('fieldLocation', 'location', locOpen) +
     (locOpen ? ('<div class="sidebar-item '+(!state.home.location?'active':'')+'" onclick="sidebarSetHomeFilter(\'location\',null)">'+t('filterAll')+'</div>'+
+    sidebarQuickAddRowHtml('location') +
+    '<div class="sidebar-reorder-list" data-reorder-kind="location">'+
     state.locations.map(function(l){
-      return '<div class="sidebar-item-row"><div class="sidebar-item '+(state.home.location===l?'active':'')+'" onclick="sidebarSetHomeFilter(\'location\','+aj(l)+')">'+esc(l)+'</div>'+
+      return '<div class="sidebar-item-row"><span class="sidebar-drag-handle">'+ic('grip',16)+'</span>'+
+        '<div class="sidebar-item '+(state.home.location===l?'active':'')+'" onclick="sidebarSetHomeFilter(\'location\','+aj(l)+')">'+esc(l)+'</div>'+
         '<div class="sidebar-item-actions">'+
         '<button class="sidebar-item-action-btn" onclick="event.stopPropagation();openRenameTagModal(\'location\','+aj(l)+')">'+ic('edit',15)+'</button>'+
         '<button class="sidebar-item-action-btn danger" onclick="event.stopPropagation();deleteTagItem(\'location\','+aj(l)+')">'+ic('trash',15)+'</button>'+
         '</div></div>';
-    }).join('')) : '');
-  var toolsHtml = '<div class="sidebar-section-title collapsible" onclick="toggleHomeSidebarSection(\'tools\')">'+t('sidebarToolsLabel')+
+    }).join('') +
+    '</div>') : '');
+  var toolsHtml = '<div class="sidebar-section-title collapsible" onclick="toggleHomeSidebarSection(\'tools\')"><span>'+t('sidebarToolsLabel')+'</span>'+
       ic('chevronRight',15,'style="transform:rotate('+(toolsOpen?'90':'0')+'deg);transition:transform .15s;"')+'</div>'+
     (toolsOpen ? (
       '<div class="sidebar-item" onclick="closeSidebar();navigate(\'archive\')">'+t('navArchive')+'</div>'+
@@ -1493,6 +1711,45 @@ function renderHomeSidebarContent(){
     ) : '');
   return '<div class="sidebar-header"><h2>📦 '+t('navHome')+'</h2><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div>'+
     statsHtml + catHtml + locHtml + toolsHtml;
+}
+// Shared section-title markup for the two reorderable/addable lists (category, location):
+// title on the left, a compact "+" quick-add button and the collapse chevron grouped on the
+// right so tapping "+" doesn't also toggle the collapsed state (it calls stopPropagation).
+function sidebarSectionTitleHtml(labelKey, kind, isOpen){
+  return '<div class="sidebar-section-title collapsible" onclick="toggleHomeSidebarSection('+aj(kind)+')">'+
+    '<span>'+t(labelKey)+'</span>'+
+    '<span style="display:flex;align-items:center;gap:2px;">'+
+      '<button class="sidebar-quick-add-btn" onclick="event.stopPropagation();toggleSidebarQuickAdd('+aj(kind)+')">'+ic('plus',16)+'</button>'+
+      ic('chevronRight',15,'style="transform:rotate('+(isOpen?'90':'0')+'deg);transition:transform .15s;"')+
+    '</span>'+
+  '</div>';
+}
+function sidebarQuickAddRowHtml(kind){
+  var ph = kind==='category' ? t('addCategoryPh') : (kind==='location' ? t('addLocationPh') : t('addNoteCategoryPh'));
+  var open = !!sidebarQuickAddOpen[kind];
+  return '<div class="sidebar-quick-add-row'+(open?' open':'')+'">'+
+    '<input type="text" id="sidebar-quick-add-input-'+kind+'" placeholder="'+ph+'" onkeydown="if(event.key===\'Enter\')addTagFromSidebar('+aj(kind)+')">'+
+    '<button class="btn btn-primary btn-sm" onclick="addTagFromSidebar('+aj(kind)+')">'+t('add')+'</button>'+
+  '</div>';
+}
+function toggleSidebarQuickAdd(kind){
+  sidebarQuickAddOpen[kind] = !sidebarQuickAddOpen[kind];
+  refreshSidebarContent();
+  if(sidebarQuickAddOpen[kind]){
+    setTimeout(function(){ var el=document.getElementById('sidebar-quick-add-input-'+kind); if(el) el.focus(); }, 30);
+  }
+}
+function addTagFromSidebar(kind){
+  var el = document.getElementById('sidebar-quick-add-input-'+kind);
+  var val = el ? el.value.trim() : '';
+  if(!val) return;
+  var list = tagListForKind(kind);
+  if(list.indexOf(val)!==-1){ showToast(t('tagDuplicate')); return; }
+  list.push(val);
+  saveTagListForKind(kind);
+  sidebarQuickAddOpen[kind] = false;
+  render();
+  refreshSidebarContent();
 }
 function toggleHomeSidebarSection(kind){
   state.home.sidebarCollapsed[kind] = !state.home.sidebarCollapsed[kind];
