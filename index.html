@@ -158,7 +158,7 @@
   .status-fresh{ border-color:var(--fresh); color:var(--fresh); background:var(--fresh-bg); }
   /* ---------- Item card swipe-to-reveal actions ---------- */
   .item-card-swipe{ position:relative; overflow:hidden; border-radius:12px; margin-bottom:10px; }
-  .item-card-swipe .item-card{ margin-bottom:0; position:relative; z-index:1; background:var(--card-bg); transition:transform .22s ease; touch-action:pan-y; }
+  .item-card-swipe .item-card{ margin-bottom:0; position:relative; z-index:1; background:var(--card-bg); transition:transform .22s ease; touch-action:pan-y; border-radius:0; }
   .item-swipe-actions{ position:absolute; top:0; right:0; height:100%; display:flex; z-index:0; }
   .swipe-action-btn{
     width:64px; height:100%; border:none; display:flex; flex-direction:column; align-items:center;
@@ -227,11 +227,14 @@
   .sidebar-section-title.collapsible:active{ opacity:0.7; }
   .sidebar-item{
     padding:10px 10px; border-radius:10px; font-size:15px; color:var(--cocoa);
-    cursor:pointer; user-select:none;
+    cursor:pointer; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none;
   }
   .sidebar-item.active{ background:var(--cream); color:var(--almond); font-weight:600; }
   .sidebar-item:active{ background:var(--cream-2); }
-  .sidebar-item-row{ display:flex; align-items:center; gap:2px; border-radius:10px; position:relative; }
+  .sidebar-item-row{
+    display:flex; align-items:center; gap:2px; border-radius:10px; position:relative;
+    user-select:none; -webkit-user-select:none; -webkit-touch-callout:none;
+  }
   .sidebar-item-row .sidebar-item{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .sidebar-item-actions{ display:flex; gap:2px; flex-shrink:0; }
   .sidebar-item-action-btn{
@@ -243,19 +246,23 @@
   .sidebar-drag-handle{
     width:22px; height:30px; display:flex; align-items:center; justify-content:center;
     color:#CBB59A; flex-shrink:0; touch-action:none; cursor:grab;
+    user-select:none; -webkit-user-select:none; -webkit-touch-callout:none;
   }
   .sidebar-item-row.dragging-row{
     background:var(--cream); box-shadow:0 6px 16px rgba(90,60,30,0.18);
     border-radius:10px; opacity:0.92;
   }
-  .sidebar-quick-add-btn{
-    width:30px; height:30px; border-radius:8px; background:none; border:none;
-    display:flex; align-items:center; justify-content:center; color:var(--almond); cursor:pointer; flex-shrink:0;
+  .sidebar-inline-add-row{ display:flex; align-items:center; gap:8px; padding:6px 2px 4px; }
+  .sidebar-inline-add-row input{
+    flex:1; min-width:0; font-size:14px; padding:0 10px; height:38px; box-sizing:border-box;
+    border-radius:9px; border:1px solid var(--line); background:var(--card-bg); color:var(--cocoa); outline:none;
   }
-  .sidebar-quick-add-btn:active{ background:var(--cream-2); }
-  .sidebar-quick-add-row{ display:none; gap:6px; padding:6px 10px 10px; }
-  .sidebar-quick-add-row.open{ display:flex; }
-  .sidebar-quick-add-row input{ flex:1; font-size:14px; padding:9px 10px; border-radius:9px; border:1px solid var(--line); background:var(--card-bg); color:var(--cocoa); }
+  .sidebar-inline-add-row input:focus{ border-color:var(--almond); }
+  .sidebar-inline-add-row button{
+    flex-shrink:0; white-space:nowrap; font-size:14px; font-weight:600; height:38px;
+    padding:0 16px; border-radius:9px; border:none; background:var(--almond); color:#fff; cursor:pointer;
+  }
+  .sidebar-inline-add-row button:active{ opacity:0.85; }
   .sidebar-group-header{
     display:flex; align-items:center; justify-content:space-between; padding:10px 10px;
     border-radius:10px; cursor:pointer; user-select:none;
@@ -1384,7 +1391,9 @@ function deleteItemFromSwipe(id){ closeItemSwipeRow(id); deleteItemDetail(id); }
     cardEl.style.transition='';
     var t0=e.changedTouches[0];
     var dx=t0.clientX-sx;
-    var shouldOpen = startedOpen ? (dx > -40) : (dx < -40);
+    // Already-open row: stays open unless dragged right past the close threshold.
+    // Closed row: stays closed unless dragged left past the open threshold.
+    var shouldOpen = startedOpen ? (dx <= 40) : (dx < -40);
     if(shouldOpen){
       itemSwipeOpenId = itemId;
       cardEl.style.transform = 'translateX(-'+ITEM_SWIPE_ACTIONS_WIDTH+'px)';
@@ -1661,9 +1670,6 @@ function openHomeStatFilter(level){
   closeSidebar();
   navigate('statFilteredList', {level: level});
 }
-// Transient UI state for the sidebar's inline "+" quick-add rows (category / location /
-// noteCategory) - not persisted, resets on reload, mirrors itemSwipeOpenId's pattern above.
-var sidebarQuickAddOpen = {category:false, location:false, noteCategory:false};
 function renderHomeSidebarContent(){
   var total = activeItems().length;
   var expired = activeItems().filter(function(it){ return expiryStatus(it).level==='expired'; }).length;
@@ -1678,7 +1684,6 @@ function renderHomeSidebarContent(){
   var toolsOpen = !state.home.sidebarCollapsed.tools;
   var catHtml = sidebarSectionTitleHtml('fieldCategory', 'category', catOpen) +
     (catOpen ? ('<div class="sidebar-item '+(!state.home.category?'active':'')+'" onclick="sidebarSetHomeFilter(\'category\',null)">'+t('filterAll')+'</div>'+
-    sidebarQuickAddRowHtml('category') +
     '<div class="sidebar-reorder-list" data-reorder-kind="category">'+
     state.categories.map(function(c){
       return '<div class="sidebar-item-row"><span class="sidebar-drag-handle">'+ic('grip',16)+'</span>'+
@@ -1688,10 +1693,10 @@ function renderHomeSidebarContent(){
         '<button class="sidebar-item-action-btn danger" onclick="event.stopPropagation();deleteTagItem(\'category\','+aj(c)+')">'+ic('trash',15)+'</button>'+
         '</div></div>';
     }).join('') +
-    '</div>') : '');
+    '</div>' +
+    sidebarInlineAddRowHtml('category')) : '');
   var locHtml = sidebarSectionTitleHtml('fieldLocation', 'location', locOpen) +
     (locOpen ? ('<div class="sidebar-item '+(!state.home.location?'active':'')+'" onclick="sidebarSetHomeFilter(\'location\',null)">'+t('filterAll')+'</div>'+
-    sidebarQuickAddRowHtml('location') +
     '<div class="sidebar-reorder-list" data-reorder-kind="location">'+
     state.locations.map(function(l){
       return '<div class="sidebar-item-row"><span class="sidebar-drag-handle">'+ic('grip',16)+'</span>'+
@@ -1701,7 +1706,8 @@ function renderHomeSidebarContent(){
         '<button class="sidebar-item-action-btn danger" onclick="event.stopPropagation();deleteTagItem(\'location\','+aj(l)+')">'+ic('trash',15)+'</button>'+
         '</div></div>';
     }).join('') +
-    '</div>') : '');
+    '</div>' +
+    sidebarInlineAddRowHtml('location')) : '');
   var toolsHtml = '<div class="sidebar-section-title collapsible" onclick="toggleHomeSidebarSection(\'tools\')"><span>'+t('sidebarToolsLabel')+'</span>'+
       ic('chevronRight',15,'style="transform:rotate('+(toolsOpen?'90':'0')+'deg);transition:transform .15s;"')+'</div>'+
     (toolsOpen ? (
@@ -1713,31 +1719,21 @@ function renderHomeSidebarContent(){
     statsHtml + catHtml + locHtml + toolsHtml;
 }
 // Shared section-title markup for the two reorderable/addable lists (category, location):
-// title on the left, a compact "+" quick-add button and the collapse chevron grouped on the
-// right so tapping "+" doesn't also toggle the collapsed state (it calls stopPropagation).
+// just the title + collapse chevron, same as the "tools" section below.
 function sidebarSectionTitleHtml(labelKey, kind, isOpen){
   return '<div class="sidebar-section-title collapsible" onclick="toggleHomeSidebarSection('+aj(kind)+')">'+
     '<span>'+t(labelKey)+'</span>'+
-    '<span style="display:flex;align-items:center;gap:2px;">'+
-      '<button class="sidebar-quick-add-btn" onclick="event.stopPropagation();toggleSidebarQuickAdd('+aj(kind)+')">'+ic('plus',16)+'</button>'+
-      ic('chevronRight',15,'style="transform:rotate('+(isOpen?'90':'0')+'deg);transition:transform .15s;"')+
-    '</span>'+
+    ic('chevronRight',15,'style="transform:rotate('+(isOpen?'90':'0')+'deg);transition:transform .15s;"')+
   '</div>';
 }
-function sidebarQuickAddRowHtml(kind){
+// Always-visible "add new" row pinned to the bottom of the category/location list — same
+// row height as a normal sidebar item, input and button laid out side by side (not stacked).
+function sidebarInlineAddRowHtml(kind){
   var ph = kind==='category' ? t('addCategoryPh') : (kind==='location' ? t('addLocationPh') : t('addNoteCategoryPh'));
-  var open = !!sidebarQuickAddOpen[kind];
-  return '<div class="sidebar-quick-add-row'+(open?' open':'')+'">'+
+  return '<div class="sidebar-inline-add-row">'+
     '<input type="text" id="sidebar-quick-add-input-'+kind+'" placeholder="'+ph+'" onkeydown="if(event.key===\'Enter\')addTagFromSidebar('+aj(kind)+')">'+
-    '<button class="btn btn-primary btn-sm" onclick="addTagFromSidebar('+aj(kind)+')">'+t('add')+'</button>'+
+    '<button onclick="addTagFromSidebar('+aj(kind)+')">'+t('add')+'</button>'+
   '</div>';
-}
-function toggleSidebarQuickAdd(kind){
-  sidebarQuickAddOpen[kind] = !sidebarQuickAddOpen[kind];
-  refreshSidebarContent();
-  if(sidebarQuickAddOpen[kind]){
-    setTimeout(function(){ var el=document.getElementById('sidebar-quick-add-input-'+kind); if(el) el.focus(); }, 30);
-  }
 }
 function addTagFromSidebar(kind){
   var el = document.getElementById('sidebar-quick-add-input-'+kind);
@@ -1747,7 +1743,7 @@ function addTagFromSidebar(kind){
   if(list.indexOf(val)!==-1){ showToast(t('tagDuplicate')); return; }
   list.push(val);
   saveTagListForKind(kind);
-  sidebarQuickAddOpen[kind] = false;
+  if(el) el.value = '';
   render();
   refreshSidebarContent();
 }
