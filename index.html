@@ -217,6 +217,7 @@
     overflow-y:auto; padding:calc(16px + var(--safe-top)) 16px calc(20px + var(--safe-bottom));
   }
   #sidebar-drawer.open{ transform:translateX(0); }
+  #sidebar-drawer.reorder-active .sidebar-subs{ display:none; }
   .sidebar-header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
   .sidebar-header h2{ font-size:18px; font-weight:600; color:var(--cocoa); }
   .sidebar-section-title{
@@ -254,7 +255,7 @@
   }
   .sidebar-inline-add-row{ display:flex; align-items:center; gap:8px; padding:6px 2px 4px; }
   .sidebar-inline-add-row input{
-    flex:1; min-width:0; font-size:14px; padding:0 10px; height:38px; box-sizing:border-box;
+    flex:1; min-width:0; font-size:16px; padding:0 10px; height:38px; box-sizing:border-box;
     border-radius:9px; border:1px solid var(--line); background:var(--card-bg); color:var(--cocoa); outline:none;
   }
   .sidebar-inline-add-row input:focus{ border-color:var(--almond); }
@@ -275,8 +276,6 @@
   .sidebar-stat-card.clickable:active{ background:var(--cream-2); transform:scale(0.97); }
   .sidebar-stat-num{ font-size:19px; font-weight:700; color:var(--cocoa); line-height:1.2; }
   .sidebar-stat-label{ font-size:11px; color:var(--deep-caramel); margin-top:2px; }
-  .sidebar-add-row{ display:flex; gap:6px; margin-top:10px; }
-  .sidebar-add-row input{ flex:1; font-size:14px; padding:9px 10px; border-radius:9px; border:1px solid var(--line); }
   .active-filter-bar{
     display:flex; align-items:center; justify-content:space-between; gap:8px;
     background:var(--cream); border-radius:10px; padding:9px 12px; font-size:13px;
@@ -551,6 +550,7 @@ var I18N = {
     noLinkedItems:'库存中还没有食材可关联', noLinkedRecipes:'还没有食谱可关联',
     noteUpdatedAt:'更新于',
     manageNoteCategories:'管理笔记分类', manageNoteCategoriesTitle:'管理笔记分类', addNoteCategoryPh:'新分类名称',
+    manageRecipeCategories:'管理食谱分类', manageRecipeCategoriesTitle:'管理食谱分类', addRecipeGroupPh:'新分类名称', addRecipeSubPh:'新子分类名称',
     exportNotesBtn:'导出笔记数据', importNotesBtn:'恢复笔记数据',
     importNotesConfirmMsg:'检测到备份文件包含 {n} 条笔记。"合并"会保留当前设备和备份文件中的所有数据，同一条笔记以最近修改时间为准；"替换"会完全清空当前数据后用备份覆盖，无法撤销。',
     // sidebars
@@ -695,6 +695,7 @@ var I18N = {
     noLinkedItems:'No inventory items to link yet', noLinkedRecipes:'No recipes to link yet',
     noteUpdatedAt:'Updated',
     manageNoteCategories:'Manage Note Categories', manageNoteCategoriesTitle:'Manage Note Categories', addNoteCategoryPh:'New category name',
+    manageRecipeCategories:'Manage Recipe Categories', manageRecipeCategoriesTitle:'Manage Recipe Categories', addRecipeGroupPh:'New category name', addRecipeSubPh:'New subcategory name',
     exportNotesBtn:'Export notes data', importNotesBtn:'Restore notes data',
     importNotesConfirmMsg:'The backup file contains {n} notes. "Merge" keeps all data from both this device and the backup, using the most recently modified version of each note. "Replace" wipes current data and overwrites it with the backup - this cannot be undone.',
     // sidebars
@@ -1195,6 +1196,7 @@ function render(){
     case 'recipeDetail': html = renderRecipeDetail(); break;
     case 'settings': html = renderSettings(); break;
     case 'manageTags': html = renderManageTags(); break;
+    case 'manageRecipeCategories': html = renderManageRecipeCategories(); break;
     case 'pickInventory': html = renderPickInventory(); break;
     case 'pickExternal': html = renderPickExternal(); break;
     case 'notes': html = renderNotesList(); break;
@@ -1413,22 +1415,38 @@ function deleteItemFromSwipe(id){ closeItemSwipeRow(id); deleteItemDetail(id); }
   }, true);
 })();
 
-/* ---------- Sidebar long-press drag reorder (categories / locations) ---------- */
-// Long-press the grip handle on a category/location row, then drag up/down to reorder.
-// Uses a "measure once, offset math, commit on release" approach rather than live DOM
-// node swapping, since it's more robust without the ability to test on a real device here:
-// siblings are shifted visually via translateY while dragging, and the underlying
-// state.categories/state.locations array is only reordered once, on touchend.
+/* ---------- Sidebar long-press drag reorder (categories / locations / note categories /
+   recipe groups / recipe subs) ---------- */
+// Long-press the grip handle on a row, then drag up/down to reorder. Uses a "measure once,
+// offset math, commit on release" approach rather than live DOM node swapping, since it's
+// more robust without the ability to test on a real device here: siblings are shifted
+// visually via translateY while dragging, and the underlying array is only reordered once,
+// on touchend.
+function sidebarReorderArrayFor(kind, groupId){
+  if(kind==='category') return state.categories;
+  if(kind==='location') return state.locations;
+  if(kind==='noteCategory') return state.noteCategories;
+  if(kind==='recipeGroup') return state.recipeCategoryGroups;
+  if(kind==='recipeSub'){ var g=recipeGroupById(groupId); return g ? g.subs : null; }
+  return null;
+}
+function sidebarReorderCommit(kind, groupId, order){
+  if(kind==='category'){ state.categories = order; saveCategories(); }
+  else if(kind==='location'){ state.locations = order; saveLocations(); }
+  else if(kind==='noteCategory'){ state.noteCategories = order; saveNoteCategories(); }
+  else if(kind==='recipeGroup'){ state.recipeCategoryGroups = order; saveRecipeCategoryGroups(); }
+  else if(kind==='recipeSub'){ var g=recipeGroupById(groupId); if(g){ g.subs = order; saveRecipeCategoryGroups(); } }
+}
 (function initSidebarReorder(){
   var LONG_PRESS_MS = 420;
   var pressTimer = null;
-  var dragging = false, dragKind = null;
+  var dragging = false, dragKind = null, dragGroupId = null;
   var dragRow = null, rows = [], rowH = 0, startY = 0, startIndex = 0, curIndex = 0, order = [];
 
   document.addEventListener('touchstart', function(e){
     var handle = e.target.closest ? e.target.closest('.sidebar-drag-handle') : null;
     if(!handle) return;
-    var row = handle.closest('.sidebar-item-row');
+    var row = handle.closest('.sidebar-item-row, .sidebar-group-header');
     var list = handle.closest('.sidebar-reorder-list');
     if(!row || !list) return;
     var t0 = e.touches[0];
@@ -1457,12 +1475,25 @@ function deleteItemFromSwipe(id){ closeItemSwipeRow(id); deleteItemDetail(id); }
 
   function beginDrag(row, list, y){
     dragKind = list.getAttribute('data-reorder-kind');
-    rows = Array.prototype.filter.call(list.children, function(c){ return c.classList.contains('sidebar-item-row'); });
+    dragGroupId = list.getAttribute('data-reorder-group');
+    // Recipe groups can be expanded (showing their subs), which would make row heights
+    // uneven and break the uniform-row-height offset math below. Hide expanded sub-lists
+    // for the duration of the drag via a pure CSS class (no re-render, so our already
+    // captured DOM references below stay valid) - the drawer keeps whatever expand state
+    // it had once the drag ends and refreshSidebarContent() re-renders normally.
+    if(dragKind==='recipeGroup'){
+      var drawer = document.getElementById('sidebar-drawer');
+      if(drawer) drawer.classList.add('reorder-active');
+    }
+    rows = Array.prototype.filter.call(list.children, function(c){
+      return c.classList.contains('sidebar-item-row') || c.classList.contains('sidebar-group-header');
+    });
     dragRow = row;
     startIndex = rows.indexOf(row);
     if(startIndex===-1){ dragRow=null; return; }
     curIndex = startIndex;
-    order = (dragKind==='category' ? state.categories : state.locations).slice();
+    var arr = sidebarReorderArrayFor(dragKind, dragGroupId);
+    order = arr ? arr.slice() : [];
     rowH = row.offsetHeight;
     dragging = true;
     startY = y;
@@ -1501,11 +1532,12 @@ function deleteItemFromSwipe(id){ closeItemSwipeRow(id); deleteItemDetail(id); }
     dragRow.style.transform = '';
     dragRow.style.zIndex = '';
     rows.forEach(function(r){ if(r!==dragRow){ r.style.transition=''; r.style.transform=''; } });
+    var drawer = document.getElementById('sidebar-drawer');
+    if(drawer) drawer.classList.remove('reorder-active');
     if(curIndex !== startIndex){
       var moved = order.splice(startIndex,1)[0];
       order.splice(curIndex,0,moved);
-      if(dragKind==='category'){ state.categories = order; saveCategories(); }
-      else { state.locations = order; saveLocations(); }
+      sidebarReorderCommit(dragKind, dragGroupId, order);
       refreshSidebarContent();
     }
     dragRow = null; rows = [];
@@ -1690,7 +1722,6 @@ function renderHomeSidebarContent(){
         '<div class="sidebar-item '+(state.home.category===c?'active':'')+'" onclick="sidebarSetHomeFilter(\'category\','+aj(c)+')">'+esc(c)+'</div>'+
         '<div class="sidebar-item-actions">'+
         '<button class="sidebar-item-action-btn" onclick="event.stopPropagation();openRenameTagModal(\'category\','+aj(c)+')">'+ic('edit',15)+'</button>'+
-        '<button class="sidebar-item-action-btn danger" onclick="event.stopPropagation();deleteTagItem(\'category\','+aj(c)+')">'+ic('trash',15)+'</button>'+
         '</div></div>';
     }).join('') +
     '</div>' +
@@ -1703,7 +1734,6 @@ function renderHomeSidebarContent(){
         '<div class="sidebar-item '+(state.home.location===l?'active':'')+'" onclick="sidebarSetHomeFilter(\'location\','+aj(l)+')">'+esc(l)+'</div>'+
         '<div class="sidebar-item-actions">'+
         '<button class="sidebar-item-action-btn" onclick="event.stopPropagation();openRenameTagModal(\'location\','+aj(l)+')">'+ic('edit',15)+'</button>'+
-        '<button class="sidebar-item-action-btn danger" onclick="event.stopPropagation();deleteTagItem(\'location\','+aj(l)+')">'+ic('trash',15)+'</button>'+
         '</div></div>';
     }).join('') +
     '</div>' +
@@ -2857,6 +2887,7 @@ function sidebarSetRecipeFilter(groupId, sub){
 }
 function toggleRecipeSidebarGroup(id){
   state.recipesUI.expandedGroup = (state.recipesUI.expandedGroup===id) ? null : id;
+  render();
   refreshSidebarContent();
 }
 function renderRecipeSidebarContent(){
@@ -2865,41 +2896,70 @@ function renderRecipeSidebarContent(){
     var groupActive = state.recipesUI.groupId===g.id && !state.recipesUI.sub;
     var subItems = (g.subs||[]).map(function(s){
       var active = state.recipesUI.groupId===g.id && state.recipesUI.sub===s;
-      return '<div class="sidebar-item-row"><div class="sidebar-item '+(active?'active':'')+'" onclick="sidebarSetRecipeFilter('+aj(g.id)+','+aj(s)+')">'+esc(s)+'</div>'+
+      return '<div class="sidebar-item-row"><span class="sidebar-drag-handle">'+ic('grip',16)+'</span>'+
+        '<div class="sidebar-item '+(active?'active':'')+'" onclick="sidebarSetRecipeFilter('+aj(g.id)+','+aj(s)+')">'+esc(s)+'</div>'+
         '<div class="sidebar-item-actions">'+
         '<button class="sidebar-item-action-btn" onclick="event.stopPropagation();openRenameRecipeSubModal('+aj(g.id)+','+aj(s)+')">'+ic('edit',15)+'</button>'+
-        '<button class="sidebar-item-action-btn danger" onclick="event.stopPropagation();deleteRecipeSub('+aj(g.id)+','+aj(s)+')">'+ic('trash',15)+'</button>'+
         '</div></div>';
     }).join('');
     return '<div class="sidebar-group">'+
-      '<div class="sidebar-group-header">'+
+      '<div class="sidebar-group-header sidebar-item-row">'+
+        '<span class="sidebar-drag-handle">'+ic('grip',16)+'</span>'+
         '<span class="sidebar-item '+(groupActive?'active':'')+'" style="flex:1;padding:8px 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" onclick="sidebarSetRecipeFilter('+aj(g.id)+',null)">'+esc(g.name)+'</span>'+
         '<div class="sidebar-item-actions">'+
         '<button class="sidebar-item-action-btn" onclick="event.stopPropagation();openRenameRecipeGroupModal('+aj(g.id)+')">'+ic('edit',15)+'</button>'+
-        '<button class="sidebar-item-action-btn danger" onclick="event.stopPropagation();deleteRecipeGroup('+aj(g.id)+')">'+ic('trash',15)+'</button>'+
         '</div>'+
-        '<span style="padding:6px;color:var(--deep-caramel);" onclick="toggleRecipeSidebarGroup('+aj(g.id)+')">'+ic('chevronRight',16,'style="transform:rotate('+(expanded?'90':'0')+'deg);transition:transform .15s;display:block;"')+'</span>'+
+        '<span style="padding:6px;color:var(--deep-caramel);" onclick="event.stopPropagation();toggleRecipeSidebarGroup('+aj(g.id)+')">'+ic('chevronRight',16,'style="transform:rotate('+(expanded?'90':'0')+'deg);transition:transform .15s;display:block;"')+'</span>'+
       '</div>'+
-      (expanded ? '<div class="sidebar-subs">'+subItems+
-        '<div class="sidebar-add-row"><input type="text" id="new-recipe-sub-sidebar-'+esc(g.id)+'" placeholder="'+t('newTagPrompt')+'"><button class="btn btn-primary btn-sm" onclick="addRecipeSubFromSidebar('+aj(g.id)+')">'+t('add')+'</button></div>'
-        +'</div>' : '')+
+      (expanded ? '<div class="sidebar-subs">'+
+        '<div class="sidebar-reorder-list" data-reorder-kind="recipeSub" data-reorder-group="'+esc(g.id)+'">'+subItems+'</div>'+
+        recipeSubInlineAddRowHtml(g.id) +
+      '</div>' : '')+
     '</div>';
   }).join('');
   return '<div class="sidebar-header"><h2>📖 '+t('recipesTitle')+'</h2><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div>'+
     '<div class="sidebar-item '+(!state.recipesUI.groupId?'active':'')+'" onclick="sidebarSetRecipeFilter(null,null)">'+t('filterAll')+'</div>'+
-    groupsHtml;
+    '<div class="sidebar-reorder-list" data-reorder-kind="recipeGroup">'+groupsHtml+'</div>'+
+    recipeGroupInlineAddRowHtml();
 }
-function addRecipeSubFromSidebar(groupId){
-  var el = document.getElementById('new-recipe-sub-sidebar-'+groupId);
+function recipeSubInlineAddRowHtml(groupId){
+  return '<div class="sidebar-inline-add-row">'+
+    '<input type="text" id="new-recipe-sub-sidebar-'+esc(groupId)+'" placeholder="'+t('newTagPrompt')+'" onkeydown="if(event.key===\'Enter\')addRecipeSubFromSidebar('+aj(groupId)+')">'+
+    '<button onclick="addRecipeSubFromSidebar('+aj(groupId)+')">'+t('add')+'</button>'+
+  '</div>';
+}
+function recipeGroupInlineAddRowHtml(){
+  return '<div class="sidebar-inline-add-row" style="padding-left:4px;padding-right:4px;">'+
+    '<input type="text" id="new-recipe-group-input" placeholder="'+t('newTagPrompt')+'" onkeydown="if(event.key===\'Enter\')addRecipeGroupFromSidebar()">'+
+    '<button onclick="addRecipeGroupFromSidebar()">'+t('add')+'</button>'+
+  '</div>';
+}
+function addRecipeSubFromInput(elId, groupId){
+  var el = document.getElementById(elId);
   var val = el ? el.value.trim() : '';
   if(!val) return;
   var g = recipeGroupById(groupId);
-  if(g && g.subs.indexOf(val)===-1){
-    g.subs.push(val);
-    saveRecipeCategoryGroups();
-  }
+  if(!g) return;
+  if((g.subs||[]).indexOf(val)!==-1){ showToast(t('tagDuplicate')); return; }
+  g.subs.push(val);
+  saveRecipeCategoryGroups();
+  if(el) el.value = '';
+  render();
   refreshSidebarContent();
 }
+function addRecipeSubFromSidebar(groupId){ addRecipeSubFromInput('new-recipe-sub-sidebar-'+groupId, groupId); }
+function addRecipeGroupFromInput(elId){
+  var el = document.getElementById(elId);
+  var val = el ? el.value.trim() : '';
+  if(!val) return;
+  if(state.recipeCategoryGroups.some(function(g){ return g.name===val; })){ showToast(t('tagDuplicate')); return; }
+  state.recipeCategoryGroups.push({id: uid(), name: val, subs: []});
+  saveRecipeCategoryGroups();
+  if(el) el.value = '';
+  render();
+  refreshSidebarContent();
+}
+function addRecipeGroupFromSidebar(){ addRecipeGroupFromInput('new-recipe-group-input'); }
 
 /* ======================= INGREDIENT PICKERS ======================= */
 function recipeUnitOptionsForItem(item){
@@ -3496,16 +3556,17 @@ function sidebarSetNotesCategory(c){
 }
 function renderNotesSidebarContent(){
   var catHtml = state.noteCategories.map(function(c){
-    return '<div class="sidebar-item-row"><div class="sidebar-item '+(state.notesUI.category===c?'active':'')+'" onclick="sidebarSetNotesCategory('+aj(c)+')">'+esc(c)+'</div>'+
+    return '<div class="sidebar-item-row"><span class="sidebar-drag-handle">'+ic('grip',16)+'</span>'+
+      '<div class="sidebar-item '+(state.notesUI.category===c?'active':'')+'" onclick="sidebarSetNotesCategory('+aj(c)+')">'+esc(c)+'</div>'+
       '<div class="sidebar-item-actions">'+
       '<button class="sidebar-item-action-btn" onclick="event.stopPropagation();openRenameTagModal(\'noteCategory\','+aj(c)+')">'+ic('edit',15)+'</button>'+
-      '<button class="sidebar-item-action-btn danger" onclick="event.stopPropagation();deleteTagItem(\'noteCategory\','+aj(c)+')">'+ic('trash',15)+'</button>'+
       '</div></div>';
   }).join('');
   return '<div class="sidebar-header"><h2>📝 '+t('notesTitle')+'</h2><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div>'+
     '<div class="sidebar-section-title">'+t('fieldNoteCategory')+'</div>'+
     '<div class="sidebar-item '+(!state.notesUI.category?'active':'')+'" onclick="sidebarSetNotesCategory(null)">'+t('filterAll')+'</div>'+
-    catHtml;
+    '<div class="sidebar-reorder-list" data-reorder-kind="noteCategory">'+catHtml+'</div>'+
+    sidebarInlineAddRowHtml('noteCategory');
 }
 function onNotesSearch(v){
   state.notesUI.search = v;
@@ -3558,7 +3619,7 @@ function renderSettings(){
     '</div>'+
     '<div class="section-title">'+t('aiProxySettingLabel')+'</div>'+
     '<div class="form-group">'+
-      '<input type="text" inputmode="url" value="'+esc(state.aiProxyUrl)+'" placeholder="https://your-proxy.example.com/analyze" oninput="setAiProxyUrl(this.value)" style="width:100%;font-size:15px;padding:13px 14px;border-radius:11px;border:1px solid var(--line);">'+
+      '<input type="text" inputmode="url" value="'+esc(state.aiProxyUrl)+'" placeholder="https://your-proxy.example.com/analyze" oninput="setAiProxyUrl(this.value)" style="width:100%;font-size:16px;padding:13px 14px;border-radius:11px;border:1px solid var(--line);">'+
       '<div class="hint">'+t('aiProxySettingHint')+'</div>'+
     '</div>'+
     '<div class="section-title">'+(state.lang==='zh'?'分类与位置':'Categories & Locations')+'</div>'+
@@ -3570,6 +3631,9 @@ function renderSettings(){
     '</div>'+
     '<div class="list-row" onclick="navigate(\'manageTags\',{kind:\'noteCategory\'})" style="cursor:pointer;">'+
       '<div class="row-label">'+t('manageNoteCategories')+'</div>'+ic('chevronRight',18)+
+    '</div>'+
+    '<div class="list-row" onclick="navigate(\'manageRecipeCategories\')" style="cursor:pointer;">'+
+      '<div class="row-label">'+t('manageRecipeCategories')+'</div>'+ic('chevronRight',18)+
     '</div>'+
     '<div class="section-title">'+t('sectionBackup')+'</div>'+
     '<div class="form-group">'+
@@ -3858,6 +3922,44 @@ function addTagManage(kind){
     saveTagListForKind(kind);
   }
   render();
+}
+// Settings-only page for full recipe category CRUD (add/rename/delete at both the group
+// level and the sub level). The sidebar mirrors these two arrays for browsing/filtering and
+// offers rename + add + long-press reorder there, but delete lives only here - this is the
+// one place the two-level hierarchy can be restructured.
+function renderManageRecipeCategories(){
+  var groupsHtml = state.recipeCategoryGroups.map(function(g){
+    var expanded = state.recipesUI.expandedGroup === g.id;
+    var subRows = (g.subs||[]).map(function(s){
+      return '<div class="list-row" style="padding-left:24px;"><div class="row-label">'+esc(s)+'</div>'+
+        '<div style="display:flex;gap:4px;">'+
+        '<button class="row-del" onclick="openRenameRecipeSubModal('+aj(g.id)+','+aj(s)+')">'+ic('edit',17)+'</button>'+
+        '<button class="row-del" onclick="deleteRecipeSub('+aj(g.id)+','+aj(s)+')">'+ic('trash',18)+'</button>'+
+        '</div></div>';
+    }).join('') || '<p class="hint" style="padding-left:24px;">'+(state.lang==='zh'?'还没有子分类':'No subcategories yet')+'</p>';
+    return '<div class="list-row" onclick="toggleRecipeSidebarGroup('+aj(g.id)+')" style="cursor:pointer;">'+
+        '<div class="row-label">'+esc(g.name)+'</div>'+
+        '<div style="display:flex;align-items:center;gap:4px;">'+
+        '<button class="row-del" onclick="event.stopPropagation();openRenameRecipeGroupModal('+aj(g.id)+')">'+ic('edit',17)+'</button>'+
+        '<button class="row-del" onclick="event.stopPropagation();deleteRecipeGroup('+aj(g.id)+')">'+ic('trash',18)+'</button>'+
+        ic('chevronRight',16,'style="transform:rotate('+(expanded?'90':'0')+'deg);transition:transform .15s;"')+
+        '</div>'+
+      '</div>'+
+      (expanded ? (subRows+
+        '<div class="field-row" style="padding-left:24px;margin-bottom:12px;">'+
+          '<input type="text" id="new-recipe-sub-settings-'+esc(g.id)+'" placeholder="'+t('addRecipeSubPh')+'" style="flex:1;font-size:16px;padding:11px 13px;border-radius:11px;border:1px solid var(--line);">'+
+          '<button class="btn btn-primary btn-sm" onclick="addRecipeSubFromInput('+aj('new-recipe-sub-settings-'+g.id)+','+aj(g.id)+')">'+t('add')+'</button>'+
+        '</div>') : '');
+  }).join('') || '<p class="hint">'+(state.lang==='zh'?'还没有分类':'No categories yet')+'</p>';
+  return '' +
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'settings\')">'+ic('back',22)+'</button><h1>'+t('manageRecipeCategoriesTitle')+'</h1></div>'+
+  '<div class="content">'+
+    groupsHtml+
+    '<div class="field-row" style="margin-top:16px;">'+
+      '<input type="text" id="new-recipe-group-input-settings" placeholder="'+t('addRecipeGroupPh')+'" style="flex:1;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);">'+
+      '<button class="btn btn-primary btn-sm" onclick="addRecipeGroupFromInput(\'new-recipe-group-input-settings\')">'+t('add')+'</button>'+
+    '</div>'+
+  '</div>';
 }
 function deleteTagItem(kind, name){
   var inUse;
