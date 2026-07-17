@@ -270,6 +270,11 @@
   }
   .sidebar-group-header:active{ background:var(--cream-2); }
   .sidebar-subs{ padding-left:12px; }
+  .sidebar-group{ position:relative; }
+  .sidebar-group.dragging-row{
+    background:var(--cream); box-shadow:0 6px 16px rgba(90,60,30,0.18);
+    border-radius:10px; opacity:0.92;
+  }
   .sidebar-stat-row{ display:flex; gap:8px; margin-bottom:6px; }
   .sidebar-stat-card{ background:var(--cream); border-radius:12px; padding:10px 8px; flex:1; text-align:center; }
   .sidebar-stat-card.clickable{ cursor:pointer; user-select:none; }
@@ -1446,9 +1451,14 @@ function sidebarReorderCommit(kind, groupId, order){
   document.addEventListener('touchstart', function(e){
     var handle = e.target.closest ? e.target.closest('.sidebar-drag-handle') : null;
     if(!handle) return;
-    var row = handle.closest('.sidebar-item-row, .sidebar-group-header');
     var list = handle.closest('.sidebar-reorder-list');
-    if(!row || !list) return;
+    if(!list) return;
+    // Walk up from the handle to whichever ancestor is a direct child of the reorder-list -
+    // this is what actually gets dragged/measured, regardless of how deep the handle itself
+    // is nested (e.g. recipe groups wrap their header one level deeper inside .sidebar-group).
+    var row = handle;
+    while(row && row.parentElement !== list) row = row.parentElement;
+    if(!row) return;
     var t0 = e.touches[0];
     var pressStartY = t0.clientY, pressStartX = t0.clientX;
     var moved = false;
@@ -1485,9 +1495,10 @@ function sidebarReorderCommit(kind, groupId, order){
       var drawer = document.getElementById('sidebar-drawer');
       if(drawer) drawer.classList.add('reorder-active');
     }
-    rows = Array.prototype.filter.call(list.children, function(c){
-      return c.classList.contains('sidebar-item-row') || c.classList.contains('sidebar-group-header');
-    });
+    // Every direct child of a .sidebar-reorder-list IS a draggable row, whatever its own
+    // class/wrapper looks like (.sidebar-item-row for plain lists, .sidebar-group for
+    // recipe groups) - no need to filter by class name here.
+    rows = Array.prototype.slice.call(list.children);
     dragRow = row;
     startIndex = rows.indexOf(row);
     if(startIndex===-1){ dragRow=null; return; }
