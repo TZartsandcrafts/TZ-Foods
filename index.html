@@ -364,19 +364,51 @@
 
   /* ---------- Nutrition grid ---------- */
   .nutri-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  /* ---------- Nutrition Facts box (North American label style) ---------- */
+  .nutrition-facts{ border:1px solid var(--cocoa); border-radius:10px; overflow:hidden; background:var(--card-bg); }
+  .nf-basis{ padding:7px 12px; font-size:13px; color:var(--deep-caramel); border-bottom:8px solid var(--cocoa); }
+  .nf-calories-row{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:10px 12px; border-bottom:8px solid var(--cocoa); font-size:16px; font-weight:700; color:var(--cocoa);
+  }
+  .nf-calories-row .nf-calories-value{ font-size:28px; font-weight:800; }
+  .nf-calories-row .nf-calories-unit{ font-size:13px; font-weight:500; margin-left:4px; }
+  .nf-row{
+    display:flex; justify-content:space-between; align-items:baseline;
+    padding:6px 12px; border-bottom:1px solid var(--line); font-size:14.5px; color:var(--cocoa);
+  }
+  .nf-row:last-child{ border-bottom:none; }
+  .nf-row.bold{ font-weight:700; }
+  .nf-row.indent1{ padding-left:26px; font-weight:400; font-size:14px; }
+  .nf-row.indent2{ padding-left:40px; font-weight:400; font-size:13px; color:var(--deep-caramel); }
+  .nf-row .nf-value{ font-weight:600; flex-shrink:0; padding-left:10px; }
+  .nf-row.indent1 .nf-value, .nf-row.indent2 .nf-value{ font-weight:400; }
+  .nf-section-title{ font-size:19px; font-weight:700; color:var(--cocoa); margin:26px 0 10px; padding-top:16px; border-top:1px solid var(--line); }
   /* ---------- Item detail hero (photo + expiry/stock/actions side by side) ---------- */
   .item-detail-hero{ display:flex; gap:14px; margin-bottom:18px; }
-  .item-detail-photo{ width:42%; max-width:170px; flex-shrink:0; }
-  .item-detail-photo img{ width:100%; border-radius:14px; display:block; border:1px solid var(--line); object-fit:cover; }
+  .item-detail-photo{ width:42%; max-width:170px; aspect-ratio:1/1; flex-shrink:0; }
+  .item-detail-photo img{ width:100%; height:100%; border-radius:14px; display:block; border:1px solid var(--line); object-fit:cover; }
   .item-detail-photo-placeholder{
-    width:100%; aspect-ratio:1/1; border-radius:14px; background:var(--cream);
+    width:100%; height:100%; border-radius:14px; background:var(--cream);
     display:flex; align-items:center; justify-content:center; color:var(--deep-caramel); border:1px solid var(--line);
   }
-  .item-detail-hero-info{ flex:1; min-width:0; display:flex; flex-direction:column; gap:10px; }
-  .item-detail-stock-box{ background:var(--cream); border-radius:12px; padding:10px 12px; cursor:pointer; }
+  .item-detail-hero-info{ flex:1; min-width:0; display:flex; flex-direction:column; justify-content:space-between; gap:8px; }
+  .item-detail-stock-box{
+    background:var(--cream); border-radius:12px; padding:10px 12px; cursor:pointer;
+    display:flex; align-items:baseline; flex-wrap:wrap; gap:6px;
+  }
   .item-detail-stock-box:active{ background:var(--cream-2); }
-  .item-detail-hero-actions{ display:flex; flex-direction:column; gap:8px; margin-top:auto; }
-  .item-detail-hero-actions .btn{ width:100%; justify-content:center; }
+  .item-detail-stock-box .row-label{ margin:0; font-size:13px; color:var(--deep-caramel); }
+  .item-detail-stock-box .row-sub{ margin:0; font-size:16px; font-weight:600; color:var(--cocoa); }
+  .item-detail-hero-actions{ display:flex; gap:8px; }
+  .item-detail-action-btn{
+    flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:3px; padding:8px 2px; border-radius:11px; border:1px solid var(--line); background:var(--card-bg);
+    cursor:pointer; font-size:11.5px; font-weight:500; color:var(--cocoa);
+  }
+  .item-detail-action-btn .icon{ line-height:1; }
+  .item-detail-action-btn:active{ background:var(--cream-2); transform:scale(0.97); }
+  .item-detail-action-btn.danger{ border-color:var(--danger); color:var(--danger); }
   .nutri-cell{ background:var(--cream); border-radius:10px; padding:12px; }
   .nutri-cell .val{ font-size:19px; font-weight:600; color:var(--cocoa); }
   .nutri-cell .unit{ font-size:12px; font-weight:400; color:var(--deep-caramel); }
@@ -485,6 +517,17 @@ function nutriBasisLabel(amount, unit){
   var amt = amount || 100;
   var u = unit || 'g';
   return (state.lang==='zh' ? ('每'+fmtNum(amt,amt%1===0?0:1)+u) : ('per '+fmtNum(amt,amt%1===0?0:1)+u));
+}
+// Price currency: entry + display only for now, no conversion/exchange-rate math anywhere -
+// that's deliberately left for whichever feature actually needs to compare/aggregate prices
+// across currencies later (see README).
+var PRICE_CURRENCIES = ['CAD','USD','CNY'];
+function currencySymbol(c){
+  return {CAD:'CA$', USD:'US$', CNY:'¥'}[c] || (c||'');
+}
+function formatPrice(it){
+  if(it.price == null || it.price === '') return '-';
+  return currencySymbol(it.price_currency||'CAD') + fmtNum(it.price,2);
 }
 
 var I18N = {
@@ -1895,7 +1938,7 @@ function blankItemDraft(){
     category:'', location:'',
     primary_qty:1, primary_unit:'g',
     secondary_qty:null, secondary_unit:'', unit_ratio:null, last_recount_at:null,
-    expiry_date:'', purchase_date: todayStr(), price:'',
+    expiry_date:'', purchase_date: todayStr(), price:'', price_currency:'CAD',
     production_date:'', shelf_life_amount:null, shelf_life_unit:'days',
     notes:'', nutrition: emptyNutrition(), nutrition_edited:false,
     nutrition_extra: emptyNutritionExtra(), nutrition_extra_selected:[],
@@ -1909,6 +1952,7 @@ function openItemForm(id, prefill){
     state.itemDraft = JSON.parse(JSON.stringify(existing));
     state.itemDraft.nutrition = state.itemDraft.nutrition || emptyNutrition();
     state.itemDraft.nutrition_extra = state.itemDraft.nutrition_extra || emptyNutritionExtra();
+    state.itemDraft.price_currency = state.itemDraft.price_currency || 'CAD';
     // Any optional tier-2 nutrient that already has a stored value should show as "added"
     // when reopening the form, even if it was somehow saved without being in the selected
     // list (e.g. imported data) - derive the selected set from what's actually present.
@@ -2071,6 +2115,7 @@ function setNutriBasisAmount(v){
   state.itemFormUI.nutriBasisAmount = (v==='') ? null : (isNaN(n)? null : n);
 }
 function setNutriBasisUnit(u){ state.itemFormUI.nutriBasisUnit = u; render(); }
+function setPriceCurrency(c){ state.itemDraft.price_currency = c; render(); }
 function onNutriInput(key, val){
   state.itemDraft.nutrition[key] = parseFloat(val)||0;
   state.itemDraft.nutrition_edited = true;
@@ -2190,7 +2235,14 @@ function renderItemForm(){
     '<div class="form-group">'+
       expiryFieldHtml(d, ui)+
       '<div class="field"><label>'+t('fieldPurchaseDate')+'</label><input type="date" value="'+esc(d.purchase_date)+'" oninput="d_str(\'purchase_date\',this.value)"></div>'+
-      '<div class="field"><label>'+t('fieldPrice')+'</label><input type="number" inputmode="decimal" value="'+(d.price||'')+'" oninput="d_num(\'price\',this.value)"></div>'+
+      '<div class="field"><label>'+t('fieldPrice')+'</label>'+
+        '<div style="display:flex;gap:8px;align-items:center;">'+
+          '<input type="number" inputmode="decimal" value="'+(d.price||'')+'" oninput="d_num(\'price\',this.value)" style="flex:1;min-width:0;">'+
+          '<div class="tag-select" style="flex-shrink:0;">'+PRICE_CURRENCIES.map(function(c){
+            return '<div class="tag-option '+(d.price_currency===c?'active':'')+'" onclick="setPriceCurrency('+aj(c)+')">'+c+'</div>';
+          }).join('')+'</div>'+
+        '</div>'+
+      '</div>'+
       '<div class="field" style="margin-bottom:0;"><label>'+t('fieldNotes')+'</label><textarea placeholder="'+t('fieldNotesPh')+'" oninput="d_str(\'notes\',this.value)">'+esc(d.notes)+'</textarea></div>'+
     '</div>'+
     '<div class="section-title">'+t('sectionNutrition')+nutriBadgeHtml(d)+'</div>'+
@@ -2319,14 +2371,8 @@ function renderItemDetail(){
   var it = state.items.find(function(i){ return i.id===id; });
   if(!it) return renderHome();
   var st = expiryStatus(it);
-  var labels = nutriLabels();
-  var units = nutriUnits();
-  var n = it.nutrition || emptyNutrition();
-  var nutriHtml = '<div class="nutri-grid">'+NUTRI_KEYS.map(function(k){
-    return '<div class="nutri-cell"><div class="val">'+fmtNum(n[k],1)+' <span class="unit">'+units[k]+'</span></div><div class="lbl">'+labels[k]+'</div></div>';
-  }).join('')+'</div>';
   var photoBlock = it.photo_url
-    ? photoImgHtml(it.photo_url, 'width:100%;border-radius:14px;display:block;border:1px solid var(--line);object-fit:cover;')
+    ? photoImgHtml(it.photo_url, 'width:100%;height:100%;border-radius:14px;display:block;border:1px solid var(--line);object-fit:cover;')
     : '<div class="item-detail-photo-placeholder">'+ic('box',30)+'</div>';
   return '' +
   '<div class="page-header">'+
@@ -2339,14 +2385,13 @@ function renderItemDetail(){
       '<div class="item-detail-hero-info">'+
         '<div class="status-badge status-'+st.level+'" style="font-size:14px;padding:7px 12px;display:inline-block;align-self:flex-start;">'+(it.expiry_date?esc(expiryRelativeText(it))+' · '+esc(t('fieldExpiry'))+' '+esc(fmtDateDots(it.expiry_date)):esc(st.label))+'</div>'+
         '<div class="item-detail-stock-box" onclick="openRecount('+aj(it.id)+')">'+
-          '<div class="row-label">'+t('detailQtyLabel')+'</div>'+
-          '<div class="row-sub">'+qtyDisplay(it)+'</div>'+
-          (it.secondary_unit ? '<div class="hint" style="margin-top:6px;margin-bottom:0;">'+t('lastRecount')+': '+esc(it.last_recount_at||'-')+'</div>' : '')+
+          '<span class="row-label">'+t('detailQtyLabel')+'</span>'+
+          '<span class="row-sub">'+qtyDisplay(it)+'</span>'+
         '</div>'+
         '<div class="item-detail-hero-actions">'+
-          '<button class="btn btn-outline btn-sm" onclick="event.stopPropagation();openItemForm('+aj(it.id)+')">'+ic('edit',15)+' '+t('edit')+'</button>'+
-          '<button class="btn btn-outline btn-sm" onclick="event.stopPropagation();archiveItem('+aj(it.id)+')">'+ic('archive',15)+' '+t('archiveBtn')+'</button>'+
-          '<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteItemDetail('+aj(it.id)+')">'+ic('trash',15)+' '+t('delete')+'</button>'+
+          '<button class="item-detail-action-btn" onclick="event.stopPropagation();openItemForm('+aj(it.id)+')"><span class="icon">'+ic('edit',20)+'</span><span>'+t('edit')+'</span></button>'+
+          '<button class="item-detail-action-btn" onclick="event.stopPropagation();archiveItem('+aj(it.id)+')"><span class="icon">'+ic('archive',20)+'</span><span>'+t('archiveBtn')+'</span></button>'+
+          '<button class="item-detail-action-btn danger" onclick="event.stopPropagation();deleteItemDetail('+aj(it.id)+')"><span class="icon">'+ic('trash',20)+'</span><span>'+t('delete')+'</span></button>'+
         '</div>'+
       '</div>'+
     '</div>'+
@@ -2354,30 +2399,64 @@ function renderItemDetail(){
       '<div class="list-row" style="border:none;padding:0;margin-bottom:10px;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldCategory')+'</span><span>'+esc(categoryLabel(it.category))+'</span></div>'+
       '<div class="list-row" style="border:none;padding:0;margin-bottom:10px;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldLocation')+'</span><span>'+esc(it.location||t('unset'))+'</span></div>'+
       '<div class="list-row" style="border:none;padding:0;margin-bottom:10px;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldPurchaseDate')+'</span><span>'+esc(it.purchase_date||'-')+'</span></div>'+
-      '<div class="list-row" style="border:none;padding:0;margin-bottom:0;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldPrice')+'</span><span>'+(it.price?esc(it.price):'-')+'</span></div>'+
+      '<div class="list-row" style="border:none;padding:0;margin-bottom:0;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldPrice')+'</span><span>'+formatPrice(it)+'</span></div>'+
     '</div>'+
-    '<div class="section-title">'+t('sectionNutrition')+' <span style="font-weight:400;font-size:13px;color:var(--deep-caramel);">('+nutriBasisLabel(it.nutrition_basis_amount, it.nutrition_basis_unit)+')</span></div>'+
-    nutriHtml+
-    nutriExtraDisplayHtml(it)+
+    '<div class="nf-section-title">'+t('sectionNutrition')+'</div>'+
+    nutritionFactsBoxHtml(it)+
     (it.notes ? '<div class="section-title">'+t('fieldNotes')+'</div><div class="form-group"><p style="font-size:14.5px;line-height:1.6;">'+esc(it.notes)+'</p></div>' : '')+
   '</div>'+
   bottomNav();
 }
-// Shared by both the editable item detail page and the read-only view - only renders rows
-// for tier-2 nutrients that actually have a value on this particular item (unfilled ones are
-// simply omitted rather than shown blank, per the "don't clutter the screen" request).
-function nutriExtraDisplayHtml(it){
+// Hierarchy for the fixed "营养标签" rows, matching a standard Nutrition Facts panel:
+// saturated/trans fat nest under Total Fat; fiber/sugars nest under Total Carbohydrate,
+// and added sugars nest one level deeper under total sugars.
+var NUTRI_TIER1_ROWS = [
+  {key:'fat', level:0, bold:true},
+  {key:'saturated_fat', level:1},
+  {key:'trans_fat', level:1},
+  {key:'cholesterol', level:0, bold:true},
+  {key:'sodium', level:0, bold:true},
+  {key:'carbs', level:0, bold:true},
+  {key:'fiber', level:1},
+  {key:'sugar', level:1},
+  {key:'added_sugar', level:2},
+  {key:'protein', level:0, bold:true}
+];
+// Renders one continuous Nutrition Facts style box: basis line, big Calories row bracketed
+// by thick rules, the hierarchical fat/carb rows, then any filled-in tier-2 vitamins/minerals
+// appended as plain rows at the bottom (unfilled tier-2 rows are omitted, same as before -
+// real labels also only print the nutrients a product actually has).
+function nutritionFactsBoxHtml(it){
+  var n = it.nutrition || emptyNutrition();
+  var labels = nutriLabels();
+  var units = nutriUnits();
+  var calVal = (n.calories==null) ? '-' : fmtNum(n.calories,0);
+  var rowsHtml = NUTRI_TIER1_ROWS.map(function(row){
+    var v = n[row.key];
+    var displayVal = (v==null) ? '-' : (fmtNum(v,1)+units[row.key]);
+    var cls = 'nf-row' + (row.level===1?' indent1':'') + (row.level===2?' indent2':'') + (row.bold?' bold':'');
+    return '<div class="'+cls+'"><span>'+labels[row.key]+'</span><span class="nf-value">'+displayVal+'</span></div>';
+  }).join('');
+  return '<div class="nutrition-facts">'+
+    '<div class="nf-basis">'+nutriBasisLabel(it.nutrition_basis_amount, it.nutrition_basis_unit)+'</div>'+
+    '<div class="nf-calories-row"><span>'+t('nutriCalories')+'</span><span><span class="nf-calories-value">'+calVal+'</span><span class="nf-calories-unit">kcal</span></span></div>'+
+    rowsHtml+
+    nutriExtraRowsFlatHtml(it)+
+  '</div>';
+}
+// Tier-2 vitamins/minerals continue the same box as plain (non-indented) rows, only for
+// whichever ones actually have a value on this item.
+function nutriExtraRowsFlatHtml(it){
   var extra = it.nutrition_extra || {};
   var defs = nutriExtraDefs();
   var keys = NUTRI_EXTRA_CORE_KEYS.concat(NUTRI_EXTRA_OPTIONAL_KEYS).filter(function(k){
     return extra[k] && extra[k].value != null;
   });
   if(!keys.length) return '';
-  var cells = keys.map(function(k){
+  return keys.map(function(k){
     var stored = extra[k];
-    return '<div class="nutri-cell"><div class="val">'+fmtNum(stored.value,1)+' <span class="unit">'+esc(stored.unit)+'</span></div><div class="lbl">'+t(defs[k].labelKey)+'</div></div>';
+    return '<div class="nf-row"><span>'+t(defs[k].labelKey)+'</span><span class="nf-value">'+fmtNum(stored.value,1)+esc(stored.unit)+'</span></div>';
   }).join('');
-  return '<div class="section-title">'+t('sectionNutritionMore')+'</div><div class="nutri-grid">'+cells+'</div>';
 }
 function deleteItemDetail(id){
   if(!confirm(t('deleteConfirm'))) return;
@@ -2481,14 +2560,8 @@ function renderItemViewOnly(){
   if(!it) return renderHome();
   var backView = state.params.from || 'archive';
   var st = expiryStatus(it);
-  var labels = nutriLabels();
-  var units = nutriUnits();
-  var n = it.nutrition || emptyNutrition();
-  var nutriHtml = '<div class="nutri-grid">'+NUTRI_KEYS.map(function(k){
-    return '<div class="nutri-cell"><div class="val">'+fmtNum(n[k],1)+' <span class="unit">'+units[k]+'</span></div><div class="lbl">'+labels[k]+'</div></div>';
-  }).join('')+'</div>';
   var photoBlock = it.photo_url
-    ? photoImgHtml(it.photo_url, 'width:100%;border-radius:14px;display:block;border:1px solid var(--line);object-fit:cover;'+(it.archived?'filter:grayscale(0.3);':''))
+    ? photoImgHtml(it.photo_url, 'width:100%;height:100%;border-radius:14px;display:block;border:1px solid var(--line);object-fit:cover;'+(it.archived?'filter:grayscale(0.3);':''))
     : '<div class="item-detail-photo-placeholder">'+ic('box',30)+'</div>';
   return '' +
   '<div class="page-header">'+
@@ -2502,8 +2575,8 @@ function renderItemViewOnly(){
       '<div class="item-detail-hero-info">'+
         '<div class="status-badge status-'+st.level+'" style="font-size:14px;padding:7px 12px;display:inline-block;align-self:flex-start;">'+(it.expiry_date?esc(expiryRelativeText(it))+' · '+esc(t('fieldExpiry'))+' '+esc(fmtDateDots(it.expiry_date)):esc(st.label))+'</div>'+
         '<div class="item-detail-stock-box" style="cursor:default;">'+
-          '<div class="row-label">'+t('detailQtyLabel')+'</div>'+
-          '<div class="row-sub">'+qtyDisplay(it)+'</div>'+
+          '<span class="row-label">'+t('detailQtyLabel')+'</span>'+
+          '<span class="row-sub">'+qtyDisplay(it)+'</span>'+
         '</div>'+
       '</div>'+
     '</div>'+
@@ -2511,11 +2584,10 @@ function renderItemViewOnly(){
       '<div class="list-row" style="border:none;padding:0;margin-bottom:10px;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldCategory')+'</span><span>'+esc(categoryLabel(it.category))+'</span></div>'+
       '<div class="list-row" style="border:none;padding:0;margin-bottom:10px;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldLocation')+'</span><span>'+esc(it.location||t('unset'))+'</span></div>'+
       '<div class="list-row" style="border:none;padding:0;margin-bottom:10px;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldPurchaseDate')+'</span><span>'+esc(it.purchase_date||'-')+'</span></div>'+
-      '<div class="list-row" style="border:none;padding:0;margin-bottom:0;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldPrice')+'</span><span>'+(it.price?esc(it.price):'-')+'</span></div>'+
+      '<div class="list-row" style="border:none;padding:0;margin-bottom:0;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldPrice')+'</span><span>'+formatPrice(it)+'</span></div>'+
     '</div>'+
-    '<div class="section-title">'+t('sectionNutrition')+' <span style="font-weight:400;font-size:13px;color:var(--deep-caramel);">('+nutriBasisLabel(it.nutrition_basis_amount, it.nutrition_basis_unit)+')</span></div>'+
-    nutriHtml+
-    nutriExtraDisplayHtml(it)+
+    '<div class="nf-section-title">'+t('sectionNutrition')+'</div>'+
+    nutritionFactsBoxHtml(it)+
     (it.notes ? '<div class="section-title">'+t('fieldNotes')+'</div><div class="form-group"><p style="font-size:14.5px;line-height:1.6;">'+esc(it.notes)+'</p></div>' : '')+
     (it.archived ? '<button class="btn btn-danger" style="margin-top:22px;" onclick="deleteArchivedItem('+aj(it.id)+')">'+ic('trash',16)+' '+t('deleteArchivedBtn')+'</button>' : '')+
   '</div>'+
