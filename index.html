@@ -366,18 +366,26 @@
   .nutri-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
   /* ---------- Nutrition Facts box (North American label style) ---------- */
   .nutrition-facts{ border:1px solid var(--cocoa); border-radius:10px; overflow:hidden; background:var(--card-bg); }
-  .nf-basis{ padding:7px 12px; font-size:13px; color:var(--deep-caramel); border-bottom:8px solid var(--cocoa); }
+  .nf-basis{
+    padding:7px 12px; font-size:13px; color:var(--deep-caramel);
+    background-image:linear-gradient(to right, transparent 0 12px, var(--cocoa) 12px calc(100% - 12px), transparent calc(100% - 12px) 100%);
+    background-position:bottom; background-size:100% 8px; background-repeat:no-repeat;
+  }
   .nf-calories-row{
     display:flex; justify-content:space-between; align-items:center;
-    padding:10px 12px; border-bottom:8px solid var(--cocoa); font-size:16px; font-weight:700; color:var(--cocoa);
+    padding:10px 12px; font-size:16px; font-weight:700; color:var(--cocoa);
+    background-image:linear-gradient(to right, transparent 0 12px, var(--cocoa) 12px calc(100% - 12px), transparent calc(100% - 12px) 100%);
+    background-position:bottom; background-size:100% 8px; background-repeat:no-repeat;
   }
   .nf-calories-row .nf-calories-value{ font-size:28px; font-weight:800; }
   .nf-calories-row .nf-calories-unit{ font-size:13px; font-weight:500; margin-left:4px; }
   .nf-row{
     display:flex; justify-content:space-between; align-items:baseline;
-    padding:6px 12px; border-bottom:1px solid var(--line); font-size:14.5px; color:var(--cocoa);
+    padding:6px 12px; font-size:14.5px; color:var(--cocoa);
+    background-image:linear-gradient(to right, transparent 0 12px, var(--line) 12px calc(100% - 12px), transparent calc(100% - 12px) 100%);
+    background-position:bottom; background-size:100% 1px; background-repeat:no-repeat;
   }
-  .nf-row:last-child{ border-bottom:none; }
+  .nf-row:last-child{ background-image:none; }
   .nf-row.bold{ font-weight:700; }
   .nf-row.indent1{ padding-left:26px; font-weight:400; font-size:14px; }
   .nf-row.indent2{ padding-left:40px; font-weight:400; font-size:13px; color:var(--deep-caramel); }
@@ -2389,9 +2397,9 @@ function renderItemDetail(){
           '<span class="row-sub">'+qtyDisplay(it)+'</span>'+
         '</div>'+
         '<div class="item-detail-hero-actions">'+
-          '<button class="item-detail-action-btn" onclick="event.stopPropagation();openItemForm('+aj(it.id)+')"><span class="icon">'+ic('edit',20)+'</span><span>'+t('edit')+'</span></button>'+
-          '<button class="item-detail-action-btn" onclick="event.stopPropagation();archiveItem('+aj(it.id)+')"><span class="icon">'+ic('archive',20)+'</span><span>'+t('archiveBtn')+'</span></button>'+
           '<button class="item-detail-action-btn danger" onclick="event.stopPropagation();deleteItemDetail('+aj(it.id)+')"><span class="icon">'+ic('trash',20)+'</span><span>'+t('delete')+'</span></button>'+
+          '<button class="item-detail-action-btn" onclick="event.stopPropagation();archiveItem('+aj(it.id)+')"><span class="icon">'+ic('archive',20)+'</span><span>'+t('archiveBtn')+'</span></button>'+
+          '<button class="item-detail-action-btn" onclick="event.stopPropagation();openItemForm('+aj(it.id)+')"><span class="icon">'+ic('edit',20)+'</span><span>'+t('edit')+'</span></button>'+
         '</div>'+
       '</div>'+
     '</div>'+
