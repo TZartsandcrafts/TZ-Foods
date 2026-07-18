@@ -364,6 +364,19 @@
 
   /* ---------- Nutrition grid ---------- */
   .nutri-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  /* ---------- Item detail hero (photo + expiry/stock/actions side by side) ---------- */
+  .item-detail-hero{ display:flex; gap:14px; margin-bottom:18px; }
+  .item-detail-photo{ width:42%; max-width:170px; flex-shrink:0; }
+  .item-detail-photo img{ width:100%; border-radius:14px; display:block; border:1px solid var(--line); object-fit:cover; }
+  .item-detail-photo-placeholder{
+    width:100%; aspect-ratio:1/1; border-radius:14px; background:var(--cream);
+    display:flex; align-items:center; justify-content:center; color:var(--deep-caramel); border:1px solid var(--line);
+  }
+  .item-detail-hero-info{ flex:1; min-width:0; display:flex; flex-direction:column; gap:10px; }
+  .item-detail-stock-box{ background:var(--cream); border-radius:12px; padding:10px 12px; cursor:pointer; }
+  .item-detail-stock-box:active{ background:var(--cream-2); }
+  .item-detail-hero-actions{ display:flex; flex-direction:column; gap:8px; margin-top:auto; }
+  .item-detail-hero-actions .btn{ width:100%; justify-content:center; }
   .nutri-cell{ background:var(--cream); border-radius:10px; padding:12px; }
   .nutri-cell .val{ font-size:19px; font-weight:600; color:var(--cocoa); }
   .nutri-cell .unit{ font-size:12px; font-weight:400; color:var(--deep-caramel); }
@@ -426,7 +439,53 @@ var OIL_TYPES = [
   {id:'butter', zh:'黄油', en:'Butter', kcalPerG:7.2},
   {id:'other', zh:'其他', en:'Other', kcalPerG:9.0}
 ];
-var NUTRI_KEYS = ['calories','protein','fat','carbs','fiber','sugar','sodium'];
+// Tier 1 - "营养标签" (Nutrition Label): the fixed, always-shown core panel, ordered to
+// match a standard Canadian/US Nutrition Facts label. calcRecipeNutrition/scaleNutrition/
+// addNutrition all loop over this array generically, so extending it here is enough to make
+// recipes automatically sum the new fields too - no other recipe-math code needs to change.
+var NUTRI_KEYS = ['calories','fat','saturated_fat','trans_fat','cholesterol','sodium','carbs','fiber','sugar','added_sugar','protein'];
+function nutriLabels(){
+  return {
+    calories:t('nutriCalories'), fat:t('nutriFat'), saturated_fat:t('nutriSaturatedFat'), trans_fat:t('nutriTransFat'),
+    cholesterol:t('nutriCholesterol'), sodium:t('nutriSodium'), carbs:t('nutriCarbs'), fiber:t('nutriFiber'),
+    sugar:t('nutriSugar'), added_sugar:t('nutriAddedSugar'), protein:t('nutriProtein')
+  };
+}
+function nutriUnits(){
+  return {
+    calories:'kcal', fat:'g', saturated_fat:'g', trans_fat:'g', cholesterol:'mg', sodium:'mg',
+    carbs:'g', fiber:'g', sugar:'g', added_sugar:'g', protein:'g'
+  };
+}
+// Tier 2 - "更多营养信息" (More Nutrition Info): optional micronutrients, entered/displayed
+// only when actually present on a given product's label. vitamin_d/calcium/iron/potassium are
+// the four mandatory-on-Canadian-labels items so they always get a row in the form (can be
+// left blank); the rest are common opt-in extras the person can toggle on as needed. These are
+// intentionally NOT part of NUTRI_KEYS/recipe math yet (see README) - stored separately on the
+// item as nutrition_extra.
+var NUTRI_EXTRA_CORE_KEYS = ['vitamin_d','calcium','iron','potassium'];
+var NUTRI_EXTRA_OPTIONAL_KEYS = ['vitamin_a','vitamin_c','magnesium','zinc','vitamin_b12'];
+function nutriExtraDefs(){
+  return {
+    vitamin_d: {labelKey:'nutriVitaminD', units:['mcg','IU']},
+    calcium: {labelKey:'nutriCalcium', units:['mg']},
+    iron: {labelKey:'nutriIron', units:['mg']},
+    potassium: {labelKey:'nutriPotassium', units:['mg']},
+    vitamin_a: {labelKey:'nutriVitaminA', units:['mcg','IU']},
+    vitamin_c: {labelKey:'nutriVitaminC', units:['mg']},
+    magnesium: {labelKey:'nutriMagnesium', units:['mg']},
+    zinc: {labelKey:'nutriZinc', units:['mg']},
+    vitamin_b12: {labelKey:'nutriVitaminB12', units:['mcg']}
+  };
+}
+function emptyNutritionExtra(){ return {}; }
+// "每88g" / "per 88g" - shown next to the nutrition section title so it's clear exactly what
+// amount the printed numbers are for, since items are no longer forced onto a 100g/100ml basis.
+function nutriBasisLabel(amount, unit){
+  var amt = amount || 100;
+  var u = unit || 'g';
+  return (state.lang==='zh' ? ('每'+fmtNum(amt,amt%1===0?0:1)+u) : ('per '+fmtNum(amt,amt%1===0?0:1)+u));
+}
 
 var I18N = {
   zh:{
@@ -448,12 +507,16 @@ var I18N = {
     fieldSecondaryQty:'次要计量(可选)', fieldSecondaryUnit:'次要单位',
     fieldExpiry:'有效期至', fieldPurchaseDate:'购买日期', fieldPrice:'价格',
     fieldNotes:'备注', fieldNotesPh:'其他备注信息',
-    sectionBasic:'基本信息', sectionQty:'数量与单位', sectionNutrition:'营养信息(每100g/100ml)', sectionOther:'其他信息',
-    nutriCalories:'热量', nutriProtein:'蛋白质', nutriFat:'脂肪', nutriCarbs:'碳水化合物',
-    nutriFiber:'膳食纤维', nutriSugar:'糖', nutriSodium:'钠',
+    sectionBasic:'基本信息', sectionQty:'数量与单位', sectionNutrition:'营养标签', sectionNutritionMore:'更多营养信息', sectionOther:'其他信息',
+    nutriCalories:'热量', nutriProtein:'蛋白质', nutriFat:'总脂肪', nutriCarbs:'总碳水化合物',
+    nutriFiber:'膳食纤维', nutriSugar:'总糖', nutriSodium:'钠',
+    nutriSaturatedFat:'饱和脂肪', nutriTransFat:'反式脂肪', nutriCholesterol:'胆固醇', nutriAddedSugar:'添加糖',
+    nutriVitaminD:'维生素D', nutriCalcium:'钙', nutriIron:'铁', nutriPotassium:'钾',
+    nutriVitaminA:'维生素A', nutriVitaminC:'维生素C', nutriMagnesium:'镁', nutriZinc:'锌', nutriVitaminB12:'维生素B12',
+    addNutrientBtn:'+ 添加营养素', nutriExtraHint:'没有数值的项留空即可',
     manuallyEdited:'已手动修正',
     nutriBasisAmount:'营养数值对应的量', nutriBasisUnit:'单位',
-    nutriBasisHint:'包装上营养表如果不是按每100g/100ml标注的（比如"每88g"、"每份"），把包装上写的具体重量填在这里，下面直接填包装上印的原始数值，保存时会自动换算成每100g/100ml存储。',
+    nutriBasisHint:'包装上营养表如果不是按每100g/100ml标注的（比如"每88g"、"每份"），把包装上写的具体重量/份量填在这里，下面直接照抄包装上印的原始数值就行——不会自动换算成每100g/100ml，会照这个基准量原样保存。用这个食材做食谱时，会按实际用量自动折算。',
     expiryModeDirect:'直接填写', expiryModeCalc:'生产日期+保质期',
     fieldProductionDate:'生产日期', fieldShelfLife:'保质期',
     computedExpiryPrefix:'自动计算出的有效期至：',
@@ -599,12 +662,16 @@ var I18N = {
     fieldSecondaryQty:'Secondary count (optional)', fieldSecondaryUnit:'Secondary unit',
     fieldExpiry:'Best before', fieldPurchaseDate:'Purchase date', fieldPrice:'Price',
     fieldNotes:'Notes', fieldNotesPh:'Additional notes',
-    sectionBasic:'Basic info', sectionQty:'Quantity & unit', sectionNutrition:'Nutrition (per 100g/100ml)', sectionOther:'Other info',
-    nutriCalories:'Calories', nutriProtein:'Protein', nutriFat:'Fat', nutriCarbs:'Carbs',
-    nutriFiber:'Fiber', nutriSugar:'Sugar', nutriSodium:'Sodium',
+    sectionBasic:'Basic info', sectionQty:'Quantity & unit', sectionNutrition:'Nutrition Label', sectionNutritionMore:'More Nutrition Info', sectionOther:'Other info',
+    nutriCalories:'Calories', nutriProtein:'Protein', nutriFat:'Total Fat', nutriCarbs:'Total Carbohydrate',
+    nutriFiber:'Dietary Fiber', nutriSugar:'Total Sugars', nutriSodium:'Sodium',
+    nutriSaturatedFat:'Saturated Fat', nutriTransFat:'Trans Fat', nutriCholesterol:'Cholesterol', nutriAddedSugar:'Added Sugars',
+    nutriVitaminD:'Vitamin D', nutriCalcium:'Calcium', nutriIron:'Iron', nutriPotassium:'Potassium',
+    nutriVitaminA:'Vitamin A', nutriVitaminC:'Vitamin C', nutriMagnesium:'Magnesium', nutriZinc:'Zinc', nutriVitaminB12:'Vitamin B12',
+    addNutrientBtn:'+ Add nutrient', nutriExtraHint:'Leave blank if not on the label',
     manuallyEdited:'Edited',
     nutriBasisAmount:'These values are per', nutriBasisUnit:'Unit',
-    nutriBasisHint:'If the label\'s nutrition table isn\'t per 100g/100ml (e.g. "per 88g" or "per serving"), enter that exact amount here and type the numbers straight off the label below — they\'ll be auto-converted to per 100g/100ml on save.',
+    nutriBasisHint:'If the label\'s nutrition table isn\'t per 100g/100ml (e.g. "per 88g" or "per serving"), enter that exact amount here and type the numbers straight off the label below — they stay exactly as entered (no auto-conversion to per 100g/100ml). When this item is used in a recipe, the amount actually used gets converted automatically.',
     expiryModeDirect:'Enter directly', expiryModeCalc:'Production date + shelf life',
     fieldProductionDate:'Production date', fieldShelfLife:'Shelf life',
     computedExpiryPrefix:'Calculated best-before date:',
@@ -1095,11 +1162,16 @@ function amountToBasisUnits(amount, unit, sourceItem){
 function emptyNutrition(){
   var n = {}; NUTRI_KEYS.forEach(function(k){ n[k]=0; }); return n;
 }
-function scaleNutrition(per100, basisUnits){
+// perBasisAmount is "how much this nutrition data is FOR" (e.g. 88 if the label read
+// "per 88g") - NOT assumed to be 100. Inventory items now keep whatever basis was actually
+// printed on their label (see README note on why the old auto-convert-to-100g step was
+// removed), so recipe math has to divide by the source's own basis rather than a fixed 100.
+function scaleNutrition(perBasis, perBasisAmount, usedUnits){
   var out = emptyNutrition();
-  if(basisUnits == null || !per100) return out;
-  var factor = basisUnits/100;
-  NUTRI_KEYS.forEach(function(k){ out[k] = (Number(per100[k])||0)*factor; });
+  if(usedUnits == null || !perBasis) return out;
+  var basis = perBasisAmount || 100;
+  var factor = usedUnits/basis;
+  NUTRI_KEYS.forEach(function(k){ out[k] = (Number(perBasis[k])||0)*factor; });
   return out;
 }
 function addNutrition(a,b){
@@ -1120,10 +1192,11 @@ function calcRecipeNutrition(recipe){
   (recipe.ingredients||[]).forEach(function(ri){
     var src = getIngredientSource(ri);
     if(!src){ warnings.push(ri.name_snapshot||'?'); return; }
-    var per100 = src.nutrition || emptyNutrition();
+    var perBasis = src.nutrition || emptyNutrition();
+    var perBasisAmount = src.nutrition_basis_amount || 100; // external ingredients are always entered per 100g/ml
     var basis = amountToBasisUnits(ri.amount, ri.unit, ri.source_type==='inventory'?src:null);
     if(basis == null){ warnings.push(src.name); return; }
-    total = addNutrition(total, scaleNutrition(per100, basis));
+    total = addNutrition(total, scaleNutrition(perBasis, perBasisAmount, basis));
   });
   // extra oil
   var oilCal = 0, oilFat = 0;
@@ -1825,6 +1898,8 @@ function blankItemDraft(){
     expiry_date:'', purchase_date: todayStr(), price:'',
     production_date:'', shelf_life_amount:null, shelf_life_unit:'days',
     notes:'', nutrition: emptyNutrition(), nutrition_edited:false,
+    nutrition_extra: emptyNutritionExtra(), nutrition_extra_selected:[],
+    nutrition_basis_amount:100, nutrition_basis_unit:'g',
     photo_url:'', created_at: todayStr(), updated_at: nowLocalIso()
   };
 }
@@ -1833,12 +1908,31 @@ function openItemForm(id, prefill){
     var existing = state.items.find(function(i){ return i.id===id; });
     state.itemDraft = JSON.parse(JSON.stringify(existing));
     state.itemDraft.nutrition = state.itemDraft.nutrition || emptyNutrition();
+    state.itemDraft.nutrition_extra = state.itemDraft.nutrition_extra || emptyNutritionExtra();
+    // Any optional tier-2 nutrient that already has a stored value should show as "added"
+    // when reopening the form, even if it was somehow saved without being in the selected
+    // list (e.g. imported data) - derive the selected set from what's actually present.
+    var derivedSelected = NUTRI_EXTRA_OPTIONAL_KEYS.filter(function(k){
+      return state.itemDraft.nutrition_extra[k] != null;
+    });
+    state.itemDraft.nutrition_extra_selected = Array.from(new Set(
+      (state.itemDraft.nutrition_extra_selected||[]).concat(derivedSelected)
+    ));
   } else {
     state.itemDraft = blankItemDraft();
     if(prefill) Object.assign(state.itemDraft, prefill);
   }
   state.itemDraft._isNew = !id;
-  state.itemFormUI = { addingCategory:false, addingLocation:false, showSecondary: !!(state.itemDraft.secondary_unit), nutriBasisAmount:100, nutriBasisUnit:'g', expiryMode: state.itemDraft.production_date ? 'calc' : 'direct' };
+  // The basis amount/unit is now real per-item data (see README: values stay exactly as
+  // printed on the label, e.g. "per 88g", instead of being auto-converted to per-100g on
+  // save) - so reopening an existing item for editing has to pick up whatever basis it was
+  // actually saved with, not silently reset to 100g every time.
+  state.itemFormUI = {
+    addingCategory:false, addingLocation:false, showSecondary: !!(state.itemDraft.secondary_unit),
+    nutriBasisAmount: state.itemDraft.nutrition_basis_amount || 100,
+    nutriBasisUnit: state.itemDraft.nutrition_basis_unit || 'g',
+    expiryMode: state.itemDraft.production_date ? 'calc' : 'direct'
+  };
   navigate('itemForm', {id:id});
 }
 function unitPills(fieldPath, current){
@@ -1956,8 +2050,8 @@ function expiryFieldHtml(d, ui){
     '<div class="hint" id="computed-expiry-preview" style="margin-bottom:18px;">'+(d.expiry_date?(t('computedExpiryPrefix')+' '+d.expiry_date):'')+'</div>';
 }
 function nutriFieldsHtml(draftPath){
-  var labels = {calories:t('nutriCalories'),protein:t('nutriProtein'),fat:t('nutriFat'),carbs:t('nutriCarbs'),fiber:t('nutriFiber'),sugar:t('nutriSugar'),sodium:t('nutriSodium')};
-  var units = {calories:'kcal',protein:'g',fat:'g',carbs:'g',fiber:'g',sugar:'g',sodium:'mg'};
+  var labels = nutriLabels();
+  var units = nutriUnits();
   var basisAmount = state.itemFormUI.nutriBasisAmount;
   var basisUnit = state.itemFormUI.nutriBasisUnit;
   var basisRow = '' +
@@ -1985,6 +2079,70 @@ function nutriBadgeHtml(d){
   if(d.nutrition_edited) return '<span class="edited-badge">'+t('manuallyEdited')+'</span>';
   if(d.nutrition_source === 'photo_ai') return '<span class="edited-badge" style="background:var(--fresh-bg);color:var(--fresh);">'+t('aiExtracted')+'</span>';
   return '';
+}
+function nutriExtraRowHtml(key){
+  var def = nutriExtraDefs()[key];
+  var stored = state.itemDraft.nutrition_extra[key] || {};
+  var unit = stored.unit || def.units[0];
+  var val = (stored.value != null) ? stored.value : '';
+  var unitPicker = def.units.length > 1 ?
+    ('<div class="tag-select" style="flex-shrink:0;">'+def.units.map(function(u){
+      return '<div class="tag-option '+(unit===u?'active':'')+'" onclick="onNutriExtraUnitChange('+aj(key)+','+aj(u)+')">'+u+'</div>';
+    }).join('')+'</div>') :
+    '<span style="align-self:center;color:#B79B78;font-size:13px;padding:0 6px;white-space:nowrap;">'+def.units[0]+'</span>';
+  return '<div class="field" style="margin-bottom:0;">'+
+    '<label>'+t(def.labelKey)+'</label>'+
+    '<div style="display:flex;gap:6px;align-items:center;">'+
+      '<input type="number" inputmode="decimal" value="'+val+'" placeholder="-" oninput="onNutriExtraInput('+aj(key)+',this.value)" style="flex:1;min-width:0;">'+
+      unitPicker+
+    '</div>'+
+  '</div>';
+}
+function nutriExtraFieldsHtml(){
+  var coreRows = NUTRI_EXTRA_CORE_KEYS.map(nutriExtraRowHtml).join('');
+  var selected = state.itemDraft.nutrition_extra_selected || [];
+  var selectedRows = NUTRI_EXTRA_OPTIONAL_KEYS.filter(function(k){ return selected.indexOf(k)!==-1; }).map(nutriExtraRowHtml).join('');
+  var availableToAdd = NUTRI_EXTRA_OPTIONAL_KEYS.filter(function(k){ return selected.indexOf(k)===-1; });
+  var addRow = availableToAdd.length ? (
+    '<div class="tag-select" style="margin-top:10px;">'+availableToAdd.map(function(k){
+      var def = nutriExtraDefs()[k];
+      return '<div class="tag-option" onclick="addNutriExtraOptional('+aj(k)+')">+ '+t(def.labelKey)+'</div>';
+    }).join('')+'</div>'
+  ) : '';
+  return '<p class="hint" style="margin-top:-6px;margin-bottom:12px;">'+t('nutriExtraHint')+'</p>'+
+    '<div class="nutri-grid">'+coreRows+selectedRows+'</div>'+
+    addRow;
+}
+function onNutriExtraInput(key, val){
+  var def = nutriExtraDefs()[key];
+  var existing = state.itemDraft.nutrition_extra[key] || {};
+  var unit = existing.unit || def.units[0];
+  var num = (val==='') ? null : (parseFloat(val));
+  if(num == null || isNaN(num)){
+    delete state.itemDraft.nutrition_extra[key];
+    if(NUTRI_EXTRA_OPTIONAL_KEYS.indexOf(key)!==-1 && val===''){
+      state.itemDraft.nutrition_extra_selected = (state.itemDraft.nutrition_extra_selected||[]).filter(function(k){ return k!==key; });
+      render();
+    }
+  } else {
+    state.itemDraft.nutrition_extra[key] = {value:num, unit:unit};
+  }
+  state.itemDraft.nutrition_edited = true;
+}
+function onNutriExtraUnitChange(key, unit){
+  var def = nutriExtraDefs()[key];
+  var existing = state.itemDraft.nutrition_extra[key] || {};
+  state.itemDraft.nutrition_extra[key] = {value: (existing.value!=null?existing.value:null), unit:unit};
+  render();
+}
+function addNutriExtraOptional(key){
+  var sel = state.itemDraft.nutrition_extra_selected || [];
+  if(sel.indexOf(key)===-1) sel.push(key);
+  state.itemDraft.nutrition_extra_selected = sel;
+  if(!state.itemDraft.nutrition_extra[key]){
+    state.itemDraft.nutrition_extra[key] = {value:null, unit:nutriExtraDefs()[key].units[0]};
+  }
+  render();
 }
 function renderItemForm(){
   var d = state.itemDraft;
@@ -2037,6 +2195,8 @@ function renderItemForm(){
     '</div>'+
     '<div class="section-title">'+t('sectionNutrition')+nutriBadgeHtml(d)+'</div>'+
     '<div class="form-group">'+nutriFieldsHtml(d)+'</div>'+
+    '<div class="section-title">'+t('sectionNutritionMore')+'</div>'+
+    '<div class="form-group">'+nutriExtraFieldsHtml()+'</div>'+
     '<div class="btn-row" style="margin-top:8px;">'+
       '<button class="btn btn-outline" onclick="cancelItemForm()">'+t('cancel')+'</button>'+
       '<button class="btn btn-primary" onclick="saveItemForm()">'+t('save')+'</button>'+
@@ -2121,11 +2281,12 @@ function saveItemForm(){
     d.unit_ratio = d.primary_qty / (d.secondary_qty||1);
     d.last_recount_at = todayStr();
   }
-  var basisAmount = state.itemFormUI && state.itemFormUI.nutriBasisAmount;
-  if(basisAmount && basisAmount > 0 && basisAmount !== 100){
-    var factor = 100 / basisAmount;
-    NUTRI_KEYS.forEach(function(k){ d.nutrition[k] = (d.nutrition[k]||0) * factor; });
-  }
+  // Nutrition values are kept exactly as entered (matching whatever amount the label actually
+  // printed, e.g. "per 88g") rather than being auto-converted to per-100g/100ml here - the
+  // basis amount/unit gets saved alongside so recipe math can divide by the right number
+  // later, when an actual usage amount is known. See README for why this changed.
+  d.nutrition_basis_amount = (state.itemFormUI && state.itemFormUI.nutriBasisAmount) || 100;
+  d.nutrition_basis_unit = (state.itemFormUI && state.itemFormUI.nutriBasisUnit) || 'g';
   d.updated_at = nowLocalIso();
   var idx = state.items.findIndex(function(i){ return i.id===d.id; });
   if(idx===-1){
@@ -2158,28 +2319,36 @@ function renderItemDetail(){
   var it = state.items.find(function(i){ return i.id===id; });
   if(!it) return renderHome();
   var st = expiryStatus(it);
-  var labels = {calories:t('nutriCalories'),protein:t('nutriProtein'),fat:t('nutriFat'),carbs:t('nutriCarbs'),fiber:t('nutriFiber'),sugar:t('nutriSugar'),sodium:t('nutriSodium')};
-  var units = {calories:'kcal',protein:'g',fat:'g',carbs:'g',fiber:'g',sugar:'g',sodium:'mg'};
+  var labels = nutriLabels();
+  var units = nutriUnits();
   var n = it.nutrition || emptyNutrition();
   var nutriHtml = '<div class="nutri-grid">'+NUTRI_KEYS.map(function(k){
     return '<div class="nutri-cell"><div class="val">'+fmtNum(n[k],1)+' <span class="unit">'+units[k]+'</span></div><div class="lbl">'+labels[k]+'</div></div>';
   }).join('')+'</div>';
+  var photoBlock = it.photo_url
+    ? photoImgHtml(it.photo_url, 'width:100%;border-radius:14px;display:block;border:1px solid var(--line);object-fit:cover;')
+    : '<div class="item-detail-photo-placeholder">'+ic('box',30)+'</div>';
   return '' +
   '<div class="page-header">'+
     '<button class="back-btn" onclick="navigate(\'home\')">'+ic('back',22)+'</button>'+
-    '<h1>'+esc(it.name)+'</h1>'+
-    '<button class="icon-btn" onclick="openItemForm('+aj(it.id)+')">'+ic('edit',18)+'</button>'+
+    '<h1>'+itemDisplayName(it)+'</h1>'+
   '</div>'+
   '<div class="content">'+
-    (it.photo_url ? photoImgHtml(it.photo_url, 'width:100%;max-width:280px;border-radius:14px;display:block;margin-bottom:14px;border:1px solid var(--line);object-fit:cover;') : '')+
-    (it.brand ? '<p style="color:var(--deep-caramel);font-size:14px;margin-bottom:14px;">'+esc(it.brand)+'</p>' : '')+
-    '<div class="status-badge status-'+st.level+'" style="font-size:15px;padding:8px 14px;display:inline-block;margin-bottom:16px;">'+(it.expiry_date?esc(expiryRelativeText(it))+' · '+esc(t('fieldExpiry'))+' '+esc(fmtDateDots(it.expiry_date)):esc(st.label))+'</div>'+
-    '<div class="form-group">'+
-      '<div class="list-row" style="border:none;padding:0;margin-bottom:0;">'+
-        '<div><div class="row-label">'+t('detailQtyLabel')+'</div><div class="row-sub">'+qtyDisplay(it)+'</div></div>'+
-        '<button class="btn btn-outline btn-sm" onclick="openRecount('+aj(it.id)+')">'+t('recount')+'</button>'+
+    '<div class="item-detail-hero">'+
+      '<div class="item-detail-photo">'+photoBlock+'</div>'+
+      '<div class="item-detail-hero-info">'+
+        '<div class="status-badge status-'+st.level+'" style="font-size:14px;padding:7px 12px;display:inline-block;align-self:flex-start;">'+(it.expiry_date?esc(expiryRelativeText(it))+' · '+esc(t('fieldExpiry'))+' '+esc(fmtDateDots(it.expiry_date)):esc(st.label))+'</div>'+
+        '<div class="item-detail-stock-box" onclick="openRecount('+aj(it.id)+')">'+
+          '<div class="row-label">'+t('detailQtyLabel')+'</div>'+
+          '<div class="row-sub">'+qtyDisplay(it)+'</div>'+
+          (it.secondary_unit ? '<div class="hint" style="margin-top:6px;margin-bottom:0;">'+t('lastRecount')+': '+esc(it.last_recount_at||'-')+'</div>' : '')+
+        '</div>'+
+        '<div class="item-detail-hero-actions">'+
+          '<button class="btn btn-outline btn-sm" onclick="event.stopPropagation();openItemForm('+aj(it.id)+')">'+ic('edit',15)+' '+t('edit')+'</button>'+
+          '<button class="btn btn-outline btn-sm" onclick="event.stopPropagation();archiveItem('+aj(it.id)+')">'+ic('archive',15)+' '+t('archiveBtn')+'</button>'+
+          '<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteItemDetail('+aj(it.id)+')">'+ic('trash',15)+' '+t('delete')+'</button>'+
+        '</div>'+
       '</div>'+
-      (it.secondary_unit ? '<div class="hint" style="margin-top:10px;">'+t('lastRecount')+': '+esc(it.last_recount_at||'-')+'</div>' : '<div class="hint" style="margin-top:10px;">'+t('noSecondary')+'</div>')+
     '</div>'+
     '<div class="form-group">'+
       '<div class="list-row" style="border:none;padding:0;margin-bottom:10px;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldCategory')+'</span><span>'+esc(categoryLabel(it.category))+'</span></div>'+
@@ -2187,15 +2356,28 @@ function renderItemDetail(){
       '<div class="list-row" style="border:none;padding:0;margin-bottom:10px;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldPurchaseDate')+'</span><span>'+esc(it.purchase_date||'-')+'</span></div>'+
       '<div class="list-row" style="border:none;padding:0;margin-bottom:0;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldPrice')+'</span><span>'+(it.price?esc(it.price):'-')+'</span></div>'+
     '</div>'+
-    '<div class="section-title">'+t('sectionNutrition')+'</div>'+
+    '<div class="section-title">'+t('sectionNutrition')+' <span style="font-weight:400;font-size:13px;color:var(--deep-caramel);">('+nutriBasisLabel(it.nutrition_basis_amount, it.nutrition_basis_unit)+')</span></div>'+
     nutriHtml+
+    nutriExtraDisplayHtml(it)+
     (it.notes ? '<div class="section-title">'+t('fieldNotes')+'</div><div class="form-group"><p style="font-size:14.5px;line-height:1.6;">'+esc(it.notes)+'</p></div>' : '')+
-    '<div class="btn-row" style="margin-top:22px;">'+
-      '<button class="btn btn-outline" onclick="archiveItem('+aj(it.id)+')">'+ic('archive',16)+' '+t('archiveBtn')+'</button>'+
-      '<button class="btn btn-danger" onclick="deleteItemDetail('+aj(it.id)+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
-    '</div>'+
   '</div>'+
   bottomNav();
+}
+// Shared by both the editable item detail page and the read-only view - only renders rows
+// for tier-2 nutrients that actually have a value on this particular item (unfilled ones are
+// simply omitted rather than shown blank, per the "don't clutter the screen" request).
+function nutriExtraDisplayHtml(it){
+  var extra = it.nutrition_extra || {};
+  var defs = nutriExtraDefs();
+  var keys = NUTRI_EXTRA_CORE_KEYS.concat(NUTRI_EXTRA_OPTIONAL_KEYS).filter(function(k){
+    return extra[k] && extra[k].value != null;
+  });
+  if(!keys.length) return '';
+  var cells = keys.map(function(k){
+    var stored = extra[k];
+    return '<div class="nutri-cell"><div class="val">'+fmtNum(stored.value,1)+' <span class="unit">'+esc(stored.unit)+'</span></div><div class="lbl">'+t(defs[k].labelKey)+'</div></div>';
+  }).join('');
+  return '<div class="section-title">'+t('sectionNutritionMore')+'</div><div class="nutri-grid">'+cells+'</div>';
 }
 function deleteItemDetail(id){
   if(!confirm(t('deleteConfirm'))) return;
@@ -2299,12 +2481,15 @@ function renderItemViewOnly(){
   if(!it) return renderHome();
   var backView = state.params.from || 'archive';
   var st = expiryStatus(it);
-  var labels = {calories:t('nutriCalories'),protein:t('nutriProtein'),fat:t('nutriFat'),carbs:t('nutriCarbs'),fiber:t('nutriFiber'),sugar:t('nutriSugar'),sodium:t('nutriSodium')};
-  var units = {calories:'kcal',protein:'g',fat:'g',carbs:'g',fiber:'g',sugar:'g',sodium:'mg'};
+  var labels = nutriLabels();
+  var units = nutriUnits();
   var n = it.nutrition || emptyNutrition();
   var nutriHtml = '<div class="nutri-grid">'+NUTRI_KEYS.map(function(k){
     return '<div class="nutri-cell"><div class="val">'+fmtNum(n[k],1)+' <span class="unit">'+units[k]+'</span></div><div class="lbl">'+labels[k]+'</div></div>';
   }).join('')+'</div>';
+  var photoBlock = it.photo_url
+    ? photoImgHtml(it.photo_url, 'width:100%;border-radius:14px;display:block;border:1px solid var(--line);object-fit:cover;'+(it.archived?'filter:grayscale(0.3);':''))
+    : '<div class="item-detail-photo-placeholder">'+ic('box',30)+'</div>';
   return '' +
   '<div class="page-header">'+
     '<button class="back-btn" onclick="navigate('+aj(backView)+')">'+ic('back',22)+'</button>'+
@@ -2312,10 +2497,15 @@ function renderItemViewOnly(){
   '</div>'+
   '<div class="content">'+
     (it.archived ? '<div class="readonly-banner">'+ic('archive',14)+' '+t('archivedAt')+' '+esc(fmtDateDots((it.archived_at||'').slice(0,10)))+'</div>' : '')+
-    (it.photo_url ? photoImgHtml(it.photo_url, 'width:100%;max-width:280px;border-radius:14px;display:block;margin:12px 0 14px;border:1px solid var(--line);object-fit:cover;'+(it.archived?'filter:grayscale(0.3);':'')) : '')+
-    '<div class="status-badge status-'+st.level+'" style="font-size:15px;padding:8px 14px;display:inline-block;margin-bottom:16px;">'+(it.expiry_date?esc(expiryRelativeText(it))+' · '+esc(t('fieldExpiry'))+' '+esc(fmtDateDots(it.expiry_date)):esc(st.label))+'</div>'+
-    '<div class="form-group">'+
-      '<div class="list-row" style="border:none;padding:0;margin-bottom:0;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('detailQtyLabel')+'</span><span>'+qtyDisplay(it)+'</span></div>'+
+    '<div class="item-detail-hero" style="margin-top:12px;">'+
+      '<div class="item-detail-photo">'+photoBlock+'</div>'+
+      '<div class="item-detail-hero-info">'+
+        '<div class="status-badge status-'+st.level+'" style="font-size:14px;padding:7px 12px;display:inline-block;align-self:flex-start;">'+(it.expiry_date?esc(expiryRelativeText(it))+' · '+esc(t('fieldExpiry'))+' '+esc(fmtDateDots(it.expiry_date)):esc(st.label))+'</div>'+
+        '<div class="item-detail-stock-box" style="cursor:default;">'+
+          '<div class="row-label">'+t('detailQtyLabel')+'</div>'+
+          '<div class="row-sub">'+qtyDisplay(it)+'</div>'+
+        '</div>'+
+      '</div>'+
     '</div>'+
     '<div class="form-group">'+
       '<div class="list-row" style="border:none;padding:0;margin-bottom:10px;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldCategory')+'</span><span>'+esc(categoryLabel(it.category))+'</span></div>'+
@@ -2323,8 +2513,9 @@ function renderItemViewOnly(){
       '<div class="list-row" style="border:none;padding:0;margin-bottom:10px;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldPurchaseDate')+'</span><span>'+esc(it.purchase_date||'-')+'</span></div>'+
       '<div class="list-row" style="border:none;padding:0;margin-bottom:0;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldPrice')+'</span><span>'+(it.price?esc(it.price):'-')+'</span></div>'+
     '</div>'+
-    '<div class="section-title">'+t('sectionNutrition')+'</div>'+
+    '<div class="section-title">'+t('sectionNutrition')+' <span style="font-weight:400;font-size:13px;color:var(--deep-caramel);">('+nutriBasisLabel(it.nutrition_basis_amount, it.nutrition_basis_unit)+')</span></div>'+
     nutriHtml+
+    nutriExtraDisplayHtml(it)+
     (it.notes ? '<div class="section-title">'+t('fieldNotes')+'</div><div class="form-group"><p style="font-size:14.5px;line-height:1.6;">'+esc(it.notes)+'</p></div>' : '')+
     (it.archived ? '<button class="btn btn-danger" style="margin-top:22px;" onclick="deleteArchivedItem('+aj(it.id)+')">'+ic('trash',16)+' '+t('deleteArchivedBtn')+'</button>' : '')+
   '</div>'+
@@ -2671,7 +2862,9 @@ async function lookupAndPrefill(code){
       brand: result.brand || '',
       photo_url: result.photo_url || '',
       nutrition: result.nutrition || emptyNutrition(),
-      nutrition_edited: false
+      nutrition_edited: false,
+      nutrition_basis_amount: result.nutrition_basis_amount || 100,
+      nutrition_basis_unit: result.nutrition_basis_unit || 'g'
     });
   } else {
     showToast(t('scanNotFound'));
@@ -2680,9 +2873,17 @@ async function lookupAndPrefill(code){
 }
 async function lookupBarcode(barcode){
   var localItem = state.items.find(function(i){ return i.barcode===barcode; });
-  if(localItem) return {name:localItem.name, brand:localItem.brand, nutrition:localItem.nutrition, photo_url:localItem.photo_url, fromLocal:true};
+  if(localItem) return {
+    name:localItem.name, brand:localItem.brand, nutrition:localItem.nutrition, photo_url:localItem.photo_url,
+    nutrition_basis_amount: localItem.nutrition_basis_amount || 100, nutrition_basis_unit: localItem.nutrition_basis_unit || 'g',
+    fromLocal:true
+  };
   var localIng = state.ingredients.find(function(i){ return i.barcode===barcode; });
-  if(localIng) return {name:localIng.name, brand:localIng.brand, nutrition:localIng.nutrition, photo_url:localIng.photo_url, fromLocal:true};
+  if(localIng) return {
+    name:localIng.name, brand:localIng.brand, nutrition:localIng.nutrition, photo_url:localIng.photo_url,
+    nutrition_basis_amount:100, nutrition_basis_unit:'g', // external ingredients are always entered per 100g/ml
+    fromLocal:true
+  };
   try{
     var res = await fetch('https://world.openfoodfacts.org/api/v2/product/'+encodeURIComponent(barcode)+'.json');
     var data = await res.json();
@@ -2698,13 +2899,18 @@ async function lookupBarcode(barcode){
         photo_url: p.image_url || p.image_front_url || '',
         nutrition: {
           calories: nut['energy-kcal_100g'] != null ? nut['energy-kcal_100g'] : (nut['energy-kcal_serving']||0),
-          protein: nut['proteins_100g']||0,
           fat: nut['fat_100g']||0,
+          saturated_fat: nut['saturated-fat_100g']||0,
+          trans_fat: nut['trans-fat_100g']||0,
+          cholesterol: nut['cholesterol_100g'] != null ? nut['cholesterol_100g']*1000 : 0,
+          sodium: nut['sodium_100g'] != null ? nut['sodium_100g']*1000 : 0,
           carbs: nut['carbohydrates_100g']||0,
           fiber: nut['fiber_100g']||0,
           sugar: nut['sugars_100g']||0,
-          sodium: nut['sodium_100g'] != null ? nut['sodium_100g']*1000 : 0
+          added_sugar: nut['added-sugars_100g']||0,
+          protein: nut['proteins_100g']||0
         },
+        nutrition_basis_amount:100, nutrition_basis_unit:'g', // OFF's "_100g" fields are always per 100g
         fromOFF:true
       };
     }
@@ -2754,7 +2960,7 @@ async function analyzePhotoForItem(base64Data, mimeType){
   var prompt = [
     '请分析这张食品包装或营养成分表照片，尽可能提取以下信息。只返回一个JSON对象本身，不要包含任何其他文字、解释、前后缀或markdown代码块标记（不要用```包裹）。',
     '严格按此JSON格式返回：',
-    '{"name":"产品名称，看不清则为空字符串","brand":"品牌名称，看不清则为空字符串","barcode":"条码下方印刷的数字，看不到则为null","nutrition_found":true或false,"nutrition_basis":"100g或100ml或serving或unknown","serving_size_g":"仅当nutrition_basis为serving时填写每份重量克数(数字)，否则为null","nutrition":{"calories":数字(kcal)或null,"protein":数字(g)或null,"fat":数字(g)或null,"carbs":数字(g)或null,"fiber":数字(g)或null,"sugar":数字(g)或null,"sodium":数字(mg)或null},"confidence":"high或medium或low"}',
+    '{"name":"产品名称，看不清则为空字符串","brand":"品牌名称，看不清则为空字符串","barcode":"条码下方印刷的数字，看不到则为null","nutrition_found":true或false,"nutrition_basis":"100g或100ml或serving或unknown","serving_size_g":"仅当nutrition_basis为serving时填写每份重量克数(数字)，否则为null","nutrition":{"calories":数字(kcal)或null,"fat":数字(g)或null,"saturated_fat":数字(g)或null,"trans_fat":数字(g)或null,"cholesterol":数字(mg)或null,"sodium":数字(mg)或null,"carbs":数字(g)或null,"fiber":数字(g)或null,"sugar":数字(g)或null,"added_sugar":数字(g)或null,"protein":数字(g)或null},"confidence":"high或medium或low"}',
     '注意：sodium字段必须换算成毫克(mg)，如果标签原文是克(g)请自行乘以1000。如果完全无法从图片中识别出任何有效信息，相应字段返回null、空字符串或false，不要编造数据。'
   ].join('\n');
   // Standalone build: calls YOUR OWN backend proxy (configured in Settings) instead of
@@ -2797,13 +3003,19 @@ function normalizeExtractedNutrition(result){
     var v = result.nutrition[k];
     n[k] = (v != null && !isNaN(v)) ? Number(v) : 0;
   });
-  if(result.nutrition_basis === 'serving' && result.serving_size_g){
-    var factor = 100 / Number(result.serving_size_g);
-    if(isFinite(factor)){
-      NUTRI_KEYS.forEach(function(k){ n[k] = n[k] * factor; });
-    }
-  }
   return n;
+}
+// The AI now reports numbers exactly as printed on the label, alongside whatever basis they
+// were printed for - no more silently rescaling "per serving" values onto a 100g footing.
+// Falls back to 100g when the basis is unclear so older/ambiguous results still behave
+// sensibly (values get treated as if per-100g, same as the previous default assumption).
+function extractedNutritionBasis(result){
+  if(!result) return {amount:100, unit:'g'};
+  if(result.nutrition_basis === '100ml') return {amount:100, unit:'ml'};
+  if(result.nutrition_basis === 'serving' && result.serving_size_g && isFinite(Number(result.serving_size_g))){
+    return {amount:Number(result.serving_size_g), unit:'g'};
+  }
+  return {amount:100, unit:'g'};
 }
 async function onPhotoSelected(input){
   var file = input.files && input.files[0];
@@ -2822,13 +3034,16 @@ async function onPhotoSelected(input){
       return;
     }
     showToast(t('photoFound'));
+    var basis = extractedNutritionBasis(result);
     openItemForm(null, {
       name: result.name || '',
       brand: result.brand || '',
       barcode: result.barcode || '',
       nutrition: normalizeExtractedNutrition(result),
       nutrition_edited: false,
-      nutrition_source: 'photo_ai'
+      nutrition_source: 'photo_ai',
+      nutrition_basis_amount: basis.amount,
+      nutrition_basis_unit: basis.unit
     });
   }catch(e){
     setPhotoStatus('');
@@ -3083,7 +3298,7 @@ function pickExternalItem(id){
   );
 }
 function openNewExternalIngredientModal(){
-  var labels = {calories:t('nutriCalories'),protein:t('nutriProtein'),fat:t('nutriFat'),carbs:t('nutriCarbs'),fiber:t('nutriFiber'),sugar:t('nutriSugar'),sodium:t('nutriSodium')};
+  var labels = nutriLabels();
   var nutriInputs = NUTRI_KEYS.map(function(k){
     return '<div class="field" style="margin-bottom:10px;"><label style="font-size:12.5px;">'+labels[k]+'</label><input type="number" inputmode="decimal" id="newing-'+k+'" value="0"></div>';
   }).join('');
@@ -3151,8 +3366,8 @@ function r_num(field,val){
 }
 function nutritionSummaryHtml(){
   var nutri = calcRecipeNutrition(state.recipeDraft);
-  var labels = {calories:t('nutriCalories'),protein:t('nutriProtein'),fat:t('nutriFat'),carbs:t('nutriCarbs'),fiber:t('nutriFiber'),sugar:t('nutriSugar'),sodium:t('nutriSodium')};
-  var units = {calories:'kcal',protein:'g',fat:'g',carbs:'g',fiber:'g',sugar:'g',sodium:'mg'};
+  var labels = nutriLabels();
+  var units = nutriUnits();
   function block(title, data){
     return '<div style="margin-bottom:14px;"><div style="font-size:13px;font-weight:600;color:var(--almond);margin-bottom:8px;">'+title+'</div><div class="nutri-grid">'+
       NUTRI_KEYS.map(function(k){
@@ -3313,8 +3528,8 @@ function renderRecipeDetail(){
   var r = state.recipes.find(function(x){ return x.id===id; });
   if(!r) return renderRecipesList();
   var nutri = calcRecipeNutrition(r);
-  var labels = {calories:t('nutriCalories'),protein:t('nutriProtein'),fat:t('nutriFat'),carbs:t('nutriCarbs'),fiber:t('nutriFiber'),sugar:t('nutriSugar'),sodium:t('nutriSodium')};
-  var units = {calories:'kcal',protein:'g',fat:'g',carbs:'g',fiber:'g',sugar:'g',sodium:'mg'};
+  var labels = nutriLabels();
+  var units = nutriUnits();
   function block(title, data){
     return '<div style="margin-bottom:14px;"><div style="font-size:13px;font-weight:600;color:var(--almond);margin-bottom:8px;">'+title+'</div><div class="nutri-grid">'+
       NUTRI_KEYS.map(function(k){
