@@ -416,6 +416,8 @@
   }
   .item-detail-action-btn .icon{ line-height:1; }
   .item-detail-action-btn:active{ background:var(--cream-2); transform:scale(0.97); }
+  .item-detail-action-btn.edit{ border-color:var(--almond); color:var(--almond); }
+  .item-detail-action-btn.archive{ border-color:var(--deep-caramel); color:var(--deep-caramel); }
   .item-detail-action-btn.danger{ border-color:var(--danger); color:var(--danger); }
   .nutri-cell{ background:var(--cream); border-radius:10px; padding:12px; }
   .nutri-cell .val{ font-size:19px; font-weight:600; color:var(--cocoa); }
@@ -1467,7 +1469,32 @@ function menuButtonHtml(page){
   }, {passive:true});
 })();
 
-/* ---------- Item card swipe-to-reveal (edit / archive / delete) ---------- */
+/* ---------- Item detail page: swipe right to go back ---------- */
+// itemDetail/itemViewOnly aren't in sidebarPageForCurrentView()'s list, so the left-edge
+// swipe there is free to mean "go back" instead, with no gesture conflict with the sidebar.
+(function initItemDetailBackSwipe(){
+  var startX=null, startY=null, tracking=false;
+  function backTarget(){
+    if(state.view==='itemDetail') return 'home';
+    if(state.view==='itemViewOnly') return state.params.from || 'archive';
+    return null;
+  }
+  document.addEventListener('touchstart', function(e){
+    if(!backTarget()) return;
+    var t0 = e.touches[0];
+    startX = t0.clientX; startY = t0.clientY;
+    tracking = startX <= 24;
+  }, {passive:true});
+  document.addEventListener('touchend', function(e){
+    if(!tracking){ startX=null; startY=null; return; }
+    tracking = false;
+    var target = backTarget();
+    if(!target) return;
+    var t0 = e.changedTouches[0];
+    var dx = t0.clientX - startX, dy = t0.clientY - startY;
+    if(dx > 60 && Math.abs(dy) < 60) navigate(target);
+  }, {passive:true});
+})();
 // Mirrors the sidebar edge-swipe above: event delegation on document (not per-card listeners)
 // so it keeps working after every full innerHTML re-render. Only one row can be open at a
 // time; touching/dragging anywhere outside the open row closes it first.
@@ -2398,8 +2425,8 @@ function renderItemDetail(){
         '</div>'+
         '<div class="item-detail-hero-actions">'+
           '<button class="item-detail-action-btn danger" onclick="event.stopPropagation();deleteItemDetail('+aj(it.id)+')"><span class="icon">'+ic('trash',20)+'</span><span>'+t('delete')+'</span></button>'+
-          '<button class="item-detail-action-btn" onclick="event.stopPropagation();archiveItem('+aj(it.id)+')"><span class="icon">'+ic('archive',20)+'</span><span>'+t('archiveBtn')+'</span></button>'+
-          '<button class="item-detail-action-btn" onclick="event.stopPropagation();openItemForm('+aj(it.id)+')"><span class="icon">'+ic('edit',20)+'</span><span>'+t('edit')+'</span></button>'+
+          '<button class="item-detail-action-btn archive" onclick="event.stopPropagation();archiveItem('+aj(it.id)+')"><span class="icon">'+ic('archive',20)+'</span><span>'+t('archiveBtn')+'</span></button>'+
+          '<button class="item-detail-action-btn edit" onclick="event.stopPropagation();openItemForm('+aj(it.id)+')"><span class="icon">'+ic('edit',20)+'</span><span>'+t('edit')+'</span></button>'+
         '</div>'+
       '</div>'+
     '</div>'+
