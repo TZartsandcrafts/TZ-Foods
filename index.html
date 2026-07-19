@@ -403,11 +403,18 @@
   .item-detail-hero-info{ flex:1; min-width:0; display:flex; flex-direction:column; justify-content:space-between; gap:8px; }
   .item-detail-stock-box{
     background:var(--cream); border-radius:12px; padding:10px 12px; cursor:pointer;
-    display:flex; align-items:baseline; flex-wrap:wrap; gap:6px;
+    display:flex; flex-direction:column; gap:2px; justify-content:center;
   }
   .item-detail-stock-box:active{ background:var(--cream-2); }
   .item-detail-stock-box .row-label{ margin:0; font-size:13px; color:var(--deep-caramel); }
   .item-detail-stock-box .row-sub{ margin:0; font-size:16px; font-weight:600; color:var(--cocoa); }
+  .item-detail-stock-row{ display:flex; gap:8px; align-items:stretch; }
+  .item-detail-use-btn{
+    flex-shrink:0; width:56px; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:2px; border-radius:11px; border:1px solid var(--almond); background:var(--card-bg);
+    cursor:pointer; font-size:11px; font-weight:500; color:var(--almond);
+  }
+  .item-detail-use-btn:active{ background:var(--cream-2); transform:scale(0.97); }
   .item-detail-hero-actions{ display:flex; gap:8px; }
   .item-detail-action-btn{
     flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
@@ -589,6 +596,13 @@ var I18N = {
     addNewTag:'+ 新建', newTagPrompt:'输入新标签名称',
     // detail
     detailQtyLabel:'当前库存', recount:'补充计数', recountTitle:'补充计数',
+    usageBtn:'取用', usageLogTitle:'使用记录', usageLogAddTitle:'记录使用', usageLogEmpty:'还没有使用记录',
+    usageDate:'日期', usageDestination:'去向', usageDestFree:'自由输入', usageDestRecipe:'关联食谱',
+    usageDestPlaceholder:'比如：早餐吐司、送朋友、直接吃掉了', usageAmount:'用了多少',
+    usagePickRecipeTitle:'选择食谱', usagePickRecipePlaceholder:'点击选择食谱', usageNoRecipes:'还没有任何食谱',
+    usageShowMore:'展开更早的记录', usageShowingRecent:'仅显示最近10条',
+    usageSaveBtn:'保存使用记录', usageNeedAmount:'请填写使用数量', usageNeedDest:'请填写去向或选择食谱',
+    usageDeductedToast:'已记录，库存已扣减', usageNoConversionWarn:'这个单位没法直接从库存里扣减，记录会保存但不会自动扣库存',
     recountHint:'拆包点数后，填入当前剩余的次要单位数量，系统会据此更新换算比例(主单位保持你上次填写/扣减后的数值)。',
     recountUnitLabel:'次要单位名称(如：只/片/块)', recountQtyLabel:'当前实际剩余数量',
     lastRecount:'最近点数', noSecondary:'尚未设置次要计量单位',
@@ -743,6 +757,13 @@ var I18N = {
     save:'Save', cancel:'Cancel', delete:'Delete', edit:'Edit', add:'Add', confirm:'Confirm', close:'Close',
     addNewTag:'+ New', newTagPrompt:'Enter new tag name',
     detailQtyLabel:'Current stock', recount:'Recount', recountTitle:'Recount',
+    usageBtn:'Use', usageLogTitle:'Usage Log', usageLogAddTitle:'Log Usage', usageLogEmpty:'No usage logged yet',
+    usageDate:'Date', usageDestination:'Where it went', usageDestFree:'Free text', usageDestRecipe:'Link a recipe',
+    usageDestPlaceholder:'e.g. breakfast toast, gave to a friend, ate it plain', usageAmount:'Amount used',
+    usagePickRecipeTitle:'Pick a recipe', usagePickRecipePlaceholder:'Tap to pick a recipe', usageNoRecipes:'No recipes yet',
+    usageShowMore:'Show earlier entries', usageShowingRecent:'Showing the 10 most recent',
+    usageSaveBtn:'Save usage entry', usageNeedAmount:'Enter how much was used', usageNeedDest:'Enter where it went, or pick a recipe',
+    usageDeductedToast:'Logged - stock updated', usageNoConversionWarn:'This unit can\'t be deducted from stock directly; the entry saves but stock won\'t auto-update',
     recountHint:'After unpacking and counting, enter the current remaining amount in the secondary unit. The conversion ratio updates from this.',
     recountUnitLabel:'Secondary unit name (e.g. piece)', recountQtyLabel:'Current remaining count',
     lastRecount:'Last recount', noSecondary:'No secondary unit set yet',
@@ -1291,7 +1312,9 @@ var ICONS = {
   link:'<path d="M9 15l6-6"/><path d="M13 5l1.5-1.5a3.5 3.5 0 0 1 5 5L18 10"/><path d="M11 19l-1.5 1.5a3.5 3.5 0 0 1-5-5L6 14"/>',
   menu:'<line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="14" y2="17"/>',
   archive:'<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M4 8v10a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V8"/><line x1="10" y1="12" x2="14" y2="12"/>',
-  grip:'<circle cx="9" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="9" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="9" cy="18" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="18" r="1.4" fill="currentColor" stroke="none"/>'
+  grip:'<circle cx="9" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="9" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="9" cy="18" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="18" r="1.4" fill="currentColor" stroke="none"/>',
+  minusCircle:'<circle cx="12" cy="12" r="9"/><line x1="8" y1="12" x2="16" y2="12"/>',
+  history:'<path d="M4 12a8 8 0 1 1 2.5 5.8"/><polyline points="4 17 4 21 8 21"/><polyline points="12 7 12 12 16 14"/>'
 };
 function ic(name, size, extra){
   size = size||20;
@@ -1321,6 +1344,8 @@ function render(){
     case 'home': html = renderHome(); break;
     case 'itemForm': html = renderItemForm(); break;
     case 'itemDetail': html = renderItemDetail(); break;
+    case 'usageLog': html = renderUsageLog(); break;
+    case 'usageLogAdd': html = renderUsageLogAdd(); break;
     case 'scan': html = renderScan(); break;
     case 'recipes': html = renderRecipesList(); break;
     case 'recipeForm': html = renderRecipeForm(); break;
@@ -1345,7 +1370,7 @@ function render(){
 }
 function bottomNav(){
   var v = state.view;
-  var isHome = (v==='home'||v==='itemForm'||v==='itemDetail'||v==='archive'||v==='stats'||v==='priceHistory'||v==='itemViewOnly'||v==='statFilteredList');
+  var isHome = (v==='home'||v==='itemForm'||v==='itemDetail'||v==='archive'||v==='stats'||v==='priceHistory'||v==='itemViewOnly'||v==='statFilteredList'||v==='usageLog'||v==='usageLogAdd');
   var isRecipes = (v==='recipes'||v==='recipeForm'||v==='recipeDetail'||v==='pickInventory'||v==='pickExternal');
   var isNotes = (v==='notes'||v==='noteForm'||v==='noteDetail');
   var isSettings = (v==='settings'||v==='manageTags');
@@ -1475,8 +1500,10 @@ function menuButtonHtml(page){
 (function initItemDetailBackSwipe(){
   var startX=null, startY=null, tracking=false;
   function backTarget(){
-    if(state.view==='itemDetail') return 'home';
-    if(state.view==='itemViewOnly') return state.params.from || 'archive';
+    if(state.view==='itemDetail') return {view:'home'};
+    if(state.view==='itemViewOnly') return {view: state.params.from || 'archive'};
+    if(state.view==='usageLog') return {view:'itemDetail', params:{id:state.params.id}};
+    if(state.view==='usageLogAdd') return {view:'usageLog', params:{id:state.params.id}};
     return null;
   }
   document.addEventListener('touchstart', function(e){
@@ -1492,7 +1519,7 @@ function menuButtonHtml(page){
     if(!target) return;
     var t0 = e.changedTouches[0];
     var dx = t0.clientX - startX, dy = t0.clientY - startY;
-    if(dx > 60 && Math.abs(dy) < 60) navigate(target);
+    if(dx > 60 && Math.abs(dy) < 60) navigate(target.view, target.params);
   }, {passive:true});
 })();
 // Mirrors the sidebar edge-swipe above: event delegation on document (not per-card listeners)
@@ -1978,6 +2005,7 @@ function blankItemDraft(){
     notes:'', nutrition: emptyNutrition(), nutrition_edited:false,
     nutrition_extra: emptyNutritionExtra(), nutrition_extra_selected:[],
     nutrition_basis_amount:100, nutrition_basis_unit:'g',
+    usage_log:[],
     photo_url:'', created_at: todayStr(), updated_at: nowLocalIso()
   };
 }
@@ -2419,9 +2447,12 @@ function renderItemDetail(){
       '<div class="item-detail-photo">'+photoBlock+'</div>'+
       '<div class="item-detail-hero-info">'+
         '<div class="status-badge status-'+st.level+'" style="font-size:14px;padding:7px 12px;display:inline-block;align-self:flex-start;">'+(it.expiry_date?esc(expiryRelativeText(it))+' · '+esc(t('fieldExpiry'))+' '+esc(fmtDateDots(it.expiry_date)):esc(st.label))+'</div>'+
-        '<div class="item-detail-stock-box" onclick="openRecount('+aj(it.id)+')">'+
-          '<span class="row-label">'+t('detailQtyLabel')+'</span>'+
-          '<span class="row-sub">'+qtyDisplay(it)+'</span>'+
+        '<div class="item-detail-stock-row">'+
+          '<div class="item-detail-stock-box" style="flex:1;" onclick="openRecount('+aj(it.id)+')">'+
+            '<span class="row-label">'+t('detailQtyLabel')+'</span>'+
+            '<span class="row-sub">'+qtyDisplay(it)+'</span>'+
+          '</div>'+
+          '<button class="item-detail-use-btn" onclick="openUsageLog('+aj(it.id)+')"><span class="icon">'+ic('minusCircle',18)+'</span><span>'+t('usageBtn')+'</span></button>'+
         '</div>'+
         '<div class="item-detail-hero-actions">'+
           '<button class="item-detail-action-btn danger" onclick="event.stopPropagation();deleteItemDetail('+aj(it.id)+')"><span class="icon">'+ic('trash',20)+'</span><span>'+t('delete')+'</span></button>'+
@@ -2501,6 +2532,142 @@ function deleteItemDetail(id){
   saveItems();
   navigate('home');
 }
+
+/* ======================= USAGE LOG ("取用") ======================= */
+// A lightweight, standalone log of "I took some of this out to use it" - separate from the
+// recipe "cook" flow (confirmCook, above deductFromItem) which already deducts inventory when
+// a recipe is marked cooked. Entries here can optionally reference a recipe just as a label/
+// destination, without going through that cook workflow. Future work (see README) plans to
+// have confirmCook auto-append an entry here too, so the two stay in sync.
+function openUsageLog(id){
+  state.usageLogUI = { showAll:false };
+  navigate('usageLog', {id:id});
+}
+function renderUsageLog(){
+  var id = state.params.id;
+  var it = state.items.find(function(i){ return i.id===id; });
+  if(!it) return renderHome();
+  var log = (it.usage_log||[]).slice().sort(function(a,b){ return (b.created_at||'').localeCompare(a.created_at||''); });
+  var showAll = state.usageLogUI && state.usageLogUI.showAll;
+  var visible = showAll ? log : log.slice(0,10);
+  var rowsHtml = visible.length ? visible.map(usageLogRowHtml).join('') :
+    '<div class="empty-state">'+ic('history',36)+'<p>'+t('usageLogEmpty')+'</p></div>';
+  var moreBtn = (!showAll && log.length>10) ?
+    ('<button class="btn btn-outline" style="margin-top:6px;" onclick="toggleUsageLogShowAll()">'+t('usageShowMore')+' ('+(log.length-10)+')</button>') :
+    (log.length>10 ? '<p class="hint" style="margin-top:6px;">'+t('usageShowingRecent')+'</p>' : '');
+  return '' +
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'itemDetail\',{id:'+aj(id)+'})">'+ic('back',22)+'</button><h1>'+itemDisplayName(it)+' · '+t('usageLogTitle')+'</h1></div>'+
+  '<div class="content">'+
+    '<button class="btn btn-primary" style="margin-bottom:16px;" onclick="openUsageLogAdd('+aj(id)+')">'+ic('plus',18)+' '+t('usageLogAddTitle')+'</button>'+
+    rowsHtml+
+    moreBtn+
+  '</div>'+
+  bottomNav();
+}
+function usageLogRowHtml(entry){
+  var destText = entry.destination_type==='recipe' ? recipeNameForUsage(entry.recipe_id) : entry.destination_text;
+  return '<div class="list-row" style="align-items:flex-start;">'+
+    '<div style="min-width:0;">'+
+      '<div class="row-label" style="font-size:15px;">'+esc(destText||'-')+'</div>'+
+      '<div class="row-sub">'+esc(fmtDateDots(entry.date))+'</div>'+
+    '</div>'+
+    '<div style="text-align:right;font-weight:600;color:var(--cocoa);flex-shrink:0;padding-left:10px;">'+fmtNum(entry.amount,2)+esc(entry.unit)+'</div>'+
+  '</div>';
+}
+function recipeNameForUsage(recipeId){
+  var r = state.recipes.find(function(x){ return x.id===recipeId; });
+  return r ? r.name : t('usageDestRecipe');
+}
+function toggleUsageLogShowAll(){
+  state.usageLogUI = state.usageLogUI || {};
+  state.usageLogUI.showAll = true;
+  render();
+}
+function openUsageLogAdd(id){
+  var it = state.items.find(function(i){ return i.id===id; });
+  if(!it) return;
+  state.usageDraft = {
+    date: todayStr(), destination_type:'free', destination_text:'', recipe_id:'',
+    amount:null, unit: it.primary_unit
+  };
+  navigate('usageLogAdd', {id:id});
+}
+function renderUsageLogAdd(){
+  var id = state.params.id;
+  var it = state.items.find(function(i){ return i.id===id; });
+  if(!it || !state.usageDraft) return renderHome();
+  var d = state.usageDraft;
+  var unitOptions = [it.primary_unit];
+  if(it.secondary_unit) unitOptions.push(it.secondary_unit);
+  var recipeLabel = d.recipe_id ? recipeNameForUsage(d.recipe_id) : t('usagePickRecipePlaceholder');
+  return '' +
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'usageLog\',{id:'+aj(id)+'})">'+ic('back',22)+'</button><h1>'+t('usageLogAddTitle')+'</h1></div>'+
+  '<div class="content">'+
+    '<div class="field"><label>'+t('usageDate')+'</label><input type="date" value="'+esc(d.date)+'" oninput="setUsageField(\'date\',this.value)"></div>'+
+    '<div class="field"><label>'+t('usageAmount')+'</label>'+
+      '<div style="display:flex;gap:8px;align-items:center;">'+
+        '<input type="number" inputmode="decimal" value="'+(d.amount!=null?d.amount:'')+'" oninput="setUsageField(\'amount\',this.value)" style="flex:1;min-width:0;">'+
+        '<div class="tag-select" style="flex-shrink:0;">'+unitOptions.map(function(u){
+          return '<div class="tag-option '+(d.unit===u?'active':'')+'" onclick="setUsageUnit('+aj(u)+')">'+esc(u)+'</div>';
+        }).join('')+'</div>'+
+      '</div>'+
+    '</div>'+
+    '<div class="field"><label>'+t('usageDestination')+'</label>'+
+      '<div class="tag-select">'+
+        '<div class="tag-option '+(d.destination_type==='free'?'active':'')+'" onclick="setUsageDestType(\'free\')">'+t('usageDestFree')+'</div>'+
+        '<div class="tag-option '+(d.destination_type==='recipe'?'active':'')+'" onclick="setUsageDestType(\'recipe\')">'+t('usageDestRecipe')+'</div>'+
+      '</div>'+
+    '</div>'+
+    (d.destination_type==='free' ?
+      '<div class="field"><input type="text" placeholder="'+t('usageDestPlaceholder')+'" value="'+esc(d.destination_text)+'" oninput="setUsageField(\'destination_text\',this.value)"></div>' :
+      '<div class="field"><div class="list-row" style="cursor:pointer;background:var(--cream);border-radius:11px;padding:12px 14px;border:none;" onclick="openRecipePickerForUsage()"><span>'+esc(recipeLabel)+'</span>'+ic('chevronRight',18)+'</div></div>'
+    )+
+    '<button class="btn btn-primary" style="margin-top:10px;" onclick="saveUsageLogEntry('+aj(id)+')">'+t('usageSaveBtn')+'</button>'+
+  '</div>';
+}
+function setUsageField(key, val){
+  if(key==='amount'){ state.usageDraft.amount = (val==='') ? null : parseFloat(val); }
+  else { state.usageDraft[key] = val; }
+}
+function setUsageUnit(u){ state.usageDraft.unit = u; render(); }
+function setUsageDestType(type){ state.usageDraft.destination_type = type; render(); }
+function openRecipePickerForUsage(){
+  var list = state.recipes;
+  var bodyHtml = list.length ? list.map(function(r){
+    return '<div class="list-row" style="cursor:pointer;" onclick="selectRecipeForUsage('+aj(r.id)+')"><span class="row-label" style="font-size:15px;">'+esc(r.name)+'</span></div>';
+  }).join('') : '<p class="hint">'+t('usageNoRecipes')+'</p>';
+  showModal(t('usagePickRecipeTitle'), bodyHtml);
+}
+function selectRecipeForUsage(recipeId){
+  state.usageDraft.recipe_id = recipeId;
+  closeModal();
+  render();
+}
+function saveUsageLogEntry(itemId){
+  var it = state.items.find(function(i){ return i.id===itemId; });
+  if(!it) return;
+  var d = state.usageDraft;
+  if(d.amount == null || isNaN(d.amount) || d.amount <= 0){ showToast(t('usageNeedAmount')); return; }
+  if(d.destination_type==='free' && !d.destination_text.trim()){ showToast(t('usageNeedDest')); return; }
+  if(d.destination_type==='recipe' && !d.recipe_id){ showToast(t('usageNeedDest')); return; }
+  var entry = {
+    id: uid(),
+    date: d.date || todayStr(),
+    destination_type: d.destination_type,
+    destination_text: d.destination_type==='free' ? d.destination_text.trim() : '',
+    recipe_id: d.destination_type==='recipe' ? d.recipe_id : '',
+    amount: d.amount,
+    unit: d.unit,
+    created_at: nowLocalIso()
+  };
+  it.usage_log = it.usage_log || [];
+  it.usage_log.push(entry);
+  var result = deductFromItem(it, d.amount, d.unit);
+  saveItems();
+  showToast(result.ok ? t('usageDeductedToast') : t('usageNoConversionWarn'));
+  navigate('usageLog', {id:itemId});
+}
+
 function openRecount(id){
   var it = state.items.find(function(i){ return i.id===id; });
   if(!it) return;
