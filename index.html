@@ -328,6 +328,17 @@
   .field-row .field{ min-width:0; }
   .field input[type=date]{ min-width:0; width:100%; -webkit-appearance:none; appearance:none; }
   .field-row .field{ flex:1; }
+  .field select{
+    width:100%; font-size:16px; padding:13px 14px; border-radius:11px;
+    border:1px solid var(--line); background:var(--card-bg); color:var(--cocoa); outline:none;
+    -webkit-appearance:none; appearance:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23B79B78' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right 12px center; background-size:18px;
+  }
+  .field select:focus{ border-color:var(--almond); }
+  .qty-group-row{ align-items:flex-end; }
+  .qty-group-remove{ width:46px; height:46px; flex-shrink:0; }
+  .qty-group-add{ display:inline-block; margin-top:12px; }
   .tag-select{ display:flex; flex-wrap:wrap; gap:8px; }
   .tag-option{
     font-size:14px; padding:9px 15px; border-radius:20px; border:1px solid var(--line);
@@ -575,7 +586,9 @@ var I18N = {
     fieldSecondaryQty:'次要计量(可选)', fieldSecondaryUnit:'次要单位',
     fieldExpiry:'有效期至', fieldPurchaseDate:'购买日期', fieldPrice:'价格',
     fieldNotes:'备注', fieldNotesPh:'其他备注信息',
-    sectionBasic:'基本信息', sectionQty:'数量与单位', sectionNutrition:'营养标签', sectionNutritionMore:'更多营养信息', sectionOther:'其他信息',
+    sectionBasic:'主档', sectionQty:'数量', sectionNutrition:'营养标签', sectionNutritionMore:'更多营养信息', sectionOther:'其他信息',
+    unitCustomOption:'自定义', unitPickPlaceholder:'请选择单位', fieldUnitCustomPh:'输入单位，如：包/瓶/份',
+    addQtyGroup:'增加一组计量', recountNewUnit:'新单位',
     nutriCalories:'热量', nutriProtein:'蛋白质', nutriFat:'总脂肪', nutriCarbs:'总碳水化合物',
     nutriFiber:'膳食纤维', nutriSugar:'总糖', nutriSodium:'钠',
     nutriSaturatedFat:'饱和脂肪', nutriTransFat:'反式脂肪', nutriCholesterol:'胆固醇', nutriAddedSugar:'添加糖',
@@ -740,6 +753,8 @@ var I18N = {
     fieldExpiry:'Best before', fieldPurchaseDate:'Purchase date', fieldPrice:'Price',
     fieldNotes:'Notes', fieldNotesPh:'Additional notes',
     sectionBasic:'Basic info', sectionQty:'Quantity & unit', sectionNutrition:'Nutrition Label', sectionNutritionMore:'More Nutrition Info', sectionOther:'Other info',
+    unitCustomOption:'Custom', unitPickPlaceholder:'Select a unit', fieldUnitCustomPh:'Enter a unit, e.g. bag/bottle',
+    addQtyGroup:'Add another unit', recountNewUnit:'New unit',
     nutriCalories:'Calories', nutriProtein:'Protein', nutriFat:'Total Fat', nutriCarbs:'Total Carbohydrate',
     nutriFiber:'Dietary Fiber', nutriSugar:'Total Sugars', nutriSodium:'Sodium',
     nutriSaturatedFat:'Saturated Fat', nutriTransFat:'Trans Fat', nutriCholesterol:'Cholesterol', nutriAddedSugar:'Added Sugars',
@@ -941,9 +956,10 @@ async function loadAll(){
     storageGet('settings', {lang:'zh', reminderDays:3}),
     storageGet('notes', []),
     storageGet('noteCategories', DEFAULT_NOTE_CATEGORIES.slice()),
-    storageGet('recipeCategoryGroups', JSON.parse(JSON.stringify(DEFAULT_RECIPE_CATEGORY_GROUPS)))
+    storageGet('recipeCategoryGroups', JSON.parse(JSON.stringify(DEFAULT_RECIPE_CATEGORY_GROUPS))),
+    storageGet('units', [])
   ]);
-  state.items = results[0];
+  state.items = results[0].map(migrateItemQtyGroups);
   state.categories = results[1];
   state.locations = results[2];
   state.ingredients = results[3];
@@ -954,7 +970,25 @@ async function loadAll(){
   state.notes = results[6];
   state.noteCategories = (results[7] && results[7].length) ? results[7] : DEFAULT_NOTE_CATEGORIES.slice();
   state.recipeCategoryGroups = (results[8] && results[8].length) ? results[8] : JSON.parse(JSON.stringify(DEFAULT_RECIPE_CATEGORY_GROUPS));
+  state.units = results[9] || [];
   state.loaded = true;
+}
+// Old data shape had a single secondary_qty/secondary_unit/unit_ratio triplet per item. The
+// "quantity" section now supports any number of unit groups, so this folds the old single
+// triplet (if present) into the new item.secondary_units array the first time an item is
+// loaded after upgrading - no data is lost, it just gets reshaped once and re-saved as such.
+function migrateItemQtyGroups(it){
+  if(it.secondary_units) return it;
+  it.secondary_units = [];
+  if(it.secondary_unit){
+    it.secondary_units.push({
+      unit: it.secondary_unit,
+      qty: (it.secondary_qty!=null ? it.secondary_qty : null),
+      ratio: (it.unit_ratio!=null ? it.unit_ratio : null)
+    });
+  }
+  delete it.secondary_qty; delete it.secondary_unit; delete it.unit_ratio;
+  return it;
 }
 function saveItems(){ return storageSet('items', state.items); }
 function saveCategories(){ return storageSet('categories', state.categories); }
@@ -965,6 +999,7 @@ function saveSettings(){ return storageSet('settings', {lang:state.lang, reminde
 function saveNotes(){ return storageSet('notes', state.notes); }
 function saveNoteCategories(){ return storageSet('noteCategories', state.noteCategories); }
 function saveRecipeCategoryGroups(){ return storageSet('recipeCategoryGroups', state.recipeCategoryGroups); }
+function saveUnits(){ return storageSet('units', state.units); }
 
 /* ---- Photo storage (IndexedDB) -----------------------------------------
    Photos are kept OUT of localStorage entirely and stored as compressed base64
@@ -1150,71 +1185,73 @@ function categoryLabel(catName){ return catName || (state.lang==='zh' ? '未分�
 
 /* ======================= UNIT CONVERSION (per inventory item) ======================= */
 // item.primary_unit / primary_qty : the unit used at purchase time, source of truth
-// item.secondary_unit / secondary_qty : optional convenience unit (e.g. "只")
-// item.unit_ratio : primary units per 1 secondary unit, fixed at the moment of the last recount
+// item.secondary_units : array of extra convenience units, e.g. [{unit:'只', qty:6, ratio:0.5}, ...]
+//   ratio = how many primary units 1 of this group's unit is worth, fixed at the moment the
+//   group's ratio was first established (or last recalibrated via "recount")
 // item.last_recount_at : ISO date of the last recount
-function recountItem(item, secondaryUnit, secondaryQty){
+function findQtyGroup(item, unit){
+  return (item.secondary_units||[]).find(function(g){ return g.unit===unit; });
+}
+function recountItem(item, unit, qty){
   var ratio = null;
-  if(secondaryQty > 0 && item.primary_qty != null){
-    ratio = item.primary_qty / secondaryQty;
+  if(qty > 0 && item.primary_qty != null){
+    ratio = item.primary_qty / qty;
   }
-  item.secondary_unit = secondaryUnit;
-  item.secondary_qty = secondaryQty;
-  item.unit_ratio = ratio;
+  item.secondary_units = item.secondary_units || [];
+  var grp = findQtyGroup(item, unit);
+  if(!grp){ grp = {unit:unit, qty:null, ratio:null}; item.secondary_units.push(grp); }
+  grp.qty = qty;
+  grp.ratio = ratio;
   item.last_recount_at = todayStr();
   item.updated_at = nowLocalIso();
 }
 // Attempts to deduct `amount` of `unit` from an inventory item. Returns {ok, reason}
 function deductFromItem(item, amount, unit){
   if(amount <= 0) return {ok:true};
+  var amountInPrimary;
   if(unit === item.primary_unit){
-    item.primary_qty = Math.max(0, (item.primary_qty||0) - amount);
-    if(item.secondary_qty != null && item.unit_ratio){
-      item.secondary_qty = Math.max(0, item.secondary_qty - amount/item.unit_ratio);
-    }
-    item.updated_at = nowLocalIso();
-    return {ok:true};
+    amountInPrimary = amount;
+  } else {
+    var grp = findQtyGroup(item, unit);
+    if(!grp || grp.qty == null || !grp.ratio) return {ok:false, reason:'no_conversion'};
+    amountInPrimary = amount * grp.ratio;
   }
-  if(item.secondary_unit && unit === item.secondary_unit){
-    if(item.secondary_qty == null){ return {ok:false, reason:'no_conversion'}; }
-    item.secondary_qty = Math.max(0, item.secondary_qty - amount);
-    if(item.unit_ratio){
-      item.primary_qty = Math.max(0, (item.primary_qty||0) - amount*item.unit_ratio);
-    }
-    item.updated_at = nowLocalIso();
-    return {ok:true};
-  }
-  return {ok:false, reason:'no_conversion'};
+  item.primary_qty = Math.max(0, (item.primary_qty||0) - amountInPrimary);
+  (item.secondary_units||[]).forEach(function(g){
+    if(g.qty == null) return;
+    if(g.unit === unit){ g.qty = Math.max(0, g.qty - amount); }
+    else if(g.ratio){ g.qty = Math.max(0, g.qty - amountInPrimary/g.ratio); }
+  });
+  item.updated_at = nowLocalIso();
+  return {ok:true};
 }
 // Mirrors deductFromItem exactly but adds instead of subtracts - used when a usage-log entry
 // is restored (undone) or edited, to put the previously-deducted amount back before applying
 // whatever the new amount is.
 function addBackToItem(item, amount, unit){
   if(amount <= 0) return {ok:true};
+  var amountInPrimary;
   if(unit === item.primary_unit){
-    item.primary_qty = (item.primary_qty||0) + amount;
-    if(item.secondary_qty != null && item.unit_ratio){
-      item.secondary_qty = item.secondary_qty + amount/item.unit_ratio;
-    }
-    item.updated_at = nowLocalIso();
-    return {ok:true};
+    amountInPrimary = amount;
+  } else {
+    var grp = findQtyGroup(item, unit);
+    if(!grp || grp.qty == null || !grp.ratio) return {ok:false, reason:'no_conversion'};
+    amountInPrimary = amount * grp.ratio;
   }
-  if(item.secondary_unit && unit === item.secondary_unit){
-    if(item.secondary_qty == null){ return {ok:false, reason:'no_conversion'}; }
-    item.secondary_qty = item.secondary_qty + amount;
-    if(item.unit_ratio){
-      item.primary_qty = (item.primary_qty||0) + amount*item.unit_ratio;
-    }
-    item.updated_at = nowLocalIso();
-    return {ok:true};
-  }
-  return {ok:false, reason:'no_conversion'};
+  item.primary_qty = (item.primary_qty||0) + amountInPrimary;
+  (item.secondary_units||[]).forEach(function(g){
+    if(g.qty == null) return;
+    if(g.unit === unit){ g.qty = g.qty + amount; }
+    else if(g.ratio){ g.qty = g.qty + amountInPrimary/g.ratio; }
+  });
+  item.updated_at = nowLocalIso();
+  return {ok:true};
 }
 function qtyDisplay(item){
   var parts = [fmtNum(item.primary_qty,2) + item.primary_unit];
-  if(item.secondary_unit && item.secondary_qty != null){
-    parts.push(fmtNum(item.secondary_qty,1) + item.secondary_unit);
-  }
+  (item.secondary_units||[]).forEach(function(g){
+    if(g.unit && g.qty != null) parts.push(fmtNum(g.qty,1) + g.unit);
+  });
   return parts.join(' / ');
 }
 // Everything that reads as "the current inventory" (home list, sidebar stats, the recipe
@@ -1261,10 +1298,13 @@ function amountToBasisUnits(amount, unit, sourceItem){
     // primary unit itself is count-based (no weight known) - cannot convert to basis, return null
     if(sourceItem.primary_unit === '个') return null;
   }
-  if(sourceItem && sourceItem.secondary_unit === unit && sourceItem.unit_ratio){
-    // amount is in secondary count units -> convert to primary qty -> then to basis
-    var primaryEquivalent = amount * sourceItem.unit_ratio;
-    return amountToBasisUnits(primaryEquivalent, sourceItem.primary_unit, null);
+  if(sourceItem){
+    var srcGrp = findQtyGroup(sourceItem, unit);
+    if(srcGrp && srcGrp.ratio){
+      // amount is in a secondary count unit -> convert to primary qty -> then to basis
+      var primaryEquivalent = amount * srcGrp.ratio;
+      return amountToBasisUnits(primaryEquivalent, sourceItem.primary_unit, null);
+    }
   }
   if(unit === '个') return null; // unknown weight per unit
   return amount; // fallback: assume already basis-compatible
@@ -1542,6 +1582,7 @@ function menuButtonHtml(page){
     if(state.view==='itemViewOnly') return {view: state.params.from || 'archive'};
     if(state.view==='usageLog') return {view:'itemDetail', params:{id:state.params.id}};
     if(state.view==='usageLogAdd') return {view:'usageLog', params:{id:state.params.id}};
+    if(state.view==='itemForm') return (state.itemFormUI && state.itemFormUI.returnTo) || {view:'home'};
     return null;
   }
   document.addEventListener('touchstart', function(e){
@@ -1557,7 +1598,10 @@ function menuButtonHtml(page){
     if(!target) return;
     var t0 = e.changedTouches[0];
     var dx = t0.clientX - startX, dy = t0.clientY - startY;
-    if(dx > 60 && Math.abs(dy) < 60) navigate(target.view, target.params);
+    if(dx > 60 && Math.abs(dy) < 60){
+      if(state.view==='itemForm') cancelItemForm();
+      else navigate(target.view, target.params);
+    }
   }, {passive:true});
 })();
 // Mirrors the sidebar edge-swipe above: event delegation on document (not per-card listeners)
@@ -2037,7 +2081,7 @@ function blankItemDraft(){
     id: uid(), name:'', brand:'', barcode:'',
     category:'', location:'',
     primary_qty:1, primary_unit:'g',
-    secondary_qty:null, secondary_unit:'', unit_ratio:null, last_recount_at:null,
+    secondary_units:[], last_recount_at:null,
     expiry_date:'', purchase_date: todayStr(), price:'', price_currency:'CAD',
     production_date:'', shelf_life_amount:null, shelf_life_unit:'days',
     notes:'', nutrition: emptyNutrition(), nutrition_edited:false,
@@ -2048,6 +2092,14 @@ function blankItemDraft(){
   };
 }
 function openItemForm(id, prefill){
+  // Remember where we were opened from, so the back arrow / cancel / new swipe-right gesture
+  // can return to the same place: editing an item from its detail page returns to that detail
+  // page; opening from the inventory list (or adding a brand-new item from anywhere) returns
+  // to the list, same as before.
+  var returnTo = {view:'home'};
+  if(id && state.view==='itemDetail' && state.params && state.params.id===id){
+    returnTo = {view:'itemDetail', params:{id:id}};
+  }
   if(id){
     var existing = state.items.find(function(i){ return i.id===id; });
     state.itemDraft = JSON.parse(JSON.stringify(existing));
@@ -2073,19 +2125,99 @@ function openItemForm(id, prefill){
   // save) - so reopening an existing item for editing has to pick up whatever basis it was
   // actually saved with, not silently reset to 100g every time.
   state.itemFormUI = {
-    addingCategory:false, addingLocation:false, showSecondary: !!(state.itemDraft.secondary_unit),
+    addingCategory:false, addingLocation:false, customUnitEditing:{},
     nutriBasisAmount: state.itemDraft.nutrition_basis_amount || 100,
     nutriBasisUnit: state.itemDraft.nutrition_basis_unit || 'g',
-    expiryMode: state.itemDraft.production_date ? 'calc' : 'direct'
+    expiryMode: state.itemDraft.production_date ? 'calc' : 'direct',
+    returnTo: returnTo
   };
   navigate('itemForm', {id:id});
 }
-function unitPills(fieldPath, current){
-  return UNIT_OPTIONS.map(function(u){
-    return '<div class="tag-option '+(current===u?'active':'')+'" onclick="setDraftUnit('+aj(fieldPath)+','+aj(u)+')">'+u+'</div>';
-  }).join('');
+/* ---- quantity groups: primary unit + any number of extra "also counted in" units ---- */
+function unitSelectOptions(currentUnit){
+  var opts = UNIT_OPTIONS.concat((state.units||[]).filter(function(u){ return UNIT_OPTIONS.indexOf(u)===-1; }));
+  if(currentUnit && opts.indexOf(currentUnit)===-1) opts = opts.concat([currentUnit]);
+  return opts;
 }
-function setDraftUnit(field, u){ state.itemDraft[field]=u; render(); }
+function addGlobalUnitIfNew(u){
+  if(!u) return;
+  state.units = state.units || [];
+  if(UNIT_OPTIONS.indexOf(u)===-1 && state.units.indexOf(u)===-1){
+    state.units.push(u);
+    saveUnits();
+  }
+}
+function qtyGroupUnitKey(idx){ return idx==null ? 'primary' : ('sec'+idx); }
+function isCustomUnitEditing(idx){
+  var m = (state.itemFormUI && state.itemFormUI.customUnitEditing) || {};
+  return !!m[qtyGroupUnitKey(idx)];
+}
+function setCustomUnitEditing(idx, flag){
+  state.itemFormUI.customUnitEditing = state.itemFormUI.customUnitEditing || {};
+  state.itemFormUI.customUnitEditing[qtyGroupUnitKey(idx)] = flag;
+}
+function qtyGroupUnitValue(idx){
+  return idx==null ? state.itemDraft.primary_unit : ((state.itemDraft.secondary_units[idx]||{}).unit || '');
+}
+function setQtyGroupUnitValue(idx, val){
+  if(idx==null) state.itemDraft.primary_unit = val;
+  else state.itemDraft.secondary_units[idx].unit = val;
+}
+function onQtyUnitSelectChange(idx, val){
+  if(val==='__custom__'){ setCustomUnitEditing(idx, true); render(); return; }
+  setQtyGroupUnitValue(idx, val);
+  render();
+}
+function onQtyUnitCustomInput(idx, val){ setQtyGroupUnitValue(idx, val); }
+function onQtyUnitCustomBlur(idx, val){
+  val = val.trim();
+  setQtyGroupUnitValue(idx, val);
+  if(val) addGlobalUnitIfNew(val);
+  setCustomUnitEditing(idx, false);
+  render();
+}
+function qtyGroupUnitFieldHtml(idx){
+  var current = qtyGroupUnitValue(idx);
+  if(isCustomUnitEditing(idx)){
+    return '<input type="text" value="'+esc(current)+'" placeholder="'+t('fieldUnitCustomPh')+'" autofocus '+
+      'oninput="onQtyUnitCustomInput('+aj(idx)+',this.value)" onblur="onQtyUnitCustomBlur('+aj(idx)+',this.value)">';
+  }
+  var optsHtml = (current ? '' : '<option value="" disabled selected>'+t('unitPickPlaceholder')+'</option>') +
+    unitSelectOptions(current).map(function(u){
+      return '<option value="'+esc(u)+'" '+(u===current?'selected':'')+'>'+esc(u)+'</option>';
+    }).join('') +
+    '<option value="__custom__">'+t('unitCustomOption')+'</option>';
+  return '<select onchange="onQtyUnitSelectChange('+aj(idx)+',this.value)">'+optsHtml+'</select>';
+}
+function setPrimaryQty(val){ state.itemDraft.primary_qty = (val==='') ? null : parseFloat(val); }
+function setSecondaryQty(idx, val){ state.itemDraft.secondary_units[idx].qty = (val==='') ? null : parseFloat(val); }
+function addQtyGroup(){
+  state.itemDraft.secondary_units = state.itemDraft.secondary_units || [];
+  state.itemDraft.secondary_units.push({unit:'', qty:null, ratio:null});
+  render();
+}
+function removeQtyGroup(idx){
+  state.itemDraft.secondary_units.splice(idx, 1);
+  state.itemFormUI.customUnitEditing = {};
+  render();
+}
+function qtyGroupsHtml(d){
+  var rows = '<div class="field-row qty-group-row">'+
+      '<div class="field" style="flex:2;margin-bottom:0;"><label>'+t('fieldQty')+'</label>'+
+        '<input type="text" inputmode="decimal" value="'+(d.primary_qty==null?'':d.primary_qty)+'" oninput="setPrimaryQty(this.value)"></div>'+
+      '<div class="field" style="flex:1;margin-bottom:0;"><label>'+t('fieldUnit')+'</label>'+qtyGroupUnitFieldHtml(null)+'</div>'+
+    '</div>';
+  rows += (d.secondary_units||[]).map(function(g, idx){
+    return '<div class="field-row qty-group-row" style="margin-top:12px;align-items:flex-end;">'+
+        '<div class="field" style="flex:2;margin-bottom:0;"><label>'+t('fieldQty')+'</label>'+
+          '<input type="text" inputmode="decimal" value="'+(g.qty==null?'':g.qty)+'" oninput="setSecondaryQty('+idx+',this.value)"></div>'+
+        '<div class="field" style="flex:1;margin-bottom:0;"><label>'+t('fieldUnit')+'</label>'+qtyGroupUnitFieldHtml(idx)+'</div>'+
+        '<button type="button" class="icon-btn qty-group-remove" onclick="removeQtyGroup('+idx+')">'+ic('x',16)+'</button>'+
+      '</div>';
+  }).join('');
+  rows += '<div class="tag-option qty-group-add" onclick="addQtyGroup()">+ '+t('addQtyGroup')+'</div>';
+  return rows;
+}
 function tagSelectHtml(kind, list, current, addingFlag){
   var opts = list.map(function(c){
     return '<div class="tag-option '+(current===c?'active':'')+'" onclick="setDraftTag('+aj(kind)+','+aj(c)+')">'+esc(c)+'</div>';
@@ -2119,13 +2251,6 @@ function confirmNewTag(kind){
   }
   state.itemDraft[kind] = val;
   state.itemFormUI[kind==='category'?'addingCategory':'addingLocation'] = false;
-  render();
-}
-function toggleSecondaryUnit(){
-  state.itemFormUI.showSecondary = !state.itemFormUI.showSecondary;
-  if(!state.itemFormUI.showSecondary){
-    state.itemDraft.secondary_unit=''; state.itemDraft.secondary_qty=null; state.itemDraft.unit_ratio=null;
-  }
   render();
 }
 /* ---- expiry date: "direct entry" vs "production date + shelf life" ---- */
@@ -2294,13 +2419,6 @@ function renderItemForm(){
   var d = state.itemDraft;
   if(!d) return renderHome();
   var ui = state.itemFormUI;
-  var secondaryBlock = ui.showSecondary ? (
-    '<div class="field-row">'+
-      '<div class="field"><label>'+t('fieldSecondaryQty')+'</label><input type="number" inputmode="decimal" value="'+(d.secondary_qty==null?'':d.secondary_qty)+'" oninput="d_num(\'secondary_qty\',this.value)"></div>'+
-      '<div class="field"><label>'+t('fieldSecondaryUnit')+'</label><input type="text" value="'+esc(d.secondary_unit)+'" placeholder="只/片/块" oninput="d_str(\'secondary_unit\',this.value)"></div>'+
-    '</div>'+
-    '<div class="hint" style="margin-top:-8px;margin-bottom:14px;">'+(state.lang==='zh'?'首次填写两个数值即建立初始换算比例，之后可在详情页"补充计数"随时校准。':'Filling both values sets the initial conversion ratio; you can recalibrate anytime via "Recount" on the detail page.')+'</div>'
-  ) : ('<div class="tag-option" style="display:inline-block;" onclick="toggleSecondaryUnit()">+ '+t('fieldSecondaryQty')+'</div>');
   return '' +
   '<div class="page-header">'+
     '<button class="back-btn" onclick="cancelItemForm()">'+ic('back',22)+'</button>'+
@@ -2320,7 +2438,7 @@ function renderItemForm(){
         :
         ('<label class="btn btn-outline photo-upload-btn" style="display:flex;">'+ic('camera',18)+' '+t('fieldPhotoUploadBtn')+'<input type="file" accept="image/*" style="display:none" onchange="onItemPhotoSelected(this)"></label>')
       )+
-      '<div class="hint" id="item-photo-status">'+t('fieldPhotoHint')+'</div>'+
+      '<div class="hint" id="item-photo-status"></div>'+
     '</div>'+
     '<div class="section-title">'+t('fieldCategory')+'</div>'+
     tagSelectHtml('category', state.categories, d.category, ui.addingCategory)+
@@ -2328,9 +2446,7 @@ function renderItemForm(){
     tagSelectHtml('location', state.locations, d.location, ui.addingLocation)+
     '<div class="section-title">'+t('sectionQty')+'</div>'+
     '<div class="form-group">'+
-      '<div class="field"><label>'+t('fieldQty')+'</label><input type="number" inputmode="decimal" value="'+(d.primary_qty==null?'':d.primary_qty)+'" oninput="d_num(\'primary_qty\',this.value)"></div>'+
-      '<div class="field" style="margin-bottom:'+(ui.showSecondary?'16px':'0')+';"><label>'+t('fieldUnit')+'</label><div class="tag-select">'+unitPills('primary_unit', d.primary_unit)+'</div></div>'+
-      secondaryBlock+
+      qtyGroupsHtml(d)+
     '</div>'+
     '<div class="section-title">'+t('sectionOther')+'</div>'+
     '<div class="form-group">'+
@@ -2426,14 +2542,24 @@ function removeItemPhoto(){
   state.itemDraft.photo_url = '';
   render();
 }
-function cancelItemForm(){ state.itemDraft=null; navigate('home'); }
+function cancelItemForm(){
+  var target = (state.itemFormUI && state.itemFormUI.returnTo) || {view:'home'};
+  state.itemDraft=null;
+  navigate(target.view, target.params);
+}
 function saveItemForm(){
   var d = state.itemDraft;
   if(!d.name || !d.name.trim()){ showToast(state.lang==='zh'?'请填写名称':'Please enter a name'); return; }
-  if(d.secondary_qty!=null && d.secondary_unit && d.unit_ratio==null && d.primary_qty){
-    d.unit_ratio = d.primary_qty / (d.secondary_qty||1);
-    d.last_recount_at = todayStr();
-  }
+  // Drop fully-empty groups (user hit "+" but never filled it in), and establish each
+  // remaining group's conversion ratio the first time it has both a unit and a quantity -
+  // same one-time-then-locked rule as before, just applied per group instead of a single pair.
+  d.secondary_units = (d.secondary_units||[]).filter(function(g){ return g.unit || g.qty!=null; });
+  d.secondary_units.forEach(function(g){
+    if(g.qty!=null && g.unit && g.ratio==null && d.primary_qty){
+      g.ratio = d.primary_qty / (g.qty||1);
+      d.last_recount_at = todayStr();
+    }
+  });
   // Nutrition values are kept exactly as entered (matching whatever amount the label actually
   // printed, e.g. "per 88g") rather than being auto-converted to per-100g/100ml here - the
   // basis amount/unit gets saved alongside so recipe math can divide by the right number
@@ -2665,7 +2791,7 @@ function renderUsageLogAdd(){
   var d = state.usageDraft;
   var editing = !!d._editingEntryId;
   var unitOptions = [it.primary_unit];
-  if(it.secondary_unit) unitOptions.push(it.secondary_unit);
+  (it.secondary_units||[]).forEach(function(g){ if(g.unit) unitOptions.push(g.unit); });
   var recipeLabel = d.recipe_id ? recipeNameForUsage(d.recipe_id) : t('usagePickRecipePlaceholder');
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'usageLog\',{id:'+aj(id)+'})">'+ic('back',22)+'</button><h1>'+t(editing?'usageLogEditTitle':'usageLogAddTitle')+'</h1></div>'+
@@ -2780,14 +2906,35 @@ function deleteUsageLogEntry(itemId, entryId){
 function openRecount(id){
   var it = state.items.find(function(i){ return i.id===id; });
   if(!it) return;
-  showModal(
-    t('recountTitle'),
-    '<p class="hint" style="margin-bottom:16px;">'+t('recountHint')+'</p>'+
-    '<div class="field"><label>'+t('recountUnitLabel')+'</label><input type="text" id="recount-unit" value="'+esc(it.secondary_unit||'')+'" placeholder="只"></div>'+
-    '<div class="field"><label>'+t('recountQtyLabel')+'</label><input type="number" inputmode="decimal" id="recount-qty" value="'+(it.secondary_qty!=null?it.secondary_qty:'')+'"></div>'+
-    '<button class="btn btn-primary" onclick="confirmRecount('+aj(id)+')">'+t('confirm')+'</button>'
-  );
+  var groups = it.secondary_units||[];
+  state.recountUI = {itemId:id, mode: groups.length?'existing':'new', selectedIdx: groups.length?0:-1};
+  showModal(t('recountTitle'), recountModalBodyHtml(it));
 }
+function recountModalBodyHtml(it){
+  var groups = it.secondary_units||[];
+  var ui = state.recountUI;
+  var pillsHtml = groups.length ? ('<div class="tag-select" style="margin-bottom:14px;">'+
+    groups.map(function(g,i){
+      return '<div class="tag-option '+(ui.mode==='existing'&&ui.selectedIdx===i?'active':'')+'" onclick="selectRecountGroup('+i+')">'+esc(g.unit)+'</div>';
+    }).join('')+
+    '<div class="tag-option '+(ui.mode==='new'?'active':'')+'" onclick="selectRecountNew()">+ '+t('recountNewUnit')+'</div>'+
+  '</div>') : '';
+  var isExisting = ui.mode==='existing' && groups[ui.selectedIdx];
+  var unitVal = isExisting ? groups[ui.selectedIdx].unit : '';
+  var qtyVal = isExisting && groups[ui.selectedIdx].qty!=null ? groups[ui.selectedIdx].qty : '';
+  return '<p class="hint" style="margin-bottom:16px;">'+t('recountHint')+'</p>'+
+    pillsHtml+
+    '<div class="field"><label>'+t('recountUnitLabel')+'</label><input type="text" id="recount-unit" value="'+esc(unitVal)+'" placeholder="只" '+(isExisting?'readonly style="background:var(--cream);"':'')+'></div>'+
+    '<div class="field"><label>'+t('recountQtyLabel')+'</label><input type="number" inputmode="decimal" id="recount-qty" value="'+qtyVal+'"></div>'+
+    '<button class="btn btn-primary" onclick="confirmRecount('+aj(it.id)+')">'+t('confirm')+'</button>';
+}
+function refreshRecountModal(){
+  var it = state.items.find(function(i){ return i.id===state.recountUI.itemId; });
+  if(!it) return;
+  showModal(t('recountTitle'), recountModalBodyHtml(it));
+}
+function selectRecountGroup(i){ state.recountUI.mode='existing'; state.recountUI.selectedIdx=i; refreshRecountModal(); }
+function selectRecountNew(){ state.recountUI.mode='new'; state.recountUI.selectedIdx=-1; refreshRecountModal(); }
 function confirmRecount(id){
   var it = state.items.find(function(i){ return i.id===id; });
   var unit = document.getElementById('recount-unit').value.trim();
@@ -2796,6 +2943,7 @@ function confirmRecount(id){
   recountItem(it, unit, qty);
   saveItems();
   closeModal();
+  state.recountUI = null;
   showToast(state.lang==='zh'?'已更新':'Updated');
   render();
 }
@@ -3575,7 +3723,9 @@ function recipeUnitOptionsForItem(item){
   var opts = ['g','kg','ml','l'];
   if(item){
     if(item.primary_unit && opts.indexOf(item.primary_unit)===-1) opts.unshift(item.primary_unit);
-    if(item.secondary_unit && opts.indexOf(item.secondary_unit)===-1) opts.unshift(item.secondary_unit);
+    (item.secondary_units||[]).forEach(function(g){
+      if(g.unit && opts.indexOf(g.unit)===-1) opts.unshift(g.unit);
+    });
   }
   return opts;
 }
@@ -3960,7 +4110,7 @@ function openCookConfirm(recipeId){
     if(!item){
       return {text: esc(ri.name_snapshot)+': '+fmtNum(ri.amount,1)+' '+esc(ri.unit), note:(state.lang==='zh'?'(已从库存中移除)':'(removed from inventory)')};
     }
-    var canDeduct = (ri.unit===item.primary_unit) || (item.secondary_unit && ri.unit===item.secondary_unit && item.secondary_qty!=null);
+    var canDeduct = (ri.unit===item.primary_unit) || (item.secondary_units||[]).some(function(g){ return g.unit===ri.unit && g.qty!=null; });
     return {text: esc(item.name)+': '+fmtNum(ri.amount,1)+' '+esc(ri.unit), note: canDeduct?'':t('cookConfirmNoConversion')};
   });
   var bodyHtml = '<p class="hint" style="margin-bottom:14px;">'+t('cookConfirmHint')+'</p>' +
@@ -4452,7 +4602,7 @@ async function confirmImport(mode){
   if(!_pendingImport) return;
   var data = _pendingImport.data;
   if(_pendingImport.kind === 'inventory'){
-    var incomingItems = await migrateImportedPhotos(data.items||[]);
+    var incomingItems = (await migrateImportedPhotos(data.items||[])).map(migrateItemQtyGroups);
     if(mode === 'merge'){
       state.items = mergeById(state.items, incomingItems);
       state.categories = mergeStringArrays(state.categories, data.categories||[]);
