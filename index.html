@@ -339,6 +339,8 @@
   .qty-group-row{ align-items:flex-end; }
   .qty-group-remove{ width:46px; height:46px; flex-shrink:0; }
   .qty-group-add{ display:inline-block; margin-top:12px; }
+  .date-input-row{ display:flex; gap:8px; align-items:center; }
+  .date-clear-btn{ width:40px; height:40px; flex-shrink:0; }
   .tag-select{ display:flex; flex-wrap:wrap; gap:8px; }
   .tag-option{
     font-size:14px; padding:9px 15px; border-radius:20px; border:1px solid var(--line);
@@ -586,9 +588,9 @@ var I18N = {
     fieldSecondaryQty:'次要计量(可选)', fieldSecondaryUnit:'次要单位',
     fieldExpiry:'有效期至', fieldPurchaseDate:'购买日期', fieldPrice:'价格',
     fieldNotes:'备注', fieldNotesPh:'其他备注信息',
-    sectionBasic:'主档', sectionQty:'数量', sectionNutrition:'营养标签', sectionNutritionMore:'更多营养信息', sectionOther:'其他信息',
+    sectionBasic:'主档', sectionQty:'数量', sectionNutrition:'营养标签', sectionNutritionMore:'更多营养信息', sectionOther:'其他',
     unitCustomOption:'自定义', unitPickPlaceholder:'请选择单位', fieldUnitCustomPh:'输入单位，如：包/瓶/份',
-    addQtyGroup:'增加一组计量', recountNewUnit:'新单位',
+    addQtyGroup:'增加一组计量',
     nutriCalories:'热量', nutriProtein:'蛋白质', nutriFat:'总脂肪', nutriCarbs:'总碳水化合物',
     nutriFiber:'膳食纤维', nutriSugar:'总糖', nutriSodium:'钠',
     nutriSaturatedFat:'饱和脂肪', nutriTransFat:'反式脂肪', nutriCholesterol:'胆固醇', nutriAddedSugar:'添加糖',
@@ -598,9 +600,7 @@ var I18N = {
     manuallyEdited:'已手动修正',
     nutriBasisAmount:'营养数值对应的量', nutriBasisUnit:'单位',
     nutriBasisHint:'包装上营养表如果不是按每100g/100ml标注的（比如"每88g"、"每份"），把包装上写的具体重量/份量填在这里，下面直接照抄包装上印的原始数值就行——不会自动换算成每100g/100ml，会照这个基准量原样保存。用这个食材做食谱时，会按实际用量自动折算。',
-    expiryModeDirect:'直接填写', expiryModeCalc:'生产日期+保质期',
     fieldProductionDate:'生产日期', fieldShelfLife:'保质期',
-    computedExpiryPrefix:'自动计算出的有效期至：',
     aiExtracted:'AI识别，请核对',
     sectionPhotoCapture:'拍照识别',
     photoCaptureHint:'拍摄食品包装或营养成分表，自动识别名称与营养信息',
@@ -616,7 +616,7 @@ var I18N = {
     save:'保存', cancel:'取消', delete:'删除', edit:'编辑', add:'添加', confirm:'确认', close:'关闭',
     addNewTag:'+ 新建', newTagPrompt:'输入新标签名称',
     // detail
-    detailQtyLabel:'当前库存', recount:'补充计数', recountTitle:'补充计数',
+    detailQtyLabel:'当前库存',
     usageBtn:'取用', usageLogTitle:'取用记录', usageLogAddTitle:'记录使用', usageLogEmpty:'还没有取用记录',
     usageDate:'日期', usageDestination:'去向', usageDestFree:'自由输入', usageDestRecipe:'关联食谱',
     usageDestPlaceholder:'比如：早餐吐司、送朋友、直接吃掉了', usageAmount:'数量',
@@ -626,9 +626,6 @@ var I18N = {
     usageDeductedToast:'已记录，库存已扣减', usageNoConversionWarn:'这个单位没法直接从库存里扣减，记录会保存但不会自动扣库存',
     usageLogEditTitle:'编辑使用记录', usageRestoreBtn:'恢复', usageRestoreConfirm:'恢复后这条记录会被取消，之前扣掉的数量会加回库存，确定吗？',
     usageRestoredToast:'已恢复库存并取消该记录', usageDeleteConfirm:'确定删除这条记录吗？删除后不会把数量加回库存。', usageDeletedToast:'已删除该记录',
-    recountHint:'拆包点数后，填入当前剩余的次要单位数量，系统会据此更新换算比例(主单位保持你上次填写/扣减后的数值)。',
-    recountUnitLabel:'次要单位名称(如：只/片/块)', recountQtyLabel:'当前实际剩余数量',
-    lastRecount:'最近点数', noSecondary:'尚未设置次要计量单位',
     deleteConfirm:'确定要删除吗？此操作无法撤销。',
     // scan
     scanTitle:'扫码识别', scanHintCamera:'将条码放入框内，自动识别', scanManualEntry:'手动输入条码',
@@ -754,7 +751,7 @@ var I18N = {
     fieldNotes:'Notes', fieldNotesPh:'Additional notes',
     sectionBasic:'Basic info', sectionQty:'Quantity & unit', sectionNutrition:'Nutrition Label', sectionNutritionMore:'More Nutrition Info', sectionOther:'Other info',
     unitCustomOption:'Custom', unitPickPlaceholder:'Select a unit', fieldUnitCustomPh:'Enter a unit, e.g. bag/bottle',
-    addQtyGroup:'Add another unit', recountNewUnit:'New unit',
+    addQtyGroup:'Add another unit',
     nutriCalories:'Calories', nutriProtein:'Protein', nutriFat:'Total Fat', nutriCarbs:'Total Carbohydrate',
     nutriFiber:'Dietary Fiber', nutriSugar:'Total Sugars', nutriSodium:'Sodium',
     nutriSaturatedFat:'Saturated Fat', nutriTransFat:'Trans Fat', nutriCholesterol:'Cholesterol', nutriAddedSugar:'Added Sugars',
@@ -764,9 +761,7 @@ var I18N = {
     manuallyEdited:'Edited',
     nutriBasisAmount:'These values are per', nutriBasisUnit:'Unit',
     nutriBasisHint:'If the label\'s nutrition table isn\'t per 100g/100ml (e.g. "per 88g" or "per serving"), enter that exact amount here and type the numbers straight off the label below — they stay exactly as entered (no auto-conversion to per 100g/100ml). When this item is used in a recipe, the amount actually used gets converted automatically.',
-    expiryModeDirect:'Enter directly', expiryModeCalc:'Production date + shelf life',
     fieldProductionDate:'Production date', fieldShelfLife:'Shelf life',
-    computedExpiryPrefix:'Calculated best-before date:',
     aiExtracted:'AI extracted, please verify',
     sectionPhotoCapture:'Photo recognition',
     photoCaptureHint:'Take a photo of the package or nutrition label to auto-fill name and nutrition',
@@ -781,7 +776,7 @@ var I18N = {
     aiProxySettingHint:'Leave blank to hide "Photo recognition". Requires your own small proxy that forwards to the Anthropic API — see README.md.',
     save:'Save', cancel:'Cancel', delete:'Delete', edit:'Edit', add:'Add', confirm:'Confirm', close:'Close',
     addNewTag:'+ New', newTagPrompt:'Enter new tag name',
-    detailQtyLabel:'Current stock', recount:'Recount', recountTitle:'Recount',
+    detailQtyLabel:'Current stock',
     usageBtn:'Use', usageLogTitle:'Usage Log', usageLogAddTitle:'Log Usage', usageLogEmpty:'No usage logged yet',
     usageDate:'Date', usageDestination:'Where it went', usageDestFree:'Free text', usageDestRecipe:'Link a recipe',
     usageDestPlaceholder:'e.g. breakfast toast, gave to a friend, ate it plain', usageAmount:'Amount',
@@ -791,9 +786,6 @@ var I18N = {
     usageDeductedToast:'Logged - stock updated', usageNoConversionWarn:'This unit can\'t be deducted from stock directly; the entry saves but stock won\'t auto-update',
     usageLogEditTitle:'Edit Usage Entry', usageRestoreBtn:'Restore', usageRestoreConfirm:'This will cancel the entry and add the amount back to stock. Continue?',
     usageRestoredToast:'Restored to stock and removed the entry', usageDeleteConfirm:'Delete this entry? Stock will not be added back.', usageDeletedToast:'Entry deleted',
-    recountHint:'After unpacking and counting, enter the current remaining amount in the secondary unit. The conversion ratio updates from this.',
-    recountUnitLabel:'Secondary unit name (e.g. piece)', recountQtyLabel:'Current remaining count',
-    lastRecount:'Last recount', noSecondary:'No secondary unit set yet',
     deleteConfirm:'Are you sure? This cannot be undone.',
     scanTitle:'Scan barcode', scanHintCamera:'Align the barcode within the frame', scanManualEntry:'Enter barcode manually',
     scanLookingUp:'Looking up product…', scanNotFound:'No product found, please fill in manually',
@@ -1186,24 +1178,11 @@ function categoryLabel(catName){ return catName || (state.lang==='zh' ? '未分�
 /* ======================= UNIT CONVERSION (per inventory item) ======================= */
 // item.primary_unit / primary_qty : the unit used at purchase time, source of truth
 // item.secondary_units : array of extra convenience units, e.g. [{unit:'只', qty:6, ratio:0.5}, ...]
-//   ratio = how many primary units 1 of this group's unit is worth, fixed at the moment the
-//   group's ratio was first established (or last recalibrated via "recount")
-// item.last_recount_at : ISO date of the last recount
+//   ratio = how many primary units 1 of this group's unit is worth, established the first
+//   time a group has both a unit and a quantity filled in (see saveItemForm) and then locked -
+//   to recalibrate it, delete the group on the edit page and add it again with the corrected count.
 function findQtyGroup(item, unit){
   return (item.secondary_units||[]).find(function(g){ return g.unit===unit; });
-}
-function recountItem(item, unit, qty){
-  var ratio = null;
-  if(qty > 0 && item.primary_qty != null){
-    ratio = item.primary_qty / qty;
-  }
-  item.secondary_units = item.secondary_units || [];
-  var grp = findQtyGroup(item, unit);
-  if(!grp){ grp = {unit:unit, qty:null, ratio:null}; item.secondary_units.push(grp); }
-  grp.qty = qty;
-  grp.ratio = ratio;
-  item.last_recount_at = todayStr();
-  item.updated_at = nowLocalIso();
 }
 // Attempts to deduct `amount` of `unit` from an inventory item. Returns {ok, reason}
 function deductFromItem(item, amount, unit){
@@ -2128,7 +2107,6 @@ function openItemForm(id, prefill){
     addingCategory:false, addingLocation:false, customUnitEditing:{},
     nutriBasisAmount: state.itemDraft.nutrition_basis_amount || 100,
     nutriBasisUnit: state.itemDraft.nutrition_basis_unit || 'g',
-    expiryMode: state.itemDraft.production_date ? 'calc' : 'direct',
     returnTo: returnTo
   };
   navigate('itemForm', {id:id});
@@ -2253,7 +2231,7 @@ function confirmNewTag(kind){
   state.itemFormUI[kind==='category'?'addingCategory':'addingLocation'] = false;
   render();
 }
-/* ---- expiry date: "direct entry" vs "production date + shelf life" ---- */
+/* ---- expiry / production date / shelf life ---- */
 var SHELF_LIFE_UNITS = ['days','weeks','months','years'];
 function shelfLifeUnitLabel(u){
   var map = {
@@ -2272,9 +2250,22 @@ function addToDate(dateStr, amount, unit){
   else if(unit==='years') d.setFullYear(d.getFullYear()+amount);
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
-function setExpiryMode(mode){
-  state.itemFormUI.expiryMode = mode;
+// All date fields on this form (purchase date, expiry date, production date) are optional -
+// each renders with a small "x" clear button whenever it has a value, so you're never stuck
+// with a date you don't want (native date inputs are fiddly to clear by hand, especially on
+// mobile). Left blank, these show up elsewhere in the app as "-" / "未设置", which every place
+// that reads these fields already accounts for.
+function clearDraftDate(field){
+  state.itemDraft[field] = '';
+  if(field==='production_date' || field==='shelf_life_amount') { /* no recompute needed - clearing one calc input just leaves expiry_date as-is */ }
   render();
+}
+function dateFieldHtml(label, field, value, domId, oninputAttr){
+  var idAttr = domId ? ' id="'+domId+'"' : '';
+  return '<div class="field"><label>'+label+'</label><div class="date-input-row">'+
+    '<input type="date"'+idAttr+' value="'+esc(value||'')+'" oninput="'+oninputAttr+'" style="flex:1;min-width:0;">'+
+    (value ? '<button type="button" class="icon-btn date-clear-btn" onclick="clearDraftDate('+aj(field)+')">'+ic('x',14)+'</button>' : '')+
+  '</div></div>';
 }
 function d_production_date(val){
   state.itemDraft.production_date = val;
@@ -2287,37 +2278,32 @@ function d_shelf_life_amount(val){
 function setShelfLifeUnit(u){
   state.itemDraft.shelf_life_unit = u;
   recomputeExpiryFromProduction();
-  render();
 }
+// Filling in production date + shelf life auto-computes expiry_date and patches the visible
+// "有效期至" date input directly via the DOM (rather than a full render()) so typing in the
+// shelf-life field doesn't lose focus/cursor position mid-keystroke. The "有效期至" field itself
+// stays directly editable too - whichever was touched last wins, no mode toggle needed.
 function recomputeExpiryFromProduction(){
   var d = state.itemDraft;
   if(d.production_date && d.shelf_life_amount){
     d.expiry_date = addToDate(d.production_date, d.shelf_life_amount, d.shelf_life_unit||'days');
-    var el = document.getElementById('computed-expiry-preview');
-    if(el) el.textContent = d.expiry_date ? (t('computedExpiryPrefix')+' '+d.expiry_date) : '';
+    var el = document.getElementById('field-expiry-date');
+    if(el) el.value = d.expiry_date || '';
   }
 }
-function expiryFieldHtml(d, ui){
-  var mode = ui.expiryMode || 'direct';
-  var toggle = '<div class="field"><label>'+t('fieldExpiry')+'</label>'+
-    '<div class="tag-select" style="margin-bottom:10px;">'+
-      '<div class="tag-option '+(mode==='direct'?'active':'')+'" onclick="setExpiryMode(\'direct\')">'+t('expiryModeDirect')+'</div>'+
-      '<div class="tag-option '+(mode==='calc'?'active':'')+'" onclick="setExpiryMode(\'calc\')">'+t('expiryModeCalc')+'</div>'+
-    '</div></div>';
-  if(mode==='direct'){
-    return toggle + '<input type="date" value="'+esc(d.expiry_date)+'" oninput="d_str(\'expiry_date\',this.value)">' +
-      '<div style="margin-bottom:18px;"></div>';
-  }
-  var pills = SHELF_LIFE_UNITS.map(function(u){
-    return '<div class="tag-option '+((d.shelf_life_unit||'days')===u?'active':'')+'" onclick="setShelfLifeUnit('+aj(u)+')">'+shelfLifeUnitLabel(u)+'</div>';
+function expiryFieldHtml(d){
+  var unitOptsHtml = SHELF_LIFE_UNITS.map(function(u){
+    return '<option value="'+u+'" '+((d.shelf_life_unit||'days')===u?'selected':'')+'>'+shelfLifeUnitLabel(u)+'</option>';
   }).join('');
-  return toggle +
-    '<div class="field-row">'+
-      '<div class="field"><label>'+t('fieldProductionDate')+'</label><input type="date" value="'+esc(d.production_date||'')+'" oninput="d_production_date(this.value)"></div>'+
-      '<div class="field"><label>'+t('fieldShelfLife')+'</label><input type="number" inputmode="decimal" value="'+(d.shelf_life_amount==null?'':d.shelf_life_amount)+'" oninput="d_shelf_life_amount(this.value)"></div>'+
-    '</div>'+
-    '<div class="tag-select" style="margin-bottom:8px;">'+pills+'</div>'+
-    '<div class="hint" id="computed-expiry-preview" style="margin-bottom:18px;">'+(d.expiry_date?(t('computedExpiryPrefix')+' '+d.expiry_date):'')+'</div>';
+  return '' +
+    dateFieldHtml(t('fieldExpiry'), 'expiry_date', d.expiry_date, 'field-expiry-date', 'd_str(\'expiry_date\',this.value)')+
+    dateFieldHtml(t('fieldProductionDate'), 'production_date', d.production_date, 'field-production-date', 'd_production_date(this.value)')+
+    '<div class="field" style="margin-bottom:0;"><label>'+t('fieldShelfLife')+'</label>'+
+      '<div class="field-row">'+
+        '<input type="number" inputmode="decimal" value="'+(d.shelf_life_amount==null?'':d.shelf_life_amount)+'" oninput="d_shelf_life_amount(this.value)" style="flex:2;min-width:0;">'+
+        '<select onchange="setShelfLifeUnit(this.value)" style="flex:1;min-width:0;">'+unitOptsHtml+'</select>'+
+      '</div>'+
+    '</div>';
 }
 function nutriFieldsHtml(draftPath){
   var labels = nutriLabels();
@@ -2441,17 +2427,17 @@ function renderItemForm(){
       '<div class="hint" id="item-photo-status"></div>'+
     '</div>'+
     '<div class="section-title">'+t('fieldCategory')+'</div>'+
-    tagSelectHtml('category', state.categories, d.category, ui.addingCategory)+
+    '<div class="form-group">'+tagSelectHtml('category', state.categories, d.category, ui.addingCategory)+'</div>'+
     '<div class="section-title">'+t('fieldLocation')+'</div>'+
-    tagSelectHtml('location', state.locations, d.location, ui.addingLocation)+
+    '<div class="form-group">'+tagSelectHtml('location', state.locations, d.location, ui.addingLocation)+'</div>'+
     '<div class="section-title">'+t('sectionQty')+'</div>'+
     '<div class="form-group">'+
       qtyGroupsHtml(d)+
     '</div>'+
     '<div class="section-title">'+t('sectionOther')+'</div>'+
     '<div class="form-group">'+
-      expiryFieldHtml(d, ui)+
-      '<div class="field"><label>'+t('fieldPurchaseDate')+'</label><input type="date" value="'+esc(d.purchase_date)+'" oninput="d_str(\'purchase_date\',this.value)"></div>'+
+      expiryFieldHtml(d)+
+      dateFieldHtml(t('fieldPurchaseDate'), 'purchase_date', d.purchase_date, null, 'd_str(\'purchase_date\',this.value)')+
       '<div class="field"><label>'+t('fieldPrice')+'</label>'+
         '<div style="display:flex;gap:8px;align-items:center;">'+
           '<input type="number" inputmode="decimal" value="'+(d.price||'')+'" oninput="d_num(\'price\',this.value)" style="flex:1;min-width:0;">'+
@@ -2612,7 +2598,7 @@ function renderItemDetail(){
       '<div class="item-detail-hero-info">'+
         '<div class="status-badge status-'+st.level+'" style="font-size:14px;padding:7px 12px;display:inline-block;align-self:flex-start;">'+(it.expiry_date?esc(expiryRelativeText(it))+' · '+esc(t('fieldExpiry'))+' '+esc(fmtDateDots(it.expiry_date)):esc(st.label))+'</div>'+
         '<div class="item-detail-stock-row">'+
-          '<div class="item-detail-stock-box" style="flex:1;" onclick="openRecount('+aj(it.id)+')">'+
+          '<div class="item-detail-stock-box" style="flex:1;cursor:default;">'+
             '<span class="row-label">'+t('detailQtyLabel')+'</span>'+
             '<span class="row-sub">'+qtyDisplay(it)+'</span>'+
           '</div>'+
@@ -2900,51 +2886,6 @@ function deleteUsageLogEntry(itemId, entryId){
   saveItems();
   closeItemSwipeRow(entryId);
   showToast(t('usageDeletedToast'));
-  render();
-}
-
-function openRecount(id){
-  var it = state.items.find(function(i){ return i.id===id; });
-  if(!it) return;
-  var groups = it.secondary_units||[];
-  state.recountUI = {itemId:id, mode: groups.length?'existing':'new', selectedIdx: groups.length?0:-1};
-  showModal(t('recountTitle'), recountModalBodyHtml(it));
-}
-function recountModalBodyHtml(it){
-  var groups = it.secondary_units||[];
-  var ui = state.recountUI;
-  var pillsHtml = groups.length ? ('<div class="tag-select" style="margin-bottom:14px;">'+
-    groups.map(function(g,i){
-      return '<div class="tag-option '+(ui.mode==='existing'&&ui.selectedIdx===i?'active':'')+'" onclick="selectRecountGroup('+i+')">'+esc(g.unit)+'</div>';
-    }).join('')+
-    '<div class="tag-option '+(ui.mode==='new'?'active':'')+'" onclick="selectRecountNew()">+ '+t('recountNewUnit')+'</div>'+
-  '</div>') : '';
-  var isExisting = ui.mode==='existing' && groups[ui.selectedIdx];
-  var unitVal = isExisting ? groups[ui.selectedIdx].unit : '';
-  var qtyVal = isExisting && groups[ui.selectedIdx].qty!=null ? groups[ui.selectedIdx].qty : '';
-  return '<p class="hint" style="margin-bottom:16px;">'+t('recountHint')+'</p>'+
-    pillsHtml+
-    '<div class="field"><label>'+t('recountUnitLabel')+'</label><input type="text" id="recount-unit" value="'+esc(unitVal)+'" placeholder="只" '+(isExisting?'readonly style="background:var(--cream);"':'')+'></div>'+
-    '<div class="field"><label>'+t('recountQtyLabel')+'</label><input type="number" inputmode="decimal" id="recount-qty" value="'+qtyVal+'"></div>'+
-    '<button class="btn btn-primary" onclick="confirmRecount('+aj(it.id)+')">'+t('confirm')+'</button>';
-}
-function refreshRecountModal(){
-  var it = state.items.find(function(i){ return i.id===state.recountUI.itemId; });
-  if(!it) return;
-  showModal(t('recountTitle'), recountModalBodyHtml(it));
-}
-function selectRecountGroup(i){ state.recountUI.mode='existing'; state.recountUI.selectedIdx=i; refreshRecountModal(); }
-function selectRecountNew(){ state.recountUI.mode='new'; state.recountUI.selectedIdx=-1; refreshRecountModal(); }
-function confirmRecount(id){
-  var it = state.items.find(function(i){ return i.id===id; });
-  var unit = document.getElementById('recount-unit').value.trim();
-  var qty = parseFloat(document.getElementById('recount-qty').value);
-  if(!unit || isNaN(qty) || qty<=0){ showToast(state.lang==='zh'?'请填写完整':'Please fill in both fields'); return; }
-  recountItem(it, unit, qty);
-  saveItems();
-  closeModal();
-  state.recountUI = null;
-  showToast(state.lang==='zh'?'已更新':'Updated');
   render();
 }
 
