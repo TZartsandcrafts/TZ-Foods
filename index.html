@@ -200,7 +200,7 @@
     font-size:11px; font-weight:500; color:var(--deep-caramel); background:var(--cream);
     border-radius:8px; padding:1px 6px; margin-left:6px; vertical-align:1px; white-space:nowrap;
   }
-  .photo-preview-wrap{ position:relative; width:100%; max-width:220px; }
+  .photo-preview-wrap{ position:relative; width:100%; max-width:220px; margin:0 auto; }
   .photo-preview{ width:100%; max-width:220px; border-radius:12px; display:block; border:1px solid var(--line); }
   .photo-remove-btn{ position:absolute; top:6px; right:6px; width:30px; height:30px; background:rgba(0,0,0,0.55); color:#fff; border-color:transparent; }
   .photo-upload-btn{ cursor:pointer; align-items:center; justify-content:center; }
@@ -326,7 +326,7 @@
   .field textarea{ resize:vertical; min-height:70px; }
   .field-row{ display:flex; gap:10px; }
   .field-row .field{ min-width:0; }
-  .field input[type=date]{ min-width:0; width:100%; -webkit-appearance:none; appearance:none; }
+  .field input[type=date]{ min-width:0; width:100%; -webkit-appearance:none; appearance:none; min-height:48px; line-height:20px; }
   .field-row .field{ flex:1; }
   .field select{
     width:100%; font-size:16px; padding:13px 14px; border-radius:11px;
@@ -342,6 +342,7 @@
   .date-input-row{ display:flex; gap:8px; align-items:center; }
   .date-clear-btn{ width:40px; height:40px; flex-shrink:0; }
   .tag-select{ display:flex; flex-wrap:wrap; gap:8px; }
+  .tag-select-edge{ justify-content:space-between; }
   .tag-option{
     font-size:14px; padding:9px 15px; border-radius:20px; border:1px solid var(--line);
     background:var(--card-bg); color:var(--deep-caramel); cursor:pointer;
@@ -351,7 +352,6 @@
   .section-title{ font-size:15px; font-weight:600; color:var(--cocoa); margin:26px 0 14px; padding-top:16px; border-top:1px solid var(--line); }
   .section-title:first-child{ margin-top:0; padding-top:0; border-top:none; }
   .form-group{ background:var(--card-bg); border-radius:12px; padding:16px; margin-bottom:14px; border:1px solid var(--line); }
-  .edited-badge{ font-size:11px; color:var(--warn); background:var(--warn-bg); padding:2px 8px; border-radius:6px; margin-left:8px; font-weight:500; }
 
   /* ---------- List rows (settings, tags) ---------- */
   .list-row{
@@ -406,6 +406,19 @@
   .nf-row .nf-value{ font-weight:600; flex-shrink:0; padding-left:10px; }
   .nf-row.indent1 .nf-value, .nf-row.indent2 .nf-value{ font-weight:400; }
   .nf-section-title{ font-size:19px; font-weight:700; color:var(--cocoa); margin:26px 0 10px; padding-top:16px; border-top:1px solid var(--line); }
+  .nf-basis-edit{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .nf-basis-input{ width:56px; font-size:13px; padding:3px 6px; border:1px solid var(--line); border-radius:6px; background:var(--card-bg); color:var(--cocoa); text-align:center; }
+  .nf-basis-unit-select{ font-size:13px; padding:3px 6px; border:1px solid var(--line); border-radius:6px; background:var(--card-bg); color:var(--cocoa); -webkit-appearance:none; appearance:none; }
+  .nf-edit-value-wrap{ display:flex; align-items:center; gap:5px; flex-shrink:0; }
+  .nf-input{ width:62px; text-align:right; font-size:14.5px; font-weight:600; border:1px solid var(--line); border-radius:7px; padding:4px 7px; background:var(--card-bg); color:var(--cocoa); }
+  .nf-input:focus{ border-color:var(--almond); outline:none; }
+  .nf-input-cal{ width:78px; font-size:22px; font-weight:800; }
+  .nf-input-unit{ font-size:13px; color:var(--deep-caramel); min-width:18px; }
+  .nf-input-unit-select{ font-size:12px; padding:3px 5px; border:1px solid var(--line); border-radius:6px; background:var(--card-bg); color:var(--cocoa); -webkit-appearance:none; appearance:none; }
+  .nf-row.indent1 .nf-input, .nf-row.indent2 .nf-input{ font-weight:400; }
+  .nf-toggle-row{ display:flex; justify-content:space-between; align-items:center; padding:11px 12px; font-size:14.5px; font-weight:600; color:var(--cocoa); cursor:pointer; }
+  .nf-toggle-row:active{ background:var(--cream); }
+  .nf-toggle-row .nf-toggle-hint{ font-weight:400; font-size:12.5px; color:#B79B78; }
   /* ---------- Item detail hero (photo + expiry/stock/actions side by side) ---------- */
   .item-detail-hero{ display:flex; gap:14px; margin-bottom:18px; }
   .item-detail-photo{ width:42%; max-width:170px; aspect-ratio:1/1; flex-shrink:0; }
@@ -596,12 +609,9 @@ var I18N = {
     nutriSaturatedFat:'饱和脂肪', nutriTransFat:'反式脂肪', nutriCholesterol:'胆固醇', nutriAddedSugar:'添加糖',
     nutriVitaminD:'维生素D', nutriCalcium:'钙', nutriIron:'铁', nutriPotassium:'钾',
     nutriVitaminA:'维生素A', nutriVitaminC:'维生素C', nutriMagnesium:'镁', nutriZinc:'锌', nutriVitaminB12:'维生素B12',
-    addNutrientBtn:'+ 添加营养素', nutriExtraHint:'没有数值的项留空即可',
-    manuallyEdited:'已手动修正',
-    nutriBasisAmount:'营养数值对应的量', nutriBasisUnit:'单位',
-    nutriBasisHint:'包装上营养表如果不是按每100g/100ml标注的（比如"每88g"、"每份"），把包装上写的具体重量/份量填在这里，下面直接照抄包装上印的原始数值就行——不会自动换算成每100g/100ml，会照这个基准量原样保存。用这个食材做食谱时，会按实际用量自动折算。',
+    nutriExtraToggle:'维生素与矿物质',
+    nutriBasisAmount:'每',
     fieldProductionDate:'生产日期', fieldShelfLife:'保质期',
-    aiExtracted:'AI识别，请核对',
     sectionPhotoCapture:'拍照识别',
     photoCaptureHint:'拍摄食品包装或营养成分表，自动识别名称与营养信息',
     photoCaptureBtn:'拍照识别',
@@ -757,12 +767,9 @@ var I18N = {
     nutriSaturatedFat:'Saturated Fat', nutriTransFat:'Trans Fat', nutriCholesterol:'Cholesterol', nutriAddedSugar:'Added Sugars',
     nutriVitaminD:'Vitamin D', nutriCalcium:'Calcium', nutriIron:'Iron', nutriPotassium:'Potassium',
     nutriVitaminA:'Vitamin A', nutriVitaminC:'Vitamin C', nutriMagnesium:'Magnesium', nutriZinc:'Zinc', nutriVitaminB12:'Vitamin B12',
-    addNutrientBtn:'+ Add nutrient', nutriExtraHint:'Leave blank if not on the label',
-    manuallyEdited:'Edited',
-    nutriBasisAmount:'These values are per', nutriBasisUnit:'Unit',
-    nutriBasisHint:'If the label\'s nutrition table isn\'t per 100g/100ml (e.g. "per 88g" or "per serving"), enter that exact amount here and type the numbers straight off the label below — they stay exactly as entered (no auto-conversion to per 100g/100ml). When this item is used in a recipe, the amount actually used gets converted automatically.',
+    nutriExtraToggle:'Vitamins & Minerals',
+    nutriBasisAmount:'Per',
     fieldProductionDate:'Production date', fieldShelfLife:'Shelf life',
-    aiExtracted:'AI extracted, please verify',
     sectionPhotoCapture:'Photo recognition',
     photoCaptureHint:'Take a photo of the package or nutrition label to auto-fill name and nutrition',
     photoCaptureBtn:'Take photo',
@@ -2107,7 +2114,13 @@ function openItemForm(id, prefill){
     addingCategory:false, addingLocation:false, customUnitEditing:{},
     nutriBasisAmount: state.itemDraft.nutrition_basis_amount || 100,
     nutriBasisUnit: state.itemDraft.nutrition_basis_unit || 'g',
-    returnTo: returnTo
+    returnTo: returnTo,
+    // Photo removal/replacement used to delete the old IndexedDB blob immediately, which meant
+    // cancelling out of the form without saving still lost the photo. Now removeItemPhoto() /
+    // onItemPhotoSelected() only *stage* the old ref here; saveItemForm() is what actually
+    // deletes staged refs, and cancelItemForm() just discards the staging list untouched.
+    originalPhotoUrl: state.itemDraft.photo_url || '',
+    pendingPhotoDeleteRefs: []
   };
   navigate('itemForm', {id:id});
 }
@@ -2196,7 +2209,7 @@ function qtyGroupsHtml(d){
   rows += '<div class="tag-option qty-group-add" onclick="addQtyGroup()">+ '+t('addQtyGroup')+'</div>';
   return rows;
 }
-function tagSelectHtml(kind, list, current, addingFlag){
+function tagSelectHtml(kind, list, current, addingFlag, extraClass){
   var opts = list.map(function(c){
     return '<div class="tag-option '+(current===c?'active':'')+'" onclick="setDraftTag('+aj(kind)+','+aj(c)+')">'+esc(c)+'</div>';
   }).join('');
@@ -2209,7 +2222,7 @@ function tagSelectHtml(kind, list, current, addingFlag){
   } else {
     addUi = '';
   }
-  return '<div class="tag-select">'+opts+'<div class="tag-option add-new" onclick="toggleAddingTag('+aj(kind)+')">'+t('addNewTag')+'</div></div>'+addUi;
+  return '<div class="tag-select'+(extraClass?(' '+extraClass):'')+'">'+opts+'<div class="tag-option add-new" onclick="toggleAddingTag('+aj(kind)+')">'+t('addNewTag')+'</div></div>'+addUi;
 }
 function setDraftTag(kind, val){ state.itemDraft[kind]=val; render(); }
 function toggleAddingTag(kind){
@@ -2252,43 +2265,51 @@ function addToDate(dateStr, amount, unit){
 }
 // All date fields on this form (purchase date, expiry date, production date) are optional -
 // each renders with a small "x" clear button whenever it has a value, so you're never stuck
-// with a date you don't want (native date inputs are fiddly to clear by hand, especially on
-// mobile). Left blank, these show up elsewhere in the app as "-" / "未设置", which every place
-// that reads these fields already accounts for.
+// with a date you don't want (native date-picker "clear"/"reset" controls are inconsistent
+// across browsers/OSes and outside what this app can control - this button is the one
+// guaranteed-to-work way to clear a date here). Left blank, these show up elsewhere in the
+// app as "-" / "未设置", which every place that reads these fields already accounts for.
 function clearDraftDate(field){
   state.itemDraft[field] = '';
-  if(field==='production_date' || field==='shelf_life_amount') { /* no recompute needed - clearing one calc input just leaves expiry_date as-is */ }
   render();
 }
-function dateFieldHtml(label, field, value, domId, oninputAttr){
+function d_date(field, val){
+  state.itemDraft[field] = val;
+  render();
+}
+function dateFieldHtml(label, field, value, domId, onchangeAttr){
   var idAttr = domId ? ' id="'+domId+'"' : '';
   return '<div class="field"><label>'+label+'</label><div class="date-input-row">'+
-    '<input type="date"'+idAttr+' value="'+esc(value||'')+'" oninput="'+oninputAttr+'" style="flex:1;min-width:0;">'+
+    '<input type="date"'+idAttr+' value="'+esc(value||'')+'" onchange="'+onchangeAttr+'" style="flex:1;min-width:0;">'+
     (value ? '<button type="button" class="icon-btn date-clear-btn" onclick="clearDraftDate('+aj(field)+')">'+ic('x',14)+'</button>' : '')+
   '</div></div>';
 }
+// Picking a date is a discrete, one-shot action (unlike typing in a text field), so re-rendering
+// right after is safe and is what makes the "x" clear button show up immediately - it used to
+// only appear for whichever fields already had a saved value before you opened the form.
 function d_production_date(val){
   state.itemDraft.production_date = val;
   recomputeExpiryFromProduction();
+  render();
 }
 function d_shelf_life_amount(val){
   state.itemDraft.shelf_life_amount = val===''? null : parseFloat(val);
   recomputeExpiryFromProduction();
+  // This one field stays render-free (it's continuously typed, not a discrete pick) so we
+  // patch the visible 有效期至 value directly instead - its own "x" button may lag a beat
+  // behind until the next render, which is an acceptable trade-off for not losing keystrokes.
+  var el = document.getElementById('field-expiry-date');
+  if(el) el.value = state.itemDraft.expiry_date || '';
 }
 function setShelfLifeUnit(u){
   state.itemDraft.shelf_life_unit = u;
   recomputeExpiryFromProduction();
+  render();
 }
-// Filling in production date + shelf life auto-computes expiry_date and patches the visible
-// "有效期至" date input directly via the DOM (rather than a full render()) so typing in the
-// shelf-life field doesn't lose focus/cursor position mid-keystroke. The "有效期至" field itself
-// stays directly editable too - whichever was touched last wins, no mode toggle needed.
 function recomputeExpiryFromProduction(){
   var d = state.itemDraft;
   if(d.production_date && d.shelf_life_amount){
     d.expiry_date = addToDate(d.production_date, d.shelf_life_amount, d.shelf_life_unit||'days');
-    var el = document.getElementById('field-expiry-date');
-    if(el) el.value = d.expiry_date || '';
   }
 }
 function expiryFieldHtml(d){
@@ -2296,7 +2317,7 @@ function expiryFieldHtml(d){
     return '<option value="'+u+'" '+((d.shelf_life_unit||'days')===u?'selected':'')+'>'+shelfLifeUnitLabel(u)+'</option>';
   }).join('');
   return '' +
-    dateFieldHtml(t('fieldExpiry'), 'expiry_date', d.expiry_date, 'field-expiry-date', 'd_str(\'expiry_date\',this.value)')+
+    dateFieldHtml(t('fieldExpiry'), 'expiry_date', d.expiry_date, 'field-expiry-date', 'd_date(\'expiry_date\',this.value)')+
     dateFieldHtml(t('fieldProductionDate'), 'production_date', d.production_date, 'field-production-date', 'd_production_date(this.value)')+
     '<div class="field" style="margin-bottom:0;"><label>'+t('fieldShelfLife')+'</label>'+
       '<div class="field-row">'+
@@ -2305,22 +2326,34 @@ function expiryFieldHtml(d){
       '</div>'+
     '</div>';
 }
+// Editable version of nutritionFactsBoxHtml() (see the item-detail render section for the
+// read-only original) - same box, same NUTRI_TIER1_ROWS hierarchy/indentation, just with an
+// input in place of each printed value so editing it actually still looks like the label
+// you're copying it from, instead of a generic grid of separate fields.
 function nutriFieldsHtml(draftPath){
   var labels = nutriLabels();
   var units = nutriUnits();
   var basisAmount = state.itemFormUI.nutriBasisAmount;
   var basisUnit = state.itemFormUI.nutriBasisUnit;
-  var basisRow = '' +
-    '<div class="field-row" style="margin-bottom:14px;">'+
-      '<div class="field" style="margin-bottom:0;"><label>'+t('nutriBasisAmount')+'</label><input type="number" inputmode="decimal" id="nutri-basis-amount" value="'+basisAmount+'" oninput="setNutriBasisAmount(this.value)"></div>'+
-      '<div class="field" style="margin-bottom:0;"><label>'+t('nutriBasisUnit')+'</label><div class="tag-select">'+['g','ml'].map(function(u){ return '<div class="tag-option '+(basisUnit===u?'active':'')+'" onclick="setNutriBasisUnit('+aj(u)+')">'+u+'</div>'; }).join('')+'</div></div>'+
-    '</div>'+
-    '<div class="hint" style="margin-top:-6px;margin-bottom:14px;">'+t('nutriBasisHint')+'</div>';
-  var grid = '<div class="nutri-grid">'+NUTRI_KEYS.map(function(k){
-    return '<div class="field" style="margin-bottom:0;"><label>'+labels[k]+' <span style="color:#B79B78;font-weight:400;">('+units[k]+')</span></label>'+
-      '<input type="number" inputmode="decimal" value="'+(draftPath.nutrition[k]||0)+'" oninput="onNutriInput('+aj(k)+',this.value)"></div>';
-  }).join('')+'</div>';
-  return basisRow + grid;
+  var basisRowHtml = '<div class="nf-basis nf-basis-edit">'+
+      '<span>'+t('nutriBasisAmount')+'</span>'+
+      '<input type="number" inputmode="decimal" id="nutri-basis-amount" class="nf-basis-input" value="'+(basisAmount==null?'':basisAmount)+'" oninput="setNutriBasisAmount(this.value)">'+
+      '<select class="nf-basis-unit-select" onchange="setNutriBasisUnit(this.value)">'+['g','ml'].map(function(u){
+        return '<option value="'+u+'" '+(basisUnit===u?'selected':'')+'>'+u+'</option>';
+      }).join('')+'</select>'+
+    '</div>';
+  var calHtml = '<div class="nf-calories-row"><span>'+t('nutriCalories')+'</span><span class="nf-edit-value-wrap">'+
+      '<input type="number" inputmode="decimal" class="nf-input nf-input-cal" value="'+(draftPath.nutrition.calories||0)+'" oninput="onNutriInput(\'calories\',this.value)">'+
+      '<span class="nf-calories-unit">kcal</span>'+
+    '</span></div>';
+  var rowsHtml = NUTRI_TIER1_ROWS.map(function(row){
+    var cls = 'nf-row'+(row.level===1?' indent1':'')+(row.level===2?' indent2':'')+(row.bold?' bold':'');
+    return '<div class="'+cls+'"><span>'+labels[row.key]+'</span><span class="nf-edit-value-wrap">'+
+      '<input type="number" inputmode="decimal" class="nf-input" value="'+(draftPath.nutrition[row.key]||0)+'" oninput="onNutriInput('+aj(row.key)+',this.value)">'+
+      '<span class="nf-input-unit">'+units[row.key]+'</span>'+
+    '</span></div>';
+  }).join('');
+  return '<div class="nutrition-facts">'+basisRowHtml+calHtml+rowsHtml+'</div>';
 }
 function setNutriBasisAmount(v){
   var n = parseFloat(v);
@@ -2332,44 +2365,44 @@ function onNutriInput(key, val){
   state.itemDraft.nutrition[key] = parseFloat(val)||0;
   state.itemDraft.nutrition_edited = true;
 }
-function nutriBadgeHtml(d){
-  if(d.nutrition_edited) return '<span class="edited-badge">'+t('manuallyEdited')+'</span>';
-  if(d.nutrition_source === 'photo_ai') return '<span class="edited-badge" style="background:var(--fresh-bg);color:var(--fresh);">'+t('aiExtracted')+'</span>';
-  return '';
-}
+// Continues the same box style as a second card: 4 mandatory-on-label micronutrients always
+// shown (can be left blank), collapsed by default behind a toggle row so the label editor
+// isn't overwhelming - expanding it also reveals the optional extras (+ chips for whichever
+// aren't already added). Clearing a row's value removes it the same way a real label would
+// just not print a line for something the product doesn't have.
 function nutriExtraRowHtml(key){
   var def = nutriExtraDefs()[key];
   var stored = state.itemDraft.nutrition_extra[key] || {};
   var unit = stored.unit || def.units[0];
   var val = (stored.value != null) ? stored.value : '';
-  var unitPicker = def.units.length > 1 ?
-    ('<div class="tag-select" style="flex-shrink:0;">'+def.units.map(function(u){
-      return '<div class="tag-option '+(unit===u?'active':'')+'" onclick="onNutriExtraUnitChange('+aj(key)+','+aj(u)+')">'+u+'</div>';
-    }).join('')+'</div>') :
-    '<span style="align-self:center;color:#B79B78;font-size:13px;padding:0 6px;white-space:nowrap;">'+def.units[0]+'</span>';
-  return '<div class="field" style="margin-bottom:0;">'+
-    '<label>'+t(def.labelKey)+'</label>'+
-    '<div style="display:flex;gap:6px;align-items:center;">'+
-      '<input type="number" inputmode="decimal" value="'+val+'" placeholder="-" oninput="onNutriExtraInput('+aj(key)+',this.value)" style="flex:1;min-width:0;">'+
-      unitPicker+
-    '</div>'+
-  '</div>';
+  var unitHtml = def.units.length > 1 ?
+    ('<select class="nf-input-unit-select" onchange="onNutriExtraUnitChange('+aj(key)+',this.value)">'+def.units.map(function(u){
+      return '<option value="'+u+'" '+(unit===u?'selected':'')+'>'+u+'</option>';
+    }).join('')+'</select>') :
+    ('<span class="nf-input-unit">'+def.units[0]+'</span>');
+  return '<div class="nf-row"><span>'+t(def.labelKey)+'</span><span class="nf-edit-value-wrap">'+
+    '<input type="number" inputmode="decimal" class="nf-input" placeholder="-" value="'+val+'" oninput="onNutriExtraInput('+aj(key)+',this.value)">'+
+    unitHtml+
+  '</span></div>';
 }
 function nutriExtraFieldsHtml(){
+  var expanded = !!(state.itemFormUI.nutriExtraExpanded);
+  var toggleRow = '<div class="nf-toggle-row" onclick="toggleNutriExtraExpanded()"><span>'+t('nutriExtraToggle')+'</span>'+
+    ic('chevronRight',15,'style="transform:rotate('+(expanded?'90':'0')+'deg);transition:transform .15s;"')+'</div>';
+  if(!expanded) return '<div class="nutrition-facts">'+toggleRow+'</div>';
   var coreRows = NUTRI_EXTRA_CORE_KEYS.map(nutriExtraRowHtml).join('');
   var selected = state.itemDraft.nutrition_extra_selected || [];
   var selectedRows = NUTRI_EXTRA_OPTIONAL_KEYS.filter(function(k){ return selected.indexOf(k)!==-1; }).map(nutriExtraRowHtml).join('');
   var availableToAdd = NUTRI_EXTRA_OPTIONAL_KEYS.filter(function(k){ return selected.indexOf(k)===-1; });
   var addRow = availableToAdd.length ? (
-    '<div class="tag-select" style="margin-top:10px;">'+availableToAdd.map(function(k){
+    '<div class="tag-select" style="padding:10px 12px;">'+availableToAdd.map(function(k){
       var def = nutriExtraDefs()[k];
       return '<div class="tag-option" onclick="addNutriExtraOptional('+aj(k)+')">+ '+t(def.labelKey)+'</div>';
     }).join('')+'</div>'
   ) : '';
-  return '<p class="hint" style="margin-top:-6px;margin-bottom:12px;">'+t('nutriExtraHint')+'</p>'+
-    '<div class="nutri-grid">'+coreRows+selectedRows+'</div>'+
-    addRow;
+  return '<div class="nutrition-facts">'+toggleRow+coreRows+selectedRows+addRow+'</div>';
 }
+function toggleNutriExtraExpanded(){ state.itemFormUI.nutriExtraExpanded = !state.itemFormUI.nutriExtraExpanded; render(); }
 function onNutriExtraInput(key, val){
   var def = nutriExtraDefs()[key];
   var existing = state.itemDraft.nutrition_extra[key] || {};
@@ -2427,9 +2460,9 @@ function renderItemForm(){
       '<div class="hint" id="item-photo-status"></div>'+
     '</div>'+
     '<div class="section-title">'+t('fieldCategory')+'</div>'+
-    '<div class="form-group">'+tagSelectHtml('category', state.categories, d.category, ui.addingCategory)+'</div>'+
+    '<div class="form-group">'+tagSelectHtml('category', state.categories, d.category, ui.addingCategory, 'tag-select-edge')+'</div>'+
     '<div class="section-title">'+t('fieldLocation')+'</div>'+
-    '<div class="form-group">'+tagSelectHtml('location', state.locations, d.location, ui.addingLocation)+'</div>'+
+    '<div class="form-group">'+tagSelectHtml('location', state.locations, d.location, ui.addingLocation, 'tag-select-edge')+'</div>'+
     '<div class="section-title">'+t('sectionQty')+'</div>'+
     '<div class="form-group">'+
       qtyGroupsHtml(d)+
@@ -2437,7 +2470,7 @@ function renderItemForm(){
     '<div class="section-title">'+t('sectionOther')+'</div>'+
     '<div class="form-group">'+
       expiryFieldHtml(d)+
-      dateFieldHtml(t('fieldPurchaseDate'), 'purchase_date', d.purchase_date, null, 'd_str(\'purchase_date\',this.value)')+
+      dateFieldHtml(t('fieldPurchaseDate'), 'purchase_date', d.purchase_date, null, 'd_date(\'purchase_date\',this.value)')+
       '<div class="field"><label>'+t('fieldPrice')+'</label>'+
         '<div style="display:flex;gap:8px;align-items:center;">'+
           '<input type="number" inputmode="decimal" value="'+(d.price||'')+'" oninput="d_num(\'price\',this.value)" style="flex:1;min-width:0;">'+
@@ -2448,10 +2481,10 @@ function renderItemForm(){
       '</div>'+
       '<div class="field" style="margin-bottom:0;"><label>'+t('fieldNotes')+'</label><textarea placeholder="'+t('fieldNotesPh')+'" oninput="d_str(\'notes\',this.value)">'+esc(d.notes)+'</textarea></div>'+
     '</div>'+
-    '<div class="section-title">'+t('sectionNutrition')+nutriBadgeHtml(d)+'</div>'+
-    '<div class="form-group">'+nutriFieldsHtml(d)+'</div>'+
+    '<div class="section-title">'+t('sectionNutrition')+'</div>'+
+    nutriFieldsHtml(d)+
     '<div class="section-title">'+t('sectionNutritionMore')+'</div>'+
-    '<div class="form-group">'+nutriExtraFieldsHtml()+'</div>'+
+    nutriExtraFieldsHtml()+
     '<div class="btn-row" style="margin-top:8px;">'+
       '<button class="btn btn-outline" onclick="cancelItemForm()">'+t('cancel')+'</button>'+
       '<button class="btn btn-primary" onclick="saveItemForm()">'+t('save')+'</button>'+
@@ -2512,8 +2545,9 @@ async function onItemPhotoSelected(input){
       input.value = '';
       return;
     }
-    // Replacing an existing locally-stored photo: free up its IndexedDB entry first.
-    deletePhotoRef(state.itemDraft.photo_url);
+    // Replacing an existing locally-stored photo: stage its old IndexedDB entry for cleanup
+    // (only actually deleted once the form is saved - see openItemForm's comment on this).
+    if(state.itemDraft.photo_url) state.itemFormUI.pendingPhotoDeleteRefs.push(state.itemDraft.photo_url);
     var ref = await savePhotoToIDB(dataUrl);
     state.itemDraft.photo_url = ref;
     render();
@@ -2524,12 +2558,19 @@ async function onItemPhotoSelected(input){
   input.value = '';
 }
 function removeItemPhoto(){
-  deletePhotoRef(state.itemDraft.photo_url);
+  if(state.itemDraft.photo_url) state.itemFormUI.pendingPhotoDeleteRefs.push(state.itemDraft.photo_url);
   state.itemDraft.photo_url = '';
   render();
 }
 function cancelItemForm(){
   var target = (state.itemFormUI && state.itemFormUI.returnTo) || {view:'home'};
+  // Nothing staged in pendingPhotoDeleteRefs actually got deleted yet, so the original photo
+  // (if any) is untouched - just walk away from it. The only thing to clean up here is a
+  // brand-new photo the person uploaded during this session and never saved, so it doesn't
+  // sit around in IndexedDB unreferenced by anything.
+  var orig = (state.itemFormUI && state.itemFormUI.originalPhotoUrl) || '';
+  var current = (state.itemDraft && state.itemDraft.photo_url) || '';
+  if(current && current !== orig) deletePhotoRef(current);
   state.itemDraft=null;
   navigate(target.view, target.params);
 }
@@ -2565,6 +2606,9 @@ function saveItemForm(){
     state.items[idx]=d;
   }
   saveItems();
+  // Now that the save is committed, it's safe to actually remove any photo(s) that were
+  // replaced/deleted during this editing session (see openItemForm's comment on this).
+  (state.itemFormUI.pendingPhotoDeleteRefs||[]).forEach(function(ref){ deletePhotoRef(ref); });
   state.itemDraft=null;
   showToast(state.lang==='zh'?'已保存':'Saved');
   navigate('itemDetail',{id:d.id});
