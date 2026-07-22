@@ -94,7 +94,12 @@
   .back-btn:active{ background:var(--cream-2); }
 
   .content{ padding:16px 18px 24px; }
-  .home-sticky-controls{ position:sticky; z-index:15; background:var(--cream); margin:0 -18px; padding:0 18px; }
+  .home-sticky-controls{
+    position:sticky; z-index:15; background:var(--cream);
+    top:calc(69px + var(--safe-top)); /* fallback, matches .topbar's own box model; refined precisely by JS after each render */
+    margin:-16px -18px 0; padding:16px 18px 12px;
+  }
+  .home-sticky-controls .sort-row{ margin-bottom:0; }
 
   /* ---------- Search & filters ---------- */
   .search-bar{
@@ -380,7 +385,7 @@
   /* ---------- Nutrition grid ---------- */
   .nutri-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
   /* ---------- Nutrition Facts box (North American label style) ---------- */
-  .nutrition-facts{ border:1px solid var(--cocoa); border-radius:10px; overflow:hidden; background:var(--card-bg); }
+  .nutrition-facts{ border:1px solid var(--cocoa); border-radius:10px; overflow:hidden; background:var(--card-bg); margin-bottom:14px; }
   .nutrition-facts.nutrition-facts-edit{ border-color:var(--line); }
   .nf-basis{
     padding:7px 12px; font-size:13px; color:var(--deep-caramel);
@@ -569,6 +574,8 @@ function nutriUnits(){
 // item as nutrition_extra.
 var NUTRI_EXTRA_CORE_KEYS = ['vitamin_d','calcium','iron','potassium'];
 var NUTRI_EXTRA_OPTIONAL_KEYS = ['vitamin_a','vitamin_c','magnesium','zinc','vitamin_b12'];
+var NUTRI_VITAMIN_KEYS = ['vitamin_d','vitamin_a','vitamin_c','vitamin_b12'];
+var NUTRI_MINERAL_KEYS = ['calcium','iron','potassium','magnesium','zinc'];
 function nutriExtraDefs(){
   return {
     vitamin_d: {labelKey:'nutriVitaminD', units:['mcg','IU']},
@@ -630,7 +637,7 @@ var I18N = {
     nutriSaturatedFat:'饱和脂肪', nutriTransFat:'反式脂肪', nutriCholesterol:'胆固醇', nutriAddedSugar:'添加糖',
     nutriVitaminD:'维生素D', nutriCalcium:'钙', nutriIron:'铁', nutriPotassium:'钾',
     nutriVitaminA:'维生素A', nutriVitaminC:'维生素C', nutriMagnesium:'镁', nutriZinc:'锌', nutriVitaminB12:'维生素B12',
-    nutriExtraToggle:'维生素与矿物质',
+    nutriGroupVitamins:'维生素', nutriGroupMinerals:'矿物质',
     nutriBasisAmount:'每',
     fieldProductionDate:'生产日期', fieldShelfLife:'保质期',
     sectionPhotoCapture:'拍照识别',
@@ -788,7 +795,7 @@ var I18N = {
     nutriSaturatedFat:'Saturated Fat', nutriTransFat:'Trans Fat', nutriCholesterol:'Cholesterol', nutriAddedSugar:'Added Sugars',
     nutriVitaminD:'Vitamin D', nutriCalcium:'Calcium', nutriIron:'Iron', nutriPotassium:'Potassium',
     nutriVitaminA:'Vitamin A', nutriVitaminC:'Vitamin C', nutriMagnesium:'Magnesium', nutriZinc:'Zinc', nutriVitaminB12:'Vitamin B12',
-    nutriExtraToggle:'Vitamins & Minerals',
+    nutriGroupVitamins:'Vitamins', nutriGroupMinerals:'Minerals',
     nutriBasisAmount:'Per',
     fieldProductionDate:'Production date', fieldShelfLife:'Shelf life',
     sectionPhotoCapture:'Photo recognition',
@@ -2115,15 +2122,6 @@ function openItemForm(id, prefill){
     state.itemDraft.nutrition = state.itemDraft.nutrition || emptyNutrition();
     state.itemDraft.nutrition_extra = state.itemDraft.nutrition_extra || emptyNutritionExtra();
     state.itemDraft.price_currency = state.itemDraft.price_currency || 'CAD';
-    // Any optional tier-2 nutrient that already has a stored value should show as "added"
-    // when reopening the form, even if it was somehow saved without being in the selected
-    // list (e.g. imported data) - derive the selected set from what's actually present.
-    var derivedSelected = NUTRI_EXTRA_OPTIONAL_KEYS.filter(function(k){
-      return state.itemDraft.nutrition_extra[k] != null;
-    });
-    state.itemDraft.nutrition_extra_selected = Array.from(new Set(
-      (state.itemDraft.nutrition_extra_selected||[]).concat(derivedSelected)
-    ));
   } else {
     state.itemDraft = blankItemDraft();
     if(prefill) Object.assign(state.itemDraft, prefill);
@@ -2409,23 +2407,21 @@ function nutriExtraRowHtml(key){
   '</span></div>';
 }
 function nutriExtraFieldsHtml(){
-  var expanded = !!(state.itemFormUI.nutriExtraExpanded);
-  var toggleRow = '<div class="nf-toggle-row" onclick="toggleNutriExtraExpanded()"><span>'+t('nutriExtraToggle')+'</span>'+
+  return nutriExtraGroupHtml('vitamins', t('nutriGroupVitamins'), NUTRI_VITAMIN_KEYS) +
+         nutriExtraGroupHtml('minerals', t('nutriGroupMinerals'), NUTRI_MINERAL_KEYS);
+}
+function nutriExtraGroupHtml(groupKey, label, keys){
+  var expanded = !!(state.itemFormUI['nutriExpanded_'+groupKey]);
+  var toggleRow = '<div class="nf-toggle-row" onclick="toggleNutriExtraGroup('+aj(groupKey)+')"><span>'+label+'</span>'+
     ic('chevronRight',15,'style="transform:rotate('+(expanded?'90':'0')+'deg);transition:transform .15s;"')+'</div>';
   if(!expanded) return '<div class="nutrition-facts nutrition-facts-edit">'+toggleRow+'</div>';
-  var coreRows = NUTRI_EXTRA_CORE_KEYS.map(nutriExtraRowHtml).join('');
-  var selected = state.itemDraft.nutrition_extra_selected || [];
-  var selectedRows = NUTRI_EXTRA_OPTIONAL_KEYS.filter(function(k){ return selected.indexOf(k)!==-1; }).map(nutriExtraRowHtml).join('');
-  var availableToAdd = NUTRI_EXTRA_OPTIONAL_KEYS.filter(function(k){ return selected.indexOf(k)===-1; });
-  var addRow = availableToAdd.length ? (
-    '<div class="tag-select" style="padding:10px 12px;">'+availableToAdd.map(function(k){
-      var def = nutriExtraDefs()[k];
-      return '<div class="tag-option" onclick="addNutriExtraOptional('+aj(k)+')">+ '+t(def.labelKey)+'</div>';
-    }).join('')+'</div>'
-  ) : '';
-  return '<div class="nutrition-facts nutrition-facts-edit">'+toggleRow+coreRows+selectedRows+addRow+'</div>';
+  return '<div class="nutrition-facts nutrition-facts-edit">'+toggleRow+keys.map(nutriExtraRowHtml).join('')+'</div>';
 }
-function toggleNutriExtraExpanded(){ state.itemFormUI.nutriExtraExpanded = !state.itemFormUI.nutriExtraExpanded; render(); }
+function toggleNutriExtraGroup(groupKey){
+  var k = 'nutriExpanded_'+groupKey;
+  state.itemFormUI[k] = !state.itemFormUI[k];
+  render();
+}
 function onNutriExtraInput(key, val){
   var def = nutriExtraDefs()[key];
   var existing = state.itemDraft.nutrition_extra[key] || {};
@@ -2433,10 +2429,6 @@ function onNutriExtraInput(key, val){
   var num = (val==='') ? null : (parseFloat(val));
   if(num == null || isNaN(num)){
     delete state.itemDraft.nutrition_extra[key];
-    if(NUTRI_EXTRA_OPTIONAL_KEYS.indexOf(key)!==-1 && val===''){
-      state.itemDraft.nutrition_extra_selected = (state.itemDraft.nutrition_extra_selected||[]).filter(function(k){ return k!==key; });
-      render();
-    }
   } else {
     state.itemDraft.nutrition_extra[key] = {value:num, unit:unit};
   }
@@ -2446,15 +2438,6 @@ function onNutriExtraUnitChange(key, unit){
   var def = nutriExtraDefs()[key];
   var existing = state.itemDraft.nutrition_extra[key] || {};
   state.itemDraft.nutrition_extra[key] = {value: (existing.value!=null?existing.value:null), unit:unit};
-  render();
-}
-function addNutriExtraOptional(key){
-  var sel = state.itemDraft.nutrition_extra_selected || [];
-  if(sel.indexOf(key)===-1) sel.push(key);
-  state.itemDraft.nutrition_extra_selected = sel;
-  if(!state.itemDraft.nutrition_extra[key]){
-    state.itemDraft.nutrition_extra[key] = {value:null, unit:nutriExtraDefs()[key].units[0]};
-  }
   render();
 }
 function renderItemForm(){
@@ -2496,10 +2479,10 @@ function renderItemForm(){
       dateFieldHtml(t('fieldPurchaseDate'), 'purchase_date', d.purchase_date, null, 'd_date(\'purchase_date\',this.value)')+
       '<div class="field"><label>'+t('fieldPrice')+'</label>'+
         '<div style="display:flex;gap:8px;align-items:center;">'+
-          '<input type="number" inputmode="decimal" value="'+(d.price||'')+'" oninput="d_num(\'price\',this.value)" style="flex:1;min-width:0;">'+
-          '<div class="tag-select" style="flex-shrink:0;">'+PRICE_CURRENCIES.map(function(c){
-            return '<div class="tag-option '+(d.price_currency===c?'active':'')+'" onclick="setPriceCurrency('+aj(c)+')">'+c+'</div>';
-          }).join('')+'</div>'+
+          '<input type="number" inputmode="decimal" value="'+(d.price||'')+'" oninput="d_num(\'price\',this.value)" style="flex:2;min-width:0;">'+
+          '<select onchange="setPriceCurrency(this.value)" style="flex:1;min-width:0;">'+PRICE_CURRENCIES.map(function(c){
+            return '<option value="'+c+'" '+(d.price_currency===c?'selected':'')+'>'+c+'</option>';
+          }).join('')+'</select>'+
         '</div>'+
       '</div>'+
       '<div class="field" style="margin-bottom:0;"><label>'+t('fieldNotes')+'</label><textarea placeholder="'+t('fieldNotesPh')+'" oninput="d_str(\'notes\',this.value)">'+esc(d.notes)+'</textarea></div>'+
@@ -4915,11 +4898,20 @@ function afterRender(){
     startScan();
   }
   if(state.view === 'home'){
-    var topbar = document.querySelector('.topbar');
-    var stickyControls = document.getElementById('home-sticky-controls');
-    if(topbar && stickyControls) stickyControls.style.top = topbar.offsetHeight + 'px';
+    syncHomeStickyControlsOffset();
   }
 }
+function syncHomeStickyControlsOffset(){
+  var topbar = document.querySelector('.topbar');
+  var stickyControls = document.getElementById('home-sticky-controls');
+  if(topbar && stickyControls) stickyControls.style.top = topbar.offsetHeight + 'px';
+}
+// iOS can restore a home-screen PWA from a frozen/suspended background state with a stale
+// position:sticky calculation (a known WebKit quirk, not something specific to this app) -
+// re-measuring on these events, not just after render, is what actually recovers it.
+window.addEventListener('pageshow', function(){ if(state.view==='home') syncHomeStickyControlsOffset(); });
+document.addEventListener('visibilitychange', function(){ if(!document.hidden && state.view==='home') syncHomeStickyControlsOffset(); });
+window.addEventListener('resize', function(){ if(state.view==='home') syncHomeStickyControlsOffset(); });
 
 /* ======================= INIT / BOOTSTRAP ======================= */
 function renderLoading(){
