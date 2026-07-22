@@ -94,6 +94,7 @@
   .back-btn:active{ background:var(--cream-2); }
 
   .content{ padding:16px 18px 24px; }
+  .home-sticky-controls{ position:sticky; z-index:15; background:var(--cream); margin:0 -18px; padding:0 18px; }
 
   /* ---------- Search & filters ---------- */
   .search-bar{
@@ -380,16 +381,23 @@
   .nutri-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
   /* ---------- Nutrition Facts box (North American label style) ---------- */
   .nutrition-facts{ border:1px solid var(--cocoa); border-radius:10px; overflow:hidden; background:var(--card-bg); }
+  .nutrition-facts.nutrition-facts-edit{ border-color:var(--line); }
   .nf-basis{
     padding:7px 12px; font-size:13px; color:var(--deep-caramel);
     background-image:linear-gradient(to right, transparent 0 12px, var(--cocoa) 12px calc(100% - 12px), transparent calc(100% - 12px) 100%);
     background-position:bottom; background-size:100% 8px; background-repeat:no-repeat;
+  }
+  .nutrition-facts-edit .nf-basis{
+    background-image:linear-gradient(to right, transparent 0 12px, var(--line) 12px calc(100% - 12px), transparent calc(100% - 12px) 100%);
   }
   .nf-calories-row{
     display:flex; justify-content:space-between; align-items:center;
     padding:10px 12px; font-size:16px; font-weight:700; color:var(--cocoa);
     background-image:linear-gradient(to right, transparent 0 12px, var(--cocoa) 12px calc(100% - 12px), transparent calc(100% - 12px) 100%);
     background-position:bottom; background-size:100% 8px; background-repeat:no-repeat;
+  }
+  .nutrition-facts-edit .nf-calories-row{
+    background-image:linear-gradient(to right, transparent 0 12px, var(--line) 12px calc(100% - 12px), transparent calc(100% - 12px) 100%);
   }
   .nf-calories-row .nf-calories-value{ font-size:28px; font-weight:800; }
   .nf-calories-row .nf-calories-unit{ font-size:13px; font-weight:500; margin-left:4px; }
@@ -407,21 +415,34 @@
   .nf-row.indent1 .nf-value, .nf-row.indent2 .nf-value{ font-weight:400; }
   .nf-section-title{ font-size:19px; font-weight:700; color:var(--cocoa); margin:26px 0 10px; padding-top:16px; border-top:1px solid var(--line); }
   .nf-basis-edit{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
-  .nf-basis-input{ width:56px; font-size:13px; padding:3px 6px; border:1px solid var(--line); border-radius:6px; background:var(--card-bg); color:var(--cocoa); text-align:center; }
-  .nf-basis-unit-select{ font-size:13px; padding:3px 6px; border:1px solid var(--line); border-radius:6px; background:var(--card-bg); color:var(--cocoa); -webkit-appearance:none; appearance:none; }
+  /* Font-size is kept at 16px on every nutrition input/select below - anything smaller makes
+     iOS Safari auto-zoom the whole page (and jump-scroll to keep the field in view) the moment
+     it's focused. This is the one and only thing that actually stops that zoom-and-jump. */
+  .nf-basis-input{ width:60px; font-size:16px; padding:3px 6px; border:1px solid var(--line); border-radius:6px; background:var(--card-bg); color:var(--cocoa); text-align:center; }
+  .nf-basis-input:focus{ border-color:var(--almond); outline:none; }
+  .nf-basis-unit-select{ font-size:16px; padding:3px 6px; border:1px solid var(--line); border-radius:6px; background:var(--card-bg); color:var(--cocoa); -webkit-appearance:none; appearance:none; }
+  .nf-basis-unit-select:focus{ border-color:var(--almond); outline:none; }
   .nf-edit-value-wrap{ display:flex; align-items:center; gap:5px; flex-shrink:0; }
-  .nf-input{ width:62px; text-align:right; font-size:14.5px; font-weight:600; border:1px solid var(--line); border-radius:7px; padding:4px 7px; background:var(--card-bg); color:var(--cocoa); }
+  .nf-input{ width:68px; text-align:right; font-size:16px; font-weight:600; border:1px solid var(--line); border-radius:7px; padding:4px 7px; background:var(--card-bg); color:var(--cocoa); }
   .nf-input:focus{ border-color:var(--almond); outline:none; }
-  .nf-input-cal{ width:78px; font-size:22px; font-weight:800; }
+  .nf-input-cal{ width:84px; font-size:22px; font-weight:800; }
   .nf-input-unit{ font-size:13px; color:var(--deep-caramel); min-width:18px; }
-  .nf-input-unit-select{ font-size:12px; padding:3px 5px; border:1px solid var(--line); border-radius:6px; background:var(--card-bg); color:var(--cocoa); -webkit-appearance:none; appearance:none; }
+  .nf-input-unit-select{ font-size:16px; padding:3px 5px; border:1px solid var(--line); border-radius:6px; background:var(--card-bg); color:var(--cocoa); -webkit-appearance:none; appearance:none; }
+  .nf-input-unit-select:focus{ border-color:var(--almond); outline:none; }
   .nf-row.indent1 .nf-input, .nf-row.indent2 .nf-input{ font-weight:400; }
   .nf-toggle-row{ display:flex; justify-content:space-between; align-items:center; padding:11px 12px; font-size:14.5px; font-weight:600; color:var(--cocoa); cursor:pointer; }
   .nf-toggle-row:active{ background:var(--cream); }
   .nf-toggle-row .nf-toggle-hint{ font-weight:400; font-size:12.5px; color:#B79B78; }
   /* ---------- Item detail hero (photo + expiry/stock/actions side by side) ---------- */
   .item-detail-hero{ display:flex; gap:14px; margin-bottom:18px; }
-  .item-detail-photo{ width:42%; max-width:170px; aspect-ratio:1/1; flex-shrink:0; }
+  .item-detail-photo{ width:42%; max-width:170px; aspect-ratio:1/1; flex-shrink:0; position:relative; }
+  .item-detail-photo-edit-btn{
+    position:absolute; right:6px; bottom:6px; width:32px; height:32px; border-radius:50%;
+    background:var(--almond); color:#fff; border:2px solid var(--card-bg);
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+    box-shadow:0 2px 6px rgba(0,0,0,0.25);
+  }
+  .item-detail-photo-edit-btn:active{ transform:scale(0.94); }
   .item-detail-photo img{ width:100%; height:100%; border-radius:14px; display:block; border:1px solid var(--line); object-fit:cover; }
   .item-detail-photo-placeholder{
     width:100%; height:100%; border-radius:14px; background:var(--cream);
@@ -1845,15 +1866,17 @@ function renderHome(){
     menuButtonHtml('home')+
   '</div>'+
   '<div class="content">'+
-    '<div class="search-bar">'+ic('search',19)+
-      '<input type="text" placeholder="'+t('searchPlaceholder')+'" value="'+esc(state.home.search)+'" oninput="onHomeSearch(this.value)">'+
-    '</div>'+
-    activeFilterHtml +
-    '<div class="sort-row">'+
-      '<div class="sort-pills">'+
-        '<div class="sort-pill '+(state.home.sort==='expiry'?'active':'')+'" onclick="setHomeSort(\'expiry\')">'+t('sortExpiry')+sortArrow('expiry')+'</div>'+
-        '<div class="sort-pill '+(state.home.sort==='name'?'active':'')+'" onclick="setHomeSort(\'name\')">'+t('sortName')+sortArrow('name')+'</div>'+
-        '<div class="sort-pill '+(state.home.sort==='purchase'?'active':'')+'" onclick="setHomeSort(\'purchase\')">'+t('sortPurchase')+sortArrow('purchase')+'</div>'+
+    '<div class="home-sticky-controls" id="home-sticky-controls">'+
+      '<div class="search-bar">'+ic('search',19)+
+        '<input type="text" placeholder="'+t('searchPlaceholder')+'" value="'+esc(state.home.search)+'" oninput="onHomeSearch(this.value)">'+
+      '</div>'+
+      activeFilterHtml +
+      '<div class="sort-row">'+
+        '<div class="sort-pills">'+
+          '<div class="sort-pill '+(state.home.sort==='expiry'?'active':'')+'" onclick="setHomeSort(\'expiry\')">'+t('sortExpiry')+sortArrow('expiry')+'</div>'+
+          '<div class="sort-pill '+(state.home.sort==='name'?'active':'')+'" onclick="setHomeSort(\'name\')">'+t('sortName')+sortArrow('name')+'</div>'+
+          '<div class="sort-pill '+(state.home.sort==='purchase'?'active':'')+'" onclick="setHomeSort(\'purchase\')">'+t('sortPurchase')+sortArrow('purchase')+'</div>'+
+        '</div>'+
       '</div>'+
     '</div>'+
     listHtml +
@@ -2353,7 +2376,7 @@ function nutriFieldsHtml(draftPath){
       '<span class="nf-input-unit">'+units[row.key]+'</span>'+
     '</span></div>';
   }).join('');
-  return '<div class="nutrition-facts">'+basisRowHtml+calHtml+rowsHtml+'</div>';
+  return '<div class="nutrition-facts nutrition-facts-edit">'+basisRowHtml+calHtml+rowsHtml+'</div>';
 }
 function setNutriBasisAmount(v){
   var n = parseFloat(v);
@@ -2389,7 +2412,7 @@ function nutriExtraFieldsHtml(){
   var expanded = !!(state.itemFormUI.nutriExtraExpanded);
   var toggleRow = '<div class="nf-toggle-row" onclick="toggleNutriExtraExpanded()"><span>'+t('nutriExtraToggle')+'</span>'+
     ic('chevronRight',15,'style="transform:rotate('+(expanded?'90':'0')+'deg);transition:transform .15s;"')+'</div>';
-  if(!expanded) return '<div class="nutrition-facts">'+toggleRow+'</div>';
+  if(!expanded) return '<div class="nutrition-facts nutrition-facts-edit">'+toggleRow+'</div>';
   var coreRows = NUTRI_EXTRA_CORE_KEYS.map(nutriExtraRowHtml).join('');
   var selected = state.itemDraft.nutrition_extra_selected || [];
   var selectedRows = NUTRI_EXTRA_OPTIONAL_KEYS.filter(function(k){ return selected.indexOf(k)!==-1; }).map(nutriExtraRowHtml).join('');
@@ -2400,7 +2423,7 @@ function nutriExtraFieldsHtml(){
       return '<div class="tag-option" onclick="addNutriExtraOptional('+aj(k)+')">+ '+t(def.labelKey)+'</div>';
     }).join('')+'</div>'
   ) : '';
-  return '<div class="nutrition-facts">'+toggleRow+coreRows+selectedRows+addRow+'</div>';
+  return '<div class="nutrition-facts nutrition-facts-edit">'+toggleRow+coreRows+selectedRows+addRow+'</div>';
 }
 function toggleNutriExtraExpanded(){ state.itemFormUI.nutriExtraExpanded = !state.itemFormUI.nutriExtraExpanded; render(); }
 function onNutriExtraInput(key, val){
@@ -2523,6 +2546,41 @@ function compressImageFile(file, maxDim, quality){
     reader.readAsDataURL(file);
   });
 }
+// Quick photo upload/replace straight from the item detail page (the little camera badge on
+// the photo) - unlike the edit-form version there's no draft/cancel involved, so this commits
+// straight away: compress, save the new photo, swap it in, persist, then clean up the old one.
+async function onDetailPhotoSelected(input, id){
+  var file = input.files && input.files[0];
+  if(!file) return;
+  var it = state.items.find(function(i){ return i.id===id; });
+  if(!it) return;
+  try{
+    var maxDim = 900, quality = 0.72;
+    var dataUrl = await compressImageFile(file, maxDim, quality);
+    var tries = 0;
+    while(dataUrl.length > 180*1024 && tries < 5){
+      maxDim = Math.round(maxDim * 0.8);
+      quality = Math.max(0.4, quality - 0.1);
+      dataUrl = await compressImageFile(file, maxDim, quality);
+      tries++;
+    }
+    if(dataUrl.length > 260*1024){
+      showToast(t('photoTooLarge'));
+      input.value = '';
+      return;
+    }
+    var oldRef = it.photo_url;
+    var ref = await savePhotoToIDB(dataUrl);
+    it.photo_url = ref;
+    it.updated_at = nowLocalIso();
+    saveItems();
+    if(oldRef) deletePhotoRef(oldRef);
+    render();
+  }catch(e){
+    showToast(t('photoProcessFailed'));
+  }
+  input.value = '';
+}
 async function onItemPhotoSelected(input){
   var file = input.files && input.files[0];
   if(!file) return;
@@ -2638,7 +2696,11 @@ function renderItemDetail(){
   '</div>'+
   '<div class="content">'+
     '<div class="item-detail-hero">'+
-      '<div class="item-detail-photo">'+photoBlock+'</div>'+
+      '<div class="item-detail-photo">'+photoBlock+
+        '<label class="item-detail-photo-edit-btn" title="'+esc(t('fieldPhotoUploadBtn'))+'">'+ic('camera',15)+
+          '<input type="file" accept="image/*" style="display:none" onchange="onDetailPhotoSelected(this,'+aj(it.id)+')">'+
+        '</label>'+
+      '</div>'+
       '<div class="item-detail-hero-info">'+
         '<div class="status-badge status-'+st.level+'" style="font-size:14px;padding:7px 12px;display:inline-block;align-self:flex-start;">'+(it.expiry_date?esc(expiryRelativeText(it))+' · '+esc(t('fieldExpiry'))+' '+esc(fmtDateDots(it.expiry_date)):esc(st.label))+'</div>'+
         '<div class="item-detail-stock-row">'+
@@ -4851,6 +4913,11 @@ function afterRender(){
   hydratePhotos();
   if(state.view === 'scan'){
     startScan();
+  }
+  if(state.view === 'home'){
+    var topbar = document.querySelector('.topbar');
+    var stickyControls = document.getElementById('home-sticky-controls');
+    if(topbar && stickyControls) stickyControls.style.top = topbar.offsetHeight + 'px';
   }
 }
 
