@@ -347,6 +347,20 @@
   .qty-group-add{ display:inline-block; margin-top:12px; }
   .date-input-row{ display:flex; gap:8px; align-items:center; }
   .date-clear-btn{ width:40px; height:40px; flex-shrink:0; }
+  .date-seg{
+    min-width:0; text-align:center; font-size:16px; font-weight:600; color:var(--cocoa);
+    border:1px solid var(--line); border-radius:9px; padding:11px 4px; background:var(--card-bg);
+  }
+  .date-seg:focus{ border-color:var(--almond); outline:none; }
+  .date-seg-y{ flex:1.5; }
+  .date-seg-m, .date-seg-d{ flex:1; }
+  .date-seg-sep{ color:var(--deep-caramel); font-weight:600; flex-shrink:0; }
+  .date-quickpicks{ display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+  .date-quickpick-chip{
+    font-size:12.5px; padding:6px 10px; border-radius:8px;
+    background:var(--cream); border:1px solid var(--line); color:var(--deep-caramel); cursor:pointer;
+  }
+  .date-quickpick-chip:active{ background:var(--cream-2); }
   .tag-select{ display:flex; flex-wrap:wrap; gap:8px; }
   .tag-select-edge{ justify-content:space-between; }
   .tag-option{
@@ -578,15 +592,15 @@ var NUTRI_VITAMIN_KEYS = ['vitamin_d','vitamin_a','vitamin_c','vitamin_b12'];
 var NUTRI_MINERAL_KEYS = ['calcium','iron','potassium','magnesium','zinc'];
 function nutriExtraDefs(){
   return {
-    vitamin_d: {labelKey:'nutriVitaminD', units:['mcg','IU']},
-    calcium: {labelKey:'nutriCalcium', units:['mg']},
-    iron: {labelKey:'nutriIron', units:['mg']},
-    potassium: {labelKey:'nutriPotassium', units:['mg']},
-    vitamin_a: {labelKey:'nutriVitaminA', units:['mcg','IU']},
-    vitamin_c: {labelKey:'nutriVitaminC', units:['mg']},
-    magnesium: {labelKey:'nutriMagnesium', units:['mg']},
-    zinc: {labelKey:'nutriZinc', units:['mg']},
-    vitamin_b12: {labelKey:'nutriVitaminB12', units:['mcg']}
+    vitamin_d: {labelKey:'nutriVitaminD', units:['mcg','IU','%DV']},
+    calcium: {labelKey:'nutriCalcium', units:['mg','%DV']},
+    iron: {labelKey:'nutriIron', units:['mg','%DV']},
+    potassium: {labelKey:'nutriPotassium', units:['mg','%DV']},
+    vitamin_a: {labelKey:'nutriVitaminA', units:['mcg','IU','%DV']},
+    vitamin_c: {labelKey:'nutriVitaminC', units:['mg','%DV']},
+    magnesium: {labelKey:'nutriMagnesium', units:['mg','%DV']},
+    zinc: {labelKey:'nutriZinc', units:['mg','%DV']},
+    vitamin_b12: {labelKey:'nutriVitaminB12', units:['mcg','%DV']}
   };
 }
 function emptyNutritionExtra(){ return {}; }
@@ -623,9 +637,9 @@ var I18N = {
     // item form
     itemFormTitleAdd:'添加食材', itemFormTitleEdit:'编辑食材',
     fieldName:'名称', fieldNamePh:'例如：鸡蛋', fieldBrand:'品牌', fieldBrandPh:'例如：某某牧场',
-    fieldBarcode:'条码',
+    fieldBarcode:'条码', fieldBarcodePh:'可手动输入或留空',
     fieldCategory:'分类', fieldLocation:'位置',
-    fieldQty:'数量', fieldUnit:'单位',
+    fieldQty:'数量', fieldQtyPh:'如 8，或 796x8', fieldUnit:'单位',
     fieldSecondaryQty:'次要计量(可选)', fieldSecondaryUnit:'次要单位',
     fieldExpiry:'有效期至', fieldPurchaseDate:'购买日期', fieldPrice:'价格',
     fieldNotes:'备注', fieldNotesPh:'其他备注信息',
@@ -640,6 +654,8 @@ var I18N = {
     nutriGroupVitamins:'维生素', nutriGroupMinerals:'矿物质',
     nutriBasisAmount:'每',
     fieldProductionDate:'生产日期', fieldShelfLife:'保质期',
+    dateQuickPick_today:'今天', dateQuickPick_thisMonth:'本月', dateQuickPick_nextMonth:'下月',
+    dateQuickPick_thisYear:'今年', dateQuickPick_nextYear:'明年', dateQuickPick_yearAfterNext:'后年',
     sectionPhotoCapture:'拍照识别',
     photoCaptureHint:'拍摄食品包装或营养成分表，自动识别名称与营养信息',
     photoCaptureBtn:'拍照识别',
@@ -781,9 +797,9 @@ var I18N = {
     statusExpired:'Expired', statusSoonPrefix:'', statusSoonDays:'d left', statusFresh:'Fresh', statusToday:'Due today',
     itemFormTitleAdd:'Add item', itemFormTitleEdit:'Edit item',
     fieldName:'Name', fieldNamePh:'e.g. Eggs', fieldBrand:'Brand', fieldBrandPh:'e.g. Farm Co.',
-    fieldBarcode:'Barcode',
+    fieldBarcode:'Barcode', fieldBarcodePh:'Optional, can enter manually',
     fieldCategory:'Category', fieldLocation:'Location',
-    fieldQty:'Quantity', fieldUnit:'Unit',
+    fieldQty:'Quantity', fieldQtyPh:'e.g. 8, or 796x8', fieldUnit:'Unit',
     fieldSecondaryQty:'Secondary count (optional)', fieldSecondaryUnit:'Secondary unit',
     fieldExpiry:'Best before', fieldPurchaseDate:'Purchase date', fieldPrice:'Price',
     fieldNotes:'Notes', fieldNotesPh:'Additional notes',
@@ -798,6 +814,8 @@ var I18N = {
     nutriGroupVitamins:'Vitamins', nutriGroupMinerals:'Minerals',
     nutriBasisAmount:'Per',
     fieldProductionDate:'Production date', fieldShelfLife:'Shelf life',
+    dateQuickPick_today:'Today', dateQuickPick_thisMonth:'This month', dateQuickPick_nextMonth:'Next month',
+    dateQuickPick_thisYear:'This year', dateQuickPick_nextYear:'Next year', dateQuickPick_yearAfterNext:'Year after next',
     sectionPhotoCapture:'Photo recognition',
     photoCaptureHint:'Take a photo of the package or nutrition label to auto-fill name and nutrition',
     photoCaptureBtn:'Take photo',
@@ -1324,7 +1342,7 @@ function amountToBasisUnits(amount, unit, sourceItem){
   return amount; // fallback: assume already basis-compatible
 }
 function emptyNutrition(){
-  var n = {}; NUTRI_KEYS.forEach(function(k){ n[k]=0; }); return n;
+  var n = {}; NUTRI_KEYS.forEach(function(k){ n[k]=null; }); return n;
 }
 // perBasisAmount is "how much this nutrition data is FOR" (e.g. 88 if the label read
 // "per 88g") - NOT assumed to be 100. Inventory items now keep whatever basis was actually
@@ -1972,6 +1990,13 @@ function renderStatFilteredList(){
     if(level==='soon') return expiryStatus(it).level==='soon';
     return true;
   });
+  if(level==='total'){
+    items = items.slice().sort(function(a,b){ return (b.created_at||'').localeCompare(a.created_at||''); });
+  } else {
+    // Both "expired" (most overdue first) and "soon" (closest to expiring first) are just
+    // ascending expiry_date within their already-filtered subset.
+    items = items.slice().sort(function(a,b){ return (a.expiry_date||'').localeCompare(b.expiry_date||''); });
+  }
   var titleKey = level==='expired' ? 'statExpired' : (level==='soon' ? 'statSoon' : 'statTotal');
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'home\')">'+ic('back',22)+'</button><h1>📦 '+t(titleKey)+'</h1></div>'+
@@ -2104,7 +2129,7 @@ function blankItemDraft(){
     nutrition_extra: emptyNutritionExtra(), nutrition_extra_selected:[],
     nutrition_basis_amount:100, nutrition_basis_unit:'g',
     usage_log:[],
-    photo_url:'', created_at: todayStr(), updated_at: nowLocalIso()
+    photo_url:'', created_at: nowLocalIso(), updated_at: nowLocalIso()
   };
 }
 function openItemForm(id, prefill){
@@ -2136,6 +2161,11 @@ function openItemForm(id, prefill){
     nutriBasisAmount: state.itemDraft.nutrition_basis_amount || 100,
     nutriBasisUnit: state.itemDraft.nutrition_basis_unit || 'g',
     returnTo: returnTo,
+    dateSegs: {
+      expiry_date: isoToSegs(state.itemDraft.expiry_date),
+      production_date: isoToSegs(state.itemDraft.production_date),
+      purchase_date: isoToSegs(state.itemDraft.purchase_date)
+    },
     // Photo removal/replacement used to delete the old IndexedDB blob immediately, which meant
     // cancelling out of the form without saving still lost the photo. Now removeItemPhoto() /
     // onItemPhotoSelected() only *stage* the old ref here; saveItemForm() is what actually
@@ -2201,8 +2231,29 @@ function qtyGroupUnitFieldHtml(idx){
     '<option value="__custom__">'+t('unitCustomOption')+'</option>';
   return '<select onchange="onQtyUnitSelectChange('+aj(idx)+',this.value)">'+optsHtml+'</select>';
 }
+// Lets a quantity field accept "796x8" (or 796×8 / 796*8) - the per-unit size and pack count
+// exactly as printed on a multi-pack product - instead of making the person multiply it
+// themselves first. Evaluated once on blur (not while typing, so "796x" mid-entry doesn't
+// get clobbered); a plain number just passes through unchanged.
+function evalQtyExpression(str){
+  str = (str||'').trim();
+  var m = str.match(/^(\d+(?:\.\d+)?)\s*[x×*X]\s*(\d+(?:\.\d+)?)$/);
+  if(m) return Math.round(parseFloat(m[1]) * parseFloat(m[2]) * 1000) / 1000;
+  var f = parseFloat(str);
+  return isNaN(f) ? null : f;
+}
 function setPrimaryQty(val){ state.itemDraft.primary_qty = (val==='') ? null : parseFloat(val); }
 function setSecondaryQty(idx, val){ state.itemDraft.secondary_units[idx].qty = (val==='') ? null : parseFloat(val); }
+function onPrimaryQtyBlur(el){
+  var v = evalQtyExpression(el.value);
+  el.value = (v==null) ? '' : v;
+  state.itemDraft.primary_qty = v;
+}
+function onSecondaryQtyBlur(el, idx){
+  var v = evalQtyExpression(el.value);
+  el.value = (v==null) ? '' : v;
+  state.itemDraft.secondary_units[idx].qty = v;
+}
 function addQtyGroup(){
   state.itemDraft.secondary_units = state.itemDraft.secondary_units || [];
   state.itemDraft.secondary_units.push({unit:'', qty:null, ratio:null});
@@ -2216,13 +2267,13 @@ function removeQtyGroup(idx){
 function qtyGroupsHtml(d){
   var rows = '<div class="field-row qty-group-row">'+
       '<div class="field" style="flex:2;margin-bottom:0;"><label>'+t('fieldQty')+'</label>'+
-        '<input type="text" inputmode="decimal" value="'+(d.primary_qty==null?'':d.primary_qty)+'" oninput="setPrimaryQty(this.value)"></div>'+
+        '<input type="text" inputmode="decimal" placeholder="'+t('fieldQtyPh')+'" value="'+(d.primary_qty==null?'':d.primary_qty)+'" oninput="setPrimaryQty(this.value)" onblur="onPrimaryQtyBlur(this)"></div>'+
       '<div class="field" style="flex:1;margin-bottom:0;"><label>'+t('fieldUnit')+'</label>'+qtyGroupUnitFieldHtml(null)+'</div>'+
     '</div>';
   rows += (d.secondary_units||[]).map(function(g, idx){
     return '<div class="field-row qty-group-row" style="margin-top:12px;align-items:flex-end;">'+
         '<div class="field" style="flex:2;margin-bottom:0;"><label>'+t('fieldQty')+'</label>'+
-          '<input type="text" inputmode="decimal" value="'+(g.qty==null?'':g.qty)+'" oninput="setSecondaryQty('+idx+',this.value)"></div>'+
+          '<input type="text" inputmode="decimal" placeholder="'+t('fieldQtyPh')+'" value="'+(g.qty==null?'':g.qty)+'" oninput="setSecondaryQty('+idx+',this.value)" onblur="onSecondaryQtyBlur(this,'+idx+')"></div>'+
         '<div class="field" style="flex:1;margin-bottom:0;"><label>'+t('fieldUnit')+'</label>'+qtyGroupUnitFieldHtml(idx)+'</div>'+
         '<button type="button" class="icon-btn qty-group-remove" onclick="removeQtyGroup('+idx+')">'+ic('x',16)+'</button>'+
       '</div>';
@@ -2284,47 +2335,129 @@ function addToDate(dateStr, amount, unit){
   else if(unit==='years') d.setFullYear(d.getFullYear()+amount);
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
-// All date fields on this form (purchase date, expiry date, production date) are optional -
-// each renders with a small "x" clear button whenever it has a value, so you're never stuck
-// with a date you don't want (native date-picker "clear"/"reset" controls are inconsistent
-// across browsers/OSes and outside what this app can control - this button is the one
-// guaranteed-to-work way to clear a date here). Left blank, these show up elsewhere in the
-// app as "-" / "未设置", which every place that reads these fields already accounts for.
-function clearDraftDate(field){
+/* ---- free-text date entry (expiry_date / production_date / purchase_date) ----
+   Replaces the native <input type=date> picker, which on some phones needs several taps to
+   open+pick+confirm+dismiss for a single date. Three plain digit boxes (YYYY / MM / DD) instead:
+   type straight through without needing to hit "." yourself, a single digit in the month/day box
+   pads to 2 digits once you leave it, and a row of quick-pick chips below fills in the year
+   and/or month for you (今天 fills all three; 本月/下月 fill year+month, leave day for you;
+   今年/明年/后年 fill just the year). What's actually stored in state.itemDraft[field] is still
+   a plain ISO "YYYY-MM-DD" string exactly as before - these three boxes are just the UI for it,
+   fed from a parallel state.itemFormUI.dateSegs[field] draft that can hold a part-typed date
+   without forcing an invalid value into the real field until all three parts are valid. */
+var DATE_QUICKPICKS = ['today','thisMonth','nextMonth','thisYear','nextYear','yearAfterNext'];
+function pad2(n){ n=String(n); return n.length<2 ? '0'+n : n; }
+function isoToSegs(iso){ var p=(iso||'').split('-'); return {y:p[0]||'', m:p[1]||'', d:p[2]||''}; }
+function segsToIso(segs){
+  if(!segs || !segs.y || segs.y.length!==4 || !segs.m || !segs.d) return '';
+  var mm = pad2(segs.m), dd = pad2(segs.d);
+  var iso = segs.y+'-'+mm+'-'+dd;
+  var check = new Date(iso+'T00:00:00');
+  var valid = !isNaN(check.getTime()) && check.getFullYear()===parseInt(segs.y,10) &&
+    (check.getMonth()+1)===parseInt(mm,10) && check.getDate()===parseInt(dd,10);
+  return valid ? iso : '';
+}
+function ensureDateSegs(field){
+  state.itemFormUI.dateSegs = state.itemFormUI.dateSegs || {};
+  if(!state.itemFormUI.dateSegs[field]) state.itemFormUI.dateSegs[field] = isoToSegs(state.itemDraft[field]);
+  return state.itemFormUI.dateSegs[field];
+}
+function commitDateSegs(field){
+  var iso = segsToIso(ensureDateSegs(field));
+  state.itemDraft[field] = iso;
+  if(field==='production_date'){
+    recomputeExpiryFromProduction();
+    syncExpiryDateSegsFromDraft();
+  }
+}
+function syncExpiryDateSegsFromDraft(){
+  state.itemFormUI.dateSegs = state.itemFormUI.dateSegs || {};
+  var segs = isoToSegs(state.itemDraft.expiry_date);
+  state.itemFormUI.dateSegs.expiry_date = segs;
+  var yEl=document.getElementById('dateseg-y-expiry_date'), mEl=document.getElementById('dateseg-m-expiry_date'), dEl=document.getElementById('dateseg-d-expiry_date');
+  if(yEl) yEl.value = segs.y;
+  if(mEl) mEl.value = segs.m;
+  if(dEl) dEl.value = segs.d;
+  var clearWrap = document.getElementById('dateclear-expiry_date');
+  if(clearWrap) clearWrap.style.display = (segs.y||segs.m||segs.d) ? '' : 'none';
+}
+function onDateSegInput(inputEl, field, seg){
+  var v = inputEl.value.replace(/[^\d]/g,'');
+  inputEl.value = v;
+  var segs = ensureDateSegs(field);
+  segs[seg] = v;
+  if(seg==='y' && v.length===4){
+    var mEl = document.getElementById('dateseg-m-'+field);
+    if(mEl) mEl.focus();
+  }
+  if(seg==='m' && v.length===2){
+    var dEl = document.getElementById('dateseg-d-'+field);
+    if(dEl) dEl.focus();
+  }
+  commitDateSegs(field);
+}
+function onDateSegBlur(field, seg){
+  var el = document.getElementById('dateseg-'+seg+'-'+field);
+  if(el && el.value.length===1){
+    el.value = '0'+el.value;
+    ensureDateSegs(field)[seg] = el.value;
+  }
+  commitDateSegs(field);
+  render();
+}
+function clearDraftDateSegs(field){
+  state.itemFormUI.dateSegs = state.itemFormUI.dateSegs || {};
+  state.itemFormUI.dateSegs[field] = {y:'',m:'',d:''};
   state.itemDraft[field] = '';
+  if(field==='production_date') recomputeExpiryFromProduction();
   render();
 }
-function d_date(field, val){
-  state.itemDraft[field] = val;
+function dateQuickPick(field, kind){
+  var now = new Date();
+  var y = now.getFullYear(), m = now.getMonth()+1, d = now.getDate();
+  var segs = {y:'',m:'',d:''};
+  if(kind==='today'){ segs={y:String(y),m:pad2(m),d:pad2(d)}; }
+  else if(kind==='thisMonth'){ segs={y:String(y),m:pad2(m),d:''}; }
+  else if(kind==='nextMonth'){ var nm=m+1, ny=y; if(nm>12){nm=1;ny++;} segs={y:String(ny),m:pad2(nm),d:''}; }
+  else if(kind==='thisYear'){ segs={y:String(y),m:'',d:''}; }
+  else if(kind==='nextYear'){ segs={y:String(y+1),m:'',d:''}; }
+  else if(kind==='yearAfterNext'){ segs={y:String(y+2),m:'',d:''}; }
+  state.itemFormUI.dateSegs = state.itemFormUI.dateSegs || {};
+  state.itemFormUI.dateSegs[field] = segs;
+  commitDateSegs(field);
   render();
 }
-function dateFieldHtml(label, field, value, domId, onchangeAttr){
-  var idAttr = domId ? ' id="'+domId+'"' : '';
-  return '<div class="field"><label>'+label+'</label><div class="date-input-row">'+
-    '<input type="date"'+idAttr+' value="'+esc(value||'')+'" onchange="'+onchangeAttr+'" style="flex:1;min-width:0;">'+
-    (value ? '<button type="button" class="icon-btn date-clear-btn" onclick="clearDraftDate('+aj(field)+')">'+ic('x',14)+'</button>' : '')+
-  '</div></div>';
-}
-// Picking a date is a discrete, one-shot action (unlike typing in a text field), so re-rendering
-// right after is safe and is what makes the "x" clear button show up immediately - it used to
-// only appear for whichever fields already had a saved value before you opened the form.
-function d_production_date(val){
-  state.itemDraft.production_date = val;
-  recomputeExpiryFromProduction();
-  render();
+function dateSegmentsFieldHtml(label, field){
+  var segs = ensureDateSegs(field);
+  var idY='dateseg-y-'+field, idM='dateseg-m-'+field, idD='dateseg-d-'+field;
+  var hasAny = segs.y || segs.m || segs.d;
+  var clearBtn = '<button type="button" id="dateclear-'+field+'" class="icon-btn date-clear-btn" style="'+(hasAny?'':'display:none;')+'" onclick="clearDraftDateSegs('+aj(field)+')">'+ic('x',14)+'</button>';
+  var quickPicksHtml = '<div class="date-quickpicks">'+
+    DATE_QUICKPICKS.map(function(k){
+      return '<div class="date-quickpick-chip" onclick="dateQuickPick('+aj(field)+','+aj(k)+')">'+t('dateQuickPick_'+k)+'</div>';
+    }).join('')+
+  '</div>';
+  return '<div class="field"><label>'+label+'</label>'+
+    '<div class="date-input-row">'+
+      '<input type="text" inputmode="numeric" maxlength="4" placeholder="YYYY" class="date-seg date-seg-y" id="'+idY+'" value="'+esc(segs.y)+'" oninput="onDateSegInput(this,'+aj(field)+',\'y\')">'+
+      '<span class="date-seg-sep">.</span>'+
+      '<input type="text" inputmode="numeric" maxlength="2" placeholder="MM" class="date-seg date-seg-m" id="'+idM+'" value="'+esc(segs.m)+'" oninput="onDateSegInput(this,'+aj(field)+',\'m\')" onblur="onDateSegBlur('+aj(field)+',\'m\')">'+
+      '<span class="date-seg-sep">.</span>'+
+      '<input type="text" inputmode="numeric" maxlength="2" placeholder="DD" class="date-seg date-seg-d" id="'+idD+'" value="'+esc(segs.d)+'" oninput="onDateSegInput(this,'+aj(field)+',\'d\')" onblur="onDateSegBlur('+aj(field)+',\'d\')">'+
+      clearBtn+
+    '</div>'+
+    quickPicksHtml+
+  '</div>';
 }
 function d_shelf_life_amount(val){
   state.itemDraft.shelf_life_amount = val===''? null : parseFloat(val);
   recomputeExpiryFromProduction();
-  // This one field stays render-free (it's continuously typed, not a discrete pick) so we
-  // patch the visible 有效期至 value directly instead - its own "x" button may lag a beat
-  // behind until the next render, which is an acceptable trade-off for not losing keystrokes.
-  var el = document.getElementById('field-expiry-date');
-  if(el) el.value = state.itemDraft.expiry_date || '';
+  syncExpiryDateSegsFromDraft();
 }
 function setShelfLifeUnit(u){
   state.itemDraft.shelf_life_unit = u;
   recomputeExpiryFromProduction();
+  syncExpiryDateSegsFromDraft();
   render();
 }
 function recomputeExpiryFromProduction(){
@@ -2338,8 +2471,8 @@ function expiryFieldHtml(d){
     return '<option value="'+u+'" '+((d.shelf_life_unit||'days')===u?'selected':'')+'>'+shelfLifeUnitLabel(u)+'</option>';
   }).join('');
   return '' +
-    dateFieldHtml(t('fieldExpiry'), 'expiry_date', d.expiry_date, 'field-expiry-date', 'd_date(\'expiry_date\',this.value)')+
-    dateFieldHtml(t('fieldProductionDate'), 'production_date', d.production_date, 'field-production-date', 'd_production_date(this.value)')+
+    dateSegmentsFieldHtml(t('fieldExpiry'), 'expiry_date')+
+    dateSegmentsFieldHtml(t('fieldProductionDate'), 'production_date')+
     '<div class="field" style="margin-bottom:0;"><label>'+t('fieldShelfLife')+'</label>'+
       '<div class="field-row">'+
         '<input type="number" inputmode="decimal" value="'+(d.shelf_life_amount==null?'':d.shelf_life_amount)+'" oninput="d_shelf_life_amount(this.value)" style="flex:2;min-width:0;">'+
@@ -2355,35 +2488,86 @@ function nutriFieldsHtml(draftPath){
   var labels = nutriLabels();
   var units = nutriUnits();
   var basisAmount = state.itemFormUI.nutriBasisAmount;
-  var basisUnit = state.itemFormUI.nutriBasisUnit;
   var basisRowHtml = '<div class="nf-basis nf-basis-edit">'+
       '<span>'+t('nutriBasisAmount')+'</span>'+
-      '<input type="number" inputmode="decimal" id="nutri-basis-amount" class="nf-basis-input" value="'+(basisAmount==null?'':basisAmount)+'" oninput="setNutriBasisAmount(this.value)">'+
-      '<select class="nf-basis-unit-select" onchange="setNutriBasisUnit(this.value)">'+['g','ml'].map(function(u){
-        return '<option value="'+u+'" '+(basisUnit===u?'selected':'')+'>'+u+'</option>';
-      }).join('')+'</select>'+
+      '<input type="text" inputmode="decimal" id="nutri-basis-amount" class="nf-basis-input" placeholder="100" value="'+(basisAmount==null?'':basisAmount)+'" oninput="setNutriBasisAmount(this.value)">'+
+      nutriBasisUnitFieldHtml()+
     '</div>';
   var calHtml = '<div class="nf-calories-row"><span>'+t('nutriCalories')+'</span><span class="nf-edit-value-wrap">'+
-      '<input type="number" inputmode="decimal" class="nf-input nf-input-cal" value="'+(draftPath.nutrition.calories||0)+'" oninput="onNutriInput(\'calories\',this.value)">'+
+      '<input type="number" inputmode="decimal" class="nf-input nf-input-cal" placeholder="-" value="'+(draftPath.nutrition.calories==null?'':draftPath.nutrition.calories)+'" oninput="onNutriInput(\'calories\',this.value)">'+
       '<span class="nf-calories-unit">kcal</span>'+
     '</span></div>';
   var rowsHtml = NUTRI_TIER1_ROWS.map(function(row){
     var cls = 'nf-row'+(row.level===1?' indent1':'')+(row.level===2?' indent2':'')+(row.bold?' bold':'');
+    var v = draftPath.nutrition[row.key];
     return '<div class="'+cls+'"><span>'+labels[row.key]+'</span><span class="nf-edit-value-wrap">'+
-      '<input type="number" inputmode="decimal" class="nf-input" value="'+(draftPath.nutrition[row.key]||0)+'" oninput="onNutriInput('+aj(row.key)+',this.value)">'+
+      '<input type="number" inputmode="decimal" class="nf-input" placeholder="-" value="'+(v==null?'':v)+'" oninput="onNutriInput('+aj(row.key)+',this.value)">'+
       '<span class="nf-input-unit">'+units[row.key]+'</span>'+
     '</span></div>';
   }).join('');
   return '<div class="nutrition-facts nutrition-facts-edit">'+basisRowHtml+calHtml+rowsHtml+'</div>';
 }
+// "1/2" style fractions (and "1 1/2" mixed numbers) are common on nutrition labels for the
+// basis amount ("per 1/2 cup" etc.) - this is only used for that one field, not general qty
+// inputs elsewhere, since that's the specific place it was asked for.
+function parseFractionOrFloat(str){
+  str = (str||'').trim();
+  if(!str) return null;
+  var mixed = str.match(/^(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/);
+  if(mixed){
+    var whole = parseFloat(mixed[1]), n1 = parseFloat(mixed[2]), d1 = parseFloat(mixed[3]);
+    return d1 ? whole + n1/d1 : whole;
+  }
+  var frac = str.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/);
+  if(frac){
+    var n2 = parseFloat(frac[1]), d2 = parseFloat(frac[2]);
+    return d2 ? n2/d2 : null;
+  }
+  var f = parseFloat(str);
+  return isNaN(f) ? null : f;
+}
 function setNutriBasisAmount(v){
-  var n = parseFloat(v);
-  state.itemFormUI.nutriBasisAmount = (v==='') ? null : (isNaN(n)? null : n);
+  state.itemFormUI.nutriBasisAmount = parseFractionOrFloat(v);
 }
 function setNutriBasisUnit(u){ state.itemFormUI.nutriBasisUnit = u; render(); }
+var NUTRI_BASIS_UNIT_OPTIONS = ['g','ml','tsp','tbsp','cup'];
+function isNutriBasisUnitCustomEditing(){
+  return !!(state.itemFormUI.customUnitEditing && state.itemFormUI.customUnitEditing.nutriBasis);
+}
+function onNutriBasisUnitSelectChange(val){
+  if(val==='__custom__'){
+    state.itemFormUI.customUnitEditing = state.itemFormUI.customUnitEditing || {};
+    state.itemFormUI.customUnitEditing.nutriBasis = true;
+    render();
+    return;
+  }
+  setNutriBasisUnit(val);
+}
+function onNutriBasisUnitCustomInput(val){ state.itemFormUI.nutriBasisUnit = val; }
+function onNutriBasisUnitCustomBlur(val){
+  val = val.trim();
+  state.itemFormUI.nutriBasisUnit = val;
+  if(val) addGlobalUnitIfNew(val);
+  state.itemFormUI.customUnitEditing = state.itemFormUI.customUnitEditing || {};
+  state.itemFormUI.customUnitEditing.nutriBasis = false;
+  render();
+}
+function nutriBasisUnitFieldHtml(){
+  var current = state.itemFormUI.nutriBasisUnit || 'g';
+  if(isNutriBasisUnitCustomEditing()){
+    return '<input type="text" class="nf-basis-input" style="width:74px;" value="'+esc(current)+'" placeholder="'+t('fieldUnitCustomPh')+'" autofocus '+
+      'oninput="onNutriBasisUnitCustomInput(this.value)" onblur="onNutriBasisUnitCustomBlur(this.value)">';
+  }
+  var opts = NUTRI_BASIS_UNIT_OPTIONS.concat((state.units||[]).filter(function(u){ return NUTRI_BASIS_UNIT_OPTIONS.indexOf(u)===-1; }));
+  if(current && opts.indexOf(current)===-1) opts = opts.concat([current]);
+  var optsHtml = opts.map(function(u){ return '<option value="'+esc(u)+'" '+(u===current?'selected':'')+'>'+esc(u)+'</option>'; }).join('')+
+    '<option value="__custom__">'+t('unitCustomOption')+'</option>';
+  return '<select class="nf-basis-unit-select" onchange="onNutriBasisUnitSelectChange(this.value)">'+optsHtml+'</select>';
+}
 function setPriceCurrency(c){ state.itemDraft.price_currency = c; render(); }
 function onNutriInput(key, val){
-  state.itemDraft.nutrition[key] = parseFloat(val)||0;
+  var n = (val==='') ? null : parseFloat(val);
+  state.itemDraft.nutrition[key] = (n==null || isNaN(n)) ? null : n;
   state.itemDraft.nutrition_edited = true;
 }
 // Continues the same box style as a second card: 4 mandatory-on-label micronutrients always
@@ -2454,7 +2638,7 @@ function renderItemForm(){
     '<div class="form-group">'+
       '<div class="field"><label>'+t('fieldName')+' *</label><input type="text" value="'+esc(d.name)+'" placeholder="'+t('fieldNamePh')+'" oninput="d_str(\'name\',this.value)"></div>'+
       '<div class="field"><label>'+t('fieldBrand')+'</label><input type="text" value="'+esc(d.brand)+'" placeholder="'+t('fieldBrandPh')+'" oninput="d_str(\'brand\',this.value)"></div>'+
-      (d.barcode ? '<div class="field" style="margin-bottom:0;"><label>'+t('fieldBarcode')+'</label><input type="text" value="'+esc(d.barcode)+'" oninput="d_str(\'barcode\',this.value)"></div>' : '')+
+      '<div class="field" style="margin-bottom:0;"><label>'+t('fieldBarcode')+'</label><input type="text" inputmode="numeric" value="'+esc(d.barcode||'')+'" placeholder="'+t('fieldBarcodePh')+'" oninput="d_str(\'barcode\',this.value)"></div>'+
     '</div>'+
     '<div class="section-title">'+t('fieldPhoto')+'</div>'+
     '<div class="form-group">'+
@@ -2476,7 +2660,7 @@ function renderItemForm(){
     '<div class="section-title">'+t('sectionOther')+'</div>'+
     '<div class="form-group">'+
       expiryFieldHtml(d)+
-      dateFieldHtml(t('fieldPurchaseDate'), 'purchase_date', d.purchase_date, null, 'd_date(\'purchase_date\',this.value)')+
+      dateSegmentsFieldHtml(t('fieldPurchaseDate'), 'purchase_date')+
       '<div class="field"><label>'+t('fieldPrice')+'</label>'+
         '<div style="display:flex;gap:8px;align-items:center;">'+
           '<input type="number" inputmode="decimal" value="'+(d.price||'')+'" oninput="d_num(\'price\',this.value)" style="flex:2;min-width:0;">'+
