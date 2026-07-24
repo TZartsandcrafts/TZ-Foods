@@ -343,15 +343,16 @@
   }
   .field select:focus{ border-color:var(--almond); }
   .inline-dd-trigger{
-    width:100%; font-size:16px; padding:13px 14px; border-radius:11px; box-sizing:border-box;
+    width:100%; height:48px; box-sizing:border-box; font-size:16px; padding:0 14px; border-radius:11px;
     border:1px solid var(--line); background:var(--card-bg); color:var(--cocoa);
     display:flex; align-items:center; justify-content:space-between; gap:6px; cursor:pointer;
   }
+  .inline-dd-trigger span{ overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
   .inline-dd-trigger:active{ border-color:var(--almond); }
   .inline-dd-trigger svg{ color:#B79B78; }
   .inline-dd-list{
     border:1px solid var(--line); border-top:none; border-radius:0 0 11px 11px;
-    background:var(--card-bg); overflow:hidden; margin-top:-1px;
+    background:var(--card-bg); overflow-y:auto; max-height:180px; margin-top:-1px;
   }
   .inline-dd-option{ padding:12px 14px; font-size:15px; color:var(--cocoa); border-top:1px solid var(--line); cursor:pointer; }
   .inline-dd-option:active{ background:var(--cream); }
@@ -1252,30 +1253,44 @@ function showToast(msg){
 function categoryLabel(catName){ return catName || (state.lang==='zh' ? '未分类' : 'Uncategorized'); }
 
 /* ======================= UNIT CONVERSION (per inventory item) ======================= */
-// item.primary_unit / primary_qty : the unit used at purchase time, source of truth
-// item.secondary_units : array of extra convenience units, e.g. [{unit:'只', qty:6, ratio:0.5}, ...]
-//   ratio = how many primary units 1 of this group's unit is worth, established the first
+// item.primary_unit / primary_qty : the "count" unit used at purchase time, source of truth
+// item.primary_pack_amount / primary_pack_unit : optional "规格" - how much ONE count-unit
+//   holds (e.g. 500 g per bottle). Fixed/descriptive - deducting/adding never changes this,
+//   only the count (primary_qty) does. Not required; a group can be count-only.
+// item.secondary_units : array of extra convenience units, e.g. [{unit:'只', qty:6, ratio:0.5,
+//   pack_amount:null, pack_unit:''}, ...] - same pack_amount/pack_unit idea, per group.
+//   ratio = how many primary units 1 of this group's count-unit is worth, established the first
 //   time a group has both a unit and a quantity filled in (see saveItemForm) and then locked -
 //   to recalibrate it, delete the group on the edit page and add it again with the corrected count.
+// resolveDeductionTarget maps ANY unit belonging to this item (a count-unit or a pack-unit, on
+// the primary group or any secondary group) to "how many primary-count-units is 1 of this unit
+// worth" - deductFromItem/addBackToItem then just multiply by that once, uniformly, whether the
+// person is recording usage in "瓶" or directly in "g".
+function resolveDeductionTarget(item, unit){
+  if(!unit) return null;
+  if(unit === item.primary_unit) return {kind:'primary_count', toPrimaryRatio:1};
+  if(unit === item.primary_pack_unit && item.primary_pack_amount) return {kind:'primary_pack', toPrimaryRatio: 1/item.primary_pack_amount};
+  var secs = item.secondary_units || [];
+  for(var i=0;i<secs.length;i++){
+    var g = secs[i];
+    if(g.unit === unit && g.ratio) return {kind:'secondary_count', idx:i, toPrimaryRatio: g.ratio};
+    if(g.pack_unit === unit && g.pack_amount && g.ratio) return {kind:'secondary_pack', idx:i, toPrimaryRatio: g.ratio/g.pack_amount};
+  }
+  return null;
+}
 function findQtyGroup(item, unit){
   return (item.secondary_units||[]).find(function(g){ return g.unit===unit; });
 }
 // Attempts to deduct `amount` of `unit` from an inventory item. Returns {ok, reason}
 function deductFromItem(item, amount, unit){
   if(amount <= 0) return {ok:true};
-  var amountInPrimary;
-  if(unit === item.primary_unit){
-    amountInPrimary = amount;
-  } else {
-    var grp = findQtyGroup(item, unit);
-    if(!grp || grp.qty == null || !grp.ratio) return {ok:false, reason:'no_conversion'};
-    amountInPrimary = amount * grp.ratio;
-  }
+  var target = resolveDeductionTarget(item, unit);
+  if(!target) return {ok:false, reason:'no_conversion'};
+  var amountInPrimary = amount * target.toPrimaryRatio;
   item.primary_qty = Math.max(0, (item.primary_qty||0) - amountInPrimary);
   (item.secondary_units||[]).forEach(function(g){
-    if(g.qty == null) return;
-    if(g.unit === unit){ g.qty = Math.max(0, g.qty - amount); }
-    else if(g.ratio){ g.qty = Math.max(0, g.qty - amountInPrimary/g.ratio); }
+    if(g.qty == null || !g.ratio) return;
+    g.qty = Math.max(0, g.qty - amountInPrimary/g.ratio);
   });
   item.updated_at = nowLocalIso();
   return {ok:true};
@@ -1285,29 +1300,26 @@ function deductFromItem(item, amount, unit){
 // whatever the new amount is.
 function addBackToItem(item, amount, unit){
   if(amount <= 0) return {ok:true};
-  var amountInPrimary;
-  if(unit === item.primary_unit){
-    amountInPrimary = amount;
-  } else {
-    var grp = findQtyGroup(item, unit);
-    if(!grp || grp.qty == null || !grp.ratio) return {ok:false, reason:'no_conversion'};
-    amountInPrimary = amount * grp.ratio;
-  }
+  var target = resolveDeductionTarget(item, unit);
+  if(!target) return {ok:false, reason:'no_conversion'};
+  var amountInPrimary = amount * target.toPrimaryRatio;
   item.primary_qty = (item.primary_qty||0) + amountInPrimary;
   (item.secondary_units||[]).forEach(function(g){
-    if(g.qty == null) return;
-    if(g.unit === unit){ g.qty = g.qty + amount; }
-    else if(g.ratio){ g.qty = g.qty + amountInPrimary/g.ratio; }
+    if(g.qty == null || !g.ratio) return;
+    g.qty = g.qty + amountInPrimary/g.ratio;
   });
   item.updated_at = nowLocalIso();
   return {ok:true};
 }
 function qtyGroupDisplayText(qty, unit, packAmount, packUnit, qtyDigits){
-  var countText = fmtNum(qty, qtyDigits) + (unit||'');
   if(packAmount!=null && packUnit){
-    return fmtNum(packAmount,2)+packUnit+' x '+countText;
+    // A partially-used container reads more naturally as "about 1.5 bottles left" than
+    // "1.9137 bottles" - round the shown count to the nearest half-unit. The real, precise
+    // amount is still what's stored and used for the next deduction; this only affects display.
+    var displayQty = (qty==null) ? null : Math.round(qty*2)/2;
+    return fmtNum(packAmount,2)+packUnit+' x '+fmtNum(displayQty, qtyDigits)+(unit||'');
   }
-  return countText;
+  return fmtNum(qty, qtyDigits) + (unit||'');
 }
 function qtyDisplay(item){
   var parts = [qtyGroupDisplayText(item.primary_qty, item.primary_unit, item.primary_pack_amount, item.primary_pack_unit, 2)];
@@ -1361,10 +1373,10 @@ function amountToBasisUnits(amount, unit, sourceItem){
     if(sourceItem.primary_unit === '个') return null;
   }
   if(sourceItem){
-    var srcGrp = findQtyGroup(sourceItem, unit);
-    if(srcGrp && srcGrp.ratio){
-      // amount is in a secondary count unit -> convert to primary qty -> then to basis
-      var primaryEquivalent = amount * srcGrp.ratio;
+    var target = resolveDeductionTarget(sourceItem, unit);
+    if(target){
+      // amount is in some other unit belonging to this item -> convert to primary qty -> then to basis
+      var primaryEquivalent = amount * target.toPrimaryRatio;
       return amountToBasisUnits(primaryEquivalent, sourceItem.primary_unit, null);
     }
   }
@@ -2628,7 +2640,7 @@ function nutriFieldsHtml(draftPath){
   var basisAmount = state.itemFormUI.nutriBasisAmount;
   var basisRowHtml = '<div class="nf-basis nf-basis-edit">'+
       '<span>'+t('nutriBasisAmount')+'</span>'+
-      '<input type="text" inputmode="decimal" id="nutri-basis-amount" class="nf-basis-input" placeholder="100" value="'+(basisAmount==null?'':basisAmount)+'" oninput="setNutriBasisAmount(this.value)">'+
+      '<input type="text" inputmode="decimal" id="nutri-basis-amount" class="nf-basis-input" placeholder="-" value="'+(basisAmount==null?'':basisAmount)+'" oninput="setNutriBasisAmount(this.value)">'+
       nutriBasisUnitFieldHtml()+
     '</div>';
   var calHtml = '<div class="nf-calories-row"><span>'+t('nutriCalories')+'</span><span class="nf-edit-value-wrap">'+
@@ -3182,14 +3194,27 @@ function openUsageLogEdit(itemId, entryId){
   };
   navigate('usageLogAdd', {id:itemId});
 }
+// Every unit this item can be deducted/added in - count units and pack/spec units alike -
+// used by the usage-log unit picker, recipe ingredient unit picker, and the recipe
+// "can this actually be deducted from stock" check.
+function allUnitsForItem(item){
+  var units = [];
+  if(item.primary_unit) units.push(item.primary_unit);
+  if(item.primary_pack_unit && item.primary_pack_amount) units.push(item.primary_pack_unit);
+  (item.secondary_units||[]).forEach(function(g){
+    if(g.unit) units.push(g.unit);
+    if(g.pack_unit && g.pack_amount && g.ratio) units.push(g.pack_unit);
+  });
+  // de-dupe while preserving order
+  return units.filter(function(u,i){ return units.indexOf(u)===i; });
+}
 function renderUsageLogAdd(){
   var id = state.params.id;
   var it = state.items.find(function(i){ return i.id===id; });
   if(!it || !state.usageDraft) return renderHome();
   var d = state.usageDraft;
   var editing = !!d._editingEntryId;
-  var unitOptions = [it.primary_unit];
-  (it.secondary_units||[]).forEach(function(g){ if(g.unit) unitOptions.push(g.unit); });
+  var unitOptions = allUnitsForItem(it);
   var recipeLabel = d.recipe_id ? recipeNameForUsage(d.recipe_id) : t('usagePickRecipePlaceholder');
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'usageLog\',{id:'+aj(id)+'})">'+ic('back',22)+'</button><h1>'+t(editing?'usageLogEditTitle':'usageLogAddTitle')+'</h1></div>'+
@@ -4075,9 +4100,8 @@ function addRecipeGroupFromSidebar(){ addRecipeGroupFromInput('new-recipe-group-
 function recipeUnitOptionsForItem(item){
   var opts = ['g','kg','ml','l'];
   if(item){
-    if(item.primary_unit && opts.indexOf(item.primary_unit)===-1) opts.unshift(item.primary_unit);
-    (item.secondary_units||[]).forEach(function(g){
-      if(g.unit && opts.indexOf(g.unit)===-1) opts.unshift(g.unit);
+    allUnitsForItem(item).forEach(function(u){
+      if(opts.indexOf(u)===-1) opts.unshift(u);
     });
   }
   return opts;
@@ -4463,7 +4487,7 @@ function openCookConfirm(recipeId){
     if(!item){
       return {text: esc(ri.name_snapshot)+': '+fmtNum(ri.amount,1)+' '+esc(ri.unit), note:(state.lang==='zh'?'(已从库存中移除)':'(removed from inventory)')};
     }
-    var canDeduct = (ri.unit===item.primary_unit) || (item.secondary_units||[]).some(function(g){ return g.unit===ri.unit && g.qty!=null; });
+    var canDeduct = resolveDeductionTarget(item, ri.unit) != null;
     return {text: esc(item.name)+': '+fmtNum(ri.amount,1)+' '+esc(ri.unit), note: canDeduct?'':t('cookConfirmNoConversion')};
   });
   var bodyHtml = '<p class="hint" style="margin-bottom:14px;">'+t('cookConfirmHint')+'</p>' +
