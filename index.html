@@ -342,9 +342,30 @@
     background-repeat:no-repeat; background-position:right 12px center; background-size:18px;
   }
   .field select:focus{ border-color:var(--almond); }
+  .inline-dd-trigger{
+    width:100%; font-size:16px; padding:13px 14px; border-radius:11px; box-sizing:border-box;
+    border:1px solid var(--line); background:var(--card-bg); color:var(--cocoa);
+    display:flex; align-items:center; justify-content:space-between; gap:6px; cursor:pointer;
+  }
+  .inline-dd-trigger:active{ border-color:var(--almond); }
+  .inline-dd-trigger svg{ color:#B79B78; }
+  .inline-dd-list{
+    border:1px solid var(--line); border-top:none; border-radius:0 0 11px 11px;
+    background:var(--card-bg); overflow:hidden; margin-top:-1px;
+  }
+  .inline-dd-option{ padding:12px 14px; font-size:15px; color:var(--cocoa); border-top:1px solid var(--line); cursor:pointer; }
+  .inline-dd-option:active{ background:var(--cream); }
+  .inline-dd-option.active{ color:var(--almond); font-weight:600; }
   .qty-group-row{ align-items:flex-end; }
   .qty-group-remove{ width:46px; height:46px; flex-shrink:0; }
   .qty-group-add{ display:inline-block; margin-top:12px; }
+  .qty-spec-row{ display:flex; align-items:center; gap:5px; flex-wrap:wrap; }
+  .qty-spec-amount{ flex:1.3 1 62px; min-width:0; }
+  .qty-spec-unit{ flex:1.1 1 56px; min-width:0; }
+  .qty-spec-x{ flex:0 0 auto; font-weight:700; font-size:15px; color:var(--deep-caramel); }
+  .qty-spec-count{ flex:1 1 50px; min-width:0; }
+  .qty-spec-countunit{ flex:1.1 1 56px; min-width:0; }
+  .qty-spec-row .qty-group-remove{ width:40px; height:40px; }
   .date-input-row{ display:flex; gap:8px; align-items:center; }
   .date-clear-btn{ width:40px; height:40px; flex-shrink:0; }
   .date-seg{
@@ -637,9 +658,10 @@ var I18N = {
     // item form
     itemFormTitleAdd:'添加食材', itemFormTitleEdit:'编辑食材',
     fieldName:'名称', fieldNamePh:'例如：鸡蛋', fieldBrand:'品牌', fieldBrandPh:'例如：某某牧场',
+    fieldSource:'来源', fieldSourcePh:'例如：Costco、朋友送的、自家种的',
     fieldBarcode:'条码', fieldBarcodePh:'可手动输入或留空',
     fieldCategory:'分类', fieldLocation:'位置',
-    fieldQty:'数量', fieldQtyPh:'如 8，或 796x8', fieldUnit:'单位',
+    fieldQty:'数量', fieldQtyPh:'如 8', fieldPackAmountPh:'规格，如 796', fieldUnit:'单位',
     fieldSecondaryQty:'次要计量(可选)', fieldSecondaryUnit:'次要单位',
     fieldExpiry:'有效期至', fieldPurchaseDate:'购买日期', fieldPrice:'价格',
     fieldNotes:'备注', fieldNotesPh:'其他备注信息',
@@ -797,9 +819,10 @@ var I18N = {
     statusExpired:'Expired', statusSoonPrefix:'', statusSoonDays:'d left', statusFresh:'Fresh', statusToday:'Due today',
     itemFormTitleAdd:'Add item', itemFormTitleEdit:'Edit item',
     fieldName:'Name', fieldNamePh:'e.g. Eggs', fieldBrand:'Brand', fieldBrandPh:'e.g. Farm Co.',
+    fieldSource:'Source', fieldSourcePh:'e.g. Costco, gift, homegrown',
     fieldBarcode:'Barcode', fieldBarcodePh:'Optional, can enter manually',
     fieldCategory:'Category', fieldLocation:'Location',
-    fieldQty:'Quantity', fieldQtyPh:'e.g. 8, or 796x8', fieldUnit:'Unit',
+    fieldQty:'Quantity', fieldQtyPh:'e.g. 8', fieldPackAmountPh:'Size, e.g. 796', fieldUnit:'Unit',
     fieldSecondaryQty:'Secondary count (optional)', fieldSecondaryUnit:'Secondary unit',
     fieldExpiry:'Best before', fieldPurchaseDate:'Purchase date', fieldPrice:'Price',
     fieldNotes:'Notes', fieldNotesPh:'Additional notes',
@@ -1279,10 +1302,17 @@ function addBackToItem(item, amount, unit){
   item.updated_at = nowLocalIso();
   return {ok:true};
 }
+function qtyGroupDisplayText(qty, unit, packAmount, packUnit, qtyDigits){
+  var countText = fmtNum(qty, qtyDigits) + (unit||'');
+  if(packAmount!=null && packUnit){
+    return fmtNum(packAmount,2)+packUnit+' x '+countText;
+  }
+  return countText;
+}
 function qtyDisplay(item){
-  var parts = [fmtNum(item.primary_qty,2) + item.primary_unit];
+  var parts = [qtyGroupDisplayText(item.primary_qty, item.primary_unit, item.primary_pack_amount, item.primary_pack_unit, 2)];
   (item.secondary_units||[]).forEach(function(g){
-    if(g.unit && g.qty != null) parts.push(fmtNum(g.qty,1) + g.unit);
+    if(g.unit && g.qty != null) parts.push(qtyGroupDisplayText(g.qty, g.unit, g.pack_amount, g.pack_unit, 1));
   });
   return parts.join(' / ');
 }
@@ -2119,15 +2149,15 @@ function toggleLang(){
 /* ======================= ITEM FORM (add/edit) ======================= */
 function blankItemDraft(){
   return {
-    id: uid(), name:'', brand:'', barcode:'',
+    id: uid(), name:'', brand:'', source:'', barcode:'',
     category:'', location:'',
-    primary_qty:1, primary_unit:'g',
+    primary_qty:null, primary_unit:'g', primary_pack_amount:null, primary_pack_unit:'',
     secondary_units:[], last_recount_at:null,
     expiry_date:'', purchase_date: todayStr(), price:'', price_currency:'CAD',
     production_date:'', shelf_life_amount:null, shelf_life_unit:'days',
     notes:'', nutrition: emptyNutrition(), nutrition_edited:false,
     nutrition_extra: emptyNutritionExtra(), nutrition_extra_selected:[],
-    nutrition_basis_amount:100, nutrition_basis_unit:'g',
+    nutrition_basis_amount:null, nutrition_basis_unit:'g',
     usage_log:[],
     photo_url:'', created_at: nowLocalIso(), updated_at: nowLocalIso()
   };
@@ -2158,7 +2188,7 @@ function openItemForm(id, prefill){
   // actually saved with, not silently reset to 100g every time.
   state.itemFormUI = {
     addingCategory:false, addingLocation:false, customUnitEditing:{},
-    nutriBasisAmount: state.itemDraft.nutrition_basis_amount || 100,
+    nutriBasisAmount: state.itemDraft.nutrition_basis_amount,
     nutriBasisUnit: state.itemDraft.nutrition_basis_unit || 'g',
     returnTo: returnTo,
     dateSegs: {
@@ -2175,6 +2205,29 @@ function openItemForm(id, prefill){
   };
   navigate('itemForm', {id:id});
 }
+/* ---- inline (non-native) dropdown: fixes iOS Safari's native <select> popup rendering
+   wider than the trigger box when option text is long (a real width-mismatch OS renders,
+   not something CSS can constrain on a native <select>). This opens as normal in-flow
+   content instead of OS-drawn floating chrome, so its width always exactly matches the
+   trigger - no positioning/overlay code needed since nothing is ever absolutely positioned. */
+function toggleUnitDropdown(key){
+  state.itemFormUI.openUnitDropdown = (state.itemFormUI.openUnitDropdown===key) ? null : key;
+  render();
+}
+function inlineDropdownHtml(key, currentValue, options, selectFnName, placeholderText){
+  var isOpen = state.itemFormUI.openUnitDropdown === key;
+  var label = currentValue ? esc(currentValue) : ('<span style="color:#B79B78;">'+esc(placeholderText||'')+'</span>');
+  var trigger = '<div class="inline-dd-trigger" onclick="toggleUnitDropdown('+aj(key)+')"><span>'+label+'</span>'+
+      ic('chevronRight',14,'style="transform:rotate('+(isOpen?'90':'0')+'deg);transition:transform .15s;flex-shrink:0;"')+
+    '</div>';
+  if(!isOpen) return trigger;
+  var listHtml = '<div class="inline-dd-list">'+options.map(function(opt){
+    var val = (typeof opt==='object') ? opt.value : opt;
+    var lbl = (typeof opt==='object') ? opt.label : opt;
+    return '<div class="inline-dd-option '+(val===currentValue?'active':'')+'" onclick="'+selectFnName+'('+aj(key)+','+aj(val)+')">'+esc(lbl)+'</div>';
+  }).join('')+'</div>';
+  return trigger + listHtml;
+}
 /* ---- quantity groups: primary unit + any number of extra "also counted in" units ---- */
 function unitSelectOptions(currentUnit){
   var opts = UNIT_OPTIONS.concat((state.units||[]).filter(function(u){ return UNIT_OPTIONS.indexOf(u)===-1; }));
@@ -2190,13 +2243,13 @@ function addGlobalUnitIfNew(u){
   }
 }
 function qtyGroupUnitKey(idx){ return idx==null ? 'primary' : ('sec'+idx); }
-function isCustomUnitEditing(idx){
+function isCustomUnitEditing(key){
   var m = (state.itemFormUI && state.itemFormUI.customUnitEditing) || {};
-  return !!m[qtyGroupUnitKey(idx)];
+  return !!m[key];
 }
-function setCustomUnitEditing(idx, flag){
+function setCustomUnitEditing(key, flag){
   state.itemFormUI.customUnitEditing = state.itemFormUI.customUnitEditing || {};
-  state.itemFormUI.customUnitEditing[qtyGroupUnitKey(idx)] = flag;
+  state.itemFormUI.customUnitEditing[key] = flag;
 }
 function qtyGroupUnitValue(idx){
   return idx==null ? state.itemDraft.primary_unit : ((state.itemDraft.secondary_units[idx]||{}).unit || '');
@@ -2206,7 +2259,8 @@ function setQtyGroupUnitValue(idx, val){
   else state.itemDraft.secondary_units[idx].unit = val;
 }
 function onQtyUnitSelectChange(idx, val){
-  if(val==='__custom__'){ setCustomUnitEditing(idx, true); render(); return; }
+  toggleUnitDropdown(qtyGroupUnitKey(idx)); // close the dropdown
+  if(val==='__custom__'){ setCustomUnitEditing(qtyGroupUnitKey(idx), true); render(); return; }
   setQtyGroupUnitValue(idx, val);
   render();
 }
@@ -2215,21 +2269,21 @@ function onQtyUnitCustomBlur(idx, val){
   val = val.trim();
   setQtyGroupUnitValue(idx, val);
   if(val) addGlobalUnitIfNew(val);
-  setCustomUnitEditing(idx, false);
+  setCustomUnitEditing(qtyGroupUnitKey(idx), false);
   render();
 }
 function qtyGroupUnitFieldHtml(idx){
   var current = qtyGroupUnitValue(idx);
-  if(isCustomUnitEditing(idx)){
+  if(isCustomUnitEditing(qtyGroupUnitKey(idx))){
     return '<input type="text" value="'+esc(current)+'" placeholder="'+t('fieldUnitCustomPh')+'" autofocus '+
       'oninput="onQtyUnitCustomInput('+aj(idx)+',this.value)" onblur="onQtyUnitCustomBlur('+aj(idx)+',this.value)">';
   }
-  var optsHtml = (current ? '' : '<option value="" disabled selected>'+t('unitPickPlaceholder')+'</option>') +
-    unitSelectOptions(current).map(function(u){
-      return '<option value="'+esc(u)+'" '+(u===current?'selected':'')+'>'+esc(u)+'</option>';
-    }).join('') +
-    '<option value="__custom__">'+t('unitCustomOption')+'</option>';
-  return '<select onchange="onQtyUnitSelectChange('+aj(idx)+',this.value)">'+optsHtml+'</select>';
+  var opts = unitSelectOptions(current).concat([{value:'__custom__', label:t('unitCustomOption')}]);
+  return inlineDropdownHtml(qtyGroupUnitKey(idx), current, opts, 'onQtyUnitDropdownPick', t('unitPickPlaceholder'));
+}
+function onQtyUnitDropdownPick(key, val){
+  var idx = key==='primary' ? null : parseInt(key.slice(3),10);
+  onQtyUnitSelectChange(idx, val);
 }
 // Lets a quantity field accept "796x8" (or 796×8 / 796*8) - the per-unit size and pack count
 // exactly as printed on a multi-pack product - instead of making the person multiply it
@@ -2256,27 +2310,80 @@ function onSecondaryQtyBlur(el, idx){
 }
 function addQtyGroup(){
   state.itemDraft.secondary_units = state.itemDraft.secondary_units || [];
-  state.itemDraft.secondary_units.push({unit:'', qty:null, ratio:null});
+  state.itemDraft.secondary_units.push({unit:'', qty:null, ratio:null, pack_amount:null, pack_unit:''});
   render();
 }
 function removeQtyGroup(idx){
   state.itemDraft.secondary_units.splice(idx, 1);
   state.itemFormUI.customUnitEditing = {};
+  state.itemFormUI.openUnitDropdown = null;
   render();
 }
+function packUnitKey(idx){ return idx==null ? 'packprimary' : ('packsec'+idx); }
+function packAmountValue(idx){
+  return idx==null ? state.itemDraft.primary_pack_amount : (state.itemDraft.secondary_units[idx]||{}).pack_amount;
+}
+function packUnitValue(idx){
+  return idx==null ? (state.itemDraft.primary_pack_unit||'') : ((state.itemDraft.secondary_units[idx]||{}).pack_unit || '');
+}
+function setPackAmount(idx, val){
+  var v = (val==='') ? null : parseFloat(val);
+  if(idx==null) state.itemDraft.primary_pack_amount = v;
+  else state.itemDraft.secondary_units[idx].pack_amount = v;
+}
+function setPackUnitValue(idx, val){
+  if(idx==null) state.itemDraft.primary_pack_unit = val;
+  else state.itemDraft.secondary_units[idx].pack_unit = val;
+}
+var PACK_UNIT_BASE_OPTIONS = ['g','ml','kg'];
+function onPackUnitDropdownPick(key, val){
+  var idx = key==='packprimary' ? null : parseInt(key.slice(7),10);
+  toggleUnitDropdown(key);
+  if(val==='__custom__'){ setCustomUnitEditing(key, true); render(); return; }
+  setPackUnitValue(idx, val);
+  render();
+}
+function onPackUnitCustomInput(idx, val){ setPackUnitValue(idx, val); }
+function onPackUnitCustomBlur(idx, val){
+  val = val.trim();
+  setPackUnitValue(idx, val);
+  if(val) addGlobalUnitIfNew(val);
+  setCustomUnitEditing(packUnitKey(idx), false);
+  render();
+}
+function packUnitFieldHtml(idx){
+  var current = packUnitValue(idx);
+  var key = packUnitKey(idx);
+  if(isCustomUnitEditing(key)){
+    return '<input type="text" value="'+esc(current)+'" placeholder="'+t('fieldUnitCustomPh')+'" autofocus '+
+      'oninput="onPackUnitCustomInput('+aj(idx)+',this.value)" onblur="onPackUnitCustomBlur('+aj(idx)+',this.value)">';
+  }
+  var opts = PACK_UNIT_BASE_OPTIONS.concat((state.units||[]).filter(function(u){ return PACK_UNIT_BASE_OPTIONS.indexOf(u)===-1; }));
+  if(current && opts.indexOf(current)===-1) opts = opts.concat([current]);
+  opts = opts.concat([{value:'__custom__', label:t('unitCustomOption')}]);
+  return inlineDropdownHtml(key, current, opts, 'onPackUnitDropdownPick', t('unitPickPlaceholder'));
+}
+function qtyGroupSpecRowHtml(idx, isLast){
+  var packAmt = packAmountValue(idx);
+  var qty = idx==null ? state.itemDraft.primary_qty : (state.itemDraft.secondary_units[idx]||{}).qty;
+  var qtyOninput = idx==null ? 'setPrimaryQty(this.value)' : 'setSecondaryQty('+idx+',this.value)';
+  var qtyOnblur = idx==null ? 'onPrimaryQtyBlur(this)' : 'onSecondaryQtyBlur(this,'+idx+')';
+  var removeBtn = (idx!=null) ? '<button type="button" class="icon-btn qty-group-remove" onclick="removeQtyGroup('+idx+')">'+ic('x',16)+'</button>' : '';
+  return '<div class="field" style="margin-bottom:0;"><label>'+t('fieldQty')+'</label>'+
+    '<div class="qty-spec-row">'+
+      '<input type="text" inputmode="decimal" class="qty-spec-amount" placeholder="'+t('fieldPackAmountPh')+'" value="'+(packAmt==null?'':packAmt)+'" oninput="setPackAmount('+aj(idx)+',this.value)">'+
+      '<div class="qty-spec-unit">'+packUnitFieldHtml(idx)+'</div>'+
+      '<span class="qty-spec-x">x</span>'+
+      '<input type="text" inputmode="decimal" class="qty-spec-count" placeholder="'+t('fieldQtyPh')+'" value="'+(qty==null?'':qty)+'" oninput="'+qtyOninput+'" onblur="'+qtyOnblur+'">'+
+      '<div class="qty-spec-countunit">'+qtyGroupUnitFieldHtml(idx)+'</div>'+
+      removeBtn+
+    '</div>'+
+  '</div>';
+}
 function qtyGroupsHtml(d){
-  var rows = '<div class="field-row qty-group-row">'+
-      '<div class="field" style="flex:2;margin-bottom:0;"><label>'+t('fieldQty')+'</label>'+
-        '<input type="text" inputmode="decimal" placeholder="'+t('fieldQtyPh')+'" value="'+(d.primary_qty==null?'':d.primary_qty)+'" oninput="setPrimaryQty(this.value)" onblur="onPrimaryQtyBlur(this)"></div>'+
-      '<div class="field" style="flex:1;margin-bottom:0;"><label>'+t('fieldUnit')+'</label>'+qtyGroupUnitFieldHtml(null)+'</div>'+
-    '</div>';
+  var rows = qtyGroupSpecRowHtml(null);
   rows += (d.secondary_units||[]).map(function(g, idx){
-    return '<div class="field-row qty-group-row" style="margin-top:12px;align-items:flex-end;">'+
-        '<div class="field" style="flex:2;margin-bottom:0;"><label>'+t('fieldQty')+'</label>'+
-          '<input type="text" inputmode="decimal" placeholder="'+t('fieldQtyPh')+'" value="'+(g.qty==null?'':g.qty)+'" oninput="setSecondaryQty('+idx+',this.value)" onblur="onSecondaryQtyBlur(this,'+idx+')"></div>'+
-        '<div class="field" style="flex:1;margin-bottom:0;"><label>'+t('fieldUnit')+'</label>'+qtyGroupUnitFieldHtml(idx)+'</div>'+
-        '<button type="button" class="icon-btn qty-group-remove" onclick="removeQtyGroup('+idx+')">'+ic('x',16)+'</button>'+
-      '</div>';
+    return '<div style="margin-top:12px;">'+qtyGroupSpecRowHtml(idx)+'</div>';
   }).join('');
   rows += '<div class="tag-option qty-group-add" onclick="addQtyGroup()">+ '+t('addQtyGroup')+'</div>';
   return rows;
@@ -2390,7 +2497,11 @@ function onDateSegInput(inputEl, field, seg){
     var mEl = document.getElementById('dateseg-m-'+field);
     if(mEl) mEl.focus();
   }
-  if(seg==='m' && v.length===2){
+  // Month is unambiguous after just one digit unless it could still become a 2-digit month
+  // (10/11/12), i.e. unless the first digit is 0 or 1 - so 2-9 can advance immediately instead
+  // of waiting for a second digit that's never coming.
+  if(seg==='m' && (v.length===2 || (v.length===1 && v!=='0' && v!=='1'))){
+    if(v.length===1){ v = '0'+v; inputEl.value=v; segs.m=v; }
     var dEl = document.getElementById('dateseg-d-'+field);
     if(dEl) dEl.focus();
   }
@@ -2403,7 +2514,14 @@ function onDateSegBlur(field, seg){
     ensureDateSegs(field)[seg] = el.value;
   }
   commitDateSegs(field);
-  render();
+  // Deliberately not calling render() here: it would replace the whole DOM tree right as the
+  // person's tap lands on whichever box they're moving focus to next, making that tap miss
+  // (the original element they touched no longer exists once render() swaps it out). Patch
+  // just the clear button directly instead.
+  var segs = ensureDateSegs(field);
+  var hasAny = segs.y || segs.m || segs.d;
+  var clearBtn = document.getElementById('dateclear-'+field);
+  if(clearBtn) clearBtn.style.display = hasAny ? '' : 'none';
 }
 function clearDraftDateSegs(field){
   state.itemFormUI.dateSegs = state.itemFormUI.dateSegs || {};
@@ -2426,24 +2544,44 @@ function dateQuickPick(field, kind){
   state.itemFormUI.dateSegs[field] = segs;
   commitDateSegs(field);
   render();
+  // Jump the cursor straight to whichever box the quick-pick left for you to fill in (今天
+  // fills all three so there's nothing left; 本月/下月 leave day; 今年/明年/后年 leave month).
+  var next = !segs.m ? 'm' : (!segs.d ? 'd' : null);
+  if(next){
+    var el = document.getElementById('dateseg-'+next+'-'+field);
+    if(el) el.focus();
+  }
+}
+function setFocusedDateField(field){
+  state.itemFormUI.focusedDateField = field;
+  ['expiry_date','production_date','purchase_date'].forEach(function(f){
+    var el = document.getElementById('datequickpicks-'+f);
+    if(el) el.style.display = (f===field) ? '' : 'none';
+  });
 }
 function dateSegmentsFieldHtml(label, field){
   var segs = ensureDateSegs(field);
   var idY='dateseg-y-'+field, idM='dateseg-m-'+field, idD='dateseg-d-'+field;
   var hasAny = segs.y || segs.m || segs.d;
+  var isFocused = state.itemFormUI.focusedDateField === field;
   var clearBtn = '<button type="button" id="dateclear-'+field+'" class="icon-btn date-clear-btn" style="'+(hasAny?'':'display:none;')+'" onclick="clearDraftDateSegs('+aj(field)+')">'+ic('x',14)+'</button>';
-  var quickPicksHtml = '<div class="date-quickpicks">'+
+  // Hidden by default and only shown for whichever field you're actually editing right now -
+  // three permanently-visible copies of the same 6 chips (one per date field) was repetitive.
+  // A true "docked above the keyboard" bar isn't something a web page can do (no API for that
+  // on iOS Safari's keyboard) - this is the closest practical equivalent.
+  var quickPicksHtml = '<div class="date-quickpicks" id="datequickpicks-'+field+'" style="'+(isFocused?'':'display:none;')+'">'+
     DATE_QUICKPICKS.map(function(k){
       return '<div class="date-quickpick-chip" onclick="dateQuickPick('+aj(field)+','+aj(k)+')">'+t('dateQuickPick_'+k)+'</div>';
     }).join('')+
   '</div>';
+  var onfocusAttr = 'setFocusedDateField('+aj(field)+')';
   return '<div class="field"><label>'+label+'</label>'+
     '<div class="date-input-row">'+
-      '<input type="text" inputmode="numeric" maxlength="4" placeholder="YYYY" class="date-seg date-seg-y" id="'+idY+'" value="'+esc(segs.y)+'" oninput="onDateSegInput(this,'+aj(field)+',\'y\')">'+
+      '<input type="text" inputmode="numeric" maxlength="4" placeholder="YYYY" class="date-seg date-seg-y" id="'+idY+'" value="'+esc(segs.y)+'" oninput="onDateSegInput(this,'+aj(field)+',\'y\')" onfocus="'+onfocusAttr+'">'+
       '<span class="date-seg-sep">.</span>'+
-      '<input type="text" inputmode="numeric" maxlength="2" placeholder="MM" class="date-seg date-seg-m" id="'+idM+'" value="'+esc(segs.m)+'" oninput="onDateSegInput(this,'+aj(field)+',\'m\')" onblur="onDateSegBlur('+aj(field)+',\'m\')">'+
+      '<input type="text" inputmode="numeric" maxlength="2" placeholder="MM" class="date-seg date-seg-m" id="'+idM+'" value="'+esc(segs.m)+'" oninput="onDateSegInput(this,'+aj(field)+',\'m\')" onblur="onDateSegBlur('+aj(field)+',\'m\')" onfocus="'+onfocusAttr+'">'+
       '<span class="date-seg-sep">.</span>'+
-      '<input type="text" inputmode="numeric" maxlength="2" placeholder="DD" class="date-seg date-seg-d" id="'+idD+'" value="'+esc(segs.d)+'" oninput="onDateSegInput(this,'+aj(field)+',\'d\')" onblur="onDateSegBlur('+aj(field)+',\'d\')">'+
+      '<input type="text" inputmode="numeric" maxlength="2" placeholder="DD" class="date-seg date-seg-d" id="'+idD+'" value="'+esc(segs.d)+'" oninput="onDateSegInput(this,'+aj(field)+',\'d\')" onblur="onDateSegBlur('+aj(field)+',\'d\')" onfocus="'+onfocusAttr+'">'+
       clearBtn+
     '</div>'+
     quickPicksHtml+
@@ -2636,8 +2774,9 @@ function renderItemForm(){
   '<div class="content">'+
     '<div class="section-title">'+t('sectionBasic')+'</div>'+
     '<div class="form-group">'+
-      '<div class="field"><label>'+t('fieldName')+' *</label><input type="text" value="'+esc(d.name)+'" placeholder="'+t('fieldNamePh')+'" oninput="d_str(\'name\',this.value)"></div>'+
       '<div class="field"><label>'+t('fieldBrand')+'</label><input type="text" value="'+esc(d.brand)+'" placeholder="'+t('fieldBrandPh')+'" oninput="d_str(\'brand\',this.value)"></div>'+
+      '<div class="field"><label>'+t('fieldName')+' *</label><input type="text" value="'+esc(d.name)+'" placeholder="'+t('fieldNamePh')+'" oninput="d_str(\'name\',this.value)"></div>'+
+      '<div class="field"><label>'+t('fieldSource')+'</label><input type="text" value="'+esc(d.source||'')+'" placeholder="'+t('fieldSourcePh')+'" oninput="d_str(\'source\',this.value)"></div>'+
       '<div class="field" style="margin-bottom:0;"><label>'+t('fieldBarcode')+'</label><input type="text" inputmode="numeric" value="'+esc(d.barcode||'')+'" placeholder="'+t('fieldBarcodePh')+'" oninput="d_str(\'barcode\',this.value)"></div>'+
     '</div>'+
     '<div class="section-title">'+t('fieldPhoto')+'</div>'+
@@ -2805,7 +2944,7 @@ function saveItemForm(){
   // Drop fully-empty groups (user hit "+" but never filled it in), and establish each
   // remaining group's conversion ratio the first time it has both a unit and a quantity -
   // same one-time-then-locked rule as before, just applied per group instead of a single pair.
-  d.secondary_units = (d.secondary_units||[]).filter(function(g){ return g.unit || g.qty!=null; });
+  d.secondary_units = (d.secondary_units||[]).filter(function(g){ return g.unit || g.qty!=null || g.pack_amount!=null || g.pack_unit; });
   d.secondary_units.forEach(function(g){
     if(g.qty!=null && g.unit && g.ratio==null && d.primary_qty){
       g.ratio = d.primary_qty / (g.qty||1);
