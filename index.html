@@ -342,19 +342,23 @@
     background-repeat:no-repeat; background-position:right 12px center; background-size:18px;
   }
   .field select:focus{ border-color:var(--almond); }
+  .inline-dd-wrap{ position:relative; }
   .inline-dd-trigger{
     width:100%; height:48px; box-sizing:border-box; font-size:16px; padding:0 14px; border-radius:11px;
     border:1px solid var(--line); background:var(--card-bg); color:var(--cocoa);
     display:flex; align-items:center; justify-content:space-between; gap:6px; cursor:pointer;
   }
+  .inline-dd-trigger.open{ border-radius:11px 11px 0 0; border-color:var(--almond); }
   .inline-dd-trigger span{ overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
   .inline-dd-trigger:active{ border-color:var(--almond); }
   .inline-dd-trigger svg{ color:#B79B78; }
   .inline-dd-list{
-    border:1px solid var(--line); border-top:none; border-radius:0 0 11px 11px;
-    background:var(--card-bg); overflow-y:auto; max-height:180px; margin-top:-1px;
+    position:absolute; top:100%; left:0; right:0; z-index:30;
+    border:1px solid var(--almond); border-top:none; border-radius:0 0 11px 11px;
+    background:var(--card-bg); overflow-y:auto; max-height:180px;
+    box-shadow:0 8px 20px rgba(0,0,0,0.14);
   }
-  .inline-dd-option{ padding:12px 14px; font-size:15px; color:var(--cocoa); border-top:1px solid var(--line); cursor:pointer; }
+  .inline-dd-option{ padding:12px 14px; font-size:15px; color:var(--cocoa); border-top:1px solid var(--line); cursor:pointer; background:var(--card-bg); }
   .inline-dd-option:active{ background:var(--cream); }
   .inline-dd-option.active{ color:var(--almond); font-weight:600; }
   .qty-group-row{ align-items:flex-end; }
@@ -424,7 +428,7 @@
   .nutrition-facts{ border:1px solid var(--cocoa); border-radius:10px; overflow:hidden; background:var(--card-bg); margin-bottom:14px; }
   .nutrition-facts.nutrition-facts-edit{ border-color:var(--line); }
   .nf-basis{
-    padding:7px 12px; font-size:13px; color:var(--deep-caramel);
+    padding:10px 12px; font-size:13px; color:var(--deep-caramel);
     background-image:linear-gradient(to right, transparent 0 12px, var(--cocoa) 12px calc(100% - 12px), transparent calc(100% - 12px) 100%);
     background-position:bottom; background-size:100% 8px; background-repeat:no-repeat;
   }
@@ -2228,17 +2232,17 @@ function toggleUnitDropdown(key){
 }
 function inlineDropdownHtml(key, currentValue, options, selectFnName, placeholderText){
   var isOpen = state.itemFormUI.openUnitDropdown === key;
-  var label = currentValue ? esc(currentValue) : ('<span style="color:#B79B78;">'+esc(placeholderText||'')+'</span>');
-  var trigger = '<div class="inline-dd-trigger" onclick="toggleUnitDropdown('+aj(key)+')"><span>'+label+'</span>'+
+  var firstOptLabel = options.length ? ((typeof options[0]==='object') ? options[0].label : options[0]) : (placeholderText||'');
+  var label = currentValue ? esc(currentValue) : ('<span style="color:#B79B78;">'+esc(firstOptLabel)+'</span>');
+  var trigger = '<div class="inline-dd-trigger'+(isOpen?' open':'')+'" onclick="toggleUnitDropdown('+aj(key)+')"><span>'+label+'</span>'+
       ic('chevronRight',14,'style="transform:rotate('+(isOpen?'90':'0')+'deg);transition:transform .15s;flex-shrink:0;"')+
     '</div>';
-  if(!isOpen) return trigger;
-  var listHtml = '<div class="inline-dd-list">'+options.map(function(opt){
+  var listHtml = isOpen ? ('<div class="inline-dd-list">'+options.map(function(opt){
     var val = (typeof opt==='object') ? opt.value : opt;
     var lbl = (typeof opt==='object') ? opt.label : opt;
     return '<div class="inline-dd-option '+(val===currentValue?'active':'')+'" onclick="'+selectFnName+'('+aj(key)+','+aj(val)+')">'+esc(lbl)+'</div>';
-  }).join('')+'</div>';
-  return trigger + listHtml;
+  }).join('')+'</div>') : '';
+  return '<div class="inline-dd-wrap">'+trigger+listHtml+'</div>';
 }
 /* ---- quantity groups: primary unit + any number of extra "also counted in" units ---- */
 function unitSelectOptions(currentUnit){
