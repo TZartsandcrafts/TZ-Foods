@@ -361,6 +361,10 @@
   .inline-dd-option{ padding:12px 14px; font-size:15px; color:var(--cocoa); border-top:1px solid var(--line); cursor:pointer; background:var(--card-bg); }
   .inline-dd-option:active{ background:var(--cream); }
   .inline-dd-option.active{ color:var(--almond); font-weight:600; }
+  .inline-dd-wrap.compact .inline-dd-trigger{ height:30px; padding:0 8px; font-size:13px; border-radius:8px; }
+  .inline-dd-wrap.compact .inline-dd-trigger.open{ border-radius:8px 8px 0 0; }
+  .inline-dd-wrap.compact .inline-dd-list{ border-radius:0 0 8px 8px; max-height:150px; }
+  .inline-dd-wrap.compact .inline-dd-option{ padding:9px 10px; font-size:13.5px; }
   .qty-group-row{ align-items:flex-end; }
   .qty-group-remove{ width:46px; height:46px; flex-shrink:0; }
   .qty-group-add{ display:inline-block; margin-top:12px; }
@@ -463,7 +467,7 @@
   /* Font-size is kept at 16px on every nutrition input/select below - anything smaller makes
      iOS Safari auto-zoom the whole page (and jump-scroll to keep the field in view) the moment
      it's focused. This is the one and only thing that actually stops that zoom-and-jump. */
-  .nf-basis-input{ width:60px; font-size:16px; padding:3px 6px; border:1px solid var(--line); border-radius:6px; background:var(--card-bg); color:var(--cocoa); text-align:center; }
+  .nf-basis-input{ width:60px; height:30px; box-sizing:border-box; font-size:16px; padding:3px 6px; border:1px solid var(--line); border-radius:6px; background:var(--card-bg); color:var(--cocoa); text-align:center; }
   .nf-basis-input:focus{ border-color:var(--almond); outline:none; }
   .nf-basis-unit-select{ font-size:16px; padding:3px 6px; border:1px solid var(--line); border-radius:6px; background:var(--card-bg); color:var(--cocoa); -webkit-appearance:none; appearance:none; }
   .nf-basis-unit-select:focus{ border-color:var(--almond); outline:none; }
@@ -2230,7 +2234,7 @@ function toggleUnitDropdown(key){
   state.itemFormUI.openUnitDropdown = (state.itemFormUI.openUnitDropdown===key) ? null : key;
   render();
 }
-function inlineDropdownHtml(key, currentValue, options, selectFnName, placeholderText){
+function inlineDropdownHtml(key, currentValue, options, selectFnName, placeholderText, extraClass){
   var isOpen = state.itemFormUI.openUnitDropdown === key;
   var firstOptLabel = options.length ? ((typeof options[0]==='object') ? options[0].label : options[0]) : (placeholderText||'');
   var label = currentValue ? esc(currentValue) : ('<span style="color:#B79B78;">'+esc(firstOptLabel)+'</span>');
@@ -2242,7 +2246,7 @@ function inlineDropdownHtml(key, currentValue, options, selectFnName, placeholde
     var lbl = (typeof opt==='object') ? opt.label : opt;
     return '<div class="inline-dd-option '+(val===currentValue?'active':'')+'" onclick="'+selectFnName+'('+aj(key)+','+aj(val)+')">'+esc(lbl)+'</div>';
   }).join('')+'</div>') : '';
-  return '<div class="inline-dd-wrap">'+trigger+listHtml+'</div>';
+  return '<div class="inline-dd-wrap'+(extraClass?(' '+extraClass):'')+'">'+trigger+listHtml+'</div>';
 }
 /* ---- quantity groups: primary unit + any number of extra "also counted in" units ---- */
 function unitSelectOptions(currentUnit){
@@ -2276,7 +2280,12 @@ function setQtyGroupUnitValue(idx, val){
 }
 function onQtyUnitSelectChange(idx, val){
   toggleUnitDropdown(qtyGroupUnitKey(idx)); // close the dropdown
-  if(val==='__custom__'){ setCustomUnitEditing(qtyGroupUnitKey(idx), true); render(); return; }
+  if(val==='__custom__'){
+    setCustomUnitEditing(qtyGroupUnitKey(idx), true);
+    render();
+    focusCustomUnitInput(qtyGroupUnitKey(idx));
+    return;
+  }
   setQtyGroupUnitValue(idx, val);
   render();
 }
@@ -2288,14 +2297,19 @@ function onQtyUnitCustomBlur(idx, val){
   setCustomUnitEditing(qtyGroupUnitKey(idx), false);
   render();
 }
+function focusCustomUnitInput(key){
+  var el = document.getElementById('customunit-'+key);
+  if(el) el.focus();
+}
 function qtyGroupUnitFieldHtml(idx){
   var current = qtyGroupUnitValue(idx);
-  if(isCustomUnitEditing(qtyGroupUnitKey(idx))){
-    return '<input type="text" value="'+esc(current)+'" placeholder="'+t('fieldUnitCustomPh')+'" autofocus '+
+  var key = qtyGroupUnitKey(idx);
+  if(isCustomUnitEditing(key)){
+    return '<input type="text" id="customunit-'+key+'" value="'+esc(current)+'" placeholder="'+t('fieldUnitCustomPh')+'" '+
       'oninput="onQtyUnitCustomInput('+aj(idx)+',this.value)" onblur="onQtyUnitCustomBlur('+aj(idx)+',this.value)">';
   }
   var opts = unitSelectOptions(current).concat([{value:'__custom__', label:t('unitCustomOption')}]);
-  return inlineDropdownHtml(qtyGroupUnitKey(idx), current, opts, 'onQtyUnitDropdownPick', t('unitPickPlaceholder'));
+  return inlineDropdownHtml(key, current, opts, 'onQtyUnitDropdownPick', t('unitPickPlaceholder'));
 }
 function onQtyUnitDropdownPick(key, val){
   var idx = key==='primary' ? null : parseInt(key.slice(3),10);
@@ -2355,7 +2369,12 @@ var PACK_UNIT_BASE_OPTIONS = ['g','ml','kg'];
 function onPackUnitDropdownPick(key, val){
   var idx = key==='packprimary' ? null : parseInt(key.slice(7),10);
   toggleUnitDropdown(key);
-  if(val==='__custom__'){ setCustomUnitEditing(key, true); render(); return; }
+  if(val==='__custom__'){
+    setCustomUnitEditing(key, true);
+    render();
+    focusCustomUnitInput(key);
+    return;
+  }
   setPackUnitValue(idx, val);
   render();
 }
@@ -2371,7 +2390,7 @@ function packUnitFieldHtml(idx){
   var current = packUnitValue(idx);
   var key = packUnitKey(idx);
   if(isCustomUnitEditing(key)){
-    return '<input type="text" value="'+esc(current)+'" placeholder="'+t('fieldUnitCustomPh')+'" autofocus '+
+    return '<input type="text" id="customunit-'+key+'" value="'+esc(current)+'" placeholder="'+t('fieldUnitCustomPh')+'" '+
       'oninput="onPackUnitCustomInput('+aj(idx)+',this.value)" onblur="onPackUnitCustomBlur('+aj(idx)+',this.value)">';
   }
   var opts = PACK_UNIT_BASE_OPTIONS.concat((state.units||[]).filter(function(u){ return PACK_UNIT_BASE_OPTIONS.indexOf(u)===-1; }));
@@ -2620,17 +2639,19 @@ function recomputeExpiryFromProduction(){
     d.expiry_date = addToDate(d.production_date, d.shelf_life_amount, d.shelf_life_unit||'days');
   }
 }
+function onShelfLifeUnitPick(key, val){
+  toggleUnitDropdown(key);
+  setShelfLifeUnit(val);
+}
 function expiryFieldHtml(d){
-  var unitOptsHtml = SHELF_LIFE_UNITS.map(function(u){
-    return '<option value="'+u+'" '+((d.shelf_life_unit||'days')===u?'selected':'')+'>'+shelfLifeUnitLabel(u)+'</option>';
-  }).join('');
+  var shelfUnitOpts = SHELF_LIFE_UNITS.map(function(u){ return {value:u, label:shelfLifeUnitLabel(u)}; });
   return '' +
     dateSegmentsFieldHtml(t('fieldExpiry'), 'expiry_date')+
     dateSegmentsFieldHtml(t('fieldProductionDate'), 'production_date')+
     '<div class="field" style="margin-bottom:0;"><label>'+t('fieldShelfLife')+'</label>'+
       '<div class="field-row">'+
         '<input type="number" inputmode="decimal" value="'+(d.shelf_life_amount==null?'':d.shelf_life_amount)+'" oninput="d_shelf_life_amount(this.value)" style="flex:2;min-width:0;">'+
-        '<select onchange="setShelfLifeUnit(this.value)" style="flex:1;min-width:0;">'+unitOptsHtml+'</select>'+
+        '<div style="flex:1;min-width:0;">'+inlineDropdownHtml('shelflifeunit', d.shelf_life_unit||'days', shelfUnitOpts, 'onShelfLifeUnitPick')+'</div>'+
       '</div>'+
     '</div>';
 }
@@ -2688,11 +2709,13 @@ var NUTRI_BASIS_UNIT_OPTIONS = ['g','ml','tsp','tbsp','cup'];
 function isNutriBasisUnitCustomEditing(){
   return !!(state.itemFormUI.customUnitEditing && state.itemFormUI.customUnitEditing.nutriBasis);
 }
-function onNutriBasisUnitSelectChange(val){
+function onNutriBasisUnitSelectChange(key, val){
+  toggleUnitDropdown(key);
   if(val==='__custom__'){
     state.itemFormUI.customUnitEditing = state.itemFormUI.customUnitEditing || {};
     state.itemFormUI.customUnitEditing.nutriBasis = true;
     render();
+    focusCustomUnitInput('nutriBasis');
     return;
   }
   setNutriBasisUnit(val);
@@ -2709,16 +2732,19 @@ function onNutriBasisUnitCustomBlur(val){
 function nutriBasisUnitFieldHtml(){
   var current = state.itemFormUI.nutriBasisUnit || 'g';
   if(isNutriBasisUnitCustomEditing()){
-    return '<input type="text" class="nf-basis-input" style="width:74px;" value="'+esc(current)+'" placeholder="'+t('fieldUnitCustomPh')+'" autofocus '+
+    return '<input type="text" id="customunit-nutriBasis" class="nf-basis-input" style="width:74px;" value="'+esc(current)+'" placeholder="'+t('fieldUnitCustomPh')+'" '+
       'oninput="onNutriBasisUnitCustomInput(this.value)" onblur="onNutriBasisUnitCustomBlur(this.value)">';
   }
   var opts = NUTRI_BASIS_UNIT_OPTIONS.concat((state.units||[]).filter(function(u){ return NUTRI_BASIS_UNIT_OPTIONS.indexOf(u)===-1; }));
   if(current && opts.indexOf(current)===-1) opts = opts.concat([current]);
-  var optsHtml = opts.map(function(u){ return '<option value="'+esc(u)+'" '+(u===current?'selected':'')+'>'+esc(u)+'</option>'; }).join('')+
-    '<option value="__custom__">'+t('unitCustomOption')+'</option>';
-  return '<select class="nf-basis-unit-select" onchange="onNutriBasisUnitSelectChange(this.value)">'+optsHtml+'</select>';
+  opts = opts.concat([{value:'__custom__', label:t('unitCustomOption')}]);
+  return '<div style="width:90px;">'+inlineDropdownHtml('nutriBasisUnit', current, opts, 'onNutriBasisUnitSelectChange', null, 'compact')+'</div>';
 }
 function setPriceCurrency(c){ state.itemDraft.price_currency = c; render(); }
+function onPriceCurrencyPick(key, val){
+  toggleUnitDropdown(key);
+  setPriceCurrency(val);
+}
 function onNutriInput(key, val){
   var n = (val==='') ? null : parseFloat(val);
   state.itemDraft.nutrition[key] = (n==null || isNaN(n)) ? null : n;
@@ -2735,9 +2761,7 @@ function nutriExtraRowHtml(key){
   var unit = stored.unit || def.units[0];
   var val = (stored.value != null) ? stored.value : '';
   var unitHtml = def.units.length > 1 ?
-    ('<select class="nf-input-unit-select" onchange="onNutriExtraUnitChange('+aj(key)+',this.value)">'+def.units.map(function(u){
-      return '<option value="'+u+'" '+(unit===u?'selected':'')+'>'+u+'</option>';
-    }).join('')+'</select>') :
+    ('<div style="width:64px;">'+inlineDropdownHtml(key, unit, def.units, 'onNutriExtraUnitChange', null, 'compact')+'</div>') :
     ('<span class="nf-input-unit">'+def.units[0]+'</span>');
   return '<div class="nf-row"><span>'+t(def.labelKey)+'</span><span class="nf-edit-value-wrap">'+
     '<input type="number" inputmode="decimal" class="nf-input" placeholder="-" value="'+val+'" oninput="onNutriExtraInput('+aj(key)+',this.value)">'+
@@ -2773,6 +2797,7 @@ function onNutriExtraInput(key, val){
   state.itemDraft.nutrition_edited = true;
 }
 function onNutriExtraUnitChange(key, unit){
+  toggleUnitDropdown(key);
   var def = nutriExtraDefs()[key];
   var existing = state.itemDraft.nutrition_extra[key] || {};
   state.itemDraft.nutrition_extra[key] = {value: (existing.value!=null?existing.value:null), unit:unit};
@@ -2819,9 +2844,7 @@ function renderItemForm(){
       '<div class="field"><label>'+t('fieldPrice')+'</label>'+
         '<div style="display:flex;gap:8px;align-items:center;">'+
           '<input type="number" inputmode="decimal" value="'+(d.price||'')+'" oninput="d_num(\'price\',this.value)" style="flex:2;min-width:0;">'+
-          '<select onchange="setPriceCurrency(this.value)" style="flex:1;min-width:0;">'+PRICE_CURRENCIES.map(function(c){
-            return '<option value="'+c+'" '+(d.price_currency===c?'selected':'')+'>'+c+'</option>';
-          }).join('')+'</select>'+
+          '<div style="flex:1;min-width:0;">'+inlineDropdownHtml('priceCurrency', d.price_currency||'CAD', PRICE_CURRENCIES, 'onPriceCurrencyPick')+'</div>'+
         '</div>'+
       '</div>'+
       '<div class="field" style="margin-bottom:0;"><label>'+t('fieldNotes')+'</label><textarea placeholder="'+t('fieldNotesPh')+'" oninput="d_str(\'notes\',this.value)">'+esc(d.notes)+'</textarea></div>'+
