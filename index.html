@@ -432,7 +432,7 @@
   .nutrition-facts{ border:1px solid var(--cocoa); border-radius:10px; overflow:hidden; background:var(--card-bg); margin-bottom:14px; }
   .nutrition-facts.nutrition-facts-edit{ border-color:var(--line); }
   .nf-basis{
-    padding:10px 12px; font-size:13px; color:var(--deep-caramel);
+    padding:10px 12px 18px; font-size:13px; color:var(--deep-caramel);
     background-image:linear-gradient(to right, transparent 0 12px, var(--cocoa) 12px calc(100% - 12px), transparent calc(100% - 12px) 100%);
     background-position:bottom; background-size:100% 8px; background-repeat:no-repeat;
   }
@@ -441,7 +441,7 @@
   }
   .nf-calories-row{
     display:flex; justify-content:space-between; align-items:center;
-    padding:10px 12px; font-size:16px; font-weight:700; color:var(--cocoa);
+    padding:10px 12px 18px; font-size:16px; font-weight:700; color:var(--cocoa);
     background-image:linear-gradient(to right, transparent 0 12px, var(--cocoa) 12px calc(100% - 12px), transparent calc(100% - 12px) 100%);
     background-position:bottom; background-size:100% 8px; background-repeat:no-repeat;
   }
@@ -2236,8 +2236,10 @@ function toggleUnitDropdown(key){
 }
 function inlineDropdownHtml(key, currentValue, options, selectFnName, placeholderText, extraClass){
   var isOpen = state.itemFormUI.openUnitDropdown === key;
+  var matched = options.find(function(opt){ return ((typeof opt==='object')?opt.value:opt) === currentValue; });
+  var currentLabel = matched ? ((typeof matched==='object') ? matched.label : matched) : currentValue;
   var firstOptLabel = options.length ? ((typeof options[0]==='object') ? options[0].label : options[0]) : (placeholderText||'');
-  var label = currentValue ? esc(currentValue) : ('<span style="color:#B79B78;">'+esc(firstOptLabel)+'</span>');
+  var label = currentValue ? esc(currentLabel) : ('<span style="color:#B79B78;">'+esc(firstOptLabel)+'</span>');
   var trigger = '<div class="inline-dd-trigger'+(isOpen?' open':'')+'" onclick="toggleUnitDropdown('+aj(key)+')"><span>'+label+'</span>'+
       ic('chevronRight',14,'style="transform:rotate('+(isOpen?'90':'0')+'deg);transition:transform .15s;flex-shrink:0;"')+
     '</div>';
@@ -5286,6 +5288,24 @@ function syncHomeStickyControlsOffset(){
 window.addEventListener('pageshow', function(){ if(state.view==='home') syncHomeStickyControlsOffset(); });
 document.addEventListener('visibilitychange', function(){ if(!document.hidden && state.view==='home') syncHomeStickyControlsOffset(); });
 window.addEventListener('resize', function(){ if(state.view==='home') syncHomeStickyControlsOffset(); });
+// Close an open unit dropdown (the "数量"/nutrition/price unit pickers) on any click outside
+// it - previously only picking an option or re-tapping the trigger closed it, so it stayed
+// open (and visually floating over whatever you clicked next) no matter where else you tapped.
+// This deliberately does NOT call render(): a full re-render here would replace whichever
+// element you're actually trying to click/focus right as your tap lands on it, causing that
+// tap to miss - the same failure mode already fixed once for the date-segment inputs.
+document.addEventListener('click', function(e){
+  var openKey = state.itemFormUI && state.itemFormUI.openUnitDropdown;
+  if(!openKey) return;
+  if(e.target.closest && e.target.closest('.inline-dd-wrap')) return;
+  state.itemFormUI.openUnitDropdown = null;
+  document.querySelectorAll('.inline-dd-list').forEach(function(el){ el.remove(); });
+  document.querySelectorAll('.inline-dd-trigger.open').forEach(function(el){
+    el.classList.remove('open');
+    var svg = el.querySelector('svg');
+    if(svg) svg.style.transform = 'rotate(0deg)';
+  });
+}, true);
 
 /* ======================= INIT / BOOTSTRAP ======================= */
 function renderLoading(){
