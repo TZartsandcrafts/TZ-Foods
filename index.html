@@ -3899,8 +3899,8 @@ async function analyzePhotoForItem(base64Data, mimeType){
   var prompt = [
     '请分析这张食品包装或营养成分表照片，尽可能提取以下信息。只返回一个JSON对象本身，不要包含任何其他文字、解释、前后缀或markdown代码块标记（不要用```包裹）。',
     '严格按此JSON格式返回：',
-    '{"name":"产品名称，看不清则为空字符串","brand":"品牌名称，看不清则为空字符串","barcode":"条码下方印刷的数字，看不到则为null","nutrition_found":true或false,"nutrition_basis":"100g或100ml或serving或unknown","serving_size_g":"仅当nutrition_basis为serving时填写每份重量克数(数字)，否则为null","nutrition":{"calories":数字(kcal)或null,"fat":数字(g)或null,"saturated_fat":数字(g)或null,"trans_fat":数字(g)或null,"cholesterol":数字(mg)或null,"sodium":数字(mg)或null,"carbs":数字(g)或null,"fiber":数字(g)或null,"sugar":数字(g)或null,"added_sugar":数字(g)或null,"protein":数字(g)或null},"confidence":"high或medium或low"}',
-    '注意：sodium字段必须换算成毫克(mg)，如果标签原文是克(g)请自行乘以1000。如果完全无法从图片中识别出任何有效信息，相应字段返回null、空字符串或false，不要编造数据。'
+    '{"name":"产品名称，看不清则为空字符串","brand":"品牌名称，看不清则为空字符串","barcode":"条码下方印刷的数字，看不到则为null","nutrition_found":true或false,"nutrition_basis":"100g或100ml或serving或unknown","serving_size_amount":"仅当nutrition_basis为serving时填写每份数量(数字)，否则为null","serving_size_unit":"仅当nutrition_basis为serving时填写，必须是g/ml/tsp/tbsp/cup五选一，选跟标签最接近的单位，否则为null","nutrition":{"calories":数字(kcal)或null,"fat":数字(g)或null,"saturated_fat":数字(g)或null,"trans_fat":数字(g)或null,"cholesterol":数字(mg)或null,"sodium":数字(mg)或null,"carbs":数字(g)或null,"fiber":数字(g)或null,"sugar":数字(g)或null,"added_sugar":数字(g)或null,"protein":数字(g)或null},"extra_nutrients":{"vitamin_d":{"value":数字或null,"unit":"mcg或IU或%DV三选一"},"calcium":{"value":数字或null,"unit":"mg或%DV二选一"},"iron":{"value":数字或null,"unit":"mg或%DV二选一"},"potassium":{"value":数字或null,"unit":"mg或%DV二选一"},"vitamin_a":{"value":数字或null,"unit":"mcg或IU或%DV三选一"},"vitamin_c":{"value":数字或null,"unit":"mg或%DV二选一"},"magnesium":{"value":数字或null,"unit":"mg或%DV二选一"},"zinc":{"value":数字或null,"unit":"mg或%DV二选一"},"vitamin_b12":{"value":数字或null,"unit":"mcg或%DV二选一"}},"confidence":"high或medium或low"}',
+    '注意：sodium字段必须换算成毫克(mg)，如果标签原文是克(g)请自行乘以1000。extra_nutrients里每一项的unit必须严格从给出的选项中选一个，跟标签上实际印刷的单位对应，标签上没有的项value填null。如果完全无法从图片中识别出任何有效信息，相应字段返回null、空字符串或false，不要编造数据。'
   ].join('\n');
   // Standalone build: calls YOUR OWN backend proxy (configured in Settings) instead of
   // api.anthropic.com directly, since a browser can't safely call the Anthropic API
@@ -3951,10 +3951,32 @@ function normalizeExtractedNutrition(result){
 function extractedNutritionBasis(result){
   if(!result) return {amount:100, unit:'g'};
   if(result.nutrition_basis === '100ml') return {amount:100, unit:'ml'};
-  if(result.nutrition_basis === 'serving' && result.serving_size_g && isFinite(Number(result.serving_size_g))){
-    return {amount:Number(result.serving_size_g), unit:'g'};
+  if(result.nutrition_basis === 'serving' && result.serving_size_amount && isFinite(Number(result.serving_size_amount))){
+    var unit = result.serving_size_unit;
+    // NUTRI_BASIS_UNIT_OPTIONS (g/ml/tsp/tbsp/cup) is defined later in this file but already
+    // exists by the time a photo is actually taken (user interaction happens after full load).
+    if(typeof NUTRI_BASIS_UNIT_OPTIONS === 'undefined' || NUTRI_BASIS_UNIT_OPTIONS.indexOf(unit) === -1){
+      unit = 'g';
+    }
+    return {amount:Number(result.serving_size_amount), unit:unit};
   }
   return {amount:100, unit:'g'};
+}
+// Turns the AI's extra_nutrients block into the same {value, unit} shape the vitamins/minerals
+// editor expects (see nutriExtraDefs()). Skips anything null/unrecognized rather than guessing -
+// same "don't invent data" principle as the core nutrition fields.
+function normalizeExtractedNutritionExtra(result){
+  var extra = {};
+  if(!result || !result.extra_nutrients) return extra;
+  var defs = nutriExtraDefs();
+  Object.keys(defs).forEach(function(key){
+    var entry = result.extra_nutrients[key];
+    if(!entry || entry.value == null || isNaN(Number(entry.value))) return;
+    var unit = entry.unit;
+    if(defs[key].units.indexOf(unit) === -1) unit = defs[key].units[0];
+    extra[key] = {value:Number(entry.value), unit:unit};
+  });
+  return extra;
 }
 async function onPhotoSelected(input){
   var file = input.files && input.files[0];
@@ -3974,16 +3996,27 @@ async function onPhotoSelected(input){
     }
     showToast(t('photoFound'));
     var basis = extractedNutritionBasis(result);
+    var extra = normalizeExtractedNutritionExtra(result);
     openItemForm(null, {
       name: result.name || '',
       brand: result.brand || '',
       barcode: result.barcode || '',
       nutrition: normalizeExtractedNutrition(result),
+      nutrition_extra: extra,
       nutrition_edited: false,
       nutrition_source: 'photo_ai',
       nutrition_basis_amount: basis.amount,
       nutrition_basis_unit: basis.unit
     });
+    // Auto-expand whichever collapsed group(s) actually received a value from the photo, so
+    // the person isn't left wondering why the numbers "didn't show up" behind a collapsed toggle.
+    if(Object.keys(extra).some(function(k){ return NUTRI_VITAMIN_KEYS.indexOf(k)!==-1; })){
+      state.itemFormUI.nutriExpanded_vitamins = true;
+    }
+    if(Object.keys(extra).some(function(k){ return NUTRI_MINERAL_KEYS.indexOf(k)!==-1; })){
+      state.itemFormUI.nutriExpanded_minerals = true;
+    }
+    render();
   }catch(e){
     setPhotoStatus('');
     showToast(t('photoError'));
