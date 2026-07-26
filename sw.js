@@ -1,10 +1,10 @@
-// Service worker for 食材库存 Pantry Tracker
+// Service worker for 食法典 FoodCode
 // Caches the app shell (same-origin files only) so the app opens instantly and works offline
 // after the first successful load. Cross-origin requests (Open Food Facts API, any AI proxy
 // you configure) are intentionally NOT intercepted here - they always go straight to the
 // network, since caching/offline-serving API responses would show stale product data.
 
-var CACHE_NAME = 'pantry-shell-v2';
+var CACHE_NAME = 'foodcode-shell-v1';
 var APP_SHELL = [
   './',
   './index.html'

@@ -1004,7 +1004,7 @@ var state = {
 };
 
 /* ======================= STORAGE LAYER (standalone: localStorage) ======================= */
-var LS_PREFIX = 'pantryApp:';
+var LS_PREFIX = 'foodCodeApp:';
 async function storageGet(key, fallback){
   try{
     var raw = window.localStorage.getItem(LS_PREFIX + key);
@@ -1096,7 +1096,7 @@ var PHOTO_IDB = {
     var self = this;
     if(self._db) return Promise.resolve(self._db);
     return new Promise(function(resolve, reject){
-      var req = indexedDB.open('pantry_photodb', 1);
+      var req = indexedDB.open('foodcode_photodb', 1);
       req.onupgradeneeded = function(e){ e.target.result.createObjectStore('photos'); };
       req.onsuccess = function(e){ self._db = e.target.result; resolve(self._db); };
       req.onerror = function(e){ reject(e.target.error); };
@@ -4905,36 +4905,36 @@ async function exportInventoryData(){
   showToast(state.lang==='zh' ? '正在打包图片…' : 'Bundling photos…');
   var itemsOut = await itemsWithInlinedPhotos(state.items);
   var payload = {
-    type: 'pantry_inventory_backup',
+    type: 'foodcode_inventory_backup',
     version: 1,
     exported_at: nowLocalIso(),
     items: itemsOut,
     categories: state.categories,
     locations: state.locations
   };
-  downloadJSON('pantry-inventory-backup-'+todayStr()+'.json', payload);
+  downloadJSON('foodcode-inventory-backup-'+todayStr()+'.json', payload);
   showToast(state.lang==='zh' ? '库存数据已导出（含图片）' : 'Inventory data exported (with photos)');
 }
 function exportRecipesData(){
   var payload = {
-    type: 'pantry_recipes_backup',
+    type: 'foodcode_recipes_backup',
     version: 1,
     exported_at: nowLocalIso(),
     recipes: state.recipes,
     ingredients: state.ingredients
   };
-  downloadJSON('pantry-recipes-backup-'+todayStr()+'.json', payload);
+  downloadJSON('foodcode-recipes-backup-'+todayStr()+'.json', payload);
   showToast(state.lang==='zh' ? '食谱数据已导出' : 'Recipes data exported');
 }
 function exportNotesData(){
   var payload = {
-    type: 'pantry_notes_backup',
+    type: 'foodcode_notes_backup',
     version: 1,
     exported_at: nowLocalIso(),
     notes: state.notes,
     noteCategories: state.noteCategories
   };
-  downloadJSON('pantry-notes-backup-'+todayStr()+'.json', payload);
+  downloadJSON('foodcode-notes-backup-'+todayStr()+'.json', payload);
   showToast(state.lang==='zh' ? '笔记数据已导出' : 'Notes data exported');
 }
 function triggerImportInventory(){ var el=document.getElementById('import-inventory-input'); if(el) el.click(); }
@@ -4989,7 +4989,7 @@ function onImportInventoryFile(input){
     input.value = '';
     var data;
     try{ data = JSON.parse(reader.result); }catch(e){ showToast(t('importParseError')); return; }
-    if(!data || data.type !== 'pantry_inventory_backup' || !Array.isArray(data.items)){
+    if(!data || data.type !== 'foodcode_inventory_backup' || !Array.isArray(data.items)){
       showToast(t('importWrongFile')); return;
     }
     openImportConfirmModal('inventory', data, data.items.length);
@@ -5004,7 +5004,7 @@ function onImportRecipesFile(input){
     input.value = '';
     var data;
     try{ data = JSON.parse(reader.result); }catch(e){ showToast(t('importParseError')); return; }
-    if(!data || data.type !== 'pantry_recipes_backup' || !Array.isArray(data.recipes)){
+    if(!data || data.type !== 'foodcode_recipes_backup' || !Array.isArray(data.recipes)){
       showToast(t('importWrongFile')); return;
     }
     openImportConfirmModal('recipes', data, data.recipes.length);
@@ -5019,7 +5019,7 @@ function onImportNotesFile(input){
     input.value = '';
     var data;
     try{ data = JSON.parse(reader.result); }catch(e){ showToast(t('importParseError')); return; }
-    if(!data || data.type !== 'pantry_notes_backup' || !Array.isArray(data.notes)){
+    if(!data || data.type !== 'foodcode_notes_backup' || !Array.isArray(data.notes)){
       showToast(t('importWrongFile')); return;
     }
     openImportConfirmModal('notes', data, data.notes.length);
