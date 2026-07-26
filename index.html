@@ -586,7 +586,7 @@ var DEFAULT_RECIPE_CATEGORY_GROUPS = [
   {id:'cooking', name:'烹饪', subs:[]},
   {id:'baking', name:'烘焙', subs:[]}
 ];
-var UNIT_OPTIONS = ['g','kg','ml','l','个'];
+var UNIT_OPTIONS = ['件'];
 var OIL_TYPES = [
   {id:'vegetable', zh:'色拉油', en:'Vegetable oil', kcalPerG:8.8},
   {id:'olive', zh:'橄榄油', en:'Olive oil', kcalPerG:8.8},
@@ -1048,7 +1048,10 @@ async function loadAll(){
   state.notes = results[6];
   state.noteCategories = (results[7] && results[7].length) ? results[7] : DEFAULT_NOTE_CATEGORIES.slice();
   state.recipeCategoryGroups = (results[8] && results[8].length) ? results[8] : JSON.parse(JSON.stringify(DEFAULT_RECIPE_CATEGORY_GROUPS));
-  state.units = results[9] || [];
+  // "个"/"件" used to be plain custom-unit entries that could get remembered here and then leak
+  // into every other unit picker (规格单位/营养每份单位). They're now dedicated base options on
+  // their own field, so strip them out if an older save still has them in this list.
+  state.units = (results[9] || []).filter(function(u){ return u !== '个' && u !== '件'; });
   state.loaded = true;
 }
 // Old data shape had a single secondary_qty/secondary_unit/unit_ratio triplet per item. The
@@ -1376,10 +1379,10 @@ function amountToBasisUnits(amount, unit, sourceItem){
   // direct weight/volume units
   if(unit === 'g' || unit === 'ml') return amount;
   if(unit === 'kg' || unit === 'l') return amount*1000;
-  // count-based unit ("个" or a custom secondary unit like "只") - needs a ratio to weight
+  // count-based unit ("件"/legacy "个", or a custom secondary unit like "只") - needs a ratio to weight
   if(sourceItem && sourceItem.primary_unit && unit === sourceItem.primary_unit){
     // primary unit itself is count-based (no weight known) - cannot convert to basis, return null
-    if(sourceItem.primary_unit === '个') return null;
+    if(sourceItem.primary_unit === '件' || sourceItem.primary_unit === '个') return null;
   }
   if(sourceItem){
     var target = resolveDeductionTarget(sourceItem, unit);
@@ -1389,7 +1392,7 @@ function amountToBasisUnits(amount, unit, sourceItem){
       return amountToBasisUnits(primaryEquivalent, sourceItem.primary_unit, null);
     }
   }
-  if(unit === '个') return null; // unknown weight per unit
+  if(unit === '件' || unit === '个') return null; // unknown weight per unit
   return amount; // fallback: assume already basis-compatible
 }
 function emptyNutrition(){
@@ -2172,7 +2175,7 @@ function blankItemDraft(){
   return {
     id: uid(), name:'', brand:'', source:'', barcode:'',
     category:'', location:'',
-    primary_qty:null, primary_unit:'g', primary_pack_amount:null, primary_pack_unit:'',
+    primary_qty:null, primary_unit:'件', primary_pack_amount:null, primary_pack_unit:'',
     secondary_units:[], last_recount_at:null,
     expiry_date:'', purchase_date: todayStr(), price:'', price_currency:'CAD',
     production_date:'', shelf_life_amount:null, shelf_life_unit:'days',
@@ -3832,24 +3835,46 @@ async function lookupBarcode(barcode){
       var pickedName = state.lang==='zh'
         ? (p.product_name_zh || p.product_name_en || p.product_name || p.generic_name_zh || p.generic_name_en || p.generic_name || '')
         : (p.product_name_en || p.product_name || p.generic_name_en || p.generic_name || '');
+      // OFF tells us which basis is actually printed as the primary panel on the package via
+      // nutrition_data_per ('100g' or 'serving'). Respect that instead of always normalizing to
+      // 100g - same "copy the label as printed" principle used for the AI photo path.
+      var basisIsServing = p.nutrition_data_per === 'serving';
+      var servingAmount = null, servingUnit = null;
+      if(basisIsServing){
+        var ss = String(p.serving_size || '');
+        var m = ss.match(/([\d.]+)\s*(g|ml|kg|l|tsp|tbsp|cup)/i);
+        if(m){
+          servingAmount = Number(m[1]);
+          servingUnit = m[2].toLowerCase();
+        } else if(p.serving_quantity && isFinite(Number(p.serving_quantity))){
+          servingAmount = Number(p.serving_quantity);
+          servingUnit = 'g'; // OFF's serving_quantity is documented in grams/ml
+        }
+      }
+      var useServing = basisIsServing && servingAmount;
+      var suf = useServing ? '_serving' : '_100g';
+      if(useServing && typeof NUTRI_BASIS_UNIT_OPTIONS !== 'undefined' && NUTRI_BASIS_UNIT_OPTIONS.indexOf(servingUnit) === -1){
+        servingUnit = 'g';
+      }
       return {
         name: pickedName,
         brand: p.brands || '',
         photo_url: p.image_url || p.image_front_url || '',
         nutrition: {
-          calories: nut['energy-kcal_100g'] != null ? nut['energy-kcal_100g'] : (nut['energy-kcal_serving']||0),
-          fat: nut['fat_100g']||0,
-          saturated_fat: nut['saturated-fat_100g']||0,
-          trans_fat: nut['trans-fat_100g']||0,
-          cholesterol: nut['cholesterol_100g'] != null ? nut['cholesterol_100g']*1000 : 0,
-          sodium: nut['sodium_100g'] != null ? nut['sodium_100g']*1000 : 0,
-          carbs: nut['carbohydrates_100g']||0,
-          fiber: nut['fiber_100g']||0,
-          sugar: nut['sugars_100g']||0,
-          added_sugar: nut['added-sugars_100g']||0,
-          protein: nut['proteins_100g']||0
+          calories: nut['energy-kcal'+suf] != null ? nut['energy-kcal'+suf] : 0,
+          fat: nut['fat'+suf]||0,
+          saturated_fat: nut['saturated-fat'+suf]||0,
+          trans_fat: nut['trans-fat'+suf]||0,
+          cholesterol: nut['cholesterol'+suf] != null ? nut['cholesterol'+suf]*1000 : 0,
+          sodium: nut['sodium'+suf] != null ? nut['sodium'+suf]*1000 : 0,
+          carbs: nut['carbohydrates'+suf]||0,
+          fiber: nut['fiber'+suf]||0,
+          sugar: nut['sugars'+suf]||0,
+          added_sugar: nut['added-sugars'+suf]||0,
+          protein: nut['proteins'+suf]||0
         },
-        nutrition_basis_amount:100, nutrition_basis_unit:'g', // OFF's "_100g" fields are always per 100g
+        nutrition_basis_amount: useServing ? servingAmount : 100,
+        nutrition_basis_unit: useServing ? servingUnit : 'g',
         fromOFF:true
       };
     }
