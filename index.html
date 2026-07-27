@@ -698,7 +698,6 @@ var I18N = {
     photoStandaloneDisabledHint:'拍照AI识别需要连接一个后端代理服务（浏览器无法直接安全调用AI API）。这个独立部署版默认未配置，前往"设置"填写代理地址即可启用；具体如何搭建代理，请看项目里的 README.md。',
     goToSettings:'前往设置配置',
     nutritionPhotoRecaptureBtn:'拍照重新识别',
-    nutritionPhotoRecaptureHint:'重新拍摄营养成分表，可更新下方的营养信息（不会改动名称/品牌/条码）',
     aiProxySettingLabel:'AI识别代理地址(可选)',
     aiProxySettingHint:'留空则"拍照识别"功能不显示。需要自建一个转发到Anthropic API的小型代理服务，详见README.md。',
     save:'保存', cancel:'取消', delete:'删除', edit:'编辑', add:'添加', confirm:'确认', close:'关闭',
@@ -861,7 +860,6 @@ var I18N = {
     photoStandaloneDisabledHint:'Photo AI recognition needs a small backend proxy (a browser can\'t safely call the AI API directly). This standalone build has none configured by default — set a proxy URL in Settings to enable it. See README.md for how to set one up.',
     goToSettings:'Configure in Settings',
     nutritionPhotoRecaptureBtn:'Retake & re-scan',
-    nutritionPhotoRecaptureHint:'Retake a photo of the nutrition label to refresh the values below (name/brand/barcode won\'t be touched)',
     aiProxySettingLabel:'AI recognition proxy URL (optional)',
     aiProxySettingHint:'Leave blank to hide "Photo recognition". Requires your own small proxy that forwards to the Anthropic API — see README.md.',
     save:'Save', cancel:'Cancel', delete:'Delete', edit:'Edit', add:'Add', confirm:'Confirm', close:'Close',
@@ -2859,14 +2857,13 @@ function renderItemForm(){
       '</div>'+
       '<div class="field" style="margin-bottom:0;"><label>'+t('fieldNotes')+'</label><textarea placeholder="'+t('fieldNotesPh')+'" oninput="d_str(\'notes\',this.value)">'+esc(d.notes)+'</textarea></div>'+
     '</div>'+
-    '<div class="section-title">'+t('sectionNutrition')+'</div>'+
+    '<div class="section-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">'+
+      '<span>'+t('sectionNutrition')+'</span>'+
+      (state.aiProxyUrl ? '<button type="button" class="btn btn-outline btn-sm" onclick="triggerItemNutritionPhotoCapture()">'+ic('camera',16)+' '+t('nutritionPhotoRecaptureBtn')+'</button>' : '')+
+    '</div>'+
     (state.aiProxyUrl ? (
-      '<div class="form-group" style="margin-bottom:10px;">'+
-        '<p class="hint" style="margin-bottom:10px;">'+t('nutritionPhotoRecaptureHint')+'</p>'+
-        '<button type="button" class="btn btn-outline btn-sm" onclick="triggerItemNutritionPhotoCapture()">'+ic('camera',16)+' '+t('nutritionPhotoRecaptureBtn')+'</button>'+
-        '<input type="file" accept="image/*" capture="environment" id="item-nutrition-photo-input" style="display:none" onchange="onItemNutritionPhotoSelected(this)">'+
-        '<div id="item-nutrition-photo-status" class="hint" style="margin-top:8px;"></div>'+
-      '</div>'
+      '<input type="file" accept="image/*" capture="environment" id="item-nutrition-photo-input" style="display:none" onchange="onItemNutritionPhotoSelected(this)">'+
+      '<div id="item-nutrition-photo-status" class="hint" style="margin:-6px 0 10px;"></div>'
     ) : '')+
     nutriFieldsHtml(d)+
     '<div class="section-title">'+t('sectionNutritionMore')+'</div>'+
@@ -3010,8 +3007,11 @@ async function onItemNutritionPhotoSelected(input){
     state.itemDraft.nutrition = normalizeExtractedNutrition(result);
     state.itemDraft.nutrition_extra = extra;
     state.itemDraft.nutrition_edited = false;
-    state.itemDraft.nutrition_basis_amount = basis.amount;
-    state.itemDraft.nutrition_basis_unit = basis.unit;
+    // The "每___" basis input reads from state.itemFormUI (a cached copy taken when the form was
+    // opened), not straight from itemDraft - itemDraft only gets it back on save. Update the
+    // itemFormUI copy directly or the refreshed serving size silently won't show up on screen.
+    state.itemFormUI.nutriBasisAmount = basis.amount;
+    state.itemFormUI.nutriBasisUnit = basis.unit;
     if(Object.keys(extra).some(function(k){ return NUTRI_VITAMIN_KEYS.indexOf(k)!==-1; })){
       state.itemFormUI.nutriExpanded_vitamins = true;
     }
@@ -3980,7 +3980,7 @@ async function analyzePhotoForItem(base64Data, mimeType){
     '请分析这张食品包装或营养成分表照片，尽可能提取以下信息。只返回一个JSON对象本身，不要包含任何其他文字、解释、前后缀或markdown代码块标记（不要用```包裹）。',
     '严格按此JSON格式返回：',
     '{"name":"产品名称，看不清则为空字符串","brand":"品牌名称，看不清则为空字符串","barcode":"条码下方印刷的数字，看不到则为null","nutrition_found":true或false,"nutrition_basis":"100g或100ml或serving或unknown","serving_size_amount":"仅当nutrition_basis为serving时填写每份数量(数字)，否则为null","serving_size_unit":"仅当nutrition_basis为serving时填写，必须是g/ml/tsp/tbsp/cup五选一，选跟标签最接近的单位，否则为null","nutrition":{"calories":数字(kcal)或null,"fat":数字(g)或null,"saturated_fat":数字(g)或null,"trans_fat":数字(g)或null,"cholesterol":数字(mg)或null,"sodium":数字(mg)或null,"carbs":数字(g)或null,"fiber":数字(g)或null,"sugar":数字(g)或null,"added_sugar":数字(g)或null,"protein":数字(g)或null},"extra_nutrients":{"vitamin_d":{"value":数字或null,"unit":"mcg或IU或%DV三选一"},"calcium":{"value":数字或null,"unit":"mg或%DV二选一"},"iron":{"value":数字或null,"unit":"mg或%DV二选一"},"potassium":{"value":数字或null,"unit":"mg或%DV二选一"},"vitamin_a":{"value":数字或null,"unit":"mcg或IU或%DV三选一"},"vitamin_c":{"value":数字或null,"unit":"mg或%DV二选一"},"magnesium":{"value":数字或null,"unit":"mg或%DV二选一"},"zinc":{"value":数字或null,"unit":"mg或%DV二选一"},"vitamin_b12":{"value":数字或null,"unit":"mcg或%DV二选一"}},"confidence":"high或medium或low"}',
-    '注意：sodium字段必须换算成毫克(mg)，如果标签原文是克(g)请自行乘以1000。extra_nutrients里每一项的unit必须严格从给出的选项中选一个，跟标签上实际印刷的单位对应，标签上没有的项value填null。如果完全无法从图片中识别出任何有效信息，相应字段返回null、空字符串或false，不要编造数据。'
+    '注意：sodium字段必须换算成毫克(mg)，如果标签原文是克(g)请自行乘以1000。extra_nutrients里每一项的unit必须严格从给出的选项中选一个，跟标签上实际印刷的单位对应；如果标签上这一项同时印了具体数值(mg/mcg/IU)和%DV两种，优先选具体数值那个单位，只有当标签只印了%DV、没有任何具体数值时才选%DV。标签上没有的项value填null。如果完全无法从图片中识别出任何有效信息，相应字段返回null、空字符串或false，不要编造数据。'
   ].join('\n');
   // Standalone build: calls YOUR OWN backend proxy (configured in Settings) instead of
   // api.anthropic.com directly, since a browser can't safely call the Anthropic API
