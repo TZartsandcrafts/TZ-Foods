@@ -697,6 +697,8 @@ var I18N = {
     photoError:'识别失败，请重试或手动填写',
     photoStandaloneDisabledHint:'拍照AI识别需要连接一个后端代理服务（浏览器无法直接安全调用AI API）。这个独立部署版默认未配置，前往"设置"填写代理地址即可启用；具体如何搭建代理，请看项目里的 README.md。',
     goToSettings:'前往设置配置',
+    nutritionPhotoRecaptureBtn:'拍照重新识别',
+    nutritionPhotoRecaptureHint:'重新拍摄营养成分表，可更新下方的营养信息（不会改动名称/品牌/条码）',
     aiProxySettingLabel:'AI识别代理地址(可选)',
     aiProxySettingHint:'留空则"拍照识别"功能不显示。需要自建一个转发到Anthropic API的小型代理服务，详见README.md。',
     save:'保存', cancel:'取消', delete:'删除', edit:'编辑', add:'添加', confirm:'确认', close:'关闭',
@@ -858,6 +860,8 @@ var I18N = {
     photoError:'Recognition failed, please retry or fill in manually',
     photoStandaloneDisabledHint:'Photo AI recognition needs a small backend proxy (a browser can\'t safely call the AI API directly). This standalone build has none configured by default — set a proxy URL in Settings to enable it. See README.md for how to set one up.',
     goToSettings:'Configure in Settings',
+    nutritionPhotoRecaptureBtn:'Retake & re-scan',
+    nutritionPhotoRecaptureHint:'Retake a photo of the nutrition label to refresh the values below (name/brand/barcode won\'t be touched)',
     aiProxySettingLabel:'AI recognition proxy URL (optional)',
     aiProxySettingHint:'Leave blank to hide "Photo recognition". Requires your own small proxy that forwards to the Anthropic API — see README.md.',
     save:'Save', cancel:'Cancel', delete:'Delete', edit:'Edit', add:'Add', confirm:'Confirm', close:'Close',
@@ -2856,6 +2860,14 @@ function renderItemForm(){
       '<div class="field" style="margin-bottom:0;"><label>'+t('fieldNotes')+'</label><textarea placeholder="'+t('fieldNotesPh')+'" oninput="d_str(\'notes\',this.value)">'+esc(d.notes)+'</textarea></div>'+
     '</div>'+
     '<div class="section-title">'+t('sectionNutrition')+'</div>'+
+    (state.aiProxyUrl ? (
+      '<div class="form-group" style="margin-bottom:10px;">'+
+        '<p class="hint" style="margin-bottom:10px;">'+t('nutritionPhotoRecaptureHint')+'</p>'+
+        '<button type="button" class="btn btn-outline btn-sm" onclick="triggerItemNutritionPhotoCapture()">'+ic('camera',16)+' '+t('nutritionPhotoRecaptureBtn')+'</button>'+
+        '<input type="file" accept="image/*" capture="environment" id="item-nutrition-photo-input" style="display:none" onchange="onItemNutritionPhotoSelected(this)">'+
+        '<div id="item-nutrition-photo-status" class="hint" style="margin-top:8px;"></div>'+
+      '</div>'
+    ) : '')+
     nutriFieldsHtml(d)+
     '<div class="section-title">'+t('sectionNutritionMore')+'</div>'+
     nutriExtraFieldsHtml()+
@@ -2970,6 +2982,49 @@ function removeItemPhoto(){
   if(state.itemDraft.photo_url) state.itemFormUI.pendingPhotoDeleteRefs.push(state.itemDraft.photo_url);
   state.itemDraft.photo_url = '';
   render();
+}
+// Lets the person re-take a photo of the nutrition label from *inside* the edit form (whether
+// they're adding a new item or fixing up one that was already saved - e.g. a barcode lookup
+// that came back with wrong/missing numbers). Deliberately only touches the nutrition fields on
+// the current draft; name/brand/barcode/photo are left alone since those are already set.
+function triggerItemNutritionPhotoCapture(){
+  var el = document.getElementById('item-nutrition-photo-input');
+  if(el) el.click();
+}
+async function onItemNutritionPhotoSelected(input){
+  var file = input.files && input.files[0];
+  if(!file) return;
+  var statusEl = document.getElementById('item-nutrition-photo-status');
+  if(statusEl) statusEl.textContent = t('photoAnalyzing');
+  try{
+    var resized = await fileToResizedBase64(file, 1024);
+    var result = await analyzePhotoForItem(resized.base64, resized.mimeType);
+    input.value = '';
+    if(statusEl) statusEl.textContent = '';
+    if(!result || !result.nutrition_found){
+      showToast(t('photoNotFound'));
+      return;
+    }
+    var basis = extractedNutritionBasis(result);
+    var extra = normalizeExtractedNutritionExtra(result);
+    state.itemDraft.nutrition = normalizeExtractedNutrition(result);
+    state.itemDraft.nutrition_extra = extra;
+    state.itemDraft.nutrition_edited = false;
+    state.itemDraft.nutrition_basis_amount = basis.amount;
+    state.itemDraft.nutrition_basis_unit = basis.unit;
+    if(Object.keys(extra).some(function(k){ return NUTRI_VITAMIN_KEYS.indexOf(k)!==-1; })){
+      state.itemFormUI.nutriExpanded_vitamins = true;
+    }
+    if(Object.keys(extra).some(function(k){ return NUTRI_MINERAL_KEYS.indexOf(k)!==-1; })){
+      state.itemFormUI.nutriExpanded_minerals = true;
+    }
+    showToast(t('photoFound'));
+    render();
+  }catch(e){
+    if(statusEl) statusEl.textContent = '';
+    showToast(t('photoError'));
+    input.value = '';
+  }
 }
 function cancelItemForm(){
   var target = (state.itemFormUI && state.itemFormUI.returnTo) || {view:'home'};
