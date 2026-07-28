@@ -175,6 +175,12 @@
   .swipe-action-btn.action-restore{ background:var(--fresh); }
   .swipe-action-btn.action-delete{ background:var(--danger); }
 
+  /* ---------- Recipe card swipe-to-reveal actions (same mechanics as inventory's
+     .item-card-swipe above, just a second independent instance for the recipe list) ---------- */
+  .recipe-card-swipe{ position:relative; overflow:hidden; border-radius:12px; margin-bottom:12px; }
+  .recipe-card-swipe .recipe-card{ margin-bottom:0; position:relative; z-index:1; background:var(--card-bg); transition:transform .22s ease; touch-action:pan-y; border-radius:0; }
+  .recipe-swipe-actions{ position:absolute; top:0; right:0; height:100%; display:flex; z-index:0; }
+
   .empty-state{ text-align:center; padding:60px 24px; color:var(--deep-caramel); }
   .empty-state i{ font-size:40px; color:var(--caramel-light); margin-bottom:12px; display:block; }
   .empty-state p{ font-size:15px; line-height:1.6; }
@@ -560,14 +566,14 @@
   .recipe-card .rcal{ font-size:14px; color:var(--almond); font-weight:500; margin-top:8px; }
   .recipe-card-row{ display:flex; align-items:center; gap:12px; }
   .recipe-cover{
-    flex:0 0 16.6%; aspect-ratio:3/2; border-radius:10px; overflow:hidden; background:var(--cream);
+    flex:0 0 16.6%; aspect-ratio:2/3; border-radius:10px; overflow:hidden; background:var(--cream);
     display:flex; align-items:center; justify-content:center; color:var(--deep-caramel); flex-shrink:0;
   }
   .recipe-cover img{ width:100%; height:100%; object-fit:cover; display:block; }
   .recipe-card-body{ flex:1; min-width:0; }
 
   .ing-row{ display:flex; align-items:center; gap:10px; background:var(--card-bg); border:1px solid var(--line); border-radius:11px; padding:12px 14px; margin-bottom:9px; }
-  .ing-row .ing-info{ flex:1; }
+  .ing-row .ing-info{ flex:1; cursor:pointer; }
   .ing-row .ing-name{ font-size:15px; font-weight:500; color:var(--cocoa); }
   .ing-row .ing-amt{ font-size:12.5px; color:var(--deep-caramel); margin-top:2px; }
   .ing-row .ing-del{ color:var(--danger); background:none; border:none; font-size:19px; cursor:pointer; }
@@ -1505,15 +1511,28 @@ function ic(name, size, extra){
 }
 
 /* ======================= ROUTER ======================= */
+// Views whose scroll position is worth remembering across a round-trip to a detail page -
+// e.g. tap an item in the middle of a long inventory list, look at it, swipe back: you land
+// back on that item instead of at the top of the list. Only applies to the two long
+// scrollable list views; every other view still resets to the top like before.
+var SCROLL_MEMORY_VIEWS = ['home', 'recipes'];
+var _scrollMemory = {};
 function navigate(view, params){
   stopScan();
   closeSidebar();
+  if(SCROLL_MEMORY_VIEWS.indexOf(state.view)!==-1){
+    _scrollMemory[state.view] = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
+  }
   state.view = view;
   state.params = params || {};
   render();
   var app = document.getElementById('app');
   if(app) app.scrollTop = 0;
-  window.scrollTo(0,0);
+  if(SCROLL_MEMORY_VIEWS.indexOf(view)!==-1 && _scrollMemory[view]){
+    window.scrollTo(0, _scrollMemory[view]);
+  } else {
+    window.scrollTo(0,0);
+  }
 }
 function render(){
   var app = document.getElementById('app');
@@ -1684,6 +1703,7 @@ function menuButtonHtml(page){
     if(state.view==='usageLog') return {view:'itemDetail', params:{id:state.params.id}};
     if(state.view==='usageLogAdd') return {view:'usageLog', params:{id:state.params.id}};
     if(state.view==='itemForm') return (state.itemFormUI && state.itemFormUI.returnTo) || {view:'home'};
+    if(state.view==='pickExternal') return {view:'recipeForm'};
     return null;
   }
   document.addEventListener('touchstart', function(e){
@@ -1775,6 +1795,86 @@ function deleteItemFromSwipe(id){ closeItemSwipeRow(id); deleteItemDetail(id); }
   document.addEventListener('click', function(e){
     if(itemSwipeSwallowClick){
       itemSwipeSwallowClick = false;
+      e.stopPropagation();
+      e.preventDefault();
+    }
+  }, true);
+})();
+
+// Mirrors initItemSwipeGestures above almost exactly, just retargeted at .recipe-card-swipe /
+// .recipe-card with its own open-row tracking state (recipeSwipeOpenId) - the two lists never
+// interact so keeping them as two small independent instances is simpler than parameterizing
+// one shared implementation.
+var recipeSwipeOpenId = null;
+var recipeSwipeSwallowClick = false;
+var RECIPE_SWIPE_ACTIONS_WIDTH = 128;
+function closeRecipeSwipeRow(id){
+  if(recipeSwipeOpenId===id) recipeSwipeOpenId=null;
+  var wrap = document.querySelector('.recipe-card-swipe[data-recipe-id="'+id+'"]');
+  var cardEl = wrap ? wrap.querySelector('.recipe-card') : null;
+  if(cardEl){ cardEl.style.transition=''; cardEl.style.transform='translateX(0)'; }
+}
+function deleteRecipeFromSwipe(id){
+  closeRecipeSwipeRow(id);
+  if(!confirm(t('deleteConfirm'))) return;
+  var r = state.recipes.find(function(x){ return x.id===id; });
+  if(r) deletePhotoRef(r.photo_url);
+  state.recipes = state.recipes.filter(function(x){ return x.id!==id; });
+  saveRecipes();
+  render();
+}
+(function initRecipeSwipeGestures(){
+  var sx=0, sy=0, tracking=false, cardEl=null, recipeId=null, startedOpen=false, moved=false;
+  document.addEventListener('touchstart', function(e){
+    var wrap = e.target.closest ? e.target.closest('.recipe-card-swipe') : null;
+    if(recipeSwipeOpenId && (!wrap || wrap.getAttribute('data-recipe-id')!==recipeSwipeOpenId)){
+      closeRecipeSwipeRow(recipeSwipeOpenId);
+      recipeSwipeSwallowClick = true;
+    }
+    if(!wrap){ tracking=false; cardEl=null; return; }
+    var t0 = e.touches[0];
+    sx=t0.clientX; sy=t0.clientY; tracking=true; moved=false;
+    cardEl = wrap.querySelector('.recipe-card');
+    recipeId = wrap.getAttribute('data-recipe-id');
+    startedOpen = (recipeId === recipeSwipeOpenId);
+    if(cardEl) cardEl.style.transition='none';
+  }, {passive:true});
+  document.addEventListener('touchmove', function(e){
+    if(!tracking || !cardEl) return;
+    var t0=e.touches[0];
+    var dx=t0.clientX-sx, dy=t0.clientY-sy;
+    if(!moved && Math.abs(dx)<6 && Math.abs(dy)<6) return;
+    moved = true;
+    if(Math.abs(dy) > Math.abs(dx)){
+      tracking=false;
+      cardEl.style.transition='';
+      cardEl.style.transform = startedOpen ? ('translateX(-'+RECIPE_SWIPE_ACTIONS_WIDTH+'px)') : 'translateX(0)';
+      return;
+    }
+    var base = startedOpen ? -RECIPE_SWIPE_ACTIONS_WIDTH : 0;
+    var x = base + dx;
+    if(x>0) x=0;
+    if(x< -RECIPE_SWIPE_ACTIONS_WIDTH) x=-RECIPE_SWIPE_ACTIONS_WIDTH;
+    cardEl.style.transform = 'translateX('+x+'px)';
+  }, {passive:true});
+  document.addEventListener('touchend', function(e){
+    if(!tracking || !cardEl){ tracking=false; return; }
+    tracking=false;
+    cardEl.style.transition='';
+    var t0=e.changedTouches[0];
+    var dx=t0.clientX-sx;
+    var shouldOpen = startedOpen ? (dx <= 40) : (dx < -40);
+    if(shouldOpen){
+      recipeSwipeOpenId = recipeId;
+      cardEl.style.transform = 'translateX(-'+RECIPE_SWIPE_ACTIONS_WIDTH+'px)';
+    } else {
+      if(recipeSwipeOpenId===recipeId) recipeSwipeOpenId=null;
+      cardEl.style.transform = 'translateX(0)';
+    }
+  }, {passive:true});
+  document.addEventListener('click', function(e){
+    if(recipeSwipeSwallowClick){
+      recipeSwipeSwallowClick = false;
       e.stopPropagation();
       e.preventDefault();
     }
@@ -4147,13 +4247,19 @@ function renderRecipesList(){
       var nutri = calcRecipeNutrition(r);
       var catLabel = recipeCategoryLabel(r);
       var coverHtml = r.photo_url ? photoImgHtml(r.photo_url, 'width:100%;height:100%;object-fit:cover;') : ic('book',20);
-      return '<div class="recipe-card" onclick="navigate(\'recipeDetail\',{id:'+aj(r.id)+'})">'+
-        '<div class="recipe-card-row">'+
-          '<div class="recipe-cover">'+coverHtml+'</div>'+
-          '<div class="recipe-card-body">'+
-            '<div class="rname">'+esc(r.name)+'</div>'+
-            '<div class="rmeta">'+(catLabel?esc(catLabel)+' · ':'')+(r.servings||1)+' '+t('fieldServings')+' · '+(r.ingredients||[]).length+' '+t('sectionIngredients')+'</div>'+
-            '<div class="rcal">'+fmtNum(nutri.perServing.calories,0)+' kcal / '+t('perServing').toLowerCase()+'</div>'+
+      return '<div class="recipe-card-swipe" data-recipe-id="'+esc(r.id)+'">'+
+        '<div class="recipe-swipe-actions">'+
+          '<button class="swipe-action-btn action-delete" onclick="event.stopPropagation();deleteRecipeFromSwipe('+aj(r.id)+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button>'+
+          '<button class="swipe-action-btn action-edit" onclick="event.stopPropagation();closeRecipeSwipeRow('+aj(r.id)+');openRecipeForm('+aj(r.id)+')">'+ic('edit',20)+'<span>'+esc(t('edit'))+'</span></button>'+
+        '</div>'+
+        '<div class="recipe-card" onclick="navigate(\'recipeDetail\',{id:'+aj(r.id)+'})">'+
+          '<div class="recipe-card-row">'+
+            '<div class="recipe-cover">'+coverHtml+'</div>'+
+            '<div class="recipe-card-body">'+
+              '<div class="rname">'+esc(r.name)+'</div>'+
+              '<div class="rmeta">'+(catLabel?esc(catLabel)+' · ':'')+(r.servings||1)+' '+t('fieldServings')+' · '+(r.ingredients||[]).length+' '+t('sectionIngredients')+'</div>'+
+              '<div class="rcal">'+fmtNum(nutri.perServing.calories,0)+' kcal / '+t('perServing').toLowerCase()+'</div>'+
+            '</div>'+
           '</div>'+
         '</div>'+
       '</div>';
@@ -4371,11 +4477,11 @@ function renderPickExternal(){
   }).join('');
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'recipeForm\')">'+ic('back',22)+'</button><h1>'+t('pickExternal')+'</h1></div>'+
-  '<div class="content">'+
+  '<div class="content" style="padding-bottom:90px;">'+
     '<div class="search-bar">'+ic('search',19)+'<input type="text" placeholder="'+t('searchPlaceholder')+'" value="'+esc(state.pickSearch||'')+'" oninput="onPickSearch(this.value)"></div>'+
-    '<button class="btn btn-outline" style="margin-bottom:14px;" onclick="openNewExternalIngredientModal()">'+t('createNewIngredient')+'</button>'+
     '<div id="pick-list">'+itemsHtml+'</div>'+
-  '</div>';
+  '</div>'+
+  '<button class="usage-fab" onclick="openNewExternalIngredientModal()" aria-label="'+t('createNewIngredient')+'">'+ic('plus',26)+'</button>';
 }
 function renderPickExternalListOnly(){
   var q = (state.pickSearch||'').toLowerCase();
@@ -4432,7 +4538,7 @@ function openRecipeForm(id){
     if(state.recipeDraft.category_sub==null) state.recipeDraft.category_sub = '';
     if(state.recipeDraft.photo_url==null) state.recipeDraft.photo_url = '';
   } else {
-    state.recipeDraft = {id:uid(), name:'', servings:2, instructions:'', ingredients:[], extra_oil_amount:0, extra_oil_type:'vegetable', cooked_weight:null, category_group:'', category_sub:'', photo_url:'', created_at:todayStr(), updated_at:nowLocalIso()};
+    state.recipeDraft = {id:uid(), name:'', servings:2, instructions:'', ingredients:[], cooked_weight:null, category_group:'', category_sub:'', photo_url:'', created_at:todayStr(), updated_at:nowLocalIso()};
   }
   state.recipeDraft._isNew = !id;
   // Mirrors itemFormUI's photo bookkeeping (see openItemForm): originalPhotoUrl lets cancel()
@@ -4449,23 +4555,45 @@ function ingredientRowsHtml(){
   var ings = state.recipeDraft.ingredients||[];
   if(ings.length===0) return '<p class="hint" style="margin-bottom:12px;">'+t('noIngredientsYet')+'</p>';
   return ings.map(function(ri,idx){
-    return '<div class="ing-row"><div class="ing-info"><div class="ing-name">'+esc(ri.name_snapshot)+
+    return '<div class="ing-row"><div class="ing-info" onclick="editRecipeIngredient('+idx+')"><div class="ing-name">'+esc(ri.name_snapshot)+
       (ri.source_type==='external' ? ' <span style="font-size:11px;color:var(--almond);">('+t('pickExternal')+')</span>' : '')+
       '</div><div class="ing-amt">'+fmtNum(ri.amount,1)+' '+esc(ri.unit)+'</div></div>'+
-      '<button class="ing-del" onclick="removeRecipeIngredient('+idx+')">'+ic('trash',17)+'</button></div>';
+      '<button class="ing-del" onclick="event.stopPropagation();removeRecipeIngredient('+idx+')">'+ic('trash',17)+'</button></div>';
   }).join('');
 }
 function removeRecipeIngredient(idx){
   state.recipeDraft.ingredients.splice(idx,1);
   render();
 }
-function oilTypePills(){
-  return OIL_TYPES.map(function(o){
-    var lbl = state.lang==='zh'?o.zh:o.en;
-    return '<div class="tag-option '+(state.recipeDraft.extra_oil_type===o.id?'active':'')+'" onclick="setOilType('+aj(o.id)+')">'+lbl+'</div>';
-  }).join('');
+// Tapping an existing ingredient row reopens the same amount/unit modal used when first
+// adding it (pickInventoryItem/pickExternalItem), pre-filled with its current values, so
+// changing the quantity no longer requires deleting the row and re-adding it from scratch.
+function editRecipeIngredient(idx){
+  var ri = (state.recipeDraft.ingredients||[])[idx];
+  if(!ri) return;
+  var unitOpts;
+  if(ri.source_type==='inventory'){
+    var item = state.items.find(function(i){ return i.id===ri.source_id; });
+    unitOpts = recipeUnitOptionsForItem(item);
+  } else {
+    unitOpts = ['g','kg','ml','l'];
+  }
+  if(unitOpts.indexOf(ri.unit)===-1) unitOpts.unshift(ri.unit);
+  showModal(esc(ri.name_snapshot),
+    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="number" inputmode="decimal" id="ing-amount" value="'+ri.amount+'"></div>'+
+    '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u){ return '<div class="tag-option '+(u===ri.unit?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+u+'</div>'; }).join('')+'</div></div>'+
+    '<button class="btn btn-primary" onclick="confirmEditIngredient('+idx+')">'+t('save')+'</button>'
+  );
 }
-function setOilType(id){ state.recipeDraft.extra_oil_type=id; render(); }
+function confirmEditIngredient(idx){
+  var amount = parseFloat(document.getElementById('ing-amount').value);
+  var unit = getActivePill('ing-unit-pills');
+  if(!amount || amount<=0){ showToast(state.lang==='zh'?'请输入用量':'Please enter an amount'); return; }
+  var ri = state.recipeDraft.ingredients[idx];
+  if(ri){ ri.amount = amount; ri.unit = unit; }
+  closeModal();
+  render();
+}
 function r_str(field,val){ state.recipeDraft[field]=val; }
 function r_num(field,val){
   state.recipeDraft[field] = val===''? null : parseFloat(val);
@@ -4574,7 +4702,7 @@ function renderRecipeForm(){
     '<div class="section-title">'+t('fieldRecipeCover')+'</div>'+
     '<div class="form-group">'+
       (d.photo_url ?
-        ('<div class="photo-preview-wrap" style="aspect-ratio:3/2;">'+photoImgHtml(d.photo_url, 'width:100%;height:100%;border-radius:12px;display:block;border:1px solid var(--line);object-fit:cover;')+'<button type="button" class="icon-btn photo-remove-btn" onclick="removeRecipePhoto()">'+ic('x',16)+'</button></div>')
+        ('<div class="photo-preview-wrap" style="aspect-ratio:2/3;">'+photoImgHtml(d.photo_url, 'width:100%;height:100%;border-radius:12px;display:block;border:1px solid var(--line);object-fit:cover;')+'<button type="button" class="icon-btn photo-remove-btn" onclick="removeRecipePhoto()">'+ic('x',16)+'</button></div>')
         :
         ('<label class="btn btn-outline photo-upload-btn" style="display:flex;">'+ic('camera',18)+' '+t('fieldPhotoUploadBtn')+'<input type="file" accept="image/*" style="display:none" onchange="onRecipePhotoSelected(this)"></label>')
       )+
@@ -4591,11 +4719,6 @@ function renderRecipeForm(){
         '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="goPickInventory()">'+t('addFromInventory')+'</button>'+
         '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="goPickExternal()">'+t('addExternal')+'</button>'+
       '</div>'+
-    '</div>'+
-    '<div class="section-title">'+t('sectionOil')+'</div>'+
-    '<div class="form-group">'+
-      '<div class="field"><label>'+t('fieldOilAmount')+'</label><input type="number" inputmode="decimal" value="'+(d.extra_oil_amount||0)+'" oninput="r_num(\'extra_oil_amount\',this.value)"></div>'+
-      '<div class="field" style="margin-bottom:0;"><label>'+t('fieldOilType')+'</label><div class="tag-select">'+oilTypePills()+'</div></div>'+
     '</div>'+
     '<div class="section-title">'+t('sectionCookedWeight')+'</div>'+
     '<div class="form-group">'+
