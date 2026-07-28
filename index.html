@@ -577,11 +577,10 @@
   .recipe-cover img{ width:100%; height:100%; object-fit:cover; display:block; }
   .recipe-card-body{ flex:1; min-width:0; }
 
-  .ing-row{ display:flex; align-items:center; gap:10px; background:var(--card-bg); border:1px solid var(--line); border-radius:11px; padding:12px 14px; margin-bottom:9px; }
-  .ing-row .ing-info{ flex:1; cursor:pointer; }
-  .ing-row .ing-name{ font-size:15px; font-weight:500; color:var(--cocoa); }
-  .ing-row .ing-amt{ font-size:12.5px; color:var(--deep-caramel); margin-top:2px; }
-  .ing-row .ing-del{ color:var(--danger); background:none; border:none; font-size:19px; cursor:pointer; }
+  .ing-row{ display:flex; align-items:center; gap:10px; background:var(--card-bg); border:1px solid var(--line); border-radius:11px; padding:12px 14px; margin-bottom:9px; cursor:pointer; }
+  .ing-row .ing-info{ flex:1; min-width:0; display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+  .ing-row .ing-name{ font-size:15px; font-weight:500; color:var(--cocoa); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ing-row .ing-amt{ font-size:12.5px; color:var(--deep-caramel); flex-shrink:0; }
 
   .picker-item{ display:flex; align-items:center; justify-content:space-between; padding:14px 4px; border-bottom:1px solid var(--line); cursor:pointer; }
   .picker-item .pname{ font-size:16px; color:var(--cocoa); }
@@ -621,18 +620,19 @@ var OIL_TYPES = [
 // match a standard Canadian/US Nutrition Facts label. calcRecipeNutrition/scaleNutrition/
 // addNutrition all loop over this array generically, so extending it here is enough to make
 // recipes automatically sum the new fields too - no other recipe-math code needs to change.
-var NUTRI_KEYS = ['calories','fat','saturated_fat','trans_fat','cholesterol','sodium','carbs','fiber','sugar','added_sugar','protein'];
+var NUTRI_KEYS = ['calories','fat','saturated_fat','trans_fat','monounsaturated_fat','polyunsaturated_fat','cholesterol','sodium','carbs','fiber','sugar','added_sugar','protein'];
 function nutriLabels(){
   return {
     calories:t('nutriCalories'), fat:t('nutriFat'), saturated_fat:t('nutriSaturatedFat'), trans_fat:t('nutriTransFat'),
+    monounsaturated_fat:t('nutriMonounsaturatedFat'), polyunsaturated_fat:t('nutriPolyunsaturatedFat'),
     cholesterol:t('nutriCholesterol'), sodium:t('nutriSodium'), carbs:t('nutriCarbs'), fiber:t('nutriFiber'),
     sugar:t('nutriSugar'), added_sugar:t('nutriAddedSugar'), protein:t('nutriProtein')
   };
 }
 function nutriUnits(){
   return {
-    calories:'kcal', fat:'g', saturated_fat:'g', trans_fat:'g', cholesterol:'mg', sodium:'mg',
-    carbs:'g', fiber:'g', sugar:'g', added_sugar:'g', protein:'g'
+    calories:'kcal', fat:'g', saturated_fat:'g', trans_fat:'g', monounsaturated_fat:'g', polyunsaturated_fat:'g',
+    cholesterol:'mg', sodium:'mg', carbs:'g', fiber:'g', sugar:'g', added_sugar:'g', protein:'g'
   };
 }
 // Tier 2 - "更多营养信息" (More Nutrition Info): optional micronutrients, entered/displayed
@@ -642,8 +642,8 @@ function nutriUnits(){
 // intentionally NOT part of NUTRI_KEYS/recipe math yet (see README) - stored separately on the
 // item as nutrition_extra.
 var NUTRI_EXTRA_CORE_KEYS = ['vitamin_d','calcium','iron','potassium'];
-var NUTRI_EXTRA_OPTIONAL_KEYS = ['vitamin_a','vitamin_c','magnesium','zinc','vitamin_b12'];
-var NUTRI_VITAMIN_KEYS = ['vitamin_d','vitamin_a','vitamin_c','vitamin_b12'];
+var NUTRI_EXTRA_OPTIONAL_KEYS = ['vitamin_a','vitamin_c','vitamin_e','magnesium','zinc','vitamin_b12'];
+var NUTRI_VITAMIN_KEYS = ['vitamin_d','vitamin_a','vitamin_c','vitamin_e','vitamin_b12'];
 var NUTRI_MINERAL_KEYS = ['calcium','iron','potassium','magnesium','zinc'];
 function nutriExtraDefs(){
   return {
@@ -653,6 +653,7 @@ function nutriExtraDefs(){
     potassium: {labelKey:'nutriPotassium', units:['mg','%DV']},
     vitamin_a: {labelKey:'nutriVitaminA', units:['mcg','IU','%DV']},
     vitamin_c: {labelKey:'nutriVitaminC', units:['mg','%DV']},
+    vitamin_e: {labelKey:'nutriVitaminE', units:['mg','IU','%DV']},
     magnesium: {labelKey:'nutriMagnesium', units:['mg','%DV']},
     zinc: {labelKey:'nutriZinc', units:['mg','%DV']},
     vitamin_b12: {labelKey:'nutriVitaminB12', units:['mcg','%DV']}
@@ -705,8 +706,9 @@ var I18N = {
     nutriCalories:'热量', nutriProtein:'蛋白质', nutriFat:'总脂肪', nutriCarbs:'总碳水化合物',
     nutriFiber:'膳食纤维', nutriSugar:'总糖', nutriSodium:'钠',
     nutriSaturatedFat:'饱和脂肪', nutriTransFat:'反式脂肪', nutriCholesterol:'胆固醇', nutriAddedSugar:'添加糖',
+    nutriMonounsaturatedFat:'单元不饱和脂肪', nutriPolyunsaturatedFat:'多元不饱和脂肪',
     nutriVitaminD:'维生素D', nutriCalcium:'钙', nutriIron:'铁', nutriPotassium:'钾',
-    nutriVitaminA:'维生素A', nutriVitaminC:'维生素C', nutriMagnesium:'镁', nutriZinc:'锌', nutriVitaminB12:'维生素B12',
+    nutriVitaminA:'维生素A', nutriVitaminC:'维生素C', nutriVitaminE:'维生素E', nutriMagnesium:'镁', nutriZinc:'锌', nutriVitaminB12:'维生素B12',
     nutriGroupVitamins:'维生素', nutriGroupMinerals:'矿物质',
     nutriBasisAmount:'每',
     fieldProductionDate:'生产日期', fieldShelfLife:'保质期',
@@ -760,7 +762,7 @@ var I18N = {
     nutritionSummary:'营养总览',
     perTotal:'总计', perServing:'每份', per100g:'每100g成品',
     noIngredientsYet:'还没有添加食材',
-    pickFromInventory:'从库存中选择', pickExternal:'外部食材库', createNewIngredient:'+ 新建外部食材',
+    pickFromInventory:'从库存中选择', pickExternal:'外部食材库', createNewIngredient:'+ 新建外部食材', editIngredientTitle:'编辑食材',
     ingAmountLabel:'用量', ingUnitLabel:'单位',
     newIngName:'食材名称', newIngNutriHint:'请填写每100g/100ml的营养信息',
     // recipe detail
@@ -867,8 +869,9 @@ var I18N = {
     nutriCalories:'Calories', nutriProtein:'Protein', nutriFat:'Total Fat', nutriCarbs:'Total Carbohydrate',
     nutriFiber:'Dietary Fiber', nutriSugar:'Total Sugars', nutriSodium:'Sodium',
     nutriSaturatedFat:'Saturated Fat', nutriTransFat:'Trans Fat', nutriCholesterol:'Cholesterol', nutriAddedSugar:'Added Sugars',
+    nutriMonounsaturatedFat:'Monounsaturated Fat', nutriPolyunsaturatedFat:'Polyunsaturated Fat',
     nutriVitaminD:'Vitamin D', nutriCalcium:'Calcium', nutriIron:'Iron', nutriPotassium:'Potassium',
-    nutriVitaminA:'Vitamin A', nutriVitaminC:'Vitamin C', nutriMagnesium:'Magnesium', nutriZinc:'Zinc', nutriVitaminB12:'Vitamin B12',
+    nutriVitaminA:'Vitamin A', nutriVitaminC:'Vitamin C', nutriVitaminE:'Vitamin E', nutriMagnesium:'Magnesium', nutriZinc:'Zinc', nutriVitaminB12:'Vitamin B12',
     nutriGroupVitamins:'Vitamins', nutriGroupMinerals:'Minerals',
     nutriBasisAmount:'Per',
     fieldProductionDate:'Production date', fieldShelfLife:'Shelf life',
@@ -919,7 +922,7 @@ var I18N = {
     nutritionSummary:'Nutrition summary',
     perTotal:'Total', perServing:'Per serving', per100g:'Per 100g cooked',
     noIngredientsYet:'No ingredients added yet',
-    pickFromInventory:'Choose from inventory', pickExternal:'External ingredient library', createNewIngredient:'+ New external ingredient',
+    pickFromInventory:'Choose from inventory', pickExternal:'External ingredient library', createNewIngredient:'+ New external ingredient', editIngredientTitle:'Edit ingredient',
     ingAmountLabel:'Amount', ingUnitLabel:'Unit',
     newIngName:'Ingredient name', newIngNutriHint:'Enter nutrition per 100g/100ml',
     cookThis:"I made this dish", cookConfirmTitle:'Confirm inventory deduction',
@@ -1711,6 +1714,7 @@ function menuButtonHtml(page){
     if(state.view==='pickExternal') return {view:'recipeForm'};
     if(state.view==='pickInventory') return {view:'recipeForm'};
     if(state.view==='recipeForm') return {view:'recipes'};
+    if(state.view==='recipeDetail') return {view:'recipes'};
     return null;
   }
   document.addEventListener('touchstart', function(e){
@@ -3263,6 +3267,8 @@ var NUTRI_TIER1_ROWS = [
   {key:'fat', level:0, bold:true},
   {key:'saturated_fat', level:1},
   {key:'trans_fat', level:1},
+  {key:'monounsaturated_fat', level:1, optional:true},
+  {key:'polyunsaturated_fat', level:1, optional:true},
   {key:'cholesterol', level:0, bold:true},
   {key:'sodium', level:0, bold:true},
   {key:'carbs', level:0, bold:true},
@@ -3280,7 +3286,9 @@ function nutritionFactsBoxHtml(it){
   var labels = nutriLabels();
   var units = nutriUnits();
   var calVal = (n.calories==null) ? '-' : fmtNum(n.calories,0);
-  var rowsHtml = NUTRI_TIER1_ROWS.map(function(row){
+  var rowsHtml = NUTRI_TIER1_ROWS.filter(function(row){
+    return !row.optional || n[row.key]!=null;
+  }).map(function(row){
     var v = n[row.key];
     var displayVal = (v==null) ? '-' : (fmtNum(v,1)+units[row.key]);
     var cls = 'nf-row' + (row.level===1?' indent1':'') + (row.level===2?' indent2':'') + (row.bold?' bold':'');
@@ -4041,6 +4049,8 @@ async function lookupBarcode(barcode){
           fat: nut['fat'+suf]||0,
           saturated_fat: nut['saturated-fat'+suf]||0,
           trans_fat: nut['trans-fat'+suf]||0,
+          monounsaturated_fat: nut['monounsaturated-fat'+suf]||0,
+          polyunsaturated_fat: nut['polyunsaturated-fat'+suf]||0,
           cholesterol: nut['cholesterol'+suf] != null ? nut['cholesterol'+suf]*1000 : 0,
           sodium: nut['sodium'+suf] != null ? nut['sodium'+suf]*1000 : 0,
           carbs: nut['carbohydrates'+suf]||0,
@@ -4100,7 +4110,7 @@ async function analyzePhotoForItem(base64Data, mimeType){
   var prompt = [
     '请分析这张食品包装或营养成分表照片，尽可能提取以下信息。只返回一个JSON对象本身，不要包含任何其他文字、解释、前后缀或markdown代码块标记（不要用```包裹）。',
     '严格按此JSON格式返回：',
-    '{"name":"产品名称，看不清则为空字符串","brand":"品牌名称，看不清则为空字符串","barcode":"条码下方印刷的数字，看不到则为null","nutrition_found":true或false,"nutrition_basis":"100g或100ml或serving或unknown","serving_size_amount":"仅当nutrition_basis为serving时填写每份数量(数字)，否则为null","serving_size_unit":"仅当nutrition_basis为serving时填写，必须是g/ml/tsp/tbsp/cup五选一，选跟标签最接近的单位，否则为null","nutrition":{"calories":数字(kcal)或null,"fat":数字(g)或null,"saturated_fat":数字(g)或null,"trans_fat":数字(g)或null,"cholesterol":数字(mg)或null,"sodium":数字(mg)或null,"carbs":数字(g)或null,"fiber":数字(g)或null,"sugar":数字(g)或null,"added_sugar":数字(g)或null,"protein":数字(g)或null},"extra_nutrients":{"vitamin_d":{"value":数字或null,"unit":"mcg或IU或%DV三选一"},"calcium":{"value":数字或null,"unit":"mg或%DV二选一"},"iron":{"value":数字或null,"unit":"mg或%DV二选一"},"potassium":{"value":数字或null,"unit":"mg或%DV二选一"},"vitamin_a":{"value":数字或null,"unit":"mcg或IU或%DV三选一"},"vitamin_c":{"value":数字或null,"unit":"mg或%DV二选一"},"magnesium":{"value":数字或null,"unit":"mg或%DV二选一"},"zinc":{"value":数字或null,"unit":"mg或%DV二选一"},"vitamin_b12":{"value":数字或null,"unit":"mcg或%DV二选一"}},"confidence":"high或medium或low"}',
+    '{"name":"产品名称，看不清则为空字符串","brand":"品牌名称，看不清则为空字符串","barcode":"条码下方印刷的数字，看不到则为null","nutrition_found":true或false,"nutrition_basis":"100g或100ml或serving或unknown","serving_size_amount":"仅当nutrition_basis为serving时填写每份数量(数字)，否则为null","serving_size_unit":"仅当nutrition_basis为serving时填写，必须是g/ml/tsp/tbsp/cup五选一，选跟标签最接近的单位，否则为null","nutrition":{"calories":数字(kcal)或null,"fat":数字(g)或null,"saturated_fat":数字(g)或null,"trans_fat":数字(g)或null,"monounsaturated_fat":数字(g)或null,"polyunsaturated_fat":数字(g)或null,"cholesterol":数字(mg)或null,"sodium":数字(mg)或null,"carbs":数字(g)或null,"fiber":数字(g)或null,"sugar":数字(g)或null,"added_sugar":数字(g)或null,"protein":数字(g)或null},"extra_nutrients":{"vitamin_d":{"value":数字或null,"unit":"mcg或IU或%DV三选一"},"calcium":{"value":数字或null,"unit":"mg或%DV二选一"},"iron":{"value":数字或null,"unit":"mg或%DV二选一"},"potassium":{"value":数字或null,"unit":"mg或%DV二选一"},"vitamin_a":{"value":数字或null,"unit":"mcg或IU或%DV三选一"},"vitamin_c":{"value":数字或null,"unit":"mg或%DV二选一"},"vitamin_e":{"value":数字或null,"unit":"mg或IU或%DV三选一"},"magnesium":{"value":数字或null,"unit":"mg或%DV二选一"},"zinc":{"value":数字或null,"unit":"mg或%DV二选一"},"vitamin_b12":{"value":数字或null,"unit":"mcg或%DV二选一"}},"confidence":"high或medium或low"}',
     '注意：sodium字段必须换算成毫克(mg)，如果标签原文是克(g)请自行乘以1000。extra_nutrients里每一项的unit必须严格从给出的选项中选一个，跟标签上实际印刷的单位对应；如果标签上这一项同时印了具体数值(mg/mcg/IU)和%DV两种，优先选具体数值那个单位，只有当标签只印了%DV、没有任何具体数值时才选%DV。标签上没有的项value填null。如果完全无法从图片中识别出任何有效信息，相应字段返回null、空字符串或false，不要编造数据。'
   ].join('\n');
   // Standalone build: calls YOUR OWN backend proxy (configured in Settings) instead of
@@ -4484,7 +4494,10 @@ function renderPickExternal(){
   var itemsHtml = list.map(function(ing){
     return '<div class="picker-item" onclick="pickExternalItem('+aj(ing.id)+')">'+
       '<div><div class="pname">'+esc(ing.name)+'</div><div class="pmeta">'+fmtNum(ing.nutrition.calories,0)+' kcal /100g</div></div>'+
-      ic('chevronRight',18)+
+      '<div style="display:flex;align-items:center;gap:2px;">'+
+        '<button class="icon-btn" onclick="event.stopPropagation();editExternalIngredientModal('+aj(ing.id)+')" aria-label="'+t('edit')+'">'+ic('edit',17)+'</button>'+
+        ic('chevronRight',18)+
+      '</div>'+
     '</div>';
   }).join('');
   return '' +
@@ -4501,7 +4514,10 @@ function renderPickExternalListOnly(){
   return list.map(function(ing){
     return '<div class="picker-item" onclick="pickExternalItem('+aj(ing.id)+')">'+
       '<div><div class="pname">'+esc(ing.name)+'</div><div class="pmeta">'+fmtNum(ing.nutrition.calories,0)+' kcal /100g</div></div>'+
-      ic('chevronRight',18)+
+      '<div style="display:flex;align-items:center;gap:2px;">'+
+        '<button class="icon-btn" onclick="event.stopPropagation();editExternalIngredientModal('+aj(ing.id)+')" aria-label="'+t('edit')+'">'+ic('edit',17)+'</button>'+
+        ic('chevronRight',18)+
+      '</div>'+
     '</div>';
   }).join('');
 }
@@ -4541,6 +4557,40 @@ function createExternalIngredientAndAdd(){
   addIngredientToRecipe('external', ing.id, ing.name, amount, unit);
 }
 
+// Edits the external ingredient's own library attributes (name + its per-100g nutrition
+// values) - NOT the amount/unit of any particular use of it in a recipe. Since
+// getIngredientSource() resolves external ingredients live from state.ingredients by id
+// (see calcRecipeNutrition), saving here immediately updates nutrition math for every recipe
+// that references it, the same way editing an inventory item's label would.
+function editExternalIngredientModal(id){
+  var ing = state.ingredients.find(function(i){ return i.id===id; });
+  if(!ing) return;
+  var labels = nutriLabels();
+  var nutrition = ing.nutrition || {};
+  var nutriInputs = NUTRI_KEYS.map(function(k){
+    return '<div class="field" style="margin-bottom:10px;"><label style="font-size:12.5px;">'+labels[k]+'</label><input type="number" inputmode="decimal" id="editing-'+k+'" value="'+(nutrition[k]==null?0:nutrition[k])+'"></div>';
+  }).join('');
+  showModal(t('editIngredientTitle'),
+    '<div class="field"><label>'+t('newIngName')+'</label><input type="text" id="editing-name" value="'+esc(ing.name)+'" placeholder="'+t('newIngName')+'"></div>'+
+    '<p class="hint" style="margin-bottom:10px;">'+t('newIngNutriHint')+'</p>'+
+    '<div class="nutri-grid">'+nutriInputs+'</div>'+
+    '<button class="btn btn-primary" style="margin-top:14px;" onclick="saveExternalIngredientEdit('+aj(id)+')">'+t('save')+'</button>'
+  );
+}
+function saveExternalIngredientEdit(id){
+  var ing = state.ingredients.find(function(i){ return i.id===id; });
+  if(!ing) return;
+  var name = document.getElementById('editing-name').value.trim();
+  if(!name){ showToast(state.lang==='zh'?'请输入食材名称':'Please enter a name'); return; }
+  ing.name = name;
+  ing.nutrition = ing.nutrition || {};
+  NUTRI_KEYS.forEach(function(k){ ing.nutrition[k] = parseFloat(document.getElementById('editing-'+k).value)||0; });
+  ing.updated_at = nowLocalIso();
+  saveIngredients();
+  closeModal();
+  render();
+}
+
 /* ======================= RECIPE FORM ======================= */
 function openRecipeForm(id){
   if(id){
@@ -4550,7 +4600,11 @@ function openRecipeForm(id){
     if(state.recipeDraft.category_sub==null) state.recipeDraft.category_sub = '';
     if(state.recipeDraft.photo_url==null) state.recipeDraft.photo_url = '';
   } else {
-    state.recipeDraft = {id:uid(), name:'', servings:2, instructions:'', ingredients:[], cooked_weight:null, category_group:'', category_sub:'', photo_url:'', created_at:todayStr(), updated_at:nowLocalIso()};
+    // If the person is currently viewing a filtered category/subcategory in the recipe list
+    // and taps "+", assume they mean "add a recipe here" - otherwise the new recipe defaults
+    // to uncategorized and, being outside the active filter, would correctly but confusingly
+    // not show up until the filter is cleared (e.g. by switching tabs and back).
+    state.recipeDraft = {id:uid(), name:'', servings:2, instructions:'', ingredients:[], cooked_weight:null, category_group:state.recipesUI.groupId||'', category_sub:state.recipesUI.sub||'', photo_url:'', created_at:todayStr(), updated_at:nowLocalIso()};
   }
   state.recipeDraft._isNew = !id;
   // Mirrors itemFormUI's photo bookkeeping (see openItemForm): originalPhotoUrl lets cancel()
@@ -4567,19 +4621,25 @@ function ingredientRowsHtml(){
   var ings = state.recipeDraft.ingredients||[];
   if(ings.length===0) return '<p class="hint" style="margin-bottom:12px;">'+t('noIngredientsYet')+'</p>';
   return ings.map(function(ri,idx){
-    return '<div class="ing-row"><div class="ing-info" onclick="editRecipeIngredient('+idx+')"><div class="ing-name">'+esc(ri.name_snapshot)+
+    return '<div class="ing-row" onclick="editRecipeIngredient('+idx+')"><div class="ing-info"><span class="ing-name">'+esc(ri.name_snapshot)+
       (ri.source_type==='external' ? ' <span style="font-size:11px;color:var(--almond);">('+t('pickExternal')+')</span>' : '')+
-      '</div><div class="ing-amt">'+fmtNum(ri.amount,1)+' '+esc(ri.unit)+'</div></div>'+
-      '<button class="ing-del" onclick="event.stopPropagation();removeRecipeIngredient('+idx+')">'+ic('trash',17)+'</button></div>';
+      '</span><span class="ing-amt">'+fmtNum(ri.amount,1)+' '+esc(ri.unit)+'</span></div></div>';
   }).join('');
 }
 function removeRecipeIngredient(idx){
   state.recipeDraft.ingredients.splice(idx,1);
   render();
 }
+function deleteRecipeIngredientFromModal(idx){
+  closeModal();
+  removeRecipeIngredient(idx);
+}
 // Tapping an existing ingredient row reopens the same amount/unit modal used when first
 // adding it (pickInventoryItem/pickExternalItem), pre-filled with its current values, so
 // changing the quantity no longer requires deleting the row and re-adding it from scratch.
+// The delete action lives in this same modal (instead of a separate button on the row) since
+// editing and removing a recipe's use of an ingredient are really the same "manage this line"
+// action from the person's point of view.
 function editRecipeIngredient(idx){
   var ri = (state.recipeDraft.ingredients||[])[idx];
   if(!ri) return;
@@ -4594,7 +4654,10 @@ function editRecipeIngredient(idx){
   showModal(esc(ri.name_snapshot),
     '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="number" inputmode="decimal" id="ing-amount" value="'+ri.amount+'"></div>'+
     '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u){ return '<div class="tag-option '+(u===ri.unit?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+u+'</div>'; }).join('')+'</div></div>'+
-    '<button class="btn btn-primary" onclick="confirmEditIngredient('+idx+')">'+t('save')+'</button>'
+    '<div class="btn-row" style="margin-top:14px;">'+
+      '<button class="btn btn-danger btn-sm" style="flex:1;" onclick="deleteRecipeIngredientFromModal('+idx+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
+      '<button class="btn btn-primary btn-sm" style="flex:1;" onclick="confirmEditIngredient('+idx+')">'+t('save')+'</button>'+
+    '</div>'
   );
 }
 function confirmEditIngredient(idx){
