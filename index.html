@@ -271,6 +271,12 @@
     padding:0 16px; border-radius:9px; border:none; background:var(--almond); color:#fff; cursor:pointer;
   }
   .sidebar-inline-add-row button:active{ opacity:0.85; }
+  .sidebar-inline-add-combined{ display:flex; flex-direction:column; gap:6px; padding:6px 2px 4px; }
+  .sidebar-add-level-select{
+    width:100%; font-size:14px; padding:0 10px; height:36px; box-sizing:border-box;
+    border-radius:9px; border:1px solid var(--line); background:var(--card-bg); color:var(--cocoa); outline:none;
+  }
+  .sidebar-add-level-select:focus{ border-color:var(--almond); }
   .sidebar-group-header{
     display:flex; align-items:center; justify-content:space-between; padding:10px 10px;
     border-radius:10px; cursor:pointer; user-select:none;
@@ -552,6 +558,13 @@
   .recipe-card .rname{ font-size:17px; font-weight:600; color:var(--cocoa); }
   .recipe-card .rmeta{ font-size:13px; color:var(--deep-caramel); margin-top:4px; }
   .recipe-card .rcal{ font-size:14px; color:var(--almond); font-weight:500; margin-top:8px; }
+  .recipe-card-row{ display:flex; align-items:center; gap:12px; }
+  .recipe-cover{
+    flex:0 0 16.6%; aspect-ratio:3/2; border-radius:10px; overflow:hidden; background:var(--cream);
+    display:flex; align-items:center; justify-content:center; color:var(--deep-caramel); flex-shrink:0;
+  }
+  .recipe-cover img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .recipe-card-body{ flex:1; min-width:0; }
 
   .ing-row{ display:flex; align-items:center; gap:10px; background:var(--card-bg); border:1px solid var(--line); border-radius:11px; padding:12px 14px; margin-bottom:9px; }
   .ing-row .ing-info{ flex:1; }
@@ -727,7 +740,7 @@ var I18N = {
     // recipes
     recipesTitle:'食谱', newRecipe:'新建食谱', emptyRecipes:'还没有食谱', emptyRecipesHint:'点击右下角按钮创建第一个食谱',
     recipeFormTitleAdd:'新建食谱', recipeFormTitleEdit:'编辑食谱',
-    fieldRecipeName:'食谱名称', fieldRecipeNamePh:'例如：番茄炒蛋',
+    fieldRecipeName:'食谱名称', fieldRecipeNamePh:'例如：番茄炒蛋', fieldRecipeCover:'封面图',
     fieldServings:'份数', fieldInstructions:'做法步骤(可选)', fieldInstructionsPh:'简单记录做法…',
     sectionIngredients:'食材', addFromInventory:'从库存选择', addExternal:'添加外部食材',
     sectionOil:'额外用油(可选)', fieldOilAmount:'用油量(g)', fieldOilType:'油的种类',
@@ -884,9 +897,9 @@ var I18N = {
     scanCameraError:'Could not access camera. Check permissions or enter barcode manually.',
     barcodeInputPh:'Enter barcode digits to look up',
     lookupBtn:'Look up',
-    recipesTitle:'Recipes', newRecipe:'New recipe', emptyRecipes:'No recipes yet', emptyRecipesHint:'Tap the button below to create your first recipe',
+    recipesTitle:'Recipes', newRecipe:'New recipe', emptyRecipes:'No recipes yet', emptyRecipesHint:'Tap the + button in the bottom right to create your first recipe',
     recipeFormTitleAdd:'New recipe', recipeFormTitleEdit:'Edit recipe',
-    fieldRecipeName:'Recipe name', fieldRecipeNamePh:'e.g. Tomato & egg stir-fry',
+    fieldRecipeName:'Recipe name', fieldRecipeNamePh:'e.g. Tomato & egg stir-fry', fieldRecipeCover:'Cover photo',
     fieldServings:'Servings', fieldInstructions:'Instructions (optional)', fieldInstructionsPh:'Jot down the steps…',
     sectionIngredients:'Ingredients', addFromInventory:'Add from inventory', addExternal:'Add external ingredient',
     sectionOil:'Extra oil (optional)', fieldOilAmount:'Oil amount (g)', fieldOilType:'Oil type',
@@ -4133,10 +4146,16 @@ function renderRecipesList(){
     listHtml = filtered.map(function(r){
       var nutri = calcRecipeNutrition(r);
       var catLabel = recipeCategoryLabel(r);
+      var coverHtml = r.photo_url ? photoImgHtml(r.photo_url, 'width:100%;height:100%;object-fit:cover;') : ic('book',20);
       return '<div class="recipe-card" onclick="navigate(\'recipeDetail\',{id:'+aj(r.id)+'})">'+
-        '<div class="rname">'+esc(r.name)+'</div>'+
-        '<div class="rmeta">'+(catLabel?esc(catLabel)+' · ':'')+(r.servings||1)+' '+t('fieldServings')+' · '+(r.ingredients||[]).length+' '+t('sectionIngredients')+'</div>'+
-        '<div class="rcal">'+fmtNum(nutri.perServing.calories,0)+' kcal / '+t('perServing').toLowerCase()+'</div>'+
+        '<div class="recipe-card-row">'+
+          '<div class="recipe-cover">'+coverHtml+'</div>'+
+          '<div class="recipe-card-body">'+
+            '<div class="rname">'+esc(r.name)+'</div>'+
+            '<div class="rmeta">'+(catLabel?esc(catLabel)+' · ':'')+(r.servings||1)+' '+t('fieldServings')+' · '+(r.ingredients||[]).length+' '+t('sectionIngredients')+'</div>'+
+            '<div class="rcal">'+fmtNum(nutri.perServing.calories,0)+' kcal / '+t('perServing').toLowerCase()+'</div>'+
+          '</div>'+
+        '</div>'+
       '</div>';
     }).join('');
   }
@@ -4149,11 +4168,11 @@ function renderRecipesList(){
     '<div class="active-filter-bar"><span onclick="toggleSidebar(\'recipes\')">'+ic('menu',14)+' '+esc(filterLabel)+'</span><button class="active-filter-clear" onclick="clearRecipeFilters()">'+ic('x',13)+'</button></div>' : '';
   return '' +
   '<div class="topbar"><div><h1>📖 '+t('recipesTitle')+'</h1></div>'+menuButtonHtml('recipes')+'</div>'+
-  '<div class="content">'+
+  '<div class="content" style="padding-bottom:90px;">'+
     activeFilterHtml +
     listHtml+
-    '<button class="btn btn-primary" style="margin-top:16px;" onclick="openRecipeForm(null)">'+ic('plus',18)+' '+t('newRecipe')+'</button>'+
   '</div>'+
+  '<button class="usage-fab" onclick="openRecipeForm(null)" aria-label="'+t('newRecipe')+'">'+ic('plus',26)+'</button>'+
   bottomNav();
 }
 function clearRecipeFilters(){ state.recipesUI.groupId=null; state.recipesUI.sub=null; render(); }
@@ -4191,26 +4210,55 @@ function renderRecipeSidebarContent(){
       '</div>'+
       (expanded ? '<div class="sidebar-subs">'+
         '<div class="sidebar-reorder-list" data-reorder-kind="recipeSub" data-reorder-group="'+esc(g.id)+'">'+subItems+'</div>'+
-        recipeSubInlineAddRowHtml(g.id) +
       '</div>' : '')+
     '</div>';
   }).join('');
   return '<div class="sidebar-header"><h2>📖 '+t('recipesTitle')+'</h2><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div>'+
     '<div class="sidebar-item '+(!state.recipesUI.groupId?'active':'')+'" onclick="sidebarSetRecipeFilter(null,null)">'+t('filterAll')+'</div>'+
     '<div class="sidebar-reorder-list" data-reorder-kind="recipeGroup">'+groupsHtml+'</div>'+
-    recipeGroupInlineAddRowHtml();
+    recipeCombinedAddRowHtml();
 }
-function recipeSubInlineAddRowHtml(groupId){
-  return '<div class="sidebar-inline-add-row">'+
-    '<input type="text" id="new-recipe-sub-sidebar-'+esc(groupId)+'" placeholder="'+t('newTagPrompt')+'" onkeydown="if(event.key===\'Enter\')addRecipeSubFromSidebar('+aj(groupId)+')">'+
-    '<button onclick="addRecipeSubFromSidebar('+aj(groupId)+')">'+t('add')+'</button>'+
+// Single combined "add" control for the recipe sidebar (replaces what used to be up to three
+// separate always-visible add-boxes: one per expanded group for subcategories, plus one for
+// new top-level groups). A level select up top picks *what* the text field below will create -
+// a new top-level category, or a new subcategory under one of the existing groups - and only
+// one text input + button pair is ever on screen. Lives once, at the very bottom of the whole
+// category list (below every group), regardless of which groups happen to be expanded.
+function recipeCombinedAddRowHtml(){
+  var target = state.recipesUI.addTarget || '';
+  var options = '<option value="">'+(state.lang==='zh'?'新增分类':'New category')+'</option>'+
+    state.recipeCategoryGroups.map(function(g){
+      var label = state.lang==='zh' ? ('"'+g.name+'" 的新子分类') : ('New subcategory of "'+g.name+'"');
+      return '<option value="'+esc(g.id)+'" '+(target===g.id?'selected':'')+'>'+esc(label)+'</option>';
+    }).join('');
+  return '<div class="sidebar-inline-add-combined">'+
+    '<select id="recipe-add-target-select" class="sidebar-add-level-select" onchange="onRecipeAddTargetChange(this)">'+options+'</select>'+
+    '<div class="sidebar-inline-add-row" style="padding:0;">'+
+      '<input type="text" id="new-recipe-combined-input" placeholder="'+t('newTagPrompt')+'" onkeydown="if(event.key===\'Enter\')confirmRecipeCombinedAdd()">'+
+      '<button onclick="confirmRecipeCombinedAdd()">'+t('add')+'</button>'+
+    '</div>'+
   '</div>';
 }
-function recipeGroupInlineAddRowHtml(){
-  return '<div class="sidebar-inline-add-row" style="padding-left:4px;padding-right:4px;">'+
-    '<input type="text" id="new-recipe-group-input" placeholder="'+t('newTagPrompt')+'" onkeydown="if(event.key===\'Enter\')addRecipeGroupFromSidebar()">'+
-    '<button onclick="addRecipeGroupFromSidebar()">'+t('add')+'</button>'+
-  '</div>';
+function onRecipeAddTargetChange(sel){ state.recipesUI.addTarget = sel.value; }
+function confirmRecipeCombinedAdd(){
+  var el = document.getElementById('new-recipe-combined-input');
+  var val = el ? el.value.trim() : '';
+  if(!val) return;
+  var target = state.recipesUI.addTarget || '';
+  if(!target){
+    if(state.recipeCategoryGroups.some(function(g){ return g.name===val; })){ showToast(t('tagDuplicate')); return; }
+    state.recipeCategoryGroups.push({id: uid(), name: val, subs: []});
+  } else {
+    var g = recipeGroupById(target);
+    if(!g) return;
+    if((g.subs||[]).indexOf(val)!==-1){ showToast(t('tagDuplicate')); return; }
+    g.subs.push(val);
+    state.recipesUI.expandedGroup = g.id;
+  }
+  saveRecipeCategoryGroups();
+  if(el) el.value = '';
+  render();
+  refreshSidebarContent();
 }
 function addRecipeSubFromInput(elId, groupId){
   var el = document.getElementById(elId);
@@ -4225,7 +4273,6 @@ function addRecipeSubFromInput(elId, groupId){
   render();
   refreshSidebarContent();
 }
-function addRecipeSubFromSidebar(groupId){ addRecipeSubFromInput('new-recipe-sub-sidebar-'+groupId, groupId); }
 function addRecipeGroupFromInput(elId){
   var el = document.getElementById(elId);
   var val = el ? el.value.trim() : '';
@@ -4237,7 +4284,6 @@ function addRecipeGroupFromInput(elId){
   render();
   refreshSidebarContent();
 }
-function addRecipeGroupFromSidebar(){ addRecipeGroupFromInput('new-recipe-group-input'); }
 
 /* ======================= INGREDIENT PICKERS ======================= */
 function recipeUnitOptionsForItem(item){
@@ -4384,11 +4430,19 @@ function openRecipeForm(id){
     state.recipeDraft = JSON.parse(JSON.stringify(existing));
     if(state.recipeDraft.category_group==null) state.recipeDraft.category_group = '';
     if(state.recipeDraft.category_sub==null) state.recipeDraft.category_sub = '';
+    if(state.recipeDraft.photo_url==null) state.recipeDraft.photo_url = '';
   } else {
-    state.recipeDraft = {id:uid(), name:'', servings:2, instructions:'', ingredients:[], extra_oil_amount:0, extra_oil_type:'vegetable', cooked_weight:null, category_group:'', category_sub:'', created_at:todayStr(), updated_at:nowLocalIso()};
+    state.recipeDraft = {id:uid(), name:'', servings:2, instructions:'', ingredients:[], extra_oil_amount:0, extra_oil_type:'vegetable', cooked_weight:null, category_group:'', category_sub:'', photo_url:'', created_at:todayStr(), updated_at:nowLocalIso()};
   }
   state.recipeDraft._isNew = !id;
-  state.recipeFormUI = {};
+  // Mirrors itemFormUI's photo bookkeeping (see openItemForm): originalPhotoUrl lets cancel()
+  // tell "a photo already saved on this recipe" apart from "a brand-new upload from this
+  // editing session that never got saved", and pendingPhotoDeleteRefs holds IndexedDB refs
+  // that should only actually be deleted once the form is saved.
+  state.recipeFormUI = {
+    originalPhotoUrl: state.recipeDraft.photo_url || '',
+    pendingPhotoDeleteRefs: []
+  };
   navigate('recipeForm', {id:id});
 }
 function ingredientRowsHtml(){
@@ -4517,6 +4571,15 @@ function renderRecipeForm(){
       '<div class="field"><label>'+t('fieldRecipeName')+' *</label><input type="text" value="'+esc(d.name)+'" placeholder="'+t('fieldRecipeNamePh')+'" oninput="r_str(\'name\',this.value)"></div>'+
       '<div class="field" style="margin-bottom:0;"><label>'+t('fieldServings')+'</label><input type="number" inputmode="decimal" value="'+(d.servings==null?'':d.servings)+'" oninput="r_num(\'servings\',this.value)"></div>'+
     '</div>'+
+    '<div class="section-title">'+t('fieldRecipeCover')+'</div>'+
+    '<div class="form-group">'+
+      (d.photo_url ?
+        ('<div class="photo-preview-wrap" style="aspect-ratio:3/2;">'+photoImgHtml(d.photo_url, 'width:100%;height:100%;border-radius:12px;display:block;border:1px solid var(--line);object-fit:cover;')+'<button type="button" class="icon-btn photo-remove-btn" onclick="removeRecipePhoto()">'+ic('x',16)+'</button></div>')
+        :
+        ('<label class="btn btn-outline photo-upload-btn" style="display:flex;">'+ic('camera',18)+' '+t('fieldPhotoUploadBtn')+'<input type="file" accept="image/*" style="display:none" onchange="onRecipePhotoSelected(this)"></label>')
+      )+
+      '<div class="hint" id="recipe-photo-status"></div>'+
+    '</div>'+
     '<div class="section-title">'+t('fieldRecipeCategory')+'</div>'+
     '<div class="form-group">'+
       recipeCategoryPickerHtml()+
@@ -4552,9 +4615,57 @@ function renderRecipeForm(){
     (!d._isNew ? '<button class="btn btn-danger" style="margin-top:10px;" onclick="deleteRecipeFromForm()">'+ic('trash',16)+' '+t('delete')+'</button>' : '')+
   '</div>';
 }
+// Recipe cover photo upload/remove - same compression pipeline and IndexedDB storage
+// (PHOTO_IDB/savePhotoToIDB/deletePhotoRef) as item photos, just writing into
+// state.recipeDraft.photo_url / state.recipeFormUI instead of the item equivalents.
+async function onRecipePhotoSelected(input){
+  var file = input.files && input.files[0];
+  if(!file) return;
+  var statusEl = document.getElementById('recipe-photo-status');
+  if(statusEl) statusEl.textContent = t('photoProcessing');
+  try{
+    var maxDim = 900, quality = 0.72;
+    var dataUrl = await compressImageFile(file, maxDim, quality);
+    var tries = 0;
+    while(dataUrl.length > 180*1024 && tries < 5){
+      maxDim = Math.round(maxDim * 0.8);
+      quality = Math.max(0.4, quality - 0.1);
+      dataUrl = await compressImageFile(file, maxDim, quality);
+      tries++;
+    }
+    if(dataUrl.length > 260*1024){
+      if(statusEl) statusEl.textContent = t('photoTooLarge');
+      showToast(t('photoTooLarge'));
+      input.value = '';
+      return;
+    }
+    if(state.recipeDraft.photo_url) state.recipeFormUI.pendingPhotoDeleteRefs.push(state.recipeDraft.photo_url);
+    var ref = await savePhotoToIDB(dataUrl);
+    state.recipeDraft.photo_url = ref;
+    render();
+  }catch(e){
+    if(statusEl) statusEl.textContent = t('photoProcessFailed');
+    showToast(t('photoProcessFailed'));
+  }
+  input.value = '';
+}
+function removeRecipePhoto(){
+  if(state.recipeDraft.photo_url) state.recipeFormUI.pendingPhotoDeleteRefs.push(state.recipeDraft.photo_url);
+  state.recipeDraft.photo_url = '';
+  render();
+}
 function goPickInventory(){ state.pickSearch=''; navigate('pickInventory'); }
 function goPickExternal(){ state.pickSearch=''; navigate('pickExternal'); }
-function cancelRecipeForm(){ state.recipeDraft=null; navigate('recipes'); }
+function cancelRecipeForm(){
+  // Same logic as cancelItemForm: the original photo (if any) was never touched, only a
+  // brand-new upload from this session (never saved) needs cleaning up so it doesn't sit
+  // around unreferenced in IndexedDB.
+  var orig = (state.recipeFormUI && state.recipeFormUI.originalPhotoUrl) || '';
+  var current = (state.recipeDraft && state.recipeDraft.photo_url) || '';
+  if(current && current !== orig) deletePhotoRef(current);
+  state.recipeDraft=null;
+  navigate('recipes');
+}
 function saveRecipeForm(){
   var d = state.recipeDraft;
   if(!d.name || !d.name.trim()){ showToast(state.lang==='zh'?'请填写食谱名称':'Please enter a recipe name'); return; }
@@ -4563,12 +4674,16 @@ function saveRecipeForm(){
   var idx = state.recipes.findIndex(function(r){ return r.id===d.id; });
   if(idx===-1) state.recipes.push(d); else state.recipes[idx]=d;
   saveRecipes();
+  // Now that the save is committed, actually remove any photo(s) replaced/deleted during
+  // this editing session (see openRecipeForm's comment on this).
+  (state.recipeFormUI.pendingPhotoDeleteRefs||[]).forEach(function(ref){ deletePhotoRef(ref); });
   state.recipeDraft=null;
   showToast(state.lang==='zh'?'已保存':'Saved');
   navigate('recipeDetail',{id:d.id});
 }
 function deleteRecipeFromForm(){
   if(!confirm(t('deleteConfirm'))) return;
+  deletePhotoRef(state.recipeDraft.photo_url);
   state.recipes = state.recipes.filter(function(r){ return r.id!==state.recipeDraft.id; });
   saveRecipes();
   state.recipeDraft=null;
@@ -4995,16 +5110,23 @@ async function exportInventoryData(){
   downloadJSON('foodcode-inventory-backup-'+todayStr()+'.json', payload);
   showToast(state.lang==='zh' ? '库存数据已导出（含图片）' : 'Inventory data exported (with photos)');
 }
-function exportRecipesData(){
+async function exportRecipesData(){
+  // Recipe cover photos live in the same IndexedDB photo store as inventory photos and use
+  // the exact same photo_url reference convention ('' / 'photo:id' / remote URL), so the
+  // existing itemsWithInlinedPhotos() helper (despite its item-flavored name) works unchanged
+  // here too: it inlines any local 'photo:id' refs as base64 so the backup is self-contained.
+  var hasLocalPhoto = (state.recipes||[]).some(function(r){ return PHOTO_IDB.isRef(r.photo_url); });
+  if(hasLocalPhoto) showToast(state.lang==='zh' ? '正在打包图片…' : 'Bundling photos…');
+  var recipesOut = await itemsWithInlinedPhotos(state.recipes);
   var payload = {
     type: 'foodcode_recipes_backup',
     version: 1,
     exported_at: nowLocalIso(),
-    recipes: state.recipes,
+    recipes: recipesOut,
     ingredients: state.ingredients
   };
   downloadJSON('foodcode-recipes-backup-'+todayStr()+'.json', payload);
-  showToast(state.lang==='zh' ? '食谱数据已导出' : 'Recipes data exported');
+  showToast(state.lang==='zh' ? '食谱数据已导出（含图片）' : 'Recipes data exported (with photos)');
 }
 function exportNotesData(){
   var payload = {
@@ -5134,11 +5256,15 @@ async function confirmImport(mode){
     }
     saveItems(); saveCategories(); saveLocations();
   } else if(_pendingImport.kind === 'recipes'){
+    // migrateImportedPhotos also just looks for a data: URL in photo_url, so it works
+    // unchanged for recipe cover photos too - re-stores them into this device's IndexedDB
+    // and swaps back in a local 'photo:id' reference.
+    var incomingRecipes = await migrateImportedPhotos(data.recipes||[]);
     if(mode === 'merge'){
-      state.recipes = mergeById(state.recipes, data.recipes||[]);
+      state.recipes = mergeById(state.recipes, incomingRecipes);
       state.ingredients = mergeById(state.ingredients, data.ingredients||[]);
     } else {
-      state.recipes = data.recipes || [];
+      state.recipes = incomingRecipes;
       state.ingredients = data.ingredients || [];
     }
     saveRecipes(); saveIngredients();
