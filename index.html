@@ -100,6 +100,11 @@
     margin:-16px -18px 0; padding:16px 18px 12px;
   }
   .home-sticky-controls .sort-row{ margin-bottom:0; }
+  .pick-sticky-search{
+    position:sticky; z-index:15; background:var(--cream);
+    top:0; /* refined precisely by JS after each render, see syncPickInventoryStickyOffset() */
+    margin:-16px -18px 0; padding:16px 18px 12px;
+  }
 
   /* ---------- Search & filters ---------- */
   .search-bar{
@@ -1704,6 +1709,8 @@ function menuButtonHtml(page){
     if(state.view==='usageLogAdd') return {view:'usageLog', params:{id:state.params.id}};
     if(state.view==='itemForm') return (state.itemFormUI && state.itemFormUI.returnTo) || {view:'home'};
     if(state.view==='pickExternal') return {view:'recipeForm'};
+    if(state.view==='pickInventory') return {view:'recipeForm'};
+    if(state.view==='recipeForm') return {view:'recipes'};
     return null;
   }
   document.addEventListener('touchstart', function(e){
@@ -1721,6 +1728,7 @@ function menuButtonHtml(page){
     var dx = t0.clientX - startX, dy = t0.clientY - startY;
     if(dx > 60 && Math.abs(dy) < 60){
       if(state.view==='itemForm') cancelItemForm();
+      else if(state.view==='recipeForm') cancelRecipeForm();
       else navigate(target.view, target.params);
     }
   }, {passive:true});
@@ -4405,15 +4413,18 @@ function renderPickInventory(){
   var q = (state.pickSearch||'').toLowerCase();
   var list = activeItems().filter(function(i){ return !q || (i.name||'').toLowerCase().indexOf(q)!==-1; });
   var itemsHtml = list.map(function(it){
+    var expiryText = it.expiry_date ? (t('fieldExpiry')+' '+fmtDateDots(it.expiry_date)) : '';
     return '<div class="picker-item" onclick="pickInventoryItem('+aj(it.id)+')">'+
-      '<div><div class="pname">'+esc(it.name)+'</div><div class="pmeta">'+qtyDisplay(it)+(it.location?' · '+esc(it.location):'')+'</div></div>'+
+      '<div><div class="pname">'+esc(it.name)+'</div><div class="pmeta">'+qtyDisplay(it)+(it.location?' · '+esc(it.location):'')+(expiryText?' · '+esc(expiryText):'')+'</div></div>'+
       ic('chevronRight',18)+
     '</div>';
   }).join('') || '<div class="empty-state">'+ic('search',32)+'<p>'+(state.lang==='zh'?'没有找到食材':'No items found')+'</p></div>';
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'recipeForm\')">'+ic('back',22)+'</button><h1>'+t('pickFromInventory')+'</h1></div>'+
   '<div class="content">'+
-    '<div class="search-bar">'+ic('search',19)+'<input type="text" placeholder="'+t('searchPlaceholder')+'" value="'+esc(state.pickSearch||'')+'" oninput="onPickSearch(this.value)"></div>'+
+    '<div class="pick-sticky-search" id="pick-inventory-sticky">'+
+      '<div class="search-bar">'+ic('search',19)+'<input type="text" placeholder="'+t('searchPlaceholder')+'" value="'+esc(state.pickSearch||'')+'" oninput="onPickSearch(this.value)"></div>'+
+    '</div>'+
     '<div id="pick-list">'+itemsHtml+'</div>'+
   '</div>';
 }
@@ -4429,8 +4440,9 @@ function renderPickInventoryListOnly(){
   var q = (state.pickSearch||'').toLowerCase();
   var list = activeItems().filter(function(i){ return !q || (i.name||'').toLowerCase().indexOf(q)!==-1; });
   return list.map(function(it){
+    var expiryText = it.expiry_date ? (t('fieldExpiry')+' '+fmtDateDots(it.expiry_date)) : '';
     return '<div class="picker-item" onclick="pickInventoryItem('+aj(it.id)+')">'+
-      '<div><div class="pname">'+esc(it.name)+'</div><div class="pmeta">'+qtyDisplay(it)+(it.location?' · '+esc(it.location):'')+'</div></div>'+
+      '<div><div class="pname">'+esc(it.name)+'</div><div class="pmeta">'+qtyDisplay(it)+(it.location?' · '+esc(it.location):'')+(expiryText?' · '+esc(expiryText):'')+'</div></div>'+
       ic('chevronRight',18)+
     '</div>';
   }).join('') || '<div class="empty-state">'+ic('search',32)+'<p>'+(state.lang==='zh'?'没有找到食材':'No items found')+'</p></div>';
@@ -4697,7 +4709,10 @@ function renderRecipeForm(){
   '<div class="content">'+
     '<div class="form-group">'+
       '<div class="field"><label>'+t('fieldRecipeName')+' *</label><input type="text" value="'+esc(d.name)+'" placeholder="'+t('fieldRecipeNamePh')+'" oninput="r_str(\'name\',this.value)"></div>'+
-      '<div class="field" style="margin-bottom:0;"><label>'+t('fieldServings')+'</label><input type="number" inputmode="decimal" value="'+(d.servings==null?'':d.servings)+'" oninput="r_num(\'servings\',this.value)"></div>'+
+      '<div class="field-row" style="margin-bottom:0;">'+
+        '<div class="field" style="margin-bottom:0;"><label>'+t('fieldServings')+'</label><input type="number" inputmode="decimal" value="'+(d.servings==null?'':d.servings)+'" oninput="r_num(\'servings\',this.value)"></div>'+
+        '<div class="field" style="margin-bottom:0;"><label>'+t('fieldCookedWeight')+'</label><input type="number" inputmode="decimal" value="'+(d.cooked_weight==null?'':d.cooked_weight)+'" oninput="r_num(\'cooked_weight\',this.value)"></div>'+
+      '</div>'+
     '</div>'+
     '<div class="section-title">'+t('fieldRecipeCover')+'</div>'+
     '<div class="form-group">'+
@@ -4719,11 +4734,6 @@ function renderRecipeForm(){
         '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="goPickInventory()">'+t('addFromInventory')+'</button>'+
         '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="goPickExternal()">'+t('addExternal')+'</button>'+
       '</div>'+
-    '</div>'+
-    '<div class="section-title">'+t('sectionCookedWeight')+'</div>'+
-    '<div class="form-group">'+
-      '<div class="field" style="margin-bottom:6px;"><label>'+t('fieldCookedWeight')+'</label><input type="number" inputmode="decimal" value="'+(d.cooked_weight==null?'':d.cooked_weight)+'" oninput="r_num(\'cooked_weight\',this.value)"></div>'+
-      '<div class="hint">'+t('cookedWeightHint')+'</div>'+
     '</div>'+
     '<div class="section-title">'+t('fieldInstructions')+'</div>'+
     '<div class="form-group">'+
@@ -5639,18 +5649,36 @@ function afterRender(){
   if(state.view === 'home'){
     syncHomeStickyControlsOffset();
   }
+  if(state.view === 'pickInventory'){
+    syncPickInventoryStickyOffset();
+  }
 }
 function syncHomeStickyControlsOffset(){
   var topbar = document.querySelector('.topbar');
   var stickyControls = document.getElementById('home-sticky-controls');
   if(topbar && stickyControls) stickyControls.style.top = topbar.offsetHeight + 'px';
 }
+function syncPickInventoryStickyOffset(){
+  var header = document.querySelector('.page-header');
+  var sticky = document.getElementById('pick-inventory-sticky');
+  if(header && sticky) sticky.style.top = header.offsetHeight + 'px';
+}
 // iOS can restore a home-screen PWA from a frozen/suspended background state with a stale
 // position:sticky calculation (a known WebKit quirk, not something specific to this app) -
 // re-measuring on these events, not just after render, is what actually recovers it.
-window.addEventListener('pageshow', function(){ if(state.view==='home') syncHomeStickyControlsOffset(); });
-document.addEventListener('visibilitychange', function(){ if(!document.hidden && state.view==='home') syncHomeStickyControlsOffset(); });
-window.addEventListener('resize', function(){ if(state.view==='home') syncHomeStickyControlsOffset(); });
+window.addEventListener('pageshow', function(){
+  if(state.view==='home') syncHomeStickyControlsOffset();
+  if(state.view==='pickInventory') syncPickInventoryStickyOffset();
+});
+document.addEventListener('visibilitychange', function(){
+  if(document.hidden) return;
+  if(state.view==='home') syncHomeStickyControlsOffset();
+  if(state.view==='pickInventory') syncPickInventoryStickyOffset();
+});
+window.addEventListener('resize', function(){
+  if(state.view==='home') syncHomeStickyControlsOffset();
+  if(state.view==='pickInventory') syncPickInventoryStickyOffset();
+});
 // Close an open unit dropdown (the "数量"/nutrition/price unit pickers) on any click outside
 // it - previously only picking an option or re-tapping the trigger closed it, so it stayed
 // open (and visually floating over whatever you clicked next) no matter where else you tapped.
