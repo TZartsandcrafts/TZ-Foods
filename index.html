@@ -4812,8 +4812,13 @@ function addStep(){
   render();
   // Only the first, already-on-screen step needs a manual tap to start typing - every step
   // added after that via this button should land with the keyboard already up, since tapping
-  // "add another step" is itself a clear enough signal of intent to type.
-  setTimeout(function(){ var el=document.getElementById('step-textarea-'+newIdx); if(el) el.focus(); }, 30);
+  // "add another step" is itself a clear enough signal of intent to type. Focusing must happen
+  // synchronously, in the same tick as the click that called this function - iOS Safari only
+  // raises the on-screen keyboard for a programmatic .focus() if it's still within the
+  // "trusted user gesture" window; wrapping it in setTimeout (even a few ms) forfeits that,
+  // so the field silently gets focus with no keyboard.
+  var el = document.getElementById('step-textarea-'+newIdx);
+  if(el) el.focus();
 }
 function removeStep(idx){
   state.recipeDraft.steps.splice(idx,1);
