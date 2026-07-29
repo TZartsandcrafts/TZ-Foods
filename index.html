@@ -102,7 +102,7 @@
   .home-sticky-controls .sort-row{ margin-bottom:0; }
   .pick-sticky-search{
     position:sticky; z-index:15; background:var(--cream);
-    top:0; /* refined precisely by JS after each render, see syncPickInventoryStickyOffset() */
+    top:0; /* refined precisely by JS after each render, see syncPickStickyOffset() */
     margin:-16px -18px 0; padding:16px 18px 12px;
   }
 
@@ -581,6 +581,8 @@
   .ing-row .ing-info{ flex:1; min-width:0; display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
   .ing-row .ing-name{ font-size:15px; font-weight:500; color:var(--cocoa); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .ing-row .ing-amt{ font-size:12.5px; color:var(--deep-caramel); flex-shrink:0; }
+  .ing-group-header{ font-size:14.5px; font-weight:700; color:var(--fresh); margin:14px 2px 6px; cursor:pointer; }
+  .ing-group-header:first-child{ margin-top:2px; }
 
   .picker-item{ display:flex; align-items:center; justify-content:space-between; padding:14px 4px; border-bottom:1px solid var(--line); cursor:pointer; }
   .picker-item .pname{ font-size:16px; color:var(--cocoa); }
@@ -686,7 +688,7 @@ var I18N = {
     remainingQtyLabel:'剩余',
     searchPlaceholder:'搜索食品名称 / 品牌',
     filterAll:'全部',
-    sortLabel:'排序', sortExpiry:'过期', sortName:'名称', sortPurchase:'购入',
+    sortLabel:'排序', sortExpiry:'过期', sortName:'名称', sortPurchase:'购买', sortCreated:'录入',
     emptyInventory:'库存还是空的', emptyInventoryHint:'点击下方按钮扫码或手动添加第一件食材吧',
     scanAdd:'扫码添加', manualAdd:'手动添加',
     statusExpired:'已过期', statusSoonPrefix:'', statusSoonDays:'天内', statusFresh:'新鲜', statusToday:'今天到期',
@@ -756,6 +758,7 @@ var I18N = {
     fieldRecipeName:'食谱名称', fieldRecipeNamePh:'例如：番茄炒蛋', fieldRecipeCover:'封面图',
     fieldServings:'份数', fieldInstructions:'做法步骤(可选)', fieldInstructionsPh:'简单记录做法…',
     sectionIngredients:'食材', addFromInventory:'从库存选择', addExternal:'添加外部食材',
+    addIngredientGroupBtn:'分组', addIngredientGroupTitle:'添加分组', editIngredientGroupTitle:'编辑分组', ingredientGroupNameLabel:'分组名称', ingredientGroupNamePh:'例如：饺子皮',
     sectionOil:'额外用油(可选)', fieldOilAmount:'用油量(g)', fieldOilType:'油的种类',
     sectionCookedWeight:'成品重量(可选)', fieldCookedWeight:'成品总重量(g)',
     cookedWeightHint:'填写做完这道菜实际称重的重量，可显示"每100g成品热量"',
@@ -850,7 +853,7 @@ var I18N = {
     remainingQtyLabel:'Remaining',
     searchPlaceholder:'Search name / brand',
     filterAll:'All',
-    sortLabel:'Sort', sortExpiry:'Expiry', sortName:'Name', sortPurchase:'Purchase date',
+    sortLabel:'Sort', sortExpiry:'Expiry', sortName:'Name', sortPurchase:'Purchase date', sortCreated:'Date added',
     emptyInventory:'Your pantry is empty', emptyInventoryHint:'Tap below to scan or manually add your first item',
     scanAdd:'Scan to add', manualAdd:'Add manually',
     statusExpired:'Expired', statusSoonPrefix:'', statusSoonDays:'d left', statusFresh:'Fresh', statusToday:'Due today',
@@ -916,6 +919,7 @@ var I18N = {
     fieldRecipeName:'Recipe name', fieldRecipeNamePh:'e.g. Tomato & egg stir-fry', fieldRecipeCover:'Cover photo',
     fieldServings:'Servings', fieldInstructions:'Instructions (optional)', fieldInstructionsPh:'Jot down the steps…',
     sectionIngredients:'Ingredients', addFromInventory:'Add from inventory', addExternal:'Add external ingredient',
+    addIngredientGroupBtn:'Group', addIngredientGroupTitle:'Add group', editIngredientGroupTitle:'Edit group', ingredientGroupNameLabel:'Group name', ingredientGroupNamePh:'e.g. Dough',
     sectionOil:'Extra oil (optional)', fieldOilAmount:'Oil amount (g)', fieldOilType:'Oil type',
     sectionCookedWeight:'Cooked weight (optional)', fieldCookedWeight:'Total cooked weight (g)',
     cookedWeightHint:'Weigh the finished dish to show calories per 100g of the final product.',
@@ -1455,6 +1459,7 @@ function calcRecipeNutrition(recipe){
   var total = emptyNutrition();
   var warnings = [];
   (recipe.ingredients||[]).forEach(function(ri){
+    if(ri.type==='group') return;
     var src = getIngredientSource(ri);
     if(!src){ warnings.push(ri.name_snapshot||'?'); return; }
     var perBasis = src.nutrition || emptyNutrition();
@@ -2047,6 +2052,8 @@ function getFilteredSortedItems(){
       cmp = (a.name||'').localeCompare(b.name||'');
     } else if(state.home.sort === 'purchase'){
       cmp = (a.purchase_date||'').localeCompare(b.purchase_date||'');
+    } else if(state.home.sort === 'created'){
+      cmp = (a.created_at||'').localeCompare(b.created_at||'');
     } else {
       // expiry: items without an expiry date sink to the bottom regardless of direction
       var ad = a.expiry_date || '9999-99-99';
@@ -2082,6 +2089,7 @@ function renderHome(){
           '<div class="sort-pill '+(state.home.sort==='expiry'?'active':'')+'" onclick="setHomeSort(\'expiry\')">'+t('sortExpiry')+sortArrow('expiry')+'</div>'+
           '<div class="sort-pill '+(state.home.sort==='name'?'active':'')+'" onclick="setHomeSort(\'name\')">'+t('sortName')+sortArrow('name')+'</div>'+
           '<div class="sort-pill '+(state.home.sort==='purchase'?'active':'')+'" onclick="setHomeSort(\'purchase\')">'+t('sortPurchase')+sortArrow('purchase')+'</div>'+
+          '<div class="sort-pill '+(state.home.sort==='created'?'active':'')+'" onclick="setHomeSort(\'created\')">'+t('sortCreated')+sortArrow('created')+'</div>'+
         '</div>'+
       '</div>'+
     '</div>'+
@@ -4244,6 +4252,9 @@ function recipeCategoryLabel(r){
   if(!g) return '';
   return r.category_sub ? (g.name+' · '+r.category_sub) : g.name;
 }
+function recipeIngredientCount(r){
+  return ((r&&r.ingredients)||[]).filter(function(ri){ return ri.type!=='group'; }).length;
+}
 function getFilteredRecipes(){
   return state.recipes.filter(function(r){
     if(state.recipesUI.groupId && r.category_group !== state.recipesUI.groupId) return false;
@@ -4275,7 +4286,7 @@ function renderRecipesList(){
             '<div class="recipe-cover">'+coverHtml+'</div>'+
             '<div class="recipe-card-body">'+
               '<div class="rname">'+esc(r.name)+'</div>'+
-              '<div class="rmeta">'+(catLabel?esc(catLabel)+' · ':'')+(r.servings||1)+' '+t('fieldServings')+' · '+(r.ingredients||[]).length+' '+t('sectionIngredients')+'</div>'+
+              '<div class="rmeta">'+(catLabel?esc(catLabel)+' · ':'')+(r.servings||1)+' '+t('fieldServings')+' · '+recipeIngredientCount(r)+' '+t('sectionIngredients')+'</div>'+
               '<div class="rcal">'+fmtNum(nutri.perServing.calories,0)+' kcal / '+t('perServing').toLowerCase()+'</div>'+
             '</div>'+
           '</div>'+
@@ -4462,7 +4473,7 @@ function pickInventoryItem(id){
   if(!it) return;
   var unitOpts = recipeUnitOptionsForItem(it);
   showModal(esc(it.name),
-    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="number" inputmode="decimal" id="ing-amount" value="100"></div>'+
+    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="number" inputmode="decimal" id="ing-amount" placeholder="-"></div>'+
     '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u,idx){ return '<div class="tag-option '+(idx===0?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+u+'</div>'; }).join('')+'</div></div>'+
     '<button class="btn btn-primary" onclick="confirmAddIngredient(\'inventory\','+aj(id)+','+aj(it.name)+')">'+t('add')+'</button>'
   );
@@ -4492,18 +4503,20 @@ function renderPickExternal(){
   var q = (state.pickSearch||'').toLowerCase();
   var list = state.ingredients.filter(function(i){ return !q || (i.name||'').toLowerCase().indexOf(q)!==-1; });
   var itemsHtml = list.map(function(ing){
-    return '<div class="picker-item" onclick="pickExternalItem('+aj(ing.id)+')">'+
+    return '<div class="picker-item" onclick="quickAddExternalIngredient('+aj(ing.id)+')">'+
       '<div><div class="pname">'+esc(ing.name)+'</div><div class="pmeta">'+fmtNum(ing.nutrition.calories,0)+' kcal /100g</div></div>'+
       '<div style="display:flex;align-items:center;gap:2px;">'+
+        '<button class="icon-btn" onclick="event.stopPropagation();deleteExternalIngredientConfirm('+aj(ing.id)+')" aria-label="'+t('delete')+'">'+ic('trash',17)+'</button>'+
         '<button class="icon-btn" onclick="event.stopPropagation();editExternalIngredientModal('+aj(ing.id)+')" aria-label="'+t('edit')+'">'+ic('edit',17)+'</button>'+
-        ic('chevronRight',18)+
       '</div>'+
     '</div>';
   }).join('');
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'recipeForm\')">'+ic('back',22)+'</button><h1>'+t('pickExternal')+'</h1></div>'+
   '<div class="content" style="padding-bottom:90px;">'+
-    '<div class="search-bar">'+ic('search',19)+'<input type="text" placeholder="'+t('searchPlaceholder')+'" value="'+esc(state.pickSearch||'')+'" oninput="onPickSearch(this.value)"></div>'+
+    '<div class="pick-sticky-search" id="pick-external-sticky">'+
+      '<div class="search-bar">'+ic('search',19)+'<input type="text" placeholder="'+t('searchPlaceholder')+'" value="'+esc(state.pickSearch||'')+'" oninput="onPickSearch(this.value)"></div>'+
+    '</div>'+
     '<div id="pick-list">'+itemsHtml+'</div>'+
   '</div>'+
   '<button class="usage-fab" onclick="openNewExternalIngredientModal()" aria-label="'+t('createNewIngredient')+'">'+ic('plus',26)+'</button>';
@@ -4512,34 +4525,41 @@ function renderPickExternalListOnly(){
   var q = (state.pickSearch||'').toLowerCase();
   var list = state.ingredients.filter(function(i){ return !q || (i.name||'').toLowerCase().indexOf(q)!==-1; });
   return list.map(function(ing){
-    return '<div class="picker-item" onclick="pickExternalItem('+aj(ing.id)+')">'+
+    return '<div class="picker-item" onclick="quickAddExternalIngredient('+aj(ing.id)+')">'+
       '<div><div class="pname">'+esc(ing.name)+'</div><div class="pmeta">'+fmtNum(ing.nutrition.calories,0)+' kcal /100g</div></div>'+
       '<div style="display:flex;align-items:center;gap:2px;">'+
+        '<button class="icon-btn" onclick="event.stopPropagation();deleteExternalIngredientConfirm('+aj(ing.id)+')" aria-label="'+t('delete')+'">'+ic('trash',17)+'</button>'+
         '<button class="icon-btn" onclick="event.stopPropagation();editExternalIngredientModal('+aj(ing.id)+')" aria-label="'+t('edit')+'">'+ic('edit',17)+'</button>'+
-        ic('chevronRight',18)+
       '</div>'+
     '</div>';
   }).join('');
 }
-function pickExternalItem(id){
+// Tapping a row now adds it straight to the recipe at a flat 100g default instead of popping
+// an amount/unit modal first - adjusting the actual amount already happens by tapping the
+// ingredient once it's in the recipe's own list (editRecipeIngredient), so asking for it twice
+// was redundant. No confirmation needed to add; deleteExternalIngredientConfirm below is the
+// one that's destructive and asks first.
+function quickAddExternalIngredient(id){
   var ing = state.ingredients.find(function(i){ return i.id===id; });
   if(!ing) return;
-  showModal(esc(ing.name),
-    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="number" inputmode="decimal" id="ing-amount" value="100"></div>'+
-    '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+['g','kg','ml','l'].map(function(u,idx){ return '<div class="tag-option '+(idx===0?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+u+'</div>'; }).join('')+'</div></div>'+
-    '<button class="btn btn-primary" onclick="confirmAddIngredient(\'external\','+aj(id)+','+aj(ing.name)+')">'+t('add')+'</button>'
-  );
+  addIngredientToRecipe('external', id, ing.name, 100, 'g');
+}
+function deleteExternalIngredientConfirm(id){
+  if(!confirm(t('deleteConfirm'))) return;
+  state.ingredients = state.ingredients.filter(function(i){ return i.id!==id; });
+  saveIngredients();
+  render();
 }
 function openNewExternalIngredientModal(){
   var labels = nutriLabels();
   var nutriInputs = NUTRI_KEYS.map(function(k){
-    return '<div class="field" style="margin-bottom:10px;"><label style="font-size:12.5px;">'+labels[k]+'</label><input type="number" inputmode="decimal" id="newing-'+k+'" value="0"></div>';
+    return '<div class="field" style="margin-bottom:10px;"><label style="font-size:12.5px;">'+labels[k]+'</label><input type="number" inputmode="decimal" id="newing-'+k+'" placeholder="-"></div>';
   }).join('');
   showModal(t('createNewIngredient'),
     '<div class="field"><label>'+t('newIngName')+'</label><input type="text" id="newing-name" placeholder="'+t('newIngName')+'"></div>'+
     '<p class="hint" style="margin-bottom:10px;">'+t('newIngNutriHint')+'</p>'+
     '<div class="nutri-grid">'+nutriInputs+'</div>'+
-    '<div class="field" style="margin-top:14px;"><label>'+t('ingAmountLabel')+'</label><input type="number" inputmode="decimal" id="ing-amount" value="100"></div>'+
+    '<div class="field" style="margin-top:14px;"><label>'+t('ingAmountLabel')+'</label><input type="number" inputmode="decimal" id="ing-amount" placeholder="-"></div>'+
     '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+['g','kg','ml','l'].map(function(u,idx){ return '<div class="tag-option '+(idx===0?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+u+'</div>'; }).join('')+'</div></div>'+
     '<button class="btn btn-primary" onclick="createExternalIngredientAndAdd()">'+t('add')+'</button>'
   );
@@ -4568,7 +4588,7 @@ function editExternalIngredientModal(id){
   var labels = nutriLabels();
   var nutrition = ing.nutrition || {};
   var nutriInputs = NUTRI_KEYS.map(function(k){
-    return '<div class="field" style="margin-bottom:10px;"><label style="font-size:12.5px;">'+labels[k]+'</label><input type="number" inputmode="decimal" id="editing-'+k+'" value="'+(nutrition[k]==null?0:nutrition[k])+'"></div>';
+    return '<div class="field" style="margin-bottom:10px;"><label style="font-size:12.5px;">'+labels[k]+'</label><input type="number" inputmode="decimal" id="editing-'+k+'" value="'+(nutrition[k]==null?'':nutrition[k])+'" placeholder="-"></div>';
   }).join('');
   showModal(t('editIngredientTitle'),
     '<div class="field"><label>'+t('newIngName')+'</label><input type="text" id="editing-name" value="'+esc(ing.name)+'" placeholder="'+t('newIngName')+'"></div>'+
@@ -4593,6 +4613,14 @@ function saveExternalIngredientEdit(id){
 
 /* ======================= RECIPE FORM ======================= */
 function openRecipeForm(id){
+  // Remember where we were opened from, so the back arrow / cancel / swipe-right gesture
+  // return to the same place - same idea as openItemForm's returnTo: editing a recipe from
+  // its detail page returns to that detail page; opening from the recipe list (edit-swipe or
+  // "+ new recipe") returns to the list.
+  var returnTo = {view:'recipes'};
+  if(id && state.view==='recipeDetail' && state.params && state.params.id===id){
+    returnTo = {view:'recipeDetail', params:{id:id}};
+  }
   if(id){
     var existing = state.recipes.find(function(r){ return r.id===id; });
     state.recipeDraft = JSON.parse(JSON.stringify(existing));
@@ -4604,7 +4632,7 @@ function openRecipeForm(id){
     // and taps "+", assume they mean "add a recipe here" - otherwise the new recipe defaults
     // to uncategorized and, being outside the active filter, would correctly but confusingly
     // not show up until the filter is cleared (e.g. by switching tabs and back).
-    state.recipeDraft = {id:uid(), name:'', servings:2, instructions:'', ingredients:[], cooked_weight:null, category_group:state.recipesUI.groupId||'', category_sub:state.recipesUI.sub||'', photo_url:'', created_at:todayStr(), updated_at:nowLocalIso()};
+    state.recipeDraft = {id:uid(), name:'', servings:null, instructions:'', ingredients:[], cooked_weight:null, category_group:state.recipesUI.groupId||'', category_sub:state.recipesUI.sub||'', photo_url:'', created_at:todayStr(), updated_at:nowLocalIso()};
   }
   state.recipeDraft._isNew = !id;
   // Mirrors itemFormUI's photo bookkeeping (see openItemForm): originalPhotoUrl lets cancel()
@@ -4612,6 +4640,7 @@ function openRecipeForm(id){
   // editing session that never got saved", and pendingPhotoDeleteRefs holds IndexedDB refs
   // that should only actually be deleted once the form is saved.
   state.recipeFormUI = {
+    returnTo: returnTo,
     originalPhotoUrl: state.recipeDraft.photo_url || '',
     pendingPhotoDeleteRefs: []
   };
@@ -4621,6 +4650,9 @@ function ingredientRowsHtml(){
   var ings = state.recipeDraft.ingredients||[];
   if(ings.length===0) return '<p class="hint" style="margin-bottom:12px;">'+t('noIngredientsYet')+'</p>';
   return ings.map(function(ri,idx){
+    if(ri.type==='group'){
+      return '<div class="ing-group-header" onclick="editIngredientGroupModal('+idx+')">#'+esc(ri.name)+'</div>';
+    }
     return '<div class="ing-row" onclick="editRecipeIngredient('+idx+')"><div class="ing-info"><span class="ing-name">'+esc(ri.name_snapshot)+
       (ri.source_type==='external' ? ' <span style="font-size:11px;color:var(--almond);">('+t('pickExternal')+')</span>' : '')+
       '</span><span class="ing-amt">'+fmtNum(ri.amount,1)+' '+esc(ri.unit)+'</span></div></div>';
@@ -4633,6 +4665,56 @@ function removeRecipeIngredient(idx){
 function deleteRecipeIngredientFromModal(idx){
   closeModal();
   removeRecipeIngredient(idx);
+}
+// Ingredient groups (e.g. "饺子皮" / "饺子馅") are represented as a pseudo-entry
+// {id, type:'group', name} living right in state.recipeDraft.ingredients at whatever position
+// it was inserted - same array, same display order, as the real ingredient entries. Everything
+// after a group header "belongs" to it purely by position, until the next header or the end of
+// the list - the same convention Xiaochufang uses with a typed "#name" line, just added through
+// a proper button/modal here instead of parsed out of free text. New ingredients are always
+// appended to the end (see addIngredientToRecipe), so adding a header and then adding
+// ingredients naturally nests them under it.
+function addIngredientGroupModal(){
+  showModal(t('addIngredientGroupTitle'),
+    '<div class="field"><label>'+t('ingredientGroupNameLabel')+'</label><input type="text" id="new-ing-group-name" placeholder="'+t('ingredientGroupNamePh')+'"></div>'+
+    '<button class="btn btn-primary" onclick="confirmAddIngredientGroup()">'+t('add')+'</button>'
+  );
+}
+function confirmAddIngredientGroup(){
+  var el = document.getElementById('new-ing-group-name');
+  var name = el ? el.value.trim() : '';
+  if(!name){ showToast(state.lang==='zh'?'请输入分组名称':'Please enter a group name'); return; }
+  state.recipeDraft.ingredients.push({id:uid(), type:'group', name:name});
+  closeModal();
+  render();
+}
+function editIngredientGroupModal(idx){
+  var g = (state.recipeDraft.ingredients||[])[idx];
+  if(!g || g.type!=='group') return;
+  showModal(t('editIngredientGroupTitle'),
+    '<div class="field"><label>'+t('ingredientGroupNameLabel')+'</label><input type="text" id="edit-ing-group-name" value="'+esc(g.name)+'"></div>'+
+    '<div class="btn-row" style="margin-top:14px;">'+
+      '<button class="btn btn-danger btn-sm" style="flex:1;" onclick="deleteIngredientGroupFromModal('+idx+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
+      '<button class="btn btn-primary btn-sm" style="flex:1;" onclick="confirmEditIngredientGroup('+idx+')">'+t('save')+'</button>'+
+    '</div>'
+  );
+}
+function confirmEditIngredientGroup(idx){
+  var g = state.recipeDraft.ingredients[idx];
+  var el = document.getElementById('edit-ing-group-name');
+  var name = el ? el.value.trim() : '';
+  if(!name){ showToast(state.lang==='zh'?'请输入分组名称':'Please enter a group name'); return; }
+  if(g) g.name = name;
+  closeModal();
+  render();
+}
+function deleteIngredientGroupFromModal(idx){
+  // Only removes the header itself - the ingredients that were under it stay exactly where
+  // they are (they just fall under whatever group precedes them, or become ungrouped if there
+  // isn't one), same as deleting a heading in a document doesn't delete the paragraphs under it.
+  closeModal();
+  state.recipeDraft.ingredients.splice(idx,1);
+  render();
 }
 // Tapping an existing ingredient row reopens the same amount/unit modal used when first
 // adding it (pickInventoryItem/pickExternalItem), pre-filled with its current values, so
@@ -4773,8 +4855,8 @@ function renderRecipeForm(){
     '<div class="form-group">'+
       '<div class="field"><label>'+t('fieldRecipeName')+' *</label><input type="text" value="'+esc(d.name)+'" placeholder="'+t('fieldRecipeNamePh')+'" oninput="r_str(\'name\',this.value)"></div>'+
       '<div class="field-row" style="margin-bottom:0;">'+
-        '<div class="field" style="margin-bottom:0;"><label>'+t('fieldServings')+'</label><input type="number" inputmode="decimal" value="'+(d.servings==null?'':d.servings)+'" oninput="r_num(\'servings\',this.value)"></div>'+
-        '<div class="field" style="margin-bottom:0;"><label>'+t('fieldCookedWeight')+'</label><input type="number" inputmode="decimal" value="'+(d.cooked_weight==null?'':d.cooked_weight)+'" oninput="r_num(\'cooked_weight\',this.value)"></div>'+
+        '<div class="field" style="margin-bottom:0;"><label>'+t('fieldServings')+'</label><input type="number" inputmode="decimal" value="'+(d.servings==null?'':d.servings)+'" placeholder="-" oninput="r_num(\'servings\',this.value)"></div>'+
+        '<div class="field" style="margin-bottom:0;"><label>'+t('fieldCookedWeight')+'</label><input type="number" inputmode="decimal" value="'+(d.cooked_weight==null?'':d.cooked_weight)+'" placeholder="-" oninput="r_num(\'cooked_weight\',this.value)"></div>'+
       '</div>'+
     '</div>'+
     '<div class="section-title">'+t('fieldRecipeCover')+'</div>'+
@@ -4797,6 +4879,7 @@ function renderRecipeForm(){
         '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="goPickInventory()">'+t('addFromInventory')+'</button>'+
         '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="goPickExternal()">'+t('addExternal')+'</button>'+
       '</div>'+
+      '<button class="btn btn-outline btn-sm" style="width:100%;margin-top:8px;color:var(--fresh);border-color:var(--fresh);" onclick="addIngredientGroupModal()">'+ic('plus',15)+' '+t('addIngredientGroupBtn')+'</button>'+
     '</div>'+
     '<div class="section-title">'+t('fieldInstructions')+'</div>'+
     '<div class="form-group">'+
@@ -4859,8 +4942,9 @@ function cancelRecipeForm(){
   var orig = (state.recipeFormUI && state.recipeFormUI.originalPhotoUrl) || '';
   var current = (state.recipeDraft && state.recipeDraft.photo_url) || '';
   if(current && current !== orig) deletePhotoRef(current);
+  var target = (state.recipeFormUI && state.recipeFormUI.returnTo) || {view:'recipes'};
   state.recipeDraft=null;
-  navigate('recipes');
+  navigate(target.view, target.params);
 }
 function saveRecipeForm(){
   var d = state.recipeDraft;
@@ -4903,6 +4987,9 @@ function renderRecipeDetail(){
   var nutriHtml = block(t('perTotal'), nutri.total) + block(t('perServing'), nutri.perServing);
   if(nutri.per100g) nutriHtml += block(t('per100g'), nutri.per100g);
   var ingHtml = (r.ingredients||[]).map(function(ri){
+    if(ri.type==='group'){
+      return '<div class="ing-group-header" style="cursor:default;">#'+esc(ri.name)+'</div>';
+    }
     return '<div class="ing-row" style="cursor:default;"><div class="ing-info"><div class="ing-name">'+esc(ri.name_snapshot)+'</div><div class="ing-amt">'+fmtNum(ri.amount,1)+' '+esc(ri.unit)+'</div></div></div>';
   }).join('');
   return '' +
@@ -4912,7 +4999,7 @@ function renderRecipeDetail(){
     '<button class="icon-btn" onclick="openRecipeForm('+aj(r.id)+')">'+ic('edit',18)+'</button>'+
   '</div>'+
   '<div class="content">'+
-    '<p style="color:var(--deep-caramel);font-size:14px;margin-bottom:16px;">'+r.servings+' '+t('fieldServings')+' · '+(r.ingredients||[]).length+' '+t('sectionIngredients')+'</p>'+
+    '<p style="color:var(--deep-caramel);font-size:14px;margin-bottom:16px;">'+r.servings+' '+t('fieldServings')+' · '+recipeIngredientCount(r)+' '+t('sectionIngredients')+'</p>'+
     '<div class="section-title" style="margin-top:0;">'+t('nutritionSummary')+'</div>'+
     '<div class="form-group">'+nutriHtml+
       (nutri.warnings && nutri.warnings.length ? '<p class="hint" style="color:var(--warn);">'+(state.lang==='zh'?'部分食材未计入(单位无法换算)：':'Excluded (unit not convertible): ')+nutri.warnings.map(esc).join('、')+'</p>' : '')+
@@ -4933,7 +5020,7 @@ function deleteRecipeDetail(id){
 }
 function openCookConfirm(recipeId){
   var r = state.recipes.find(function(x){ return x.id===recipeId; });
-  var lines = r.ingredients.map(function(ri){
+  var lines = r.ingredients.filter(function(ri){ return ri.type!=='group'; }).map(function(ri){
     if(ri.source_type==='external'){
       return {text: esc(ri.name_snapshot)+': '+fmtNum(ri.amount,1)+' '+esc(ri.unit), note:t('cookConfirmNone')};
     }
@@ -5712,8 +5799,8 @@ function afterRender(){
   if(state.view === 'home'){
     syncHomeStickyControlsOffset();
   }
-  if(state.view === 'pickInventory'){
-    syncPickInventoryStickyOffset();
+  if(state.view === 'pickInventory' || state.view === 'pickExternal'){
+    syncPickStickyOffset();
   }
 }
 function syncHomeStickyControlsOffset(){
@@ -5721,9 +5808,12 @@ function syncHomeStickyControlsOffset(){
   var stickyControls = document.getElementById('home-sticky-controls');
   if(topbar && stickyControls) stickyControls.style.top = topbar.offsetHeight + 'px';
 }
-function syncPickInventoryStickyOffset(){
+// Shared by both the "pick from inventory" and "external ingredient library" pages - both use
+// the exact same .page-header + sticky-search-bar structure, so one offset calc covers either
+// (whichever one is actually in the DOM at the time; querySelector just no-ops if absent).
+function syncPickStickyOffset(){
   var header = document.querySelector('.page-header');
-  var sticky = document.getElementById('pick-inventory-sticky');
+  var sticky = document.querySelector('.pick-sticky-search');
   if(header && sticky) sticky.style.top = header.offsetHeight + 'px';
 }
 // iOS can restore a home-screen PWA from a frozen/suspended background state with a stale
@@ -5731,16 +5821,16 @@ function syncPickInventoryStickyOffset(){
 // re-measuring on these events, not just after render, is what actually recovers it.
 window.addEventListener('pageshow', function(){
   if(state.view==='home') syncHomeStickyControlsOffset();
-  if(state.view==='pickInventory') syncPickInventoryStickyOffset();
+  if(state.view==='pickInventory' || state.view==='pickExternal') syncPickStickyOffset();
 });
 document.addEventListener('visibilitychange', function(){
   if(document.hidden) return;
   if(state.view==='home') syncHomeStickyControlsOffset();
-  if(state.view==='pickInventory') syncPickInventoryStickyOffset();
+  if(state.view==='pickInventory' || state.view==='pickExternal') syncPickStickyOffset();
 });
 window.addEventListener('resize', function(){
   if(state.view==='home') syncHomeStickyControlsOffset();
-  if(state.view==='pickInventory') syncPickInventoryStickyOffset();
+  if(state.view==='pickInventory' || state.view==='pickExternal') syncPickStickyOffset();
 });
 // Close an open unit dropdown (the "数量"/nutrition/price unit pickers) on any click outside
 // it - previously only picking an option or re-tapping the trigger closed it, so it stayed
