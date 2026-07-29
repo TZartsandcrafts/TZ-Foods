@@ -45,7 +45,7 @@
     min-height:100vh;
     -webkit-font-smoothing:antialiased;
   }
-  button, input, select, textarea{ font-family:inherit; }
+  button, input, select, textarea{ font-family:inherit; font-size:16px; }
   h1,h2,h3,p{ margin:0; }
   #app{
     max-width:480px;
@@ -583,6 +583,14 @@
   .ing-row .ing-amt{ font-size:12.5px; color:var(--deep-caramel); flex-shrink:0; }
   .ing-group-header{ font-size:14.5px; font-weight:700; color:var(--fresh); margin:14px 2px 6px; cursor:pointer; }
   .ing-group-header:first-child{ margin-top:2px; }
+  .step-card{ margin-bottom:12px; }
+  .step-card .step-title{ font-size:14px; font-weight:600; color:var(--cocoa); margin-bottom:6px; }
+  .step-card textarea{
+    width:100%; min-height:64px; font-size:16px; padding:12px 14px; border-radius:11px;
+    border:1px solid var(--line); background:var(--card-bg); color:var(--cocoa); outline:none; resize:vertical;
+  }
+  .step-card textarea:focus{ border-color:var(--almond); }
+  .step-card .step-remove-btn{ background:none; border:none; color:var(--danger); font-size:12.5px; padding:6px 2px 0; cursor:pointer; }
 
   .picker-item{ display:flex; align-items:center; justify-content:space-between; padding:14px 4px; border-bottom:1px solid var(--line); cursor:pointer; }
   .picker-item .pname{ font-size:16px; color:var(--cocoa); }
@@ -756,7 +764,7 @@ var I18N = {
     recipesTitle:'食谱', newRecipe:'新建食谱', emptyRecipes:'还没有食谱', emptyRecipesHint:'点击右下角按钮创建第一个食谱',
     recipeFormTitleAdd:'新建食谱', recipeFormTitleEdit:'编辑食谱',
     fieldRecipeName:'食谱名称', fieldRecipeNamePh:'例如：番茄炒蛋', fieldRecipeCover:'封面图',
-    fieldServings:'份数', fieldInstructions:'做法步骤(可选)', fieldInstructionsPh:'简单记录做法…',
+    fieldServings:'份数', fieldInstructions:'做法', stepLabel:'步骤', stepPlaceholder:'输入这一步做法…', addStepBtn:'再增加一步',
     sectionIngredients:'食材', addFromInventory:'从库存选择', addExternal:'添加外部食材',
     addIngredientGroupBtn:'分组', addIngredientGroupTitle:'添加分组', editIngredientGroupTitle:'编辑分组', ingredientGroupNameLabel:'分组名称', ingredientGroupNamePh:'例如：饺子皮',
     sectionOil:'额外用油(可选)', fieldOilAmount:'用油量(g)', fieldOilType:'油的种类',
@@ -917,7 +925,7 @@ var I18N = {
     recipesTitle:'Recipes', newRecipe:'New recipe', emptyRecipes:'No recipes yet', emptyRecipesHint:'Tap the + button in the bottom right to create your first recipe',
     recipeFormTitleAdd:'New recipe', recipeFormTitleEdit:'Edit recipe',
     fieldRecipeName:'Recipe name', fieldRecipeNamePh:'e.g. Tomato & egg stir-fry', fieldRecipeCover:'Cover photo',
-    fieldServings:'Servings', fieldInstructions:'Instructions (optional)', fieldInstructionsPh:'Jot down the steps…',
+    fieldServings:'Servings', fieldInstructions:'Steps', stepLabel:'Step', stepPlaceholder:'Describe this step…', addStepBtn:'Add another step',
     sectionIngredients:'Ingredients', addFromInventory:'Add from inventory', addExternal:'Add external ingredient',
     addIngredientGroupBtn:'Group', addIngredientGroupTitle:'Add group', editIngredientGroupTitle:'Edit group', ingredientGroupNameLabel:'Group name', ingredientGroupNamePh:'e.g. Dough',
     sectionOil:'Extra oil (optional)', fieldOilAmount:'Oil amount (g)', fieldOilType:'Oil type',
@@ -4648,12 +4656,18 @@ function openRecipeForm(id){
     if(state.recipeDraft.category_group==null) state.recipeDraft.category_group = '';
     if(state.recipeDraft.category_sub==null) state.recipeDraft.category_sub = '';
     if(state.recipeDraft.photo_url==null) state.recipeDraft.photo_url = '';
+    // Older recipes only have a single free-text "instructions" string; migrate it into a
+    // one-item steps array the first time the recipe is opened for editing. The old field is
+    // left alone (not deleted) so nothing breaks if this draft never gets saved.
+    if(!state.recipeDraft.steps || !state.recipeDraft.steps.length){
+      state.recipeDraft.steps = state.recipeDraft.instructions ? [state.recipeDraft.instructions] : [''];
+    }
   } else {
     // If the person is currently viewing a filtered category/subcategory in the recipe list
     // and taps "+", assume they mean "add a recipe here" - otherwise the new recipe defaults
     // to uncategorized and, being outside the active filter, would correctly but confusingly
     // not show up until the filter is cleared (e.g. by switching tabs and back).
-    state.recipeDraft = {id:uid(), name:'', servings:null, instructions:'', ingredients:[], cooked_weight:null, category_group:state.recipesUI.groupId||'', category_sub:state.recipesUI.sub||'', photo_url:'', created_at:todayStr(), updated_at:nowLocalIso()};
+    state.recipeDraft = {id:uid(), name:'', servings:null, steps:[''], ingredients:[], cooked_weight:null, category_group:state.recipesUI.groupId||'', category_sub:state.recipesUI.sub||'', photo_url:'', created_at:todayStr(), updated_at:nowLocalIso()};
   }
   state.recipeDraft._isNew = !id;
   // Mirrors itemFormUI's photo bookkeeping (see openItemForm): originalPhotoUrl lets cancel()
@@ -4773,6 +4787,39 @@ function confirmEditIngredient(idx){
   render();
 }
 function r_str(field,val){ state.recipeDraft[field]=val; }
+// Steps are stored as a plain array of strings (state.recipeDraft.steps) - the "步骤 N" title
+// is derived purely from array position and never stored or typed, matching how Xiaochufang
+// auto-numbers steps instead of asking for a title. Deliberately no image-per-step slot here
+// (text-only recipes, per the current scope) and no drag-reorder yet - just add/remove.
+function stepsEditorHtml(){
+  var steps = state.recipeDraft.steps || [''];
+  return steps.map(function(s,idx){
+    return '<div class="step-card">'+
+      '<div class="step-title">'+t('stepLabel')+' '+(idx+1)+'</div>'+
+      '<textarea id="step-textarea-'+idx+'" placeholder="'+t('stepPlaceholder')+'" oninput="onStepInput('+idx+',this.value)">'+esc(s)+'</textarea>'+
+      (steps.length>1 ? '<button type="button" class="step-remove-btn" onclick="removeStep('+idx+')">'+ic('trash',13)+' '+t('delete')+'</button>' : '')+
+    '</div>';
+  }).join('');
+}
+function onStepInput(idx,val){
+  if(!state.recipeDraft.steps) state.recipeDraft.steps=[''];
+  state.recipeDraft.steps[idx] = val;
+}
+function addStep(){
+  if(!state.recipeDraft.steps) state.recipeDraft.steps=[''];
+  state.recipeDraft.steps.push('');
+  var newIdx = state.recipeDraft.steps.length-1;
+  render();
+  // Only the first, already-on-screen step needs a manual tap to start typing - every step
+  // added after that via this button should land with the keyboard already up, since tapping
+  // "add another step" is itself a clear enough signal of intent to type.
+  setTimeout(function(){ var el=document.getElementById('step-textarea-'+newIdx); if(el) el.focus(); }, 30);
+}
+function removeStep(idx){
+  state.recipeDraft.steps.splice(idx,1);
+  if(!state.recipeDraft.steps.length) state.recipeDraft.steps=[''];
+  render();
+}
 function r_num(field,val){
   state.recipeDraft[field] = val===''? null : parseFloat(val);
   updateNutritionSummaryDOM();
@@ -4904,7 +4951,8 @@ function renderRecipeForm(){
     '</div>'+
     '<div class="section-title">'+t('fieldInstructions')+'</div>'+
     '<div class="form-group">'+
-      '<textarea placeholder="'+t('fieldInstructionsPh')+'" oninput="r_str(\'instructions\',this.value)">'+esc(d.instructions)+'</textarea>'+
+      stepsEditorHtml()+
+      '<button class="btn btn-outline btn-sm" style="width:100%;margin-top:4px;" onclick="addStep()">'+ic('plus',15)+' '+t('addStepBtn')+'</button>'+
     '</div>'+
     '<div class="section-title">'+t('nutritionSummary')+'</div>'+
     '<div class="form-group" id="nutri-summary-container">'+nutritionSummaryHtml()+'</div>'+
@@ -5027,7 +5075,16 @@ function renderRecipeDetail(){
     '</div>'+
     '<div class="section-title">'+t('sectionIngredients')+'</div>'+
     '<div class="form-group">'+(ingHtml||('<p class="hint">'+t('noIngredientsYet')+'</p>'))+'</div>'+
-    (r.instructions ? '<div class="section-title">'+t('fieldInstructions')+'</div><div class="form-group"><p style="font-size:14.5px;line-height:1.7;white-space:pre-wrap;">'+esc(r.instructions)+'</p></div>' : '')+
+    (function(){
+      var steps = (r.steps && r.steps.length) ? r.steps : (r.instructions ? [r.instructions] : []);
+      steps = steps.filter(function(s){ return s && s.trim(); });
+      if(!steps.length) return '';
+      return '<div class="section-title">'+t('fieldInstructions')+'</div><div class="form-group">'+
+        steps.map(function(s,idx){
+          return '<div class="step-card"><div class="step-title">'+t('stepLabel')+' '+(idx+1)+'</div><p style="font-size:14.5px;line-height:1.7;white-space:pre-wrap;margin:0;">'+esc(s)+'</p></div>';
+        }).join('')+
+      '</div>';
+    })()+
     '<button class="btn btn-primary" style="margin-top:18px;" onclick="openCookConfirm('+aj(r.id)+')">'+t('cookThis')+'</button>'+
     '<button class="btn btn-danger" style="margin-top:10px;" onclick="deleteRecipeDetail('+aj(r.id)+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
   '</div>'+
