@@ -1536,16 +1536,22 @@ function navigate(view, params){
   if(SCROLL_MEMORY_VIEWS.indexOf(state.view)!==-1){
     _scrollMemory[state.view] = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
   }
+  // Dismiss the keyboard synchronously, before we compute/set the new page's scroll position -
+  // otherwise the browser can dismiss it asynchronously a moment later (its own viewport-resize
+  // animation), which on iOS Safari silently drags the scroll position along with it and
+  // overrides whatever we just set below.
+  if(document.activeElement && document.activeElement !== document.body && document.activeElement.blur) document.activeElement.blur();
   state.view = view;
   state.params = params || {};
   render();
   var app = document.getElementById('app');
   if(app) app.scrollTop = 0;
-  if(SCROLL_MEMORY_VIEWS.indexOf(view)!==-1 && _scrollMemory[view]){
-    window.scrollTo(0, _scrollMemory[view]);
-  } else {
-    window.scrollTo(0,0);
-  }
+  var targetScrollY = (SCROLL_MEMORY_VIEWS.indexOf(view)!==-1 && _scrollMemory[view]) ? _scrollMemory[view] : 0;
+  window.scrollTo(0, targetScrollY);
+  // Belt-and-suspenders re-assert for the keyboard-dismiss-resize race described above: if the
+  // blur() call above didn't finish dismissing the keyboard before this point, the viewport
+  // shrinking back on the next frame can still shove the scroll position around after we set it.
+  requestAnimationFrame(function(){ window.scrollTo(0, targetScrollY); });
 }
 function render(){
   var app = document.getElementById('app');
@@ -3829,7 +3835,14 @@ function showModal(title, bodyHtml){
     '</div>'+
   '</div>';
 }
-function closeModal(){ var r=document.getElementById('modal-root'); if(r) r.innerHTML=''; }
+function closeModal(){
+  var y = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
+  if(document.activeElement && document.activeElement !== document.body && document.activeElement.blur) document.activeElement.blur();
+  var r = document.getElementById('modal-root');
+  if(r) r.innerHTML='';
+  window.scrollTo(0, y);
+  requestAnimationFrame(function(){ window.scrollTo(0, y); });
+}
 
 /* ======================= SCAN ======================= */
 var scanCtx = { stream:null, detecting:false, raf:null };
@@ -4568,7 +4581,11 @@ function createExternalIngredientAndAdd(){
   var name = document.getElementById('newing-name').value.trim();
   if(!name){ showToast(state.lang==='zh'?'请输入食材名称':'Please enter a name'); return; }
   var nutrition = {};
-  NUTRI_KEYS.forEach(function(k){ nutrition[k] = parseFloat(document.getElementById('newing-'+k).value)||0; });
+  NUTRI_KEYS.forEach(function(k){
+    var v = document.getElementById('newing-'+k).value;
+    var n = (v==='') ? null : parseFloat(v);
+    nutrition[k] = (n==null || isNaN(n)) ? null : n;
+  });
   var ing = {id:uid(), name:name, nutrition:nutrition, created_at:todayStr(), updated_at:nowLocalIso()};
   state.ingredients.push(ing);
   saveIngredients();
@@ -4604,7 +4621,11 @@ function saveExternalIngredientEdit(id){
   if(!name){ showToast(state.lang==='zh'?'请输入食材名称':'Please enter a name'); return; }
   ing.name = name;
   ing.nutrition = ing.nutrition || {};
-  NUTRI_KEYS.forEach(function(k){ ing.nutrition[k] = parseFloat(document.getElementById('editing-'+k).value)||0; });
+  NUTRI_KEYS.forEach(function(k){
+    var v = document.getElementById('editing-'+k).value;
+    var n = (v==='') ? null : parseFloat(v);
+    ing.nutrition[k] = (n==null || isNaN(n)) ? null : n;
+  });
   ing.updated_at = nowLocalIso();
   saveIngredients();
   closeModal();
@@ -4651,7 +4672,7 @@ function ingredientRowsHtml(){
   if(ings.length===0) return '<p class="hint" style="margin-bottom:12px;">'+t('noIngredientsYet')+'</p>';
   return ings.map(function(ri,idx){
     if(ri.type==='group'){
-      return '<div class="ing-group-header" onclick="editIngredientGroupModal('+idx+')">#'+esc(ri.name)+'</div>';
+      return '<div class="ing-group-header" onclick="editIngredientGroupModal('+idx+')">'+esc(ri.name)+'</div>';
     }
     return '<div class="ing-row" onclick="editRecipeIngredient('+idx+')"><div class="ing-info"><span class="ing-name">'+esc(ri.name_snapshot)+
       (ri.source_type==='external' ? ' <span style="font-size:11px;color:var(--almond);">('+t('pickExternal')+')</span>' : '')+
@@ -4988,7 +5009,7 @@ function renderRecipeDetail(){
   if(nutri.per100g) nutriHtml += block(t('per100g'), nutri.per100g);
   var ingHtml = (r.ingredients||[]).map(function(ri){
     if(ri.type==='group'){
-      return '<div class="ing-group-header" style="cursor:default;">#'+esc(ri.name)+'</div>';
+      return '<div class="ing-group-header" style="cursor:default;">'+esc(ri.name)+'</div>';
     }
     return '<div class="ing-row" style="cursor:default;"><div class="ing-info"><div class="ing-name">'+esc(ri.name_snapshot)+'</div><div class="ing-amt">'+fmtNum(ri.amount,1)+' '+esc(ri.unit)+'</div></div></div>';
   }).join('');
