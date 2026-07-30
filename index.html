@@ -4276,6 +4276,15 @@ function recipeCategoryLabel(r){
 function recipeIngredientCount(r){
   return ((r&&r.ingredients)||[]).filter(function(ri){ return ri.type!=='group'; }).length;
 }
+// Recipe ingredient rows store name_snapshot mainly as a fallback label for when the source
+// has been deleted (see the warnings/"removed from inventory" handling below) - for display,
+// always prefer the live name from the source itself, so renaming an inventory item or an
+// external-library ingredient is reflected in every recipe that uses it, the same way its
+// nutrition already updates live via getIngredientSource().
+function recipeIngredientDisplayName(ri){
+  var src = getIngredientSource(ri);
+  return src ? src.name : (ri.name_snapshot || '?');
+}
 function getFilteredRecipes(){
   return state.recipes.filter(function(r){
     if(state.recipesUI.groupId && r.category_group !== state.recipesUI.groupId) return false;
@@ -4692,7 +4701,7 @@ function ingredientRowsHtml(){
     if(ri.type==='group'){
       return '<div class="ing-group-header" onclick="editIngredientGroupModal('+idx+')">'+esc(ri.name)+'</div>';
     }
-    return '<div class="ing-row" onclick="editRecipeIngredient('+idx+')"><div class="ing-info"><span class="ing-name">'+esc(ri.name_snapshot)+
+    return '<div class="ing-row" onclick="editRecipeIngredient('+idx+')"><div class="ing-info"><span class="ing-name">'+esc(recipeIngredientDisplayName(ri))+
       (ri.source_type==='external' ? ' <span style="font-size:11px;color:var(--almond);">('+t('pickExternal')+')</span>' : '')+
       '</span><span class="ing-amt">'+fmtNum(ri.amount,1)+' '+esc(ri.unit)+'</span></div></div>';
   }).join('');
@@ -4772,7 +4781,7 @@ function editRecipeIngredient(idx){
     unitOpts = ['g','kg','ml','l'];
   }
   if(unitOpts.indexOf(ri.unit)===-1) unitOpts.unshift(ri.unit);
-  showModal(esc(ri.name_snapshot),
+  showModal(esc(recipeIngredientDisplayName(ri)),
     '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="number" inputmode="decimal" id="ing-amount" value="'+ri.amount+'"></div>'+
     '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u){ return '<div class="tag-option '+(u===ri.unit?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+u+'</div>'; }).join('')+'</div></div>'+
     '<div class="btn-row" style="margin-top:14px;">'+
@@ -5068,7 +5077,7 @@ function renderRecipeDetail(){
     if(ri.type==='group'){
       return '<div class="ing-group-header" style="cursor:default;">'+esc(ri.name)+'</div>';
     }
-    return '<div class="ing-row" style="cursor:default;"><div class="ing-info"><div class="ing-name">'+esc(ri.name_snapshot)+'</div><div class="ing-amt">'+fmtNum(ri.amount,1)+' '+esc(ri.unit)+'</div></div></div>';
+    return '<div class="ing-row" style="cursor:default;"><div class="ing-info"><div class="ing-name">'+esc(recipeIngredientDisplayName(ri))+'</div><div class="ing-amt">'+fmtNum(ri.amount,1)+' '+esc(ri.unit)+'</div></div></div>';
   }).join('');
   return '' +
   '<div class="page-header">'+
@@ -5109,7 +5118,7 @@ function openCookConfirm(recipeId){
   var r = state.recipes.find(function(x){ return x.id===recipeId; });
   var lines = r.ingredients.filter(function(ri){ return ri.type!=='group'; }).map(function(ri){
     if(ri.source_type==='external'){
-      return {text: esc(ri.name_snapshot)+': '+fmtNum(ri.amount,1)+' '+esc(ri.unit), note:t('cookConfirmNone')};
+      return {text: esc(recipeIngredientDisplayName(ri))+': '+fmtNum(ri.amount,1)+' '+esc(ri.unit), note:t('cookConfirmNone')};
     }
     var item = state.items.find(function(i){ return i.id===ri.source_id; });
     if(!item){
