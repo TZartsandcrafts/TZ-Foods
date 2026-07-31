@@ -615,6 +615,12 @@
 var DEFAULT_CATEGORIES = ['调味料','面粉/谷物','罐头','零食','蔬果','肉类','乳制品','饮品','烘焙原料'];
 var DEFAULT_LOCATIONS = ['冰箱冷藏','冷冻柜','储藏柜','烘焙柜','厨房台面'];
 var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食谱笔记'];
+// Baked-in fallback so "拍照识别" keeps working even if localStorage ever gets wiped (browser
+// data clear, fresh device, iOS reclaiming storage, etc.) without the person having to dig up
+// and re-enter this URL from memory. Still fully a *default*, not a hardcoded override - typing
+// a different address into Settings > AI代理地址 and saving still takes precedence, exactly like
+// before; this only fills in when nothing has been saved yet.
+var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 var DEFAULT_RECIPE_CATEGORY_GROUPS = [
   {id:'cooking', name:'烹饪', subs:[]},
   {id:'baking', name:'烘焙', subs:[]}
@@ -1019,7 +1025,7 @@ var I18N = {
 var state = {
   lang: 'zh',
   reminderDays: 3,
-  aiProxyUrl: '',
+  aiProxyUrl: DEFAULT_AI_PROXY_URL,
   items: [],
   categories: DEFAULT_CATEGORIES.slice(),
   locations: DEFAULT_LOCATIONS.slice(),
@@ -1085,7 +1091,7 @@ async function loadAll(){
   state.recipes = results[4];
   state.lang = results[5].lang || 'zh';
   state.reminderDays = results[5].reminderDays != null ? results[5].reminderDays : 3;
-  state.aiProxyUrl = results[5].aiProxyUrl || '';
+  state.aiProxyUrl = results[5].aiProxyUrl || DEFAULT_AI_PROXY_URL;
   state.notes = results[6];
   state.noteCategories = (results[7] && results[7].length) ? results[7] : DEFAULT_NOTE_CATEGORIES.slice();
   state.recipeCategoryGroups = (results[8] && results[8].length) ? results[8] : JSON.parse(JSON.stringify(DEFAULT_RECIPE_CATEGORY_GROUPS));
@@ -2276,7 +2282,7 @@ function sidebarSectionTitleHtml(labelKey, kind, isOpen){
 function sidebarInlineAddRowHtml(kind){
   var ph = kind==='category' ? t('addCategoryPh') : (kind==='location' ? t('addLocationPh') : t('addNoteCategoryPh'));
   return '<div class="sidebar-inline-add-row">'+
-    '<input type="text" id="sidebar-quick-add-input-'+kind+'" placeholder="'+ph+'" onkeydown="if(event.key===\'Enter\')addTagFromSidebar('+aj(kind)+')">'+
+    '<input type="text" autocapitalize="words" id="sidebar-quick-add-input-'+kind+'" placeholder="'+ph+'" onkeydown="if(event.key===\'Enter\')addTagFromSidebar('+aj(kind)+')">'+
     '<button onclick="addTagFromSidebar('+aj(kind)+')">'+t('add')+'</button>'+
   '</div>';
 }
@@ -2585,7 +2591,7 @@ function tagSelectHtml(kind, list, current, addingFlag, extraClass){
   var addUi;
   if(addingFlag){
     addUi = '<div class="field" style="margin-top:10px;margin-bottom:0;"><div class="field-row">'+
-      '<input type="text" id="new-'+kind+'-input" placeholder="'+t('newTagPrompt')+'" style="flex:1;font-size:16px;padding:11px 12px;border-radius:10px;border:1px solid var(--line);">'+
+      '<input type="text" autocapitalize="words" id="new-'+kind+'-input" placeholder="'+t('newTagPrompt')+'" style="flex:1;font-size:16px;padding:11px 12px;border-radius:10px;border:1px solid var(--line);">'+
       '<button class="btn btn-primary btn-sm" onclick="confirmNewTag('+aj(kind)+')">'+t('add')+'</button>'+
     '</div></div>';
   } else {
@@ -2820,7 +2826,7 @@ function nutriFieldsHtml(draftPath){
   var basisAmount = state.itemFormUI.nutriBasisAmount;
   var basisRowHtml = '<div class="nf-basis nf-basis-edit">'+
       '<span>'+t('nutriBasisAmount')+'</span>'+
-      '<input type="text" inputmode="decimal" id="nutri-basis-amount" class="nf-basis-input" placeholder="-" value="'+(basisAmount==null?'':basisAmount)+'" oninput="setNutriBasisAmount(this.value)">'+
+      '<input type="text" id="nutri-basis-amount" class="nf-basis-input" placeholder="-" value="'+(basisAmount==null?'':fmtNum(basisAmount,3))+'" oninput="setNutriBasisAmount(this.value)">'+
       nutriBasisUnitFieldHtml()+
     '</div>';
   var calHtml = '<div class="nf-calories-row"><span>'+t('nutriCalories')+'</span><span class="nf-edit-value-wrap">'+
@@ -2970,9 +2976,9 @@ function renderItemForm(){
   '<div class="content">'+
     '<div class="section-title">'+t('sectionBasic')+'</div>'+
     '<div class="form-group">'+
-      '<div class="field"><label>'+t('fieldBrand')+'</label><input type="text" value="'+esc(d.brand)+'" placeholder="'+t('fieldBrandPh')+'" oninput="d_str(\'brand\',this.value)"></div>'+
-      '<div class="field"><label>'+t('fieldName')+' *</label><input type="text" value="'+esc(d.name)+'" placeholder="'+t('fieldNamePh')+'" oninput="d_str(\'name\',this.value)"></div>'+
-      '<div class="field"><label>'+t('fieldSource')+'</label><input type="text" value="'+esc(d.source||'')+'" placeholder="'+t('fieldSourcePh')+'" oninput="d_str(\'source\',this.value)"></div>'+
+      '<div class="field"><label>'+t('fieldBrand')+'</label><input type="text" autocapitalize="words" value="'+esc(d.brand)+'" placeholder="'+t('fieldBrandPh')+'" oninput="d_str(\'brand\',this.value)"></div>'+
+      '<div class="field"><label>'+t('fieldName')+' *</label><input type="text" autocapitalize="words" value="'+esc(d.name)+'" placeholder="'+t('fieldNamePh')+'" oninput="d_str(\'name\',this.value)"></div>'+
+      '<div class="field"><label>'+t('fieldSource')+'</label><input type="text" autocapitalize="words" value="'+esc(d.source||'')+'" placeholder="'+t('fieldSourcePh')+'" oninput="d_str(\'source\',this.value)"></div>'+
       '<div class="field" style="margin-bottom:0;"><label>'+t('fieldBarcode')+'</label><input type="text" inputmode="numeric" value="'+esc(d.barcode||'')+'" placeholder="'+t('fieldBarcodePh')+'" oninput="d_str(\'barcode\',this.value)"></div>'+
     '</div>'+
     '<div class="section-title">'+t('fieldPhoto')+'</div>'+
@@ -4399,7 +4405,7 @@ function recipeCombinedAddRowHtml(){
   return '<div class="sidebar-inline-add-combined">'+
     '<select id="recipe-add-target-select" class="sidebar-add-level-select" onchange="onRecipeAddTargetChange(this)">'+options+'</select>'+
     '<div class="sidebar-inline-add-row" style="padding:0;">'+
-      '<input type="text" id="new-recipe-combined-input" placeholder="'+t('newTagPrompt')+'" onkeydown="if(event.key===\'Enter\')confirmRecipeCombinedAdd()">'+
+      '<input type="text" autocapitalize="words" id="new-recipe-combined-input" placeholder="'+t('newTagPrompt')+'" onkeydown="if(event.key===\'Enter\')confirmRecipeCombinedAdd()">'+
       '<button onclick="confirmRecipeCombinedAdd()">'+t('add')+'</button>'+
     '</div>'+
   '</div>';
@@ -4590,7 +4596,7 @@ function openNewExternalIngredientModal(){
     return '<div class="field" style="margin-bottom:10px;"><label style="font-size:12.5px;">'+labels[k]+'</label><input type="number" inputmode="decimal" id="newing-'+k+'" placeholder="-"></div>';
   }).join('');
   showModal(t('createNewIngredient'),
-    '<div class="field"><label>'+t('newIngName')+'</label><input type="text" id="newing-name" placeholder="'+t('newIngName')+'"></div>'+
+    '<div class="field"><label>'+t('newIngName')+'</label><input type="text" autocapitalize="words" id="newing-name" placeholder="'+t('newIngName')+'"></div>'+
     '<p class="hint" style="margin-bottom:10px;">'+t('newIngNutriHint')+'</p>'+
     '<div class="nutri-grid">'+nutriInputs+'</div>'+
     '<div class="field" style="margin-top:14px;"><label>'+t('ingAmountLabel')+'</label><input type="number" inputmode="decimal" id="ing-amount" placeholder="-"></div>'+
@@ -4629,7 +4635,7 @@ function editExternalIngredientModal(id){
     return '<div class="field" style="margin-bottom:10px;"><label style="font-size:12.5px;">'+labels[k]+'</label><input type="number" inputmode="decimal" id="editing-'+k+'" value="'+(nutrition[k]==null?'':nutrition[k])+'" placeholder="-"></div>';
   }).join('');
   showModal(t('editIngredientTitle'),
-    '<div class="field"><label>'+t('newIngName')+'</label><input type="text" id="editing-name" value="'+esc(ing.name)+'" placeholder="'+t('newIngName')+'"></div>'+
+    '<div class="field"><label>'+t('newIngName')+'</label><input type="text" autocapitalize="words" id="editing-name" value="'+esc(ing.name)+'" placeholder="'+t('newIngName')+'"></div>'+
     '<p class="hint" style="margin-bottom:10px;">'+t('newIngNutriHint')+'</p>'+
     '<div class="nutri-grid">'+nutriInputs+'</div>'+
     '<button class="btn btn-primary" style="margin-top:14px;" onclick="saveExternalIngredientEdit('+aj(id)+')">'+t('save')+'</button>'
@@ -4724,7 +4730,7 @@ function deleteRecipeIngredientFromModal(idx){
 // ingredients naturally nests them under it.
 function addIngredientGroupModal(){
   showModal(t('addIngredientGroupTitle'),
-    '<div class="field"><label>'+t('ingredientGroupNameLabel')+'</label><input type="text" id="new-ing-group-name" placeholder="'+t('ingredientGroupNamePh')+'"></div>'+
+    '<div class="field"><label>'+t('ingredientGroupNameLabel')+'</label><input type="text" autocapitalize="words" id="new-ing-group-name" placeholder="'+t('ingredientGroupNamePh')+'"></div>'+
     '<button class="btn btn-primary" onclick="confirmAddIngredientGroup()">'+t('add')+'</button>'
   );
 }
@@ -4740,7 +4746,7 @@ function editIngredientGroupModal(idx){
   var g = (state.recipeDraft.ingredients||[])[idx];
   if(!g || g.type!=='group') return;
   showModal(t('editIngredientGroupTitle'),
-    '<div class="field"><label>'+t('ingredientGroupNameLabel')+'</label><input type="text" id="edit-ing-group-name" value="'+esc(g.name)+'"></div>'+
+    '<div class="field"><label>'+t('ingredientGroupNameLabel')+'</label><input type="text" autocapitalize="words" id="edit-ing-group-name" value="'+esc(g.name)+'"></div>'+
     '<div class="btn-row" style="margin-top:14px;">'+
       '<button class="btn btn-danger btn-sm" style="flex:1;" onclick="deleteIngredientGroupFromModal('+idx+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
       '<button class="btn btn-primary btn-sm" style="flex:1;" onclick="confirmEditIngredientGroup('+idx+')">'+t('save')+'</button>'+
@@ -4870,7 +4876,7 @@ function recipeCategoryPickerHtml(){
   }).join('') + '<div class="tag-option add-new" onclick="toggleAddingRecipeGroup()">'+t('addNewTag')+'</div>';
   var addGroupUi = state.recipeFormUI.addingGroup ?
     '<div class="field" style="margin-top:10px;margin-bottom:0;"><div class="field-row">'+
-      '<input type="text" id="new-recipe-group-input" placeholder="'+t('newTagPrompt')+'" style="flex:1;font-size:16px;padding:11px 12px;border-radius:10px;border:1px solid var(--line);">'+
+      '<input type="text" autocapitalize="words" id="new-recipe-group-input" placeholder="'+t('newTagPrompt')+'" style="flex:1;font-size:16px;padding:11px 12px;border-radius:10px;border:1px solid var(--line);">'+
       '<button class="btn btn-primary btn-sm" onclick="confirmNewRecipeGroup()">'+t('add')+'</button>'+
     '</div></div>' : '';
   var subHtml = '';
@@ -4881,7 +4887,7 @@ function recipeCategoryPickerHtml(){
     }).join('') + '<div class="tag-option add-new" onclick="toggleAddingRecipeSub()">'+t('addNewTag')+'</div>';
     var addSubUi = state.recipeFormUI.addingSub ?
       '<div class="field" style="margin-top:10px;margin-bottom:0;"><div class="field-row">'+
-        '<input type="text" id="new-recipe-sub-input" placeholder="'+t('newTagPrompt')+'" style="flex:1;font-size:16px;padding:11px 12px;border-radius:10px;border:1px solid var(--line);">'+
+        '<input type="text" autocapitalize="words" id="new-recipe-sub-input" placeholder="'+t('newTagPrompt')+'" style="flex:1;font-size:16px;padding:11px 12px;border-radius:10px;border:1px solid var(--line);">'+
         '<button class="btn btn-primary btn-sm" onclick="confirmNewRecipeSub()">'+t('add')+'</button>'+
       '</div></div>' : '';
     subHtml = '<div class="field" style="margin-top:14px;margin-bottom:0;"><label>'+t('fieldRecipeSubCategory')+'</label><div class="tag-select">'+subChips+'</div>'+addSubUi+'</div>';
@@ -4939,7 +4945,7 @@ function renderRecipeForm(){
   '</div>'+
   '<div class="content">'+
     '<div class="form-group">'+
-      '<div class="field"><label>'+t('fieldRecipeName')+' *</label><input type="text" value="'+esc(d.name)+'" placeholder="'+t('fieldRecipeNamePh')+'" oninput="r_str(\'name\',this.value)"></div>'+
+      '<div class="field"><label>'+t('fieldRecipeName')+' *</label><input type="text" autocapitalize="words" value="'+esc(d.name)+'" placeholder="'+t('fieldRecipeNamePh')+'" oninput="r_str(\'name\',this.value)"></div>'+
       '<div class="field-row" style="margin-bottom:0;">'+
         '<div class="field" style="margin-bottom:0;"><label>'+t('fieldServings')+'</label><input type="number" inputmode="decimal" value="'+(d.servings==null?'':d.servings)+'" placeholder="-" oninput="r_num(\'servings\',this.value)"></div>'+
         '<div class="field" style="margin-bottom:0;"><label>'+t('fieldCookedWeight')+'</label><input type="number" inputmode="decimal" value="'+(d.cooked_weight==null?'':d.cooked_weight)+'" placeholder="-" oninput="r_num(\'cooked_weight\',this.value)"></div>'+
@@ -5195,7 +5201,7 @@ function noteCategorySelectHtml(){
   }).join('');
   var addUi = state.noteFormUI.addingCategory ?
     '<div class="field" style="margin-top:10px;margin-bottom:0;"><div class="field-row">'+
-      '<input type="text" id="new-noteCategory-input" placeholder="'+t('newTagPrompt')+'" style="flex:1;font-size:16px;padding:11px 12px;border-radius:10px;border:1px solid var(--line);">'+
+      '<input type="text" autocapitalize="words" id="new-noteCategory-input" placeholder="'+t('newTagPrompt')+'" style="flex:1;font-size:16px;padding:11px 12px;border-radius:10px;border:1px solid var(--line);">'+
       '<button class="btn btn-primary btn-sm" onclick="confirmNewNoteCategory()">'+t('add')+'</button>'+
     '</div></div>' : '';
   return '<div class="tag-select">'+opts+'<div class="tag-option add-new" onclick="toggleAddingNoteCategory()">'+t('addNewTag')+'</div></div>'+addUi;
@@ -5234,7 +5240,7 @@ function renderNoteForm(){
   '</div>'+
   '<div class="content">'+
     '<div class="form-group">'+
-      '<div class="field"><label>'+t('fieldNoteTitle')+' *</label><input type="text" value="'+esc(d.title)+'" placeholder="'+t('fieldNoteTitlePh')+'" oninput="nd_str(\'title\',this.value)"></div>'+
+      '<div class="field"><label>'+t('fieldNoteTitle')+' *</label><input type="text" autocapitalize="words" value="'+esc(d.title)+'" placeholder="'+t('fieldNoteTitlePh')+'" oninput="nd_str(\'title\',this.value)"></div>'+
       '<div class="field" style="margin-bottom:0;"><label>'+t('fieldNoteContent')+'</label><textarea style="min-height:140px;" placeholder="'+t('fieldNoteContentPh')+'" oninput="nd_str(\'content\',this.value)">'+esc(d.content)+'</textarea></div>'+
     '</div>'+
     '<div class="section-title">'+t('fieldNoteCategory')+'</div>'+
@@ -5691,7 +5697,7 @@ function renderManageTags(){
   '<div class="content">'+
     rows+
     '<div class="field-row" style="margin-top:16px;">'+
-      '<input type="text" id="new-tag-manage-input" placeholder="'+ph+'" style="flex:1;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);">'+
+      '<input type="text" autocapitalize="words" id="new-tag-manage-input" placeholder="'+ph+'" style="flex:1;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);">'+
       '<button class="btn btn-primary btn-sm" onclick="addTagManage('+aj(kind)+')">'+t('add')+'</button>'+
     '</div>'+
   '</div>';
@@ -5731,7 +5737,7 @@ function renderManageRecipeCategories(){
       '</div>'+
       (expanded ? (subRows+
         '<div class="field-row" style="padding-left:24px;margin-bottom:12px;">'+
-          '<input type="text" id="new-recipe-sub-settings-'+esc(g.id)+'" placeholder="'+t('addRecipeSubPh')+'" style="flex:1;font-size:16px;padding:11px 13px;border-radius:11px;border:1px solid var(--line);">'+
+          '<input type="text" autocapitalize="words" id="new-recipe-sub-settings-'+esc(g.id)+'" placeholder="'+t('addRecipeSubPh')+'" style="flex:1;font-size:16px;padding:11px 13px;border-radius:11px;border:1px solid var(--line);">'+
           '<button class="btn btn-primary btn-sm" onclick="addRecipeSubFromInput('+aj('new-recipe-sub-settings-'+g.id)+','+aj(g.id)+')">'+t('add')+'</button>'+
         '</div>') : '');
   }).join('') || '<p class="hint">'+(state.lang==='zh'?'还没有分类':'No categories yet')+'</p>';
@@ -5740,7 +5746,7 @@ function renderManageRecipeCategories(){
   '<div class="content">'+
     groupsHtml+
     '<div class="field-row" style="margin-top:16px;">'+
-      '<input type="text" id="new-recipe-group-input-settings" placeholder="'+t('addRecipeGroupPh')+'" style="flex:1;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);">'+
+      '<input type="text" autocapitalize="words" id="new-recipe-group-input-settings" placeholder="'+t('addRecipeGroupPh')+'" style="flex:1;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);">'+
       '<button class="btn btn-primary btn-sm" onclick="addRecipeGroupFromInput(\'new-recipe-group-input-settings\')">'+t('add')+'</button>'+
     '</div>'+
   '</div>';
@@ -5775,7 +5781,7 @@ function deleteTagItem(kind, name){
 // all three are plain string arrays keyed by tagListForKind/saveTagListForKind.
 function openRenameTagModal(kind, oldName){
   var body = '<div class="field" style="margin-bottom:14px;">'+
-      '<input type="text" id="rename-tag-input" value="'+esc(oldName)+'" style="width:100%;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);background:var(--card-bg);color:var(--cocoa);">'+
+      '<input type="text" autocapitalize="words" id="rename-tag-input" value="'+esc(oldName)+'" style="width:100%;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);background:var(--card-bg);color:var(--cocoa);">'+
     '</div>'+
     '<div class="btn-row"><button class="btn btn-outline" onclick="closeModal()">'+t('cancel')+'</button>'+
     '<button class="btn btn-primary" onclick="confirmRenameTag('+aj(kind)+','+aj(oldName)+')">'+t('save')+'</button></div>';
@@ -5815,7 +5821,7 @@ function openRenameRecipeGroupModal(groupId){
   var g = recipeGroupById(groupId);
   if(!g) return;
   var body = '<div class="field" style="margin-bottom:14px;">'+
-      '<input type="text" id="rename-tag-input" value="'+esc(g.name)+'" style="width:100%;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);background:var(--card-bg);color:var(--cocoa);">'+
+      '<input type="text" autocapitalize="words" id="rename-tag-input" value="'+esc(g.name)+'" style="width:100%;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);background:var(--card-bg);color:var(--cocoa);">'+
     '</div>'+
     '<div class="btn-row"><button class="btn btn-outline" onclick="closeModal()">'+t('cancel')+'</button>'+
     '<button class="btn btn-primary" onclick="confirmRenameRecipeGroup('+aj(groupId)+')">'+t('save')+'</button></div>';
@@ -5849,7 +5855,7 @@ function deleteRecipeGroup(groupId){
 }
 function openRenameRecipeSubModal(groupId, oldSub){
   var body = '<div class="field" style="margin-bottom:14px;">'+
-      '<input type="text" id="rename-tag-input" value="'+esc(oldSub)+'" style="width:100%;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);background:var(--card-bg);color:var(--cocoa);">'+
+      '<input type="text" autocapitalize="words" id="rename-tag-input" value="'+esc(oldSub)+'" style="width:100%;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);background:var(--card-bg);color:var(--cocoa);">'+
     '</div>'+
     '<div class="btn-row"><button class="btn btn-outline" onclick="closeModal()">'+t('cancel')+'</button>'+
     '<button class="btn btn-primary" onclick="confirmRenameRecipeSub('+aj(groupId)+','+aj(oldSub)+')">'+t('save')+'</button></div>';
