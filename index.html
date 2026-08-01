@@ -409,6 +409,14 @@
   }
   .date-quickpick-chip:active{ background:var(--cream-2); }
   .tag-select{ display:flex; flex-wrap:wrap; gap:8px; }
+  /* Equal-width grid columns (not flex space-between) so every row - including a short last
+     row like ...营养保健/+新建 - lines up under the rows above it. Category chips are longer
+     (4-char labels) so they get a wider minimum column than the 2-char location chips, which
+     is why these are two separate classes rather than one shared with justify-content. */
+  .tag-select-grid{ display:grid; gap:8px; }
+  .tag-select-grid .tag-option{ text-align:center; }
+  .tag-select-grid-category{ grid-template-columns:repeat(auto-fill, minmax(100px,1fr)); }
+  .tag-select-grid-location{ grid-template-columns:repeat(auto-fill, minmax(64px,1fr)); }
   .tag-option{
     font-size:14px; padding:9px 15px; border-radius:20px; border:1px solid var(--line);
     background:var(--card-bg); color:var(--deep-caramel); cursor:pointer;
@@ -3002,9 +3010,9 @@ function renderItemForm(){
       '<div class="hint" id="item-photo-status"></div>'+
     '</div>'+
     '<div class="section-title">'+t('fieldCategory')+'</div>'+
-    '<div class="form-group">'+tagSelectHtml('category', state.categories, d.category, ui.addingCategory, 'tag-select-edge')+'</div>'+
+    '<div class="form-group">'+tagSelectHtml('category', state.categories, d.category, ui.addingCategory, 'tag-select-grid tag-select-grid-category')+'</div>'+
     '<div class="section-title">'+t('fieldLocation')+'</div>'+
-    '<div class="form-group">'+tagSelectHtml('location', state.locations, d.location, ui.addingLocation, 'tag-select-edge')+'</div>'+
+    '<div class="form-group">'+tagSelectHtml('location', state.locations, d.location, ui.addingLocation, 'tag-select-grid tag-select-grid-location')+'</div>'+
     '<div class="section-title">'+t('sectionQty')+'</div>'+
     '<div class="form-group">'+
       qtyGroupsHtml(d)+
