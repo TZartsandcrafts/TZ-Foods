@@ -409,7 +409,6 @@
   }
   .date-quickpick-chip:active{ background:var(--cream-2); }
   .tag-select{ display:flex; flex-wrap:wrap; gap:8px; }
-  .tag-select-edge{ justify-content:space-between; }
   .tag-option{
     font-size:14px; padding:9px 15px; border-radius:20px; border:1px solid var(--line);
     background:var(--card-bg); color:var(--deep-caramel); cursor:pointer;
@@ -2821,7 +2820,7 @@ function expiryFieldHtml(d){
   return '' +
     dateSegmentsFieldHtml(t('fieldExpiry'), 'expiry_date', false)+
     dateSegmentsFieldHtml(t('fieldProductionDate'), 'production_date', false)+
-    '<div class="field" style="margin-bottom:0;"><label>'+t('fieldShelfLife')+'</label>'+
+    '<div class="field"><label>'+t('fieldShelfLife')+'</label>'+
       '<div class="field-row">'+
         '<input type="number" inputmode="decimal" value="'+(d.shelf_life_amount==null?'':d.shelf_life_amount)+'" oninput="d_shelf_life_amount(this.value)" style="flex:2;min-width:0;">'+
         '<div style="flex:1;min-width:0;">'+inlineDropdownHtml('shelflifeunit', d.shelf_life_unit||'days', shelfUnitOpts, 'onShelfLifeUnitPick')+'</div>'+
