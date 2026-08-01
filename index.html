@@ -714,7 +714,7 @@ var I18N = {
     fieldCategory:'分类', fieldLocation:'位置',
     fieldQty:'数量', fieldQtyPh:'如 8', fieldPackAmountPh:'规格，如 796', fieldUnit:'单位',
     fieldSecondaryQty:'次要计量(可选)', fieldSecondaryUnit:'次要单位',
-    fieldExpiry:'有效期至', fieldPurchaseDate:'购买日期', fieldPrice:'价格',
+    fieldExpiry:'保质期至', fieldPurchaseDate:'购买日期', fieldPrice:'价格',
     fieldNotes:'备注', fieldNotesPh:'其他备注信息',
     sectionBasic:'主档', sectionQty:'数量', sectionNutrition:'营养标签', sectionNutritionMore:'更多营养信息', sectionOther:'其他',
     unitCustomOption:'自定义', unitPickPlaceholder:'请选择单位', fieldUnitCustomPh:'输入单位，如：包/瓶/份',
@@ -1386,6 +1386,15 @@ function qtyDisplay(item){
     if(g.unit && g.qty != null) parts.push(qtyGroupDisplayText(g.qty, g.unit, g.pack_amount, g.pack_unit, 1));
   });
   return parts.join(' / ');
+}
+// Same groups as qtyDisplay, but rendered one-per-line (used on the item detail hero stock
+// box) instead of slash-joined on one line, so multiple measurement groups don't run together.
+function qtyDisplayLines(item){
+  var parts = [qtyGroupDisplayText(item.primary_qty, item.primary_unit, item.primary_pack_amount, item.primary_pack_unit, 2)];
+  (item.secondary_units||[]).forEach(function(g){
+    if(g.unit && g.qty != null) parts.push(qtyGroupDisplayText(g.qty, g.unit, g.pack_amount, g.pack_unit, 1));
+  });
+  return parts.map(function(p){ return '<div>'+p+'</div>'; }).join('');
 }
 // Everything that reads as "the current inventory" (home list, sidebar stats, the recipe
 // ingredient-source picker) should only ever see non-archived items. Archived items still
@@ -2330,7 +2339,7 @@ function blankItemDraft(){
   return {
     id: uid(), name:'', brand:'', source:'', barcode:'',
     category:'', location:'',
-    primary_qty:null, primary_unit:'件', primary_pack_amount:null, primary_pack_unit:'',
+    primary_qty:null, primary_unit:'件', primary_pack_amount:null, primary_pack_unit:'g',
     secondary_units:[], last_recount_at:null,
     expiry_date:'', purchase_date: todayStr(), price:'', price_currency:'CAD',
     production_date:'', shelf_life_amount:null, shelf_life_unit:'days',
@@ -2501,7 +2510,7 @@ function onSecondaryQtyBlur(el, idx){
 }
 function addQtyGroup(){
   state.itemDraft.secondary_units = state.itemDraft.secondary_units || [];
-  state.itemDraft.secondary_units.push({unit:'', qty:null, ratio:null, pack_amount:null, pack_unit:''});
+  state.itemDraft.secondary_units.push({unit:'', qty:null, ratio:null, pack_amount:null, pack_unit:'g'});
   render();
 }
 function removeQtyGroup(idx){
@@ -2755,7 +2764,8 @@ function setFocusedDateField(field){
     if(el) el.style.display = (f===field) ? '' : 'none';
   });
 }
-function dateSegmentsFieldHtml(label, field){
+function dateSegmentsFieldHtml(label, field, showQuickPicks){
+  if(showQuickPicks==null) showQuickPicks = true;
   var segs = ensureDateSegs(field);
   var idY='dateseg-y-'+field, idM='dateseg-m-'+field, idD='dateseg-d-'+field;
   var hasAny = segs.y || segs.m || segs.d;
@@ -2765,11 +2775,13 @@ function dateSegmentsFieldHtml(label, field){
   // three permanently-visible copies of the same 6 chips (one per date field) was repetitive.
   // A true "docked above the keyboard" bar isn't something a web page can do (no API for that
   // on iOS Safari's keyboard) - this is the closest practical equivalent.
-  var quickPicksHtml = '<div class="date-quickpicks" id="datequickpicks-'+field+'" style="'+(isFocused?'':'display:none;')+'">'+
+  // expiry_date/production_date opt out of the chip row entirely (showQuickPicks=false) since
+  // presets like "this year"/"next year" don't make sense for either field's typical use.
+  var quickPicksHtml = showQuickPicks ? ('<div class="date-quickpicks" id="datequickpicks-'+field+'" style="'+(isFocused?'':'display:none;')+'">'+
     DATE_QUICKPICKS.map(function(k){
       return '<div class="date-quickpick-chip" onclick="dateQuickPick('+aj(field)+','+aj(k)+')">'+t('dateQuickPick_'+k)+'</div>';
     }).join('')+
-  '</div>';
+  '</div>') : '';
   var onfocusAttr = 'setFocusedDateField('+aj(field)+')';
   return '<div class="field"><label>'+label+'</label>'+
     '<div class="date-input-row">'+
@@ -2807,8 +2819,8 @@ function onShelfLifeUnitPick(key, val){
 function expiryFieldHtml(d){
   var shelfUnitOpts = SHELF_LIFE_UNITS.map(function(u){ return {value:u, label:shelfLifeUnitLabel(u)}; });
   return '' +
-    dateSegmentsFieldHtml(t('fieldExpiry'), 'expiry_date')+
-    dateSegmentsFieldHtml(t('fieldProductionDate'), 'production_date')+
+    dateSegmentsFieldHtml(t('fieldExpiry'), 'expiry_date', false)+
+    dateSegmentsFieldHtml(t('fieldProductionDate'), 'production_date', false)+
     '<div class="field" style="margin-bottom:0;"><label>'+t('fieldShelfLife')+'</label>'+
       '<div class="field-row">'+
         '<input type="number" inputmode="decimal" value="'+(d.shelf_life_amount==null?'':d.shelf_life_amount)+'" oninput="d_shelf_life_amount(this.value)" style="flex:2;min-width:0;">'+
@@ -3265,7 +3277,7 @@ function renderItemDetail(){
         '<div class="item-detail-stock-row">'+
           '<div class="item-detail-stock-box" style="flex:1;cursor:default;">'+
             '<span class="row-label">'+t('detailQtyLabel')+'</span>'+
-            '<span class="row-sub">'+qtyDisplay(it)+'</span>'+
+            '<div class="row-sub">'+qtyDisplayLines(it)+'</div>'+
           '</div>'+
           '<button class="item-detail-use-btn" onclick="openUsageLog('+aj(it.id)+')"><span class="icon">'+ic('spoon',18)+'</span><span>'+t('usageBtn')+'</span></button>'+
         '</div>'+
@@ -3658,7 +3670,7 @@ function renderItemViewOnly(){
         '<div class="status-badge status-'+st.level+'" style="font-size:14px;padding:7px 12px;display:inline-block;align-self:flex-start;">'+(it.expiry_date?esc(expiryRelativeText(it))+' · '+esc(t('fieldExpiry'))+' '+esc(fmtDateDots(it.expiry_date)):esc(st.label))+'</div>'+
         '<div class="item-detail-stock-box" style="cursor:default;">'+
           '<span class="row-label">'+t('detailQtyLabel')+'</span>'+
-          '<span class="row-sub">'+qtyDisplay(it)+'</span>'+
+          '<div class="row-sub">'+qtyDisplayLines(it)+'</div>'+
         '</div>'+
       '</div>'+
     '</div>'+
