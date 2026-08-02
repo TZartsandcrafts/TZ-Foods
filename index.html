@@ -1726,11 +1726,21 @@ function navBottomHome(){
   state.home.location = null;
   state.home.search = '';
   navigate('home');
+  _scrollMemory.home = 0;
+  var app = document.getElementById('app');
+  if(app) app.scrollTop = 0;
+  window.scrollTo(0, 0);
+  requestAnimationFrame(function(){ window.scrollTo(0, 0); });
 }
 function navBottomRecipes(){
   state.recipesUI.groupId = null;
   state.recipesUI.sub = null;
   navigate('recipes');
+  _scrollMemory.recipes = 0;
+  var app = document.getElementById('app');
+  if(app) app.scrollTop = 0;
+  window.scrollTo(0, 0);
+  requestAnimationFrame(function(){ window.scrollTo(0, 0); });
 }
 function navBottomNotes(){
   state.notesUI.category = null;
