@@ -749,6 +749,24 @@ var I18N = {
     nutritionPhotoRecaptureBtn:'拍照重新识别',
     aiProxySettingLabel:'AI识别代理地址(可选)',
     aiProxySettingHint:'留空则"拍照识别"功能不显示。需要自建一个转发到Anthropic API的小型代理服务，详见README.md。',
+    cloudSyncSectionTitle:'云同步（多设备实时共享，可选）',
+    cloudSyncIntro:'两个人各自在手机上安装本App，配对同一个"同步房间"后，一边改库存，另一边打开App会自动看到最新数据。需要先自己搭建一个免费的Firebase项目，具体步骤见README.md。',
+    cloudSyncConfigLabel:'Firebase 项目配置',
+    cloudSyncConfigPh:'粘贴从 Firebase 控制台复制的 firebaseConfig（JSON格式）',
+    cloudSyncConfigHint:'从 Firebase 控制台"项目设置→常规→你的应用"里复制那一段 firebaseConfig 对象，整段粘贴进来即可。',
+    cloudSyncConfigInvalid:'这段内容不是有效的 JSON，请重新从 Firebase 控制台复制',
+    cloudSyncRoomCodeLabel:'同步房间码',
+    cloudSyncRoomCodePh:'留空可点击右侧按钮生成',
+    cloudSyncGenerateBtn:'生成新房间码',
+    cloudSyncCopyBtn:'复制',
+    cloudSyncCopiedToast:'已复制房间码',
+    cloudSyncJoinHint:'创建一个新房间码后分享给对方（比如发微信），对方在自己手机的这个设置里粘贴同样的房间码并填好同一份 Firebase 配置，两边就会互相同步了。',
+    cloudSyncEnableLabel:'启用云同步',
+    cloudSyncStatusIdle:'未连接', cloudSyncStatusConnecting:'连接中…', cloudSyncStatusConnected:'已连接',
+    cloudSyncStatusError:'连接出错',
+    cloudSyncLastSyncedLabel:'上次同步', cloudSyncNeverSynced:'尚未同步',
+    cloudSyncNeedConfigToast:'请先填写 Firebase 项目配置和同步房间码',
+    cloudSyncPhotoLimitHint:'提示：云同步会同步除照片以外的所有食材信息（名称、数量、分类、保质期、营养标签等）；照片仍然只存在拍摄它的那台设备本地，不会跨设备同步。',
     save:'保存', cancel:'取消', delete:'删除', edit:'编辑', add:'添加', confirm:'确认', close:'关闭',
     addNewTag:'+ 新建', newTagPrompt:'输入新标签名称',
     // detail
@@ -913,6 +931,24 @@ var I18N = {
     nutritionPhotoRecaptureBtn:'Retake & re-scan',
     aiProxySettingLabel:'AI recognition proxy URL (optional)',
     aiProxySettingHint:'Leave blank to hide "Photo recognition". Requires your own small proxy that forwards to the Anthropic API — see README.md.',
+    cloudSyncSectionTitle:'Cloud Sync (real-time, multi-device, optional)',
+    cloudSyncIntro:'Two people can each install this app and join the same "sync room" — when one side edits inventory, the other sees it automatically next time they open the app. Requires setting up a free Firebase project first; see README.md for steps.',
+    cloudSyncConfigLabel:'Firebase project config',
+    cloudSyncConfigPh:'Paste the firebaseConfig object copied from the Firebase console (JSON)',
+    cloudSyncConfigHint:'Copy the firebaseConfig object from Firebase Console → Project settings → General → Your apps, and paste the whole thing here.',
+    cloudSyncConfigInvalid:'That isn\'t valid JSON — please re-copy it from the Firebase console',
+    cloudSyncRoomCodeLabel:'Sync room code',
+    cloudSyncRoomCodePh:'Leave blank and tap the button to generate one',
+    cloudSyncGenerateBtn:'Generate new room code',
+    cloudSyncCopyBtn:'Copy',
+    cloudSyncCopiedToast:'Room code copied',
+    cloudSyncJoinHint:'Generate a room code and share it with the other person. They paste the same room code and the same Firebase config into this same setting on their phone, and both sides will sync.',
+    cloudSyncEnableLabel:'Enable cloud sync',
+    cloudSyncStatusIdle:'Not connected', cloudSyncStatusConnecting:'Connecting…', cloudSyncStatusConnected:'Connected',
+    cloudSyncStatusError:'Connection error',
+    cloudSyncLastSyncedLabel:'Last synced', cloudSyncNeverSynced:'Never synced yet',
+    cloudSyncNeedConfigToast:'Please fill in the Firebase config and a room code first',
+    cloudSyncPhotoLimitHint:'Note: cloud sync covers everything about an item except its photo (name, quantity, category, expiry, nutrition, etc.) — photos stay on whichever device took them and aren\'t synced across devices.',
     save:'Save', cancel:'Cancel', delete:'Delete', edit:'Edit', add:'Add', confirm:'Confirm', close:'Close',
     addNewTag:'+ New', newTagPrompt:'Enter new tag name',
     detailQtyLabel:'Current stock',
@@ -1054,7 +1090,9 @@ var state = {
   view: 'home',
   params: {},
   home: { search:'', category:null, location:null, sort:'expiry', sortDir:'asc', sidebarCollapsed:{category:false, location:false, tools:false} },
-  scan: { running:false, stream:null, detector:null, resultDraft:null, mode:'camera' }
+  scan: { running:false, stream:null, detector:null, resultDraft:null, mode:'camera' },
+  cloudSyncEnabled: false, cloudSyncRoomCode: '', cloudSyncConfig: '',
+  cloudSyncStatus: 'idle', cloudSyncError: '', cloudSyncLastSyncedAt: null
 };
 
 /* ======================= STORAGE LAYER (standalone: localStorage) ======================= */
@@ -1089,7 +1127,9 @@ async function loadAll(){
     storageGet('notes', []),
     storageGet('noteCategories', DEFAULT_NOTE_CATEGORIES.slice()),
     storageGet('recipeCategoryGroups', JSON.parse(JSON.stringify(DEFAULT_RECIPE_CATEGORY_GROUPS))),
-    storageGet('units', [])
+    storageGet('units', []),
+    storageGet('cloudSync', {enabled:false, roomCode:'', config:''}),
+    storageGet('cloudSyncPushMap', {})
   ]);
   state.items = results[0].map(migrateItemQtyGroups);
   state.categories = results[1];
@@ -1106,6 +1146,11 @@ async function loadAll(){
   // into every other unit picker (规格单位/营养每份单位). They're now dedicated base options on
   // their own field, so strip them out if an older save still has them in this list.
   state.units = (results[9] || []).filter(function(u){ return u !== '个' && u !== '件'; });
+  var cs = results[10] || {};
+  state.cloudSyncEnabled = !!cs.enabled;
+  state.cloudSyncRoomCode = cs.roomCode || '';
+  state.cloudSyncConfig = cs.config || '';
+  CLOUD.pushMap = results[11] || {};
   state.loaded = true;
 }
 // Old data shape had a single secondary_qty/secondary_unit/unit_ratio triplet per item. The
@@ -1125,7 +1170,11 @@ function migrateItemQtyGroups(it){
   delete it.secondary_qty; delete it.secondary_unit; delete it.unit_ratio;
   return it;
 }
-function saveItems(){ return storageSet('items', state.items); }
+function saveItems(){
+  var p = storageSet('items', state.items);
+  cloudSyncPushChanges();
+  return p;
+}
 function saveCategories(){ return storageSet('categories', state.categories); }
 function saveLocations(){ return storageSet('locations', state.locations); }
 function saveIngredients(){ return storageSet('ingredients', state.ingredients); }
@@ -1421,6 +1470,7 @@ function archiveItem(id){
   if(!confirm(t('archiveConfirmMsg'))) return;
   it.archived = true;
   it.archived_at = nowLocalIso();
+  it.updated_at = nowLocalIso();
   saveItems();
   navigate('home');
   showToast(t('archivedToast'));
@@ -5420,6 +5470,27 @@ function renderSettings(){
       '<input type="text" inputmode="url" value="'+esc(state.aiProxyUrl)+'" placeholder="https://your-proxy.example.com/analyze" oninput="setAiProxyUrl(this.value)" style="width:100%;font-size:16px;padding:13px 14px;border-radius:11px;border:1px solid var(--line);">'+
       '<div class="hint">'+t('aiProxySettingHint')+'</div>'+
     '</div>'+
+    '<div class="section-title">'+t('cloudSyncSectionTitle')+'</div>'+
+    '<div class="form-group">'+
+      '<p class="hint" style="margin-bottom:14px;">'+t('cloudSyncIntro')+'</p>'+
+      '<label style="display:block;font-size:14px;font-weight:500;color:var(--deep-caramel);margin-bottom:7px;">'+t('cloudSyncConfigLabel')+'</label>'+
+      '<textarea placeholder="'+t('cloudSyncConfigPh')+'" oninput="setCloudSyncConfig(this.value)" style="width:100%;font-size:13.5px;padding:12px 13px;border-radius:11px;border:1px solid var(--line);min-height:90px;font-family:monospace;" '+(state.cloudSyncEnabled?'disabled':'')+'>'+esc(state.cloudSyncConfig)+'</textarea>'+
+      '<div class="hint" style="margin-bottom:14px;">'+t('cloudSyncConfigHint')+'</div>'+
+      '<label style="display:block;font-size:14px;font-weight:500;color:var(--deep-caramel);margin-bottom:7px;">'+t('cloudSyncRoomCodeLabel')+'</label>'+
+      '<div style="display:flex;gap:8px;margin-bottom:8px;">'+
+        '<input type="text" value="'+esc(state.cloudSyncRoomCode)+'" placeholder="'+t('cloudSyncRoomCodePh')+'" oninput="setCloudSyncRoomCode(this.value)" style="flex:1;min-width:0;font-size:16px;padding:13px 14px;border-radius:11px;border:1px solid var(--line);letter-spacing:1px;" '+(state.cloudSyncEnabled?'disabled':'')+'>'+
+        (state.cloudSyncRoomCode ? '<button type="button" class="btn btn-outline btn-sm" onclick="copyCloudSyncRoomCode()">'+t('cloudSyncCopyBtn')+'</button>' : '')+
+      '</div>'+
+      (state.cloudSyncEnabled ? '' : '<button type="button" class="btn btn-outline btn-sm" style="margin-bottom:14px;" onclick="generateCloudSyncRoomCode()">'+t('cloudSyncGenerateBtn')+'</button>')+
+      '<div class="hint" style="margin-bottom:14px;">'+t('cloudSyncJoinHint')+'</div>'+
+      '<button type="button" class="btn '+(state.cloudSyncEnabled?'btn-primary':'btn-outline')+'" style="width:100%;margin-bottom:10px;" onclick="toggleCloudSync()">'+t('cloudSyncEnableLabel')+(state.cloudSyncEnabled?' ✓':'')+'</button>'+
+      '<div class="hint" style="display:flex;justify-content:space-between;gap:8px;color:'+(state.cloudSyncStatus==='connected'?'var(--fresh)':(state.cloudSyncStatus==='error'?'var(--warn)':'var(--deep-caramel)'))+';">'+
+        '<span>'+cloudSyncStatusLabel()+'</span>'+
+        '<span>'+(state.cloudSyncLastSyncedAt ? (t('cloudSyncLastSyncedLabel')+' '+esc(state.cloudSyncLastSyncedAt.slice(0,16).replace('T',' '))) : t('cloudSyncNeverSynced'))+'</span>'+
+      '</div>'+
+      (state.cloudSyncStatus==='error' && state.cloudSyncError ? '<div class="hint" style="color:var(--warn);margin-top:6px;">'+esc(state.cloudSyncError)+'</div>' : '')+
+      '<div class="hint" style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line);">'+t('cloudSyncPhotoLimitHint')+'</div>'+
+    '</div>'+
     '<div class="section-title">'+(state.lang==='zh'?'分类与位置':'Categories & Locations')+'</div>'+
     '<div class="list-row" onclick="navigate(\'manageTags\',{kind:\'category\'})" style="cursor:pointer;">'+
       '<div class="row-label">'+t('manageCategories')+'</div>'+ic('chevronRight',18)+
@@ -5474,6 +5545,10 @@ function setReminderDays(v){
 function setAiProxyUrl(v){
   state.aiProxyUrl = v.trim();
   saveSettings();
+}
+function cloudSyncStatusLabel(){
+  var map = {idle:'cloudSyncStatusIdle', connecting:'cloudSyncStatusConnecting', connected:'cloudSyncStatusConnected', error:'cloudSyncStatusError'};
+  return t(map[state.cloudSyncStatus] || 'cloudSyncStatusIdle');
 }
 
 /* ======================= BACKUP / RESTORE ======================= */
@@ -5972,6 +6047,258 @@ document.addEventListener('click', function(e){
   });
 }, true);
 
+/* ======================= CLOUD SYNC (optional, Firestore) =======================
+   Lets two (or more) people share one inventory in near-real-time. Entirely opt-in and
+   lazy-loaded: nobody who hasn't configured it pays any extra network/JS cost, and the app
+   works fully offline exactly as before if it's never turned on.
+
+   Design in one paragraph: each food item is its own Firestore document at
+   syncRooms/{roomCode}/items/{itemId} (NOT one big JSON blob) so two people editing
+   different items at the same time never clobber each other - only a genuine edit to the
+   very same item can conflict, and that's resolved by keeping whichever side has the newer
+   `updated_at` (same last-write-wins rule already used for merge-import, see mergeById).
+   Deletions need an explicit tombstone doc ({_deleted:true}) rather than just removing the
+   Firestore doc, otherwise another device would have no way to distinguish "never synced"
+   from "was deleted" and would resurrect it - the exact caveat already documented for
+   offline merge-import, this is the online version of avoiding it.
+
+   Known scope limits (documented in Settings UI / README, not hidden):
+   - Only inventory (state.items) syncs. Recipes/notes stay device-local for now.
+   - Photos stay device-local (they live in IndexedDB, not in the items array) - syncing
+     them would need Firebase Storage too, which is a separate opt-in most people sharing
+     just an inventory list probably don't need; left as a documented future extension.
+   - Security is "room code = shared secret", same trust model as a shareable doc link -
+     fine for 2-3 people you already trust, not a real multi-tenant permission system.
+*/
+var CLOUD = { app:null, auth:null, db:null, uid:null, unsub:null, pushMap:{}, sdkLoadPromise:null };
+
+function cloudSyncActive(){ return !!(state.cloudSyncEnabled && CLOUD.db && CLOUD.uid && state.cloudSyncRoomCode); }
+
+function loadScriptOnce(src){
+  return new Promise(function(resolve, reject){
+    var existing = document.querySelector('script[src="'+src+'"]');
+    if(existing){ resolve(); return; }
+    var s = document.createElement('script');
+    s.src = src;
+    s.onload = function(){ resolve(); };
+    s.onerror = function(){ reject(new Error('failed to load '+src)); };
+    document.head.appendChild(s);
+  });
+}
+var FIREBASE_SDK_VERSION = '10.13.0';
+function ensureFirebaseSdkLoaded(){
+  if(CLOUD.sdkLoadPromise) return CLOUD.sdkLoadPromise;
+  var base = 'https://www.gstatic.com/firebasejs/'+FIREBASE_SDK_VERSION+'/';
+  CLOUD.sdkLoadPromise = loadScriptOnce(base+'firebase-app-compat.js')
+    .then(function(){ return loadScriptOnce(base+'firebase-auth-compat.js'); })
+    .then(function(){ return loadScriptOnce(base+'firebase-firestore-compat.js'); });
+  return CLOUD.sdkLoadPromise;
+}
+
+function saveCloudSyncSettings(){
+  return storageSet('cloudSync', {enabled:state.cloudSyncEnabled, roomCode:state.cloudSyncRoomCode, config:state.cloudSyncConfig});
+}
+function saveCloudSyncPushMap(){ return storageSet('cloudSyncPushMap', CLOUD.pushMap); }
+
+var CLOUD_ROOM_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O or 1/I - easier to read/type
+function genRoomCode(){
+  var s = '';
+  for(var i=0;i<8;i++){ s += CLOUD_ROOM_CODE_CHARS[Math.floor(Math.random()*CLOUD_ROOM_CODE_CHARS.length)]; }
+  return s;
+}
+function generateCloudSyncRoomCode(){
+  state.cloudSyncRoomCode = genRoomCode();
+  saveCloudSyncSettings();
+  render();
+}
+function setCloudSyncConfig(v){ state.cloudSyncConfig = v; saveCloudSyncSettings(); }
+function setCloudSyncRoomCode(v){ state.cloudSyncRoomCode = v.trim().toUpperCase(); saveCloudSyncSettings(); }
+function copyCloudSyncRoomCode(){
+  if(!state.cloudSyncRoomCode) return;
+  var done = function(){ showToast(t('cloudSyncCopiedToast')); };
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(state.cloudSyncRoomCode).then(done).catch(done);
+  } else {
+    done();
+  }
+}
+function toggleCloudSync(){
+  if(!state.cloudSyncEnabled){
+    if(!state.cloudSyncConfig || !state.cloudSyncRoomCode){
+      showToast(t('cloudSyncNeedConfigToast'));
+      return;
+    }
+    state.cloudSyncEnabled = true;
+    saveCloudSyncSettings();
+    render();
+    startCloudSync();
+  } else {
+    state.cloudSyncEnabled = false;
+    saveCloudSyncSettings();
+    stopCloudSync();
+    render();
+  }
+}
+
+function itemsCollectionRef(){
+  return CLOUD.db.collection('syncRooms').doc(state.cloudSyncRoomCode).collection('items');
+}
+
+async function startCloudSync(){
+  if(!state.cloudSyncEnabled || !state.cloudSyncRoomCode || !state.cloudSyncConfig) return;
+  var parsedConfig;
+  try{
+    parsedConfig = JSON.parse(state.cloudSyncConfig);
+  }catch(e){
+    state.cloudSyncStatus = 'error';
+    state.cloudSyncError = t('cloudSyncConfigInvalid');
+    render();
+    return;
+  }
+  state.cloudSyncStatus = 'connecting';
+  state.cloudSyncError = '';
+  render();
+  try{
+    await ensureFirebaseSdkLoaded();
+    CLOUD.app = firebase.apps.length ? firebase.app() : firebase.initializeApp(parsedConfig);
+    CLOUD.auth = firebase.auth();
+    CLOUD.db = firebase.firestore();
+    var cred = await CLOUD.auth.signInAnonymously();
+    CLOUD.uid = cred.user.uid;
+    subscribeCloudItems();
+    // Also push once right away: covers the case where the collection is empty (brand new
+    // room, nothing to receive yet) but this device already has local items to upload.
+    cloudSyncPushChanges();
+    state.cloudSyncStatus = 'connected';
+  }catch(e){
+    console.error('cloud sync start failed', e);
+    state.cloudSyncStatus = 'error';
+    state.cloudSyncError = (e && e.message) || String(e);
+  }
+  render();
+}
+
+function stopCloudSync(){
+  if(CLOUD.unsub){ CLOUD.unsub(); CLOUD.unsub = null; }
+  CLOUD.db = null; CLOUD.auth = null; CLOUD.uid = null;
+  state.cloudSyncStatus = 'idle';
+  state.cloudSyncError = '';
+}
+
+function subscribeCloudItems(){
+  if(CLOUD.unsub){ CLOUD.unsub(); CLOUD.unsub = null; }
+  CLOUD.unsub = itemsCollectionRef().onSnapshot(function(snapshot){
+    var changed = false;
+    snapshot.docChanges().forEach(function(change){
+      if(change.type === 'removed') return; // deletes are tombstoned, not actually removed
+      if(applyRemoteItem(change.doc.data())) changed = true;
+    });
+    saveCloudSyncPushMap();
+    if(changed){
+      saveItems();
+      render();
+    }
+    state.cloudSyncLastSyncedAt = nowLocalIso();
+  }, function(err){
+    console.error('cloud sync snapshot error', err);
+    state.cloudSyncStatus = 'error';
+    state.cloudSyncError = (err && err.message) || String(err);
+    render();
+  });
+}
+
+// Merge one incoming Firestore item doc into state.items. Returns true if state.items
+// actually changed (so the caller knows whether to re-save/re-render). Same last-write-wins
+// rule as mergeById: newer `updated_at` (falling back to created_at) wins, ties keep local.
+function applyRemoteItem(data){
+  if(!data || !data.id) return false;
+  var idx = -1;
+  for(var i=0;i<state.items.length;i++){ if(state.items[i].id===data.id){ idx=i; break; } }
+  var localTs = idx>=0 ? (state.items[idx].updated_at || state.items[idx].created_at || '') : '';
+  var remoteTs = data.updated_at || data.created_at || '';
+  if(data._deleted){
+    if(idx>=0 && remoteTs >= localTs){
+      state.items.splice(idx,1);
+      CLOUD.pushMap[data.id] = '__deleted__';
+      return true;
+    }
+    return false;
+  }
+  if(idx===-1){
+    var fresh = JSON.parse(JSON.stringify(data));
+    delete fresh._deleted;
+    fresh.secondary_units = fresh.secondary_units || [];
+    state.items.push(migrateItemQtyGroups(fresh));
+    CLOUD.pushMap[data.id] = remoteTs;
+    return true;
+  }
+  if(remoteTs > localTs){
+    var merged = JSON.parse(JSON.stringify(data));
+    delete merged._deleted;
+    // A remote write never carries this device's own local photo (photos aren't synced -
+    // see module comment above), so keep whatever photo this device already has on file.
+    if(!merged.photo_url && state.items[idx].photo_url && state.items[idx].photo_url.indexOf('photo:')===0){
+      merged.photo_url = state.items[idx].photo_url;
+    }
+    state.items[idx] = migrateItemQtyGroups(merged);
+    CLOUD.pushMap[data.id] = remoteTs;
+    return true;
+  }
+  return false;
+}
+
+// Strip fields that are meaningless on another device before writing to Firestore. Local
+// IndexedDB photo references (`photo:xxxxxx`) only resolve on the device that took the
+// photo, so they're cleared here - the *local* copy of the item (state.items) is untouched,
+// only this outgoing cloud copy.
+function sanitizeItemForCloud(it){
+  var copy = JSON.parse(JSON.stringify(it));
+  if(copy.photo_url && copy.photo_url.indexOf('photo:')===0) copy.photo_url = '';
+  copy._deleted = false;
+  return copy;
+}
+
+// Diffs state.items against CLOUD.pushMap (this device's record of what it last pushed) and
+// writes only what actually changed - not the whole inventory - so two people editing
+// different items never touch each other's writes. Deletions (an id that was in pushMap but
+// is no longer in state.items) get a tombstone doc instead of an actual Firestore delete.
+async function cloudSyncPushChanges(){
+  if(!cloudSyncActive()) return;
+  var toPush = [], currentIds = {};
+  state.items.forEach(function(it){
+    currentIds[it.id] = true;
+    var ts = it.updated_at || it.created_at || '';
+    if(CLOUD.pushMap[it.id] !== ts) toPush.push(it);
+  });
+  var tombstoneIds = [];
+  Object.keys(CLOUD.pushMap).forEach(function(id){
+    if(!currentIds[id] && CLOUD.pushMap[id] !== '__deleted__') tombstoneIds.push(id);
+  });
+  if(!toPush.length && !tombstoneIds.length) return;
+  try{
+    var batch = CLOUD.db.batch();
+    var now = nowLocalIso();
+    toPush.forEach(function(it){
+      var docData = sanitizeItemForCloud(it);
+      batch.set(itemsCollectionRef().doc(it.id), docData);
+      CLOUD.pushMap[it.id] = docData.updated_at || docData.created_at || '';
+    });
+    tombstoneIds.forEach(function(id){
+      batch.set(itemsCollectionRef().doc(id), {id:id, _deleted:true, updated_at:now});
+      CLOUD.pushMap[id] = '__deleted__';
+    });
+    await batch.commit();
+    saveCloudSyncPushMap();
+    state.cloudSyncLastSyncedAt = nowLocalIso();
+  }catch(e){
+    console.error('cloud sync push failed', e);
+    state.cloudSyncStatus = 'error';
+    state.cloudSyncError = (e && e.message) || String(e);
+    render();
+  }
+}
+
+
 /* ======================= INIT / BOOTSTRAP ======================= */
 function renderLoading(){
   return '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;color:var(--deep-caramel);gap:10px;">'+
@@ -6001,6 +6328,7 @@ async function initApp(){
     state.loaded = true;
   }
   render();
+  if(state.cloudSyncEnabled) startCloudSync();
 }
 if(document.readyState === 'loading'){
   document.addEventListener('DOMContentLoaded', initApp);
