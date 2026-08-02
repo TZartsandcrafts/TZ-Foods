@@ -6074,6 +6074,53 @@ var CLOUD = { app:null, auth:null, db:null, uid:null, unsub:null, pushMap:{}, sd
 
 function cloudSyncActive(){ return !!(state.cloudSyncEnabled && CLOUD.db && CLOUD.uid && state.cloudSyncRoomCode); }
 
+// Firebase's console shows the config as a JS object literal (const firebaseConfig = {apiKey:
+// "...", ...}) - unquoted keys, which is NOT valid JSON. Rather than make every single person
+// setting this up manually trim it down and add quotes around 6 keys, find the {...} block
+// wherever it sits in whatever got pasted (whole file with imports, just the assignment line,
+// or just the bare key:value lines) and coerce that into parseable JSON. Only handles the
+// flat string-valued shape Firebase actually outputs - not a general JS-object parser.
+function extractBraceBlock(str){
+  var candidates = [];
+  for(var start=0; start<str.length; start++){
+    if(str[start] !== '{') continue;
+    var depth = 0;
+    for(var i=start;i<str.length;i++){
+      if(str[i]==='{') depth++;
+      else if(str[i]==='}'){
+        depth--;
+        if(depth===0){ candidates.push(str.slice(start, i+1)); break; }
+      }
+    }
+  }
+  if(!candidates.length) return null;
+  // Prefer whichever block actually looks like a Firebase config (has apiKey in it) - a
+  // `import { initializeApp } from "firebase/app"` line has braces too and would otherwise
+  // get picked first since it comes first in the pasted text.
+  var withApiKey = candidates.filter(function(b){ return /apiKey/i.test(b); });
+  var pool = withApiKey.length ? withApiKey : candidates;
+  return pool.sort(function(a,b){ return b.length - a.length; })[0];
+}
+function parseFirebaseConfig(raw){
+  var s = (raw||'').trim();
+  var block = extractBraceBlock(s);
+  if(block){
+    s = block;
+  } else {
+    // No braces anywhere - probably just the bare "apiKey: ..., projectId: ..." lines with
+    // nothing wrapped around them. Strip a stray leading assignment/trailing semicolon just
+    // in case, then wrap in braces ourselves.
+    s = s.replace(/^\s*(const|var|let)\s+\w+\s*=\s*/, '').replace(/;\s*$/, '');
+    s = '{'+s+'}';
+  }
+  try{
+    return JSON.parse(s);
+  }catch(e){
+    var lenient = s.replace(/([{,]\s*)([A-Za-z_$][A-Za-z0-9_$]*)\s*:/g, '$1"$2":').replace(/,(\s*})/g, '$1');
+    return JSON.parse(lenient); // let this throw if it's still not parseable
+  }
+}
+
 function loadScriptOnce(src){
   return new Promise(function(resolve, reject){
     var existing = document.querySelector('script[src="'+src+'"]');
@@ -6148,7 +6195,7 @@ async function startCloudSync(){
   if(!state.cloudSyncEnabled || !state.cloudSyncRoomCode || !state.cloudSyncConfig) return;
   var parsedConfig;
   try{
-    parsedConfig = JSON.parse(state.cloudSyncConfig);
+    parsedConfig = parseFirebaseConfig(state.cloudSyncConfig);
   }catch(e){
     state.cloudSyncStatus = 'error';
     state.cloudSyncError = t('cloudSyncConfigInvalid');
