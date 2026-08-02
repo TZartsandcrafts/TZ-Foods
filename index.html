@@ -217,6 +217,10 @@
     font-size:11px; font-weight:500; color:var(--deep-caramel); background:var(--cream);
     border-radius:8px; padding:1px 6px; margin-left:6px; vertical-align:1px; white-space:nowrap;
   }
+  .item-group{ margin-bottom:10px; }
+  .item-group-header{ margin-bottom:0; }
+  .item-group-children{ margin-left:14px; padding-left:10px; border-left:2px solid var(--line); margin-top:8px; }
+  .item-group-children .item-card-swipe:last-child{ margin-bottom:0; }
   .photo-preview-wrap{ position:relative; width:100%; max-width:220px; margin:0 auto; }
   .photo-preview{ width:100%; max-width:220px; border-radius:12px; display:block; border:1px solid var(--line); }
   .photo-remove-btn{ position:absolute; top:6px; right:6px; width:30px; height:30px; background:rgba(0,0,0,0.55); color:#fff; border-color:transparent; }
@@ -628,6 +632,18 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // a different address into Settings > AI代理地址 and saving still takes precedence, exactly like
 // before; this only fills in when nothing has been saved yet.
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
+// Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
+// doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
+// a *default* - Settings > 云同步 remains fully editable and whatever's saved there wins.
+var DEFAULT_CLOUD_SYNC_CONFIG = JSON.stringify({
+  apiKey: 'AIzaSyByBz9FkeW0lJGqAJPFb07rYAiI2k0Flcw',
+  authDomain: 'tz-foodcode.firebaseapp.com',
+  projectId: 'tz-foodcode',
+  storageBucket: 'tz-foodcode.firebasestorage.app',
+  messagingSenderId: '935209097590',
+  appId: '1:935209097590:web:1bb7be4cf75aea4eaac257'
+});
+var DEFAULT_CLOUD_SYNC_ROOM_CODE = 'FJQD8RT5';
 var DEFAULT_RECIPE_CATEGORY_GROUPS = [
   {id:'cooking', name:'烹饪', subs:[]},
   {id:'baking', name:'烘焙', subs:[]}
@@ -766,7 +782,7 @@ var I18N = {
     cloudSyncStatusError:'连接出错',
     cloudSyncLastSyncedLabel:'上次同步', cloudSyncNeverSynced:'尚未同步',
     cloudSyncNeedConfigToast:'请先填写 Firebase 项目配置和同步房间码',
-    cloudSyncPhotoLimitHint:'提示：云同步会同步除照片以外的所有食材信息（名称、数量、分类、保质期、营养标签等）；照片仍然只存在拍摄它的那台设备本地，不会跨设备同步。',
+    cloudSyncPhotoLimitHint:'提示：云同步覆盖库存食材（名称、数量、分类、位置、保质期、营养标签等）以及分类/位置这两份列表；食谱、笔记、照片目前还不同步——照片只存在拍摄它的那台设备本地。',
     save:'保存', cancel:'取消', delete:'删除', edit:'编辑', add:'添加', confirm:'确认', close:'关闭',
     addNewTag:'+ 新建', newTagPrompt:'输入新标签名称',
     // detail
@@ -948,7 +964,7 @@ var I18N = {
     cloudSyncStatusError:'Connection error',
     cloudSyncLastSyncedLabel:'Last synced', cloudSyncNeverSynced:'Never synced yet',
     cloudSyncNeedConfigToast:'Please fill in the Firebase config and a room code first',
-    cloudSyncPhotoLimitHint:'Note: cloud sync covers everything about an item except its photo (name, quantity, category, expiry, nutrition, etc.) — photos stay on whichever device took them and aren\'t synced across devices.',
+    cloudSyncPhotoLimitHint:'Note: cloud sync covers inventory items (name, quantity, category, location, expiry, nutrition, etc.) plus the category/location lists themselves. Recipes, notes, and photos aren\'t synced yet — photos stay on whichever device took them.',
     save:'Save', cancel:'Cancel', delete:'Delete', edit:'Edit', add:'Add', confirm:'Confirm', close:'Close',
     addNewTag:'+ New', newTagPrompt:'Enter new tag name',
     detailQtyLabel:'Current stock',
@@ -1089,10 +1105,11 @@ var state = {
   loaded: false,
   view: 'home',
   params: {},
-  home: { search:'', category:null, location:null, sort:'expiry', sortDir:'asc', sidebarCollapsed:{category:false, location:false, tools:false} },
+  home: { search:'', category:null, location:null, sort:'expiry', sortDir:'asc', sidebarCollapsed:{category:false, location:false, tools:false}, expandedGroups:{} },
   scan: { running:false, stream:null, detector:null, resultDraft:null, mode:'camera' },
-  cloudSyncEnabled: false, cloudSyncRoomCode: '', cloudSyncConfig: '',
-  cloudSyncStatus: 'idle', cloudSyncError: '', cloudSyncLastSyncedAt: null
+  cloudSyncEnabled: false, cloudSyncRoomCode: DEFAULT_CLOUD_SYNC_ROOM_CODE, cloudSyncConfig: DEFAULT_CLOUD_SYNC_CONFIG,
+  cloudSyncStatus: 'idle', cloudSyncError: '', cloudSyncLastSyncedAt: null,
+  categoriesUpdatedAt: null, locationsUpdatedAt: null
 };
 
 /* ======================= STORAGE LAYER (standalone: localStorage) ======================= */
@@ -1129,7 +1146,9 @@ async function loadAll(){
     storageGet('recipeCategoryGroups', JSON.parse(JSON.stringify(DEFAULT_RECIPE_CATEGORY_GROUPS))),
     storageGet('units', []),
     storageGet('cloudSync', {enabled:false, roomCode:'', config:''}),
-    storageGet('cloudSyncPushMap', {})
+    storageGet('cloudSyncPushMap', {}),
+    storageGet('tagListsMeta', {categoriesUpdatedAt:null, locationsUpdatedAt:null}),
+    storageGet('cloudSyncMetaPushMap', {})
   ]);
   state.items = results[0].map(migrateItemQtyGroups);
   state.categories = results[1];
@@ -1148,9 +1167,16 @@ async function loadAll(){
   state.units = (results[9] || []).filter(function(u){ return u !== '个' && u !== '件'; });
   var cs = results[10] || {};
   state.cloudSyncEnabled = !!cs.enabled;
-  state.cloudSyncRoomCode = cs.roomCode || '';
-  state.cloudSyncConfig = cs.config || '';
+  state.cloudSyncRoomCode = cs.roomCode || DEFAULT_CLOUD_SYNC_ROOM_CODE;
+  state.cloudSyncConfig = cs.config || DEFAULT_CLOUD_SYNC_CONFIG;
   CLOUD.pushMap = results[11] || {};
+  var tagMeta = results[12] || {};
+  state.categoriesUpdatedAt = tagMeta.categoriesUpdatedAt || nowLocalIso();
+  state.locationsUpdatedAt = tagMeta.locationsUpdatedAt || nowLocalIso();
+  if(!tagMeta.categoriesUpdatedAt || !tagMeta.locationsUpdatedAt){
+    storageSet('tagListsMeta', {categoriesUpdatedAt: state.categoriesUpdatedAt, locationsUpdatedAt: state.locationsUpdatedAt});
+  }
+  CLOUD.metaPushMap = results[13] || {};
   state.loaded = true;
 }
 // Old data shape had a single secondary_qty/secondary_unit/unit_ratio triplet per item. The
@@ -1175,8 +1201,20 @@ function saveItems(){
   cloudSyncPushChanges();
   return p;
 }
-function saveCategories(){ return storageSet('categories', state.categories); }
-function saveLocations(){ return storageSet('locations', state.locations); }
+function saveCategories(){
+  state.categoriesUpdatedAt = nowLocalIso();
+  var p = storageSet('categories', state.categories);
+  storageSet('tagListsMeta', {categoriesUpdatedAt: state.categoriesUpdatedAt, locationsUpdatedAt: state.locationsUpdatedAt});
+  cloudSyncPushMeta();
+  return p;
+}
+function saveLocations(){
+  state.locationsUpdatedAt = nowLocalIso();
+  var p = storageSet('locations', state.locations);
+  storageSet('tagListsMeta', {categoriesUpdatedAt: state.categoriesUpdatedAt, locationsUpdatedAt: state.locationsUpdatedAt});
+  cloudSyncPushMeta();
+  return p;
+}
 function saveIngredients(){ return storageSet('ingredients', state.ingredients); }
 function saveRecipes(){ return storageSet('recipes', state.recipes); }
 function saveSettings(){ return storageSet('settings', {lang:state.lang, reminderDays:state.reminderDays, aiProxyUrl:state.aiProxyUrl}); }
@@ -1686,6 +1724,7 @@ function bottomNav(){
 function navBottomHome(){
   state.home.category = null;
   state.home.location = null;
+  state.home.search = '';
   navigate('home');
 }
 function navBottomRecipes(){
@@ -2218,42 +2257,112 @@ function renderItemListHtml(items){
     }
     return '<div class="empty-state">'+ic('search',40)+'<p>'+(state.lang==='zh'?'没有符合条件的食材':'No items match your filters')+'</p></div>';
   }
-  // Count same-name items so batches purchased at different times (see README note on
-  // duplicate names) show a small "×N" hint instead of silently looking like one entry.
-  var nameCounts = {};
-  items.forEach(function(it){ var k=(it.name||'').trim(); nameCounts[k]=(nameCounts[k]||0)+1; });
-  return items.map(function(it){
-    var st = expiryStatus(it);
-    var meta = (it.location?esc(it.location)+' · ':'') + t('remainingQtyLabel')+' '+qtyDisplay(it);
-    var expiryDateText = it.expiry_date ? fmtDateDots(it.expiry_date) : '';
-    var expiryLineHtml = it.expiry_date ?
-      (esc(t('fieldExpiry'))+' '+(st.level==='expired' ? '<span class="expiry-date-highlight">'+esc(expiryDateText)+'</span>' : esc(expiryDateText))) :
-      esc(t('unset'));
-    var badgeText = it.expiry_date ? expiryRelativeText(it) : t('unset');
-    var dupCount = nameCounts[(it.name||'').trim()];
-    var dupBadge = dupCount > 1 ? '<span class="dup-badge">×'+dupCount+'</span>' : '';
-    var thumb = it.photo_url ? photoImgHtml(it.photo_url, 'width:100%;height:100%;object-fit:cover;') : ic('box',22);
-    return '<div class="item-card-swipe" data-item-id="'+esc(it.id)+'">'+
-      '<div class="item-swipe-actions">'+
-        '<button class="swipe-action-btn action-delete" onclick="event.stopPropagation();deleteItemFromSwipe('+aj(it.id)+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button>'+
-        '<button class="swipe-action-btn action-archive" onclick="event.stopPropagation();archiveItemFromSwipe('+aj(it.id)+')">'+ic('archive',20)+'<span>'+esc(t('archiveBtn'))+'</span></button>'+
-        '<button class="swipe-action-btn action-edit" onclick="event.stopPropagation();closeItemSwipeRow('+aj(it.id)+');openItemForm('+aj(it.id)+')">'+ic('edit',20)+'<span>'+esc(t('edit'))+'</span></button>'+
-      '</div>'+
-      '<div class="item-card card-'+st.level+'" onclick="navigate(\'itemDetail\',{id:'+aj(it.id)+'})">'+
-        '<div class="item-card-main">'+
-          '<div class="item-icon">'+thumb+'</div>'+
-          '<div class="item-info">'+
-            '<div class="item-name">'+itemDisplayName(it)+dupBadge+'</div>'+
-            '<div class="item-meta">'+meta+'</div>'+
-          '</div>'+
-        '</div>'+
-        '<div class="item-card-footer">'+
-          '<div class="item-meta expiry-line lvl-'+st.level+'">'+expiryLineHtml+'</div>'+
-          '<div class="status-badge status-'+st.level+'">'+esc(badgeText)+'</div>'+
-        '</div>'+
-      '</div>'+
-    '</div>';
+  // Group batches of the same product (same name+brand+barcode) into one collapsible row
+  // instead of one full card per batch - a "3瓶酱油 recount 2024" and a "3瓶酱油 recount
+  // 2025" are the same product bought twice, not two different things worth separate cards.
+  // Grouping (not just this key) happens in encounter order against the already-sorted
+  // `items` array, so a group's position in the list is wherever its first (e.g. soonest-
+  // expiring, if sorted by expiry) batch would have sorted to.
+  var groupOrder = [], groupMap = {};
+  items.forEach(function(it){
+    var k = itemGroupKey(it);
+    if(!groupMap[k]){ groupMap[k] = []; groupOrder.push(k); }
+    groupMap[k].push(it);
+  });
+  return groupOrder.map(function(k){
+    var group = groupMap[k];
+    return group.length===1 ? renderSingleItemCard(group[0]) : renderItemGroupHtml(k, group);
   }).join('');
+}
+function itemGroupKey(it){
+  return [(it.name||'').trim(), (it.brand||'').trim(), (it.barcode||'').trim()].join('\u0001');
+}
+function expiryStatusRank(level){ return level==='expired' ? 2 : (level==='soon' ? 1 : 0); }
+// Which batch's expiry "represents" a collapsed group row: whichever is most urgent (expired
+// beats soon beats fresh), tie-broken by whichever expiry date comes soonest.
+function representativeGroupItem(group){
+  var best = group[0], bestRank = expiryStatusRank(expiryStatus(best).level);
+  group.forEach(function(it){
+    var r = expiryStatusRank(expiryStatus(it).level);
+    if(r > bestRank || (r===bestRank && it.expiry_date && (!best.expiry_date || it.expiry_date < best.expiry_date))){
+      best = it; bestRank = r;
+    }
+  });
+  return best;
+}
+// Sum of primary_qty across every batch in the group - the "total pieces" number shown on
+// the collapsed row, as opposed to how many separate batches/entries there are.
+function groupTotalQty(group){
+  var sum = 0, any = false;
+  group.forEach(function(it){ if(it.primary_qty!=null){ sum += Number(it.primary_qty)||0; any = true; } });
+  return any ? sum : null;
+}
+function toggleItemGroup(key){
+  state.home.expandedGroups[key] = !state.home.expandedGroups[key];
+  render();
+}
+function renderSingleItemCard(it){
+  var st = expiryStatus(it);
+  var meta = (it.location?esc(it.location)+' · ':'') + t('remainingQtyLabel')+' '+qtyDisplay(it);
+  var expiryDateText = it.expiry_date ? fmtDateDots(it.expiry_date) : '';
+  var expiryLineHtml = it.expiry_date ?
+    (esc(t('fieldExpiry'))+' '+(st.level==='expired' ? '<span class="expiry-date-highlight">'+esc(expiryDateText)+'</span>' : esc(expiryDateText))) :
+    esc(t('unset'));
+  var badgeText = it.expiry_date ? expiryRelativeText(it) : t('unset');
+  var thumb = it.photo_url ? photoImgHtml(it.photo_url, 'width:100%;height:100%;object-fit:cover;') : ic('box',22);
+  return '<div class="item-card-swipe" data-item-id="'+esc(it.id)+'">'+
+    '<div class="item-swipe-actions">'+
+      '<button class="swipe-action-btn action-delete" onclick="event.stopPropagation();deleteItemFromSwipe('+aj(it.id)+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button>'+
+      '<button class="swipe-action-btn action-archive" onclick="event.stopPropagation();archiveItemFromSwipe('+aj(it.id)+')">'+ic('archive',20)+'<span>'+esc(t('archiveBtn'))+'</span></button>'+
+      '<button class="swipe-action-btn action-edit" onclick="event.stopPropagation();closeItemSwipeRow('+aj(it.id)+');openItemForm('+aj(it.id)+')">'+ic('edit',20)+'<span>'+esc(t('edit'))+'</span></button>'+
+    '</div>'+
+    '<div class="item-card card-'+st.level+'" onclick="navigate(\'itemDetail\',{id:'+aj(it.id)+'})">'+
+      '<div class="item-card-main">'+
+        '<div class="item-icon">'+thumb+'</div>'+
+        '<div class="item-info">'+
+          '<div class="item-name">'+itemDisplayName(it)+'</div>'+
+          '<div class="item-meta">'+meta+'</div>'+
+        '</div>'+
+      '</div>'+
+      '<div class="item-card-footer">'+
+        '<div class="item-meta expiry-line lvl-'+st.level+'">'+expiryLineHtml+'</div>'+
+        '<div class="status-badge status-'+st.level+'">'+esc(badgeText)+'</div>'+
+      '</div>'+
+    '</div>'+
+  '</div>';
+}
+function renderItemGroupHtml(key, group){
+  var rep = representativeGroupItem(group);
+  var st = expiryStatus(rep);
+  var totalQty = groupTotalQty(group);
+  var countBadge = '<span class="dup-badge">'+esc(totalQty!=null ? fmtNum(totalQty,2) : String(group.length))+'</span>';
+  var expanded = !!state.home.expandedGroups[key];
+  var thumb = rep.photo_url ? photoImgHtml(rep.photo_url, 'width:100%;height:100%;object-fit:cover;') : ic('box',22);
+  var expiryDateText = rep.expiry_date ? fmtDateDots(rep.expiry_date) : '';
+  var expiryLineHtml = rep.expiry_date ?
+    (esc(t('fieldExpiry'))+' '+(st.level==='expired' ? '<span class="expiry-date-highlight">'+esc(expiryDateText)+'</span>' : esc(expiryDateText))) :
+    esc(t('unset'));
+  var badgeText = rep.expiry_date ? expiryRelativeText(rep) : t('unset');
+  var batchMeta = state.lang==='zh' ? ('共'+group.length+'批') : (group.length+' batches');
+  var childrenHtml = expanded ? group.map(renderSingleItemCard).join('') : '';
+  return '<div class="item-group">'+
+    '<div class="item-card card-'+st.level+' item-group-header" onclick="toggleItemGroup('+aj(key)+')">'+
+      '<div class="item-card-main">'+
+        '<div class="item-icon">'+thumb+'</div>'+
+        '<div class="item-info">'+
+          '<div class="item-name">'+itemDisplayName(rep)+countBadge+
+            ic('chevronRight',15,'style="transform:rotate('+(expanded?'90':'0')+'deg);transition:transform .15s;vertical-align:-2px;margin-left:2px;"')+
+          '</div>'+
+          '<div class="item-meta">'+batchMeta+'</div>'+
+        '</div>'+
+      '</div>'+
+      '<div class="item-card-footer">'+
+        '<div class="item-meta expiry-line lvl-'+st.level+'">'+expiryLineHtml+'</div>'+
+        '<div class="status-badge status-'+st.level+'">'+esc(badgeText)+'</div>'+
+      '</div>'+
+    '</div>'+
+    (expanded ? '<div class="item-group-children">'+childrenHtml+'</div>' : '') +
+  '</div>';
 }
 // Reached by tapping any of the three stat capsules (total / expired / expiring soon) at
 // the top of the inventory sidebar — opens a dedicated full-page list for that slice,
@@ -6070,7 +6179,7 @@ document.addEventListener('click', function(e){
    - Security is "room code = shared secret", same trust model as a shareable doc link -
      fine for 2-3 people you already trust, not a real multi-tenant permission system.
 */
-var CLOUD = { app:null, auth:null, db:null, uid:null, unsub:null, pushMap:{}, sdkLoadPromise:null };
+var CLOUD = { app:null, auth:null, db:null, uid:null, unsub:null, metaUnsub:null, pushMap:{}, metaPushMap:{}, sdkLoadPromise:null };
 
 function cloudSyncActive(){ return !!(state.cloudSyncEnabled && CLOUD.db && CLOUD.uid && state.cloudSyncRoomCode); }
 
@@ -6190,6 +6299,20 @@ function toggleCloudSync(){
 function itemsCollectionRef(){
   return CLOUD.db.collection('syncRooms').doc(state.cloudSyncRoomCode).collection('items');
 }
+function metaCollectionRef(){
+  return CLOUD.db.collection('syncRooms').doc(state.cloudSyncRoomCode).collection('meta');
+}
+
+// Cloud sync can trigger a render() at any moment (a remote change arrived, or our own push
+// just completed) - completely independent of what the user happens to be doing right now.
+// Re-rendering mid-keystroke on the item add/edit form is exactly the "DOM got replaced out
+// from under an active input" bug class this app has chased down several times before (see
+// changelog), so skip the render there specifically; the state is still updated, it'll just
+// show up on the next natural render (e.g. when the form closes) instead of mid-edit.
+function cloudSyncSafeRender(){
+  if(state.view === 'itemForm') return;
+  render();
+}
 
 async function startCloudSync(){
   if(!state.cloudSyncEnabled || !state.cloudSyncRoomCode || !state.cloudSyncConfig) return;
@@ -6213,9 +6336,11 @@ async function startCloudSync(){
     var cred = await CLOUD.auth.signInAnonymously();
     CLOUD.uid = cred.user.uid;
     subscribeCloudItems();
+    subscribeCloudMeta();
     // Also push once right away: covers the case where the collection is empty (brand new
-    // room, nothing to receive yet) but this device already has local items to upload.
+    // room, nothing to receive yet) but this device already has local items/lists to upload.
     cloudSyncPushChanges();
+    cloudSyncPushMeta();
     state.cloudSyncStatus = 'connected';
   }catch(e){
     console.error('cloud sync start failed', e);
@@ -6227,6 +6352,7 @@ async function startCloudSync(){
 
 function stopCloudSync(){
   if(CLOUD.unsub){ CLOUD.unsub(); CLOUD.unsub = null; }
+  if(CLOUD.metaUnsub){ CLOUD.metaUnsub(); CLOUD.metaUnsub = null; }
   CLOUD.db = null; CLOUD.auth = null; CLOUD.uid = null;
   state.cloudSyncStatus = 'idle';
   state.cloudSyncError = '';
@@ -6241,17 +6367,83 @@ function subscribeCloudItems(){
       if(applyRemoteItem(change.doc.data())) changed = true;
     });
     saveCloudSyncPushMap();
-    if(changed){
-      saveItems();
-      render();
-    }
+    if(changed) saveItems();
     state.cloudSyncLastSyncedAt = nowLocalIso();
+    cloudSyncSafeRender();
   }, function(err){
     console.error('cloud sync snapshot error', err);
     state.cloudSyncStatus = 'error';
     state.cloudSyncError = (err && err.message) || String(err);
     render();
   });
+}
+
+// Categories/locations are simple flat string arrays (no per-record id like items have), and
+// get renamed/reordered as a whole rather than edited field-by-field, so unlike items these
+// sync as one whole-array document each (`meta/categories`, `meta/locations`) rather than
+// per-entry - last-write-wins on the *whole list* when both sides touched it, same timestamp
+// rule as items just applied to the array as a unit instead of to individual entries.
+function saveCloudSyncMetaPushMap(){ return storageSet('cloudSyncMetaPushMap', CLOUD.metaPushMap); }
+function subscribeCloudMeta(){
+  if(CLOUD.metaUnsub){ CLOUD.metaUnsub(); CLOUD.metaUnsub = null; }
+  CLOUD.metaUnsub = metaCollectionRef().onSnapshot(function(snapshot){
+    var changed = false;
+    snapshot.docChanges().forEach(function(change){
+      if(change.type === 'removed') return;
+      if(applyRemoteMeta(change.doc.id, change.doc.data())) changed = true;
+    });
+    saveCloudSyncMetaPushMap();
+    if(changed){
+      storageSet('categories', state.categories);
+      storageSet('locations', state.locations);
+      storageSet('tagListsMeta', {categoriesUpdatedAt: state.categoriesUpdatedAt, locationsUpdatedAt: state.locationsUpdatedAt});
+    }
+    state.cloudSyncLastSyncedAt = nowLocalIso();
+    cloudSyncSafeRender();
+  }, function(err){
+    console.error('cloud sync meta snapshot error', err);
+    state.cloudSyncStatus = 'error';
+    state.cloudSyncError = (err && err.message) || String(err);
+    render();
+  });
+}
+// key is 'categories' or 'locations'. Returns true if local state actually changed.
+function applyRemoteMeta(key, data){
+  if(!data || !data.list) return false;
+  var field = key+'UpdatedAt';
+  var localTs = state[field] || '';
+  var remoteTs = data.updated_at || '';
+  if(remoteTs <= localTs) return false;
+  state[key] = data.list.slice();
+  state[field] = remoteTs;
+  CLOUD.metaPushMap[key] = remoteTs;
+  return true;
+}
+async function cloudSyncPushMeta(){
+  if(!cloudSyncActive()) return;
+  var toPush = [];
+  [['categories', state.categoriesUpdatedAt], ['locations', state.locationsUpdatedAt]].forEach(function(pair){
+    var key = pair[0], ts = pair[1] || '';
+    if(ts && CLOUD.metaPushMap[key] !== ts) toPush.push(key);
+  });
+  if(!toPush.length) return;
+  try{
+    var batch = CLOUD.db.batch();
+    toPush.forEach(function(key){
+      var ts = state[key+'UpdatedAt'];
+      batch.set(metaCollectionRef().doc(key), {list: state[key], updated_at: ts});
+      CLOUD.metaPushMap[key] = ts;
+    });
+    await batch.commit();
+    saveCloudSyncMetaPushMap();
+    state.cloudSyncLastSyncedAt = nowLocalIso();
+    cloudSyncSafeRender();
+  }catch(e){
+    console.error('cloud sync meta push failed', e);
+    state.cloudSyncStatus = 'error';
+    state.cloudSyncError = (e && e.message) || String(e);
+    render();
+  }
 }
 
 // Merge one incoming Firestore item doc into state.items. Returns true if state.items
@@ -6337,6 +6529,7 @@ async function cloudSyncPushChanges(){
     await batch.commit();
     saveCloudSyncPushMap();
     state.cloudSyncLastSyncedAt = nowLocalIso();
+    cloudSyncSafeRender();
   }catch(e){
     console.error('cloud sync push failed', e);
     state.cloudSyncStatus = 'error';
