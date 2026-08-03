@@ -169,7 +169,7 @@
   .status-fresh{ border-color:var(--fresh); color:var(--fresh); background:var(--fresh-bg); }
   /* ---------- Item card swipe-to-reveal actions ---------- */
   .item-card-swipe{ position:relative; overflow:hidden; border-radius:12px; margin-bottom:10px; }
-  .item-card-swipe .item-card{ margin-bottom:0; position:relative; z-index:1; background:var(--card-bg); transition:transform .22s ease; touch-action:pan-y; border-radius:0; }
+  .item-card-swipe .item-card{ margin-bottom:0; position:relative; z-index:1; background:var(--card-bg); transition:transform .22s ease; touch-action:pan-y; border-radius:0; -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
   .item-swipe-actions{ position:absolute; top:0; right:0; height:100%; display:flex; z-index:0; }
   .swipe-action-btn{
     width:64px; height:100%; border:none; display:flex; flex-direction:column; align-items:center;
@@ -912,6 +912,8 @@ var I18N = {
     bulkSelectAll:'全选', bulkSelectNone:'取消全选',
     bulkPickCategoryTitle:'设为分类', bulkPickLocationTitle:'设为位置',
     bulkAssignDone:'已批量设置',
+    copyItemModalHint:'长按复制的这条食材会作为新条目打开编辑页，所有内容（含照片）都已复制过来，可以直接改动后保存。',
+    copyItemConfirmBtn:'复制为新条目',
     editTagTitle:'重命名', tagDuplicate:'该名称已存在', renameBtn:'重命名',
     // price history
     navPriceHistory:'历史', priceHistoryTitle:'历史价格', searchHistoryPlaceholder:'输入食材名称查看价格走势',
@@ -1094,6 +1096,8 @@ var I18N = {
     bulkSelectAll:'Select all', bulkSelectNone:'Deselect all',
     bulkPickCategoryTitle:'Set category', bulkPickLocationTitle:'Set location',
     bulkAssignDone:'Applied to selected items',
+    copyItemModalHint:'Opens a new item form pre-filled with everything from this item (including its photo) - edit anything before saving.',
+    copyItemConfirmBtn:'Copy as new item',
     editTagTitle:'Rename', tagDuplicate:'This name already exists', renameBtn:'Rename',
     // price history
     navPriceHistory:'History', priceHistoryTitle:'Price History', searchHistoryPlaceholder:'Enter an item name to see its price trend',
@@ -1318,6 +1322,22 @@ function deletePhotoRef(ref){
     delete photoCache[id];
     PHOTO_IDB.del(id);
   }
+}
+// Used when duplicating an item (long-press "copy" on the inventory list): photo_url is just
+// a reference, so if the duplicate simply reused the same 'photo:xxxxx' id, deleting/replacing
+// the photo on EITHER copy would delete the one shared IndexedDB blob out from under the other
+// (deletePhotoRef above has no ref-counting - it deletes unconditionally). So a real duplicate
+// needs its own independent IDB entry. Remote URLs (Open Food Facts lookups) aren't stored in
+// IDB and are never deleted by id, so those are safe to reuse as-is with no copy needed.
+function duplicatePhotoRef(ref){
+  if(!ref) return Promise.resolve('');
+  if(!PHOTO_IDB.isRef(ref)) return Promise.resolve(ref);
+  var id = ref.slice(6);
+  var cached = photoCache[id];
+  if(cached) return savePhotoToIDB(cached);
+  return PHOTO_IDB.get(id).then(function(data){
+    return data ? savePhotoToIDB(data) : '';
+  });
 }
 // Renders an <img> for a photo_url value. Local IndexedDB refs render as a
 // placeholder first (filled in asynchronously by hydratePhotos()); remote
@@ -1655,7 +1675,8 @@ var ICONS = {
   minusCircle:'<circle cx="12" cy="12" r="9"/><line x1="8" y1="12" x2="16" y2="12"/>',
   history:'<path d="M4 12a8 8 0 1 1 2.5 5.8"/><polyline points="4 17 4 21 8 21"/><polyline points="12 7 12 12 16 14"/>',
   undo:'<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-2"/>',
-  spoon:'<ellipse cx="12" cy="6" rx="4" ry="5"/><line x1="12" y1="11" x2="12" y2="21"/>'
+  spoon:'<ellipse cx="12" cy="6" rx="4" ry="5"/><line x1="12" y1="11" x2="12" y2="21"/>',
+  copy:'<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>'
 };
 function ic(name, size, extra){
   size = size||20;
@@ -1976,6 +1997,39 @@ function deleteItemFromSwipe(id){ closeItemSwipeRow(id); deleteItemDetail(id); }
       e.preventDefault();
     }
   }, true);
+})();
+
+/* ---------- Long-press an inventory item to duplicate it ----------
+   Holding down on any item card (single or inside an expanded group) for ~550ms without
+   moving pops up a small "copy as new entry" menu (openItemCopyMenu). Independent listener
+   from initItemSwipeGestures above (same .item-card-swipe delegation target), so it keeps
+   working after every full innerHTML re-render same as the swipe gestures do. Reuses
+   itemSwipeSwallowClick (declared above) so the tap-release that follows a fired long-press
+   doesn't also fire a click that navigates into the item detail page underneath the menu. */
+(function initItemLongPress(){
+  var LONG_PRESS_MS = 550, MOVE_TOLERANCE = 10;
+  var timer = null, sx = 0, sy = 0, pressItemId = null;
+  function cancelTimer(){ if(timer){ clearTimeout(timer); timer = null; } }
+  document.addEventListener('touchstart', function(e){
+    cancelTimer();
+    var wrap = e.target.closest ? e.target.closest('.item-card-swipe') : null;
+    if(!wrap) return;
+    var t0 = e.touches[0];
+    sx = t0.clientX; sy = t0.clientY;
+    pressItemId = wrap.getAttribute('data-item-id');
+    timer = setTimeout(function(){
+      timer = null;
+      itemSwipeSwallowClick = true; // swallow the click that touchend is about to fire
+      openItemCopyMenu(pressItemId);
+    }, LONG_PRESS_MS);
+  }, {passive:true});
+  document.addEventListener('touchmove', function(e){
+    if(!timer) return;
+    var t0 = e.touches[0];
+    if(Math.abs(t0.clientX-sx) > MOVE_TOLERANCE || Math.abs(t0.clientY-sy) > MOVE_TOLERANCE) cancelTimer();
+  }, {passive:true});
+  document.addEventListener('touchend', cancelTimer, {passive:true});
+  document.addEventListener('touchcancel', cancelTimer, {passive:true});
 })();
 
 // Mirrors initItemSwipeGestures above almost exactly, just retargeted at .recipe-card-swipe /
@@ -2649,6 +2703,40 @@ function blankItemDraft(){
     usage_log:[],
     photo_url:'', created_at: nowLocalIso(), updated_at: nowLocalIso()
   };
+}
+// Long-press on an inventory item card (see initItemLongPress) opens this small confirm
+// menu instead of jumping straight into a duplicate - a stray long-press while scrolling
+// shouldn't silently spawn a new item.
+function openItemCopyMenu(id){
+  var it = state.items.find(function(i){ return i.id===id; });
+  if(!it) return;
+  var body = '<p class="hint">'+t('copyItemModalHint')+'</p>'+
+    '<button class="btn btn-primary" style="width:100%;margin-top:14px;" onclick="copyItemToNewForm('+aj(id)+')">'+ic('copy',16)+' '+t('copyItemConfirmBtn')+'</button>';
+  showModal(itemDisplayName(it), body);
+}
+// Builds a prefilled draft from an existing item and opens the item form on it, same as
+// tapping "+ 新增" but pre-filled instead of blank. Every field is copied as-is (per the
+// existing item, editable before saving) EXCEPT: id (must be new - openItemForm(null,...)
+// already assigns a fresh one via blankItemDraft), created_at/updated_at (reset to now,
+// same as any new entry), usage_log/purchased_qty (belong to a specific batch's history,
+// not meaningful to carry over to a new one). The photo needs special handling - see
+// duplicatePhotoRef's comment for why it can't just reuse the same photo_url reference.
+function copyItemToNewForm(id){
+  closeModal();
+  var existing = state.items.find(function(i){ return i.id===id; });
+  if(!existing) return;
+  var clone = JSON.parse(JSON.stringify(existing));
+  delete clone.id;
+  delete clone.created_at;
+  delete clone.updated_at;
+  delete clone.usage_log;
+  delete clone.purchased_qty;
+  var srcPhoto = clone.photo_url;
+  clone.photo_url = '';
+  duplicatePhotoRef(srcPhoto).then(function(newRef){
+    clone.photo_url = newRef || '';
+    openItemForm(null, clone);
+  });
 }
 function openItemForm(id, prefill){
   // Remember where we were opened from, so the back arrow / cancel / new swipe-right gesture
@@ -3496,10 +3584,15 @@ function cancelItemForm(){
   // Nothing staged in pendingPhotoDeleteRefs actually got deleted yet, so the original photo
   // (if any) is untouched - just walk away from it. The only thing to clean up here is a
   // brand-new photo the person uploaded during this session and never saved, so it doesn't
-  // sit around in IndexedDB unreferenced by anything.
+  // sit around in IndexedDB unreferenced by anything. A form opened via copyItemToNewForm
+  // (long-press "copy" on an inventory item) also counts as "brand-new": its photo_url,
+  // even though it equals originalPhotoUrl, points at a freshly-duplicated IDB blob made
+  // just for this not-yet-saved draft (see duplicatePhotoRef) - canceling should discard
+  // that too, not just photos uploaded mid-session.
   var orig = (state.itemFormUI && state.itemFormUI.originalPhotoUrl) || '';
   var current = (state.itemDraft && state.itemDraft.photo_url) || '';
-  if(current && current !== orig) deletePhotoRef(current);
+  var isNewDraft = !!(state.itemDraft && state.itemDraft._isNew);
+  if(current && (current !== orig || isNewDraft)) deletePhotoRef(current);
   state.itemDraft=null;
   navigate(target.view, target.params);
 }
