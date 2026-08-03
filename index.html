@@ -221,6 +221,22 @@
   .item-group-header{ margin-bottom:0; }
   .item-group-children{ margin-left:14px; padding-left:10px; border-left:2px solid var(--line); margin-top:8px; }
   .item-group-children .item-card-swipe:last-child{ margin-bottom:0; }
+  /* ---------- Bulk select mode ---------- */
+  .bulk-checkbox{
+    width:22px; height:22px; border-radius:50%; border:2px solid var(--line); flex-shrink:0;
+    display:flex; align-items:center; justify-content:center; margin-top:2px; color:#fff;
+    transition:background .15s, border-color .15s;
+  }
+  .bulk-checkbox.checked{ background:var(--deep-caramel); border-color:var(--deep-caramel); }
+  .item-card.bulk-selected{ outline:2px solid var(--deep-caramel); outline-offset:-1px; }
+  .bulk-action-bar{
+    position:fixed; bottom:0; left:50%; transform:translateX(-50%);
+    width:100%; max-width:480px;
+    background:var(--card-bg); border-top:1px solid var(--line);
+    padding:12px 14px calc(12px + var(--safe-bottom));
+    display:flex; gap:10px; z-index:30;
+  }
+  .bulk-action-bar .btn{ flex:1; }
   .photo-preview-wrap{ position:relative; width:100%; max-width:220px; margin:0 auto; }
   .photo-preview{ width:100%; max-width:220px; border-radius:12px; display:block; border:1px solid var(--line); }
   .photo-remove-btn{ position:absolute; top:6px; right:6px; width:30px; height:30px; background:rgba(0,0,0,0.55); color:#fff; border-color:transparent; }
@@ -890,6 +906,12 @@ var I18N = {
     archiveBtn:'存档', archivedToast:'已存档',
     deleteArchivedConfirmMsg:'确定要永久删除这条存档记录吗？此操作无法撤销。', deleteArchivedBtn:'永久删除',
     sidebarToolsLabel:'更多',
+    bulkEditEntry:'批量设置分类/位置',
+    bulkSelectedCount:'已选 {n} 项',
+    bulkNoneSelected:'请先选择至少一项',
+    bulkSelectAll:'全选', bulkSelectNone:'取消全选',
+    bulkPickCategoryTitle:'设为分类', bulkPickLocationTitle:'设为位置',
+    bulkAssignDone:'已批量设置',
     editTagTitle:'重命名', tagDuplicate:'该名称已存在', renameBtn:'重命名',
     // price history
     navPriceHistory:'历史', priceHistoryTitle:'历史价格', searchHistoryPlaceholder:'输入食材名称查看价格走势',
@@ -1066,6 +1088,12 @@ var I18N = {
     archiveBtn:'Archive', archivedToast:'Archived',
     deleteArchivedConfirmMsg:'Permanently delete this archived record? This cannot be undone.', deleteArchivedBtn:'Delete permanently',
     sidebarToolsLabel:'More',
+    bulkEditEntry:'Bulk set category/location',
+    bulkSelectedCount:'{n} selected',
+    bulkNoneSelected:'Select at least one item first',
+    bulkSelectAll:'Select all', bulkSelectNone:'Deselect all',
+    bulkPickCategoryTitle:'Set category', bulkPickLocationTitle:'Set location',
+    bulkAssignDone:'Applied to selected items',
     editTagTitle:'Rename', tagDuplicate:'This name already exists', renameBtn:'Rename',
     // price history
     navPriceHistory:'History', priceHistoryTitle:'Price History', searchHistoryPlaceholder:'Enter an item name to see its price trend',
@@ -1105,7 +1133,7 @@ var state = {
   loaded: false,
   view: 'home',
   params: {},
-  home: { search:'', category:null, location:null, sort:'expiry', sortDir:'asc', sidebarCollapsed:{category:false, location:false, tools:false}, expandedGroups:{} },
+  home: { search:'', category:null, location:null, sort:'expiry', sortDir:'asc', sidebarCollapsed:{category:false, location:false, tools:false}, expandedGroups:{}, bulkMode:false, bulkSelected:{} },
   scan: { running:false, stream:null, detector:null, resultDraft:null, mode:'camera' },
   cloudSyncEnabled: false, cloudSyncRoomCode: DEFAULT_CLOUD_SYNC_ROOM_CODE, cloudSyncConfig: DEFAULT_CLOUD_SYNC_CONFIG,
   cloudSyncStatus: 'idle', cloudSyncError: '', cloudSyncLastSyncedAt: null,
@@ -1171,11 +1199,8 @@ async function loadAll(){
   state.cloudSyncConfig = cs.config || DEFAULT_CLOUD_SYNC_CONFIG;
   CLOUD.pushMap = results[11] || {};
   var tagMeta = results[12] || {};
-  state.categoriesUpdatedAt = tagMeta.categoriesUpdatedAt || nowLocalIso();
-  state.locationsUpdatedAt = tagMeta.locationsUpdatedAt || nowLocalIso();
-  if(!tagMeta.categoriesUpdatedAt || !tagMeta.locationsUpdatedAt){
-    storageSet('tagListsMeta', {categoriesUpdatedAt: state.categoriesUpdatedAt, locationsUpdatedAt: state.locationsUpdatedAt});
-  }
+  state.categoriesUpdatedAt = tagMeta.categoriesUpdatedAt || null;
+  state.locationsUpdatedAt = tagMeta.locationsUpdatedAt || null;
   CLOUD.metaPushMap = results[13] || {};
   state.loaded = true;
 }
@@ -2208,6 +2233,28 @@ function renderHome(){
   if(state.home.location) filterParts.push(esc(state.home.location));
   var activeFilterHtml = filterParts.length ?
     '<div class="active-filter-bar"><span onclick="toggleSidebar(\'home\')">'+ic('menu',14)+' '+filterParts.join(' · ')+'</span><button class="active-filter-clear" onclick="clearHomeFilters()">'+ic('x',13)+'</button></div>' : '';
+  if(state.home.bulkMode){
+    var count = bulkSelectedCount();
+    var allSelected = items.length>0 && items.every(function(it){ return state.home.bulkSelected[it.id]; });
+    return '' +
+    '<div class="topbar">'+
+      '<div><h1>'+t('bulkSelectedCount').replace('{n}', count)+'</h1></div>'+
+      '<button class="icon-btn" onclick="exitBulkSelectMode()">'+ic('x',22)+'</button>'+
+    '</div>'+
+    '<div class="content">'+
+      '<div class="home-sticky-controls" id="home-sticky-controls">'+
+        '<div class="search-bar">'+ic('search',19)+
+          '<input type="text" placeholder="'+t('searchPlaceholder')+'" value="'+esc(state.home.search)+'" oninput="onHomeSearch(this.value)">'+
+        '</div>'+
+        '<div class="sort-row"><div class="sort-pill" onclick="bulkSelectAllVisible()">'+(allSelected?t('bulkSelectNone'):t('bulkSelectAll'))+'</div></div>'+
+      '</div>'+
+      listHtml +
+    '</div>'+
+    '<div class="bulk-action-bar">'+
+      '<button class="btn btn-outline" onclick="openBulkAssignPicker(\'category\')">'+t('fieldCategory')+'</button>'+
+      '<button class="btn btn-outline" onclick="openBulkAssignPicker(\'location\')">'+t('fieldLocation')+'</button>'+
+    '</div>';
+  }
   return '' +
   '<div class="topbar">'+
     '<div><h1>📦 '+t('navHome')+'</h1></div>'+
@@ -2266,6 +2313,9 @@ function renderItemListHtml(items){
       return '<div class="empty-state">'+ic('box',40)+'<p><strong>'+t('emptyInventory')+'</strong><br>'+t('emptyInventoryHint')+'</p></div>';
     }
     return '<div class="empty-state">'+ic('search',40)+'<p>'+(state.lang==='zh'?'没有符合条件的食材':'No items match your filters')+'</p></div>';
+  }
+  if(state.home.bulkMode){
+    return items.map(renderSelectableItemCard).join('');
   }
   // Group batches of the same product (same name+brand+barcode) into one collapsible row
   // instead of one full card per batch - a "3瓶酱油 recount 2024" and a "3瓶酱油 recount
@@ -2374,6 +2424,79 @@ function renderItemGroupHtml(key, group){
     (expanded ? '<div class="item-group-children">'+childrenHtml+'</div>' : '') +
   '</div>';
 }
+/* ---------- Bulk select (assign category/location to many items at once) ----------
+   Built after a real incident: recovering from a lost category list meant re-editing
+   dozens of items one at a time (open → edit → pick category → confirm → back → repeat).
+   This mode flattens the list (no batch grouping - picking a category doesn't care which
+   batch it is) and turns each row into a checkbox instead of a link to the detail page. */
+function enterBulkSelectMode(){
+  closeSidebar();
+  state.home.bulkMode = true;
+  state.home.bulkSelected = {};
+  render();
+}
+function exitBulkSelectMode(){
+  state.home.bulkMode = false;
+  state.home.bulkSelected = {};
+  render();
+}
+function toggleBulkSelect(id){
+  if(state.home.bulkSelected[id]) delete state.home.bulkSelected[id];
+  else state.home.bulkSelected[id] = true;
+  render();
+}
+function bulkSelectedCount(){ return Object.keys(state.home.bulkSelected).length; }
+function bulkSelectAllVisible(){
+  var items = getFilteredSortedItems();
+  var allSelected = items.length>0 && items.every(function(it){ return state.home.bulkSelected[it.id]; });
+  if(allSelected){
+    state.home.bulkSelected = {};
+  } else {
+    items.forEach(function(it){ state.home.bulkSelected[it.id] = true; });
+  }
+  render();
+}
+function renderSelectableItemCard(it){
+  var st = expiryStatus(it);
+  var selected = !!state.home.bulkSelected[it.id];
+  var meta = (it.location?esc(it.location)+' · ':'') + t('remainingQtyLabel')+' '+qtyDisplay(it);
+  var thumb = it.photo_url ? photoImgHtml(it.photo_url, 'width:100%;height:100%;object-fit:cover;') : ic('box',22);
+  return '<div class="item-card card-'+st.level+' '+(selected?'bulk-selected':'')+'" onclick="toggleBulkSelect('+aj(it.id)+')">'+
+    '<div class="item-card-main">'+
+      '<div class="bulk-checkbox '+(selected?'checked':'')+'">'+(selected ? ic('check',14) : '')+'</div>'+
+      '<div class="item-icon">'+thumb+'</div>'+
+      '<div class="item-info">'+
+        '<div class="item-name">'+itemDisplayName(it)+'</div>'+
+        '<div class="item-meta">'+meta+'</div>'+
+      '</div>'+
+    '</div>'+
+  '</div>';
+}
+function openBulkAssignPicker(kind){
+  if(bulkSelectedCount()===0){ showToast(t('bulkNoneSelected')); return; }
+  var list = kind==='category' ? state.categories : state.locations;
+  var title = kind==='category' ? t('bulkPickCategoryTitle') : t('bulkPickLocationTitle');
+  var body = list.length ? ('<div class="tag-select">'+
+    list.map(function(name){
+      return '<div class="tag-option" onclick="applyBulkAssign('+aj(kind)+','+aj(name)+')">'+esc(name)+'</div>';
+    }).join('') +
+  '</div>') : ('<p class="hint">'+(state.lang==='zh'?'还没有分类/位置，请先去侧边栏添加':'No categories/locations yet — add some from the sidebar first')+'</p>');
+  showModal(title, body);
+}
+function applyBulkAssign(kind, value){
+  var selected = state.home.bulkSelected;
+  var now = nowLocalIso();
+  state.items.forEach(function(it){
+    if(!selected[it.id]) return;
+    if(kind==='category') it.category = value; else it.location = value;
+    it.updated_at = now;
+  });
+  saveItems();
+  closeModal();
+  state.home.bulkSelected = {};
+  showToast(t('bulkAssignDone'));
+  render();
+}
 // Reached by tapping any of the three stat capsules (total / expired / expiring soon) at
 // the top of the inventory sidebar — opens a dedicated full-page list for that slice,
 // using the same editable item cards as the main inventory list.
@@ -2449,7 +2572,8 @@ function renderHomeSidebarContent(){
     (toolsOpen ? (
       '<div class="sidebar-item" onclick="closeSidebar();navigate(\'archive\')">'+t('navArchive')+'</div>'+
       '<div class="sidebar-item" onclick="closeSidebar();navigate(\'priceHistory\')">'+t('navPriceHistory')+'</div>'+
-      '<div class="sidebar-item" onclick="closeSidebar();navigate(\'stats\')">'+t('navStats')+'</div>'
+      '<div class="sidebar-item" onclick="closeSidebar();navigate(\'stats\')">'+t('navStats')+'</div>'+
+      '<div class="sidebar-item" onclick="enterBulkSelectMode()">'+t('bulkEditEntry')+'</div>'
     ) : '');
   return '<div class="sidebar-header"><h2>📦 '+t('navHome')+'</h2><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div>'+
     statsHtml + catHtml + locHtml + toolsHtml;
@@ -6275,6 +6399,15 @@ function genRoomCode(){
 function generateCloudSyncRoomCode(){
   state.cloudSyncRoomCode = genRoomCode();
   saveCloudSyncSettings();
+  // Generating a code always means a fresh, empty room - this is the one moment we can be
+  // sure this device's current category/location lists (whatever they are, custom or not)
+  // should become that room's starting point, so stamp them now so they'll actually push.
+  // Do NOT do this on every generic app load (see 9.56) - a device that's never tracked an
+  // edit timestamp should stay untracked until it either receives a real one from the room
+  // it's joining, or the person actually edits something themselves.
+  state.categoriesUpdatedAt = nowLocalIso();
+  state.locationsUpdatedAt = nowLocalIso();
+  storageSet('tagListsMeta', {categoriesUpdatedAt: state.categoriesUpdatedAt, locationsUpdatedAt: state.locationsUpdatedAt});
   render();
 }
 function setCloudSyncConfig(v){ state.cloudSyncConfig = v; saveCloudSyncSettings(); }
