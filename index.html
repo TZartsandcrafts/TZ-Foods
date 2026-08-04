@@ -716,11 +716,19 @@ function nutriExtraDefs(){
 }
 function emptyNutritionExtra(){ return {}; }
 // "每88g" / "per 88g" - shown next to the nutrition section title so it's clear exactly what
-// amount the printed numbers are for, since items are no longer forced onto a 100g/100ml basis.
-function nutriBasisLabel(amount, unit){
-  var amt = amount || 100;
-  var u = unit || 'g';
-  return (state.lang==='zh' ? ('每'+fmtNum(amt,amt%1===0?0:1)+u) : ('per '+fmtNum(amt,amt%1===0?0:1)+u));
+// amount the printed numbers are for. Now up to two parts (a weight basis and a volume basis
+// can both be set - see migrateNutritionBasis for why), joined the same " / " way multiple
+// quantity groups are joined elsewhere in the app; either part is simply omitted if not set,
+// and if truly neither is set (shouldn't normally happen - blankItemDraft doesn't default
+// either to a value anymore) falls back to the old "每100g" default so nothing renders blank.
+function nutriBasisPart(amount, unit){
+  return (state.lang==='zh' ? ('每'+fmtNum(amount,amount%1===0?0:1)+unit) : ('per '+fmtNum(amount,amount%1===0?0:1)+unit));
+}
+function nutriBasisLabel(it){
+  var parts = [];
+  if(it.nutrition_basis_weight_amount != null) parts.push(nutriBasisPart(it.nutrition_basis_weight_amount, it.nutrition_basis_weight_unit||'g'));
+  if(it.nutrition_basis_volume_amount != null) parts.push(nutriBasisPart(it.nutrition_basis_volume_amount, it.nutrition_basis_volume_unit||'ml'));
+  return parts.length ? parts.join(' / ') : nutriBasisPart(100,'g');
 }
 // Price currency: entry + display only for now, no conversion/exchange-rate math anywhere -
 // that's deliberately left for whichever feature actually needs to compare/aggregate prices
@@ -1182,7 +1190,7 @@ async function loadAll(){
     storageGet('tagListsMeta', {categoriesUpdatedAt:null, locationsUpdatedAt:null}),
     storageGet('cloudSyncMetaPushMap', {})
   ]);
-  state.items = results[0].map(migrateItemQtyGroups);
+  state.items = results[0].map(migrateItem);
   state.categories = results[1];
   state.locations = results[2];
   state.ingredients = results[3];
@@ -1225,6 +1233,36 @@ function migrateItemQtyGroups(it){
   delete it.secondary_qty; delete it.secondary_unit; delete it.unit_ratio;
   return it;
 }
+// Nutrition basis ("每___" - what amount the printed nutrient values are FOR) used to be a
+// single {amount, unit} pair covering whichever one unit the label happened to print. Real
+// labels for liquids/semi-liquids often print the SAME nutrient values against both a weight
+// and a volume ("每100g（约100ml）"), and recipe math (calcRecipeNutrition) needs whichever one
+// actually matches how a recipe references the ingredient (grams vs ml) to avoid the old
+// approximate g≈ml fallback - so this is now two independent, optional slots: a weight basis
+// (g/kg) and a volume basis (ml/l/tsp/tbsp/cup), either or both of which can be filled in. This
+// folds any old single-basis item into whichever of the two slots its unit actually belongs to,
+// the first time it's loaded after upgrading, same one-time-reshape-and-resave pattern as
+// migrateItemQtyGroups above.
+function migrateNutritionBasis(it){
+  if(it.nutrition_basis_weight_amount !== undefined || it.nutrition_basis_volume_amount !== undefined) return it;
+  it.nutrition_basis_weight_amount = null; it.nutrition_basis_weight_unit = 'g';
+  it.nutrition_basis_volume_amount = null; it.nutrition_basis_volume_unit = 'ml';
+  if(it.nutrition_basis_amount != null){
+    if(NUTRI_VOLUME_UNITS.indexOf(it.nutrition_basis_unit) !== -1){
+      it.nutrition_basis_volume_amount = it.nutrition_basis_amount;
+      it.nutrition_basis_volume_unit = it.nutrition_basis_unit;
+    } else {
+      // Weight unit, or an unrecognized/custom one - old code treated any non-volume unit as
+      // basis-compatible with weight-style scaling by default, so preserve that here too.
+      it.nutrition_basis_weight_amount = it.nutrition_basis_amount;
+      it.nutrition_basis_weight_unit = (NUTRI_WEIGHT_UNITS.indexOf(it.nutrition_basis_unit) !== -1) ? it.nutrition_basis_unit : 'g';
+    }
+  }
+  delete it.nutrition_basis_amount;
+  delete it.nutrition_basis_unit;
+  return it;
+}
+function migrateItem(it){ return migrateNutritionBasis(migrateItemQtyGroups(it)); }
 function saveItems(){
   var p = storageSet('items', state.items);
   cloudSyncPushChanges();
@@ -1251,6 +1289,53 @@ function saveNotes(){ return storageSet('notes', state.notes); }
 function saveNoteCategories(){ return storageSet('noteCategories', state.noteCategories); }
 function saveRecipeCategoryGroups(){ return storageSet('recipeCategoryGroups', state.recipeCategoryGroups); }
 function saveUnits(){ return storageSet('units', state.units); }
+
+/* ---- Cross-instance data sync ----------------------------------------------------------
+   This app loads localStorage into memory once at startup (loadAll()) and, after that, only
+   ever WRITES back to storage on save - it never re-reads storage on its own afterward. That's
+   fine with exactly one instance of the app running, but iOS Safari routinely keeps more than
+   one instance alive at once (e.g. the home-screen icon opened while an older Safari tab of
+   the same site is still suspended in the background, or the icon tapped again before the
+   previous session had fully quit). Each instance then has its OWN separate in-memory copy of
+   the data, frozen at whatever moment it happened to start - and whichever instance saves LAST
+   simply overwrites storage with everything IT currently has in memory, even if that's a stale
+   snapshot missing an edit made in a different instance in the meantime. This is what an edit
+   "disappearing" a while after being saved usually actually is (not Safari clearing storage -
+   see README 9.60): a different, older sibling instance later saved over it without knowing.
+
+   Fixed by keeping every instance's in-memory copy in sync with storage instead of only ever
+   reading it once:
+   - the native `storage` event fires in *other* same-origin tabs/instances whenever one of them
+     writes to localStorage (never in the tab that made the write itself), so a backgrounded
+     instance that's still actively running picks up a sibling's save live;
+   - `visibilitychange` catches the case where an instance was suspended deeply enough that it
+     missed the storage event entirely, by re-checking storage the moment it becomes visible
+     again (foregrounded / resumed from the app switcher).
+   Only the list-shaped data keys are covered here (not e.g. settings/cloudSync config, which
+   changing out from under an active session would be more surprising than helpful). Rendering
+   is skipped while an edit form is open (reusing cloudSyncSafeRender's existing guard) so this
+   can't blow away an in-progress keystroke the same way a stray cloud-sync render used to. */
+var SYNCABLE_STORAGE_KEYS = ['items','categories','locations','ingredients','recipes','notes','noteCategories','recipeCategoryGroups','units'];
+async function resyncFromStorage(){
+  if(!state.loaded) return;
+  var changed = false;
+  for(var i=0;i<SYNCABLE_STORAGE_KEYS.length;i++){
+    var key = SYNCABLE_STORAGE_KEYS[i];
+    var val = await storageGet(key, undefined);
+    if(val === undefined) continue; // nothing written for this key yet - don't clobber current defaults
+    if(JSON.stringify(val) !== JSON.stringify(state[key])){
+      state[key] = (key==='items') ? val.map(migrateItem) : val;
+      changed = true;
+    }
+  }
+  if(changed) cloudSyncSafeRender();
+}
+window.addEventListener('storage', function(e){
+  if(e.key && e.key.indexOf(LS_PREFIX) === 0) resyncFromStorage();
+});
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState === 'visible') resyncFromStorage();
+});
 
 /* ---- Photo storage (IndexedDB) -----------------------------------------
    Photos are kept OUT of localStorage entirely and stored as compressed base64
@@ -1568,13 +1653,17 @@ function deleteArchivedItem(id){
 }
 
 /* ======================= NUTRITION CALC ======================= */
-// Normalizes an amount+unit pair against a source item's own unit system into "per-100-basis units"
-// (i.e. grams for weight-based nutrition, ml for volume-based - we treat g/ml on the same 100-basis
-// since source nutrition is stored per 100g OR per 100ml depending on the product).
+// Normalizes an amount+unit pair against a source item's own unit system into a basis-unit
+// value tagged with which basis TYPE it is (grams for weight, ml for volume) - previously this
+// treated g and ml as interchangeable on one shared "100-basis", which was really just an
+// approximation for products whose nutrition was only ever recorded in one unit. Now that an
+// item can carry an independent weight basis AND volume basis (see migrateNutritionBasis),
+// scaleNutrition can pick the one that actually matches instead of assuming 1ml≈1g.
 function amountToBasisUnits(amount, unit, sourceItem){
-  // direct weight/volume units
-  if(unit === 'g' || unit === 'ml') return amount;
-  if(unit === 'kg' || unit === 'l') return amount*1000;
+  if(unit === 'g') return {type:'weight', value:amount};
+  if(unit === 'kg') return {type:'weight', value:amount*1000};
+  if(unit === 'ml') return {type:'volume', value:amount};
+  if(unit === 'l') return {type:'volume', value:amount*1000};
   // count-based unit ("件"/legacy "个", or a custom secondary unit like "只") - needs a ratio to weight
   if(sourceItem && sourceItem.primary_unit && unit === sourceItem.primary_unit){
     // primary unit itself is count-based (no weight known) - cannot convert to basis, return null
@@ -1589,20 +1678,26 @@ function amountToBasisUnits(amount, unit, sourceItem){
     }
   }
   if(unit === '件' || unit === '个') return null; // unknown weight per unit
-  return amount; // fallback: assume already basis-compatible
+  return {type:'weight', value:amount}; // fallback: assume basis-compatible, weight-style (matches old default)
 }
 function emptyNutrition(){
   var n = {}; NUTRI_KEYS.forEach(function(k){ n[k]=null; }); return n;
 }
-// perBasisAmount is "how much this nutrition data is FOR" (e.g. 88 if the label read
-// "per 88g") - NOT assumed to be 100. Inventory items now keep whatever basis was actually
-// printed on their label (see README note on why the old auto-convert-to-100g step was
-// removed), so recipe math has to divide by the source's own basis rather than a fixed 100.
-function scaleNutrition(perBasis, perBasisAmount, usedUnits){
+// basisInfo is {weightAmount, volumeAmount} - "how much this nutrition data is FOR" in each
+// unit type (e.g. weightAmount=88 if the label read "per 88g"), either of which can be missing.
+// used is {type, value} from amountToBasisUnits. Prefers the basis whose type actually matches
+// how the recipe measures this ingredient (correct - no unit-type assumption needed); falls
+// back to whichever basis IS available if the matching type wasn't recorded (same approximate-
+// but-usable g≈ml behavior this app has always had, now only used when there's no better option),
+// and finally to 100 if neither basis was ever filled in.
+function scaleNutrition(perBasis, basisInfo, used){
   var out = emptyNutrition();
-  if(usedUnits == null || !perBasis) return out;
-  var basis = perBasisAmount || 100;
-  var factor = usedUnits/basis;
+  if(used == null || !perBasis) return out;
+  basisInfo = basisInfo || {};
+  var basisAmount = used.type==='volume' ? basisInfo.volumeAmount : basisInfo.weightAmount;
+  if(basisAmount == null) basisAmount = used.type==='volume' ? basisInfo.weightAmount : basisInfo.volumeAmount;
+  if(basisAmount == null) basisAmount = 100;
+  var factor = used.value/basisAmount;
   NUTRI_KEYS.forEach(function(k){ out[k] = (Number(perBasis[k])||0)*factor; });
   return out;
 }
@@ -1618,6 +1713,16 @@ function getIngredientSource(ri){
   }
   return state.ingredients.find(function(i){ return i.id===ri.source_id; });
 }
+// Reads a source's basis into the {weightAmount, volumeAmount} shape scaleNutrition wants.
+// Inventory items already store it that way directly; external ingredients (state.ingredients)
+// predate the weight/volume split and are always simply "per 100g" (see their editor - there's
+// no basis unit picker for them), which just maps straight onto the weight slot.
+function ingredientBasisInfo(src){
+  if(src.nutrition_basis_weight_amount !== undefined || src.nutrition_basis_volume_amount !== undefined){
+    return {weightAmount: src.nutrition_basis_weight_amount, volumeAmount: src.nutrition_basis_volume_amount};
+  }
+  return {weightAmount: src.nutrition_basis_amount || 100, volumeAmount: null};
+}
 function calcRecipeNutrition(recipe){
   var total = emptyNutrition();
   var warnings = [];
@@ -1626,10 +1731,10 @@ function calcRecipeNutrition(recipe){
     var src = getIngredientSource(ri);
     if(!src){ warnings.push(ri.name_snapshot||'?'); return; }
     var perBasis = src.nutrition || emptyNutrition();
-    var perBasisAmount = src.nutrition_basis_amount || 100; // external ingredients are always entered per 100g/ml
-    var basis = amountToBasisUnits(ri.amount, ri.unit, ri.source_type==='inventory'?src:null);
-    if(basis == null){ warnings.push(src.name); return; }
-    total = addNutrition(total, scaleNutrition(perBasis, perBasisAmount, basis));
+    var basisInfo = ingredientBasisInfo(src);
+    var used = amountToBasisUnits(ri.amount, ri.unit, ri.source_type==='inventory'?src:null);
+    if(used == null){ warnings.push(src.name); return; }
+    total = addNutrition(total, scaleNutrition(perBasis, basisInfo, used));
   });
   // extra oil
   var oilCal = 0, oilFat = 0;
@@ -2699,7 +2804,8 @@ function blankItemDraft(){
     production_date:'', shelf_life_amount:null, shelf_life_unit:'days',
     notes:'', nutrition: emptyNutrition(), nutrition_edited:false,
     nutrition_extra: emptyNutritionExtra(), nutrition_extra_selected:[],
-    nutrition_basis_amount:null, nutrition_basis_unit:'g',
+    nutrition_basis_weight_amount:null, nutrition_basis_weight_unit:'g',
+    nutrition_basis_volume_amount:null, nutrition_basis_volume_unit:'ml',
     usage_log:[],
     photo_url:'', created_at: nowLocalIso(), updated_at: nowLocalIso()
   };
@@ -2764,8 +2870,10 @@ function openItemForm(id, prefill){
   // actually saved with, not silently reset to 100g every time.
   state.itemFormUI = {
     addingCategory:false, addingLocation:false, customUnitEditing:{},
-    nutriBasisAmount: state.itemDraft.nutrition_basis_amount,
-    nutriBasisUnit: state.itemDraft.nutrition_basis_unit || 'g',
+    nutriBasisWeightAmount: state.itemDraft.nutrition_basis_weight_amount,
+    nutriBasisWeightUnit: state.itemDraft.nutrition_basis_weight_unit || 'g',
+    nutriBasisVolumeAmount: state.itemDraft.nutrition_basis_volume_amount,
+    nutriBasisVolumeUnit: state.itemDraft.nutrition_basis_volume_unit || 'ml',
     returnTo: returnTo,
     dateSegs: {
       expiry_date: isoToSegs(state.itemDraft.expiry_date),
@@ -3223,11 +3331,9 @@ function expiryFieldHtml(d){
 function nutriFieldsHtml(draftPath){
   var labels = nutriLabels();
   var units = nutriUnits();
-  var basisAmount = state.itemFormUI.nutriBasisAmount;
-  var basisRowHtml = '<div class="nf-basis nf-basis-edit">'+
-      '<span>'+t('nutriBasisAmount')+'</span>'+
-      '<input type="text" id="nutri-basis-amount" class="nf-basis-input" placeholder="-" value="'+(basisAmount==null?'':fmtNum(basisAmount,3))+'" oninput="setNutriBasisAmount(this.value)">'+
-      nutriBasisUnitFieldHtml()+
+  var basisRowHtml = '<div class="nf-basis nf-basis-edit" style="flex-direction:column;align-items:flex-start;gap:8px;">'+
+      nutriBasisEditRowHtml('weight')+
+      nutriBasisEditRowHtml('volume')+
     '</div>';
   var calHtml = '<div class="nf-calories-row"><span>'+t('nutriCalories')+'</span><span class="nf-edit-value-wrap">'+
       '<input type="number" inputmode="decimal" class="nf-input nf-input-cal" placeholder="-" value="'+(draftPath.nutrition.calories==null?'':draftPath.nutrition.calories)+'" oninput="onNutriInput(\'calories\',this.value)">'+
@@ -3242,6 +3348,19 @@ function nutriFieldsHtml(draftPath){
     '</span></div>';
   }).join('');
   return '<div class="nutrition-facts nutrition-facts-edit">'+basisRowHtml+calHtml+rowsHtml+'</div>';
+}
+// A single "每___ [单位]" basis row, one for a weight amount (g/kg) and one for a volume amount
+// (ml/l/tsp/tbsp/cup) - see migrateNutritionBasis for why there are two. Both are optional and
+// independent; leaving one blank just means recipe math won't have that unit type available for
+// this item and falls back to whichever one IS filled in (see scaleNutrition).
+function nutriBasisEditRowHtml(kind){
+  var amountKey = kind==='weight' ? 'nutriBasisWeightAmount' : 'nutriBasisVolumeAmount';
+  var amount = state.itemFormUI[amountKey];
+  return '<div style="display:flex;align-items:center;gap:6px;">'+
+      '<span>'+t('nutriBasisAmount')+'</span>'+
+      '<input type="text" id="nutri-basis-amount-'+kind+'" class="nf-basis-input" placeholder="-" value="'+(amount==null?'':fmtNum(amount,3))+'" oninput="setNutriBasisAmount('+aj(kind)+',this.value)">'+
+      nutriBasisUnitFieldHtml(kind)+
+    '</div>';
 }
 // "1/2" style fractions (and "1 1/2" mixed numbers) are common on nutrition labels for the
 // basis amount ("per 1/2 cup" etc.) - this is only used for that one field, not general qty
@@ -3262,44 +3381,57 @@ function parseFractionOrFloat(str){
   var f = parseFloat(str);
   return isNaN(f) ? null : f;
 }
-function setNutriBasisAmount(v){
-  state.itemFormUI.nutriBasisAmount = parseFractionOrFloat(v);
+function nutriBasisAmountKey(kind){ return kind==='weight' ? 'nutriBasisWeightAmount' : 'nutriBasisVolumeAmount'; }
+function nutriBasisUnitKey(kind){ return kind==='weight' ? 'nutriBasisWeightUnit' : 'nutriBasisVolumeUnit'; }
+function setNutriBasisAmount(kind, v){
+  state.itemFormUI[nutriBasisAmountKey(kind)] = parseFractionOrFloat(v);
 }
-function setNutriBasisUnit(u){ state.itemFormUI.nutriBasisUnit = u; render(); }
-var NUTRI_BASIS_UNIT_OPTIONS = ['g','ml','tsp','tbsp','cup'];
-function isNutriBasisUnitCustomEditing(){
-  return !!(state.itemFormUI.customUnitEditing && state.itemFormUI.customUnitEditing.nutriBasis);
+function setNutriBasisUnit(kind, u){ state.itemFormUI[nutriBasisUnitKey(kind)] = u; render(); }
+var NUTRI_WEIGHT_UNITS = ['g','kg'];
+var NUTRI_VOLUME_UNITS = ['ml','l','tsp','tbsp','cup'];
+var NUTRI_ALL_BASIS_UNITS = NUTRI_WEIGHT_UNITS.concat(NUTRI_VOLUME_UNITS);
+function isNutriVolumeUnit(u){ return NUTRI_VOLUME_UNITS.indexOf(u) !== -1; }
+function nutriBasisDropdownKey(kind){ return kind==='weight' ? 'nutriBasisWeight' : 'nutriBasisVolume'; }
+function isNutriBasisUnitCustomEditing(kind){
+  var key = nutriBasisDropdownKey(kind);
+  return !!(state.itemFormUI.customUnitEditing && state.itemFormUI.customUnitEditing[key]);
 }
 function onNutriBasisUnitSelectChange(key, val){
+  var kind = (key===nutriBasisDropdownKey('weight')) ? 'weight' : 'volume';
   toggleUnitDropdown(key);
   if(val==='__custom__'){
     state.itemFormUI.customUnitEditing = state.itemFormUI.customUnitEditing || {};
-    state.itemFormUI.customUnitEditing.nutriBasis = true;
+    state.itemFormUI.customUnitEditing[key] = true;
     render();
-    focusCustomUnitInput('nutriBasis');
+    focusCustomUnitInput(key);
     return;
   }
-  setNutriBasisUnit(val);
+  setNutriBasisUnit(kind, val);
 }
-function onNutriBasisUnitCustomInput(val){ state.itemFormUI.nutriBasisUnit = val; }
-function onNutriBasisUnitCustomBlur(val){
+function onNutriBasisUnitCustomInput(kind, val){ state.itemFormUI[nutriBasisUnitKey(kind)] = val; }
+function onNutriBasisUnitCustomBlur(kind, val){
   val = val.trim();
-  state.itemFormUI.nutriBasisUnit = val;
+  state.itemFormUI[nutriBasisUnitKey(kind)] = val;
   if(val) addGlobalUnitIfNew(val);
   state.itemFormUI.customUnitEditing = state.itemFormUI.customUnitEditing || {};
-  state.itemFormUI.customUnitEditing.nutriBasis = false;
+  state.itemFormUI.customUnitEditing[nutriBasisDropdownKey(kind)] = false;
   render();
 }
-function nutriBasisUnitFieldHtml(){
-  var current = state.itemFormUI.nutriBasisUnit || 'g';
-  if(isNutriBasisUnitCustomEditing()){
-    return '<input type="text" id="customunit-nutriBasis" class="nf-basis-input" style="width:74px;" value="'+esc(current)+'" placeholder="'+t('fieldUnitCustomPh')+'" '+
-      'oninput="onNutriBasisUnitCustomInput(this.value)" onblur="onNutriBasisUnitCustomBlur(this.value)">';
+// The weight row's dropdown only ever offers g/kg (plus any custom unit already saved on this
+// specific field) and the volume row only offers ml/l/tsp/tbsp/cup - kept strictly separate so
+// picking a unit in one row can't accidentally end up in the other row's slot.
+function nutriBasisUnitFieldHtml(kind){
+  var baseOptions = kind==='weight' ? NUTRI_WEIGHT_UNITS : NUTRI_VOLUME_UNITS;
+  var current = state.itemFormUI[nutriBasisUnitKey(kind)] || (kind==='weight' ? 'g' : 'ml');
+  var key = nutriBasisDropdownKey(kind);
+  if(isNutriBasisUnitCustomEditing(kind)){
+    return '<input type="text" id="customunit-'+key+'" class="nf-basis-input" style="width:74px;" value="'+esc(current)+'" placeholder="'+t('fieldUnitCustomPh')+'" '+
+      'oninput="onNutriBasisUnitCustomInput('+aj(kind)+',this.value)" onblur="onNutriBasisUnitCustomBlur('+aj(kind)+',this.value)">';
   }
-  var opts = NUTRI_BASIS_UNIT_OPTIONS.concat((state.units||[]).filter(function(u){ return NUTRI_BASIS_UNIT_OPTIONS.indexOf(u)===-1; }));
+  var opts = baseOptions.slice();
   if(current && opts.indexOf(current)===-1) opts = opts.concat([current]);
   opts = opts.concat([{value:'__custom__', label:t('unitCustomOption')}]);
-  return '<div style="width:90px;">'+inlineDropdownHtml('nutriBasisUnit', current, opts, 'onNutriBasisUnitSelectChange', null, 'compact')+'</div>';
+  return '<div style="width:90px;">'+inlineDropdownHtml(key, current, opts, 'onNutriBasisUnitSelectChange', null, 'compact')+'</div>';
 }
 function setPriceCurrency(c){ state.itemDraft.price_currency = c; render(); }
 function onPriceCurrencyPick(key, val){
@@ -3560,11 +3692,21 @@ async function onItemNutritionPhotoSelected(input){
     state.itemDraft.nutrition = normalizeExtractedNutrition(result);
     state.itemDraft.nutrition_extra = extra;
     state.itemDraft.nutrition_edited = false;
-    // The "每___" basis input reads from state.itemFormUI (a cached copy taken when the form was
+    // The "每___" basis inputs read from state.itemFormUI (a cached copy taken when the form was
     // opened), not straight from itemDraft - itemDraft only gets it back on save. Update the
     // itemFormUI copy directly or the refreshed serving size silently won't show up on screen.
-    state.itemFormUI.nutriBasisAmount = basis.amount;
-    state.itemFormUI.nutriBasisUnit = basis.unit;
+    // Only the ONE slot the rescan actually detected (weight or volume) is touched - the other
+    // slot's existing value (if the person had filled it in separately) is left alone, same
+    // "each slot is independent" rule as everywhere else (see migrateNutritionBasis).
+    var fields = basisPrefillFields(basis.amount, basis.unit);
+    if(fields.nutrition_basis_weight_amount !== undefined){
+      state.itemFormUI.nutriBasisWeightAmount = fields.nutrition_basis_weight_amount;
+      state.itemFormUI.nutriBasisWeightUnit = fields.nutrition_basis_weight_unit;
+    }
+    if(fields.nutrition_basis_volume_amount !== undefined){
+      state.itemFormUI.nutriBasisVolumeAmount = fields.nutrition_basis_volume_amount;
+      state.itemFormUI.nutriBasisVolumeUnit = fields.nutrition_basis_volume_unit;
+    }
     if(Object.keys(extra).some(function(k){ return NUTRI_VITAMIN_KEYS.indexOf(k)!==-1; })){
       state.itemFormUI.nutriExpanded_vitamins = true;
     }
@@ -3613,8 +3755,15 @@ function saveItemForm(){
   // printed, e.g. "per 88g") rather than being auto-converted to per-100g/100ml here - the
   // basis amount/unit gets saved alongside so recipe math can divide by the right number
   // later, when an actual usage amount is known. See README for why this changed.
-  d.nutrition_basis_amount = (state.itemFormUI && state.itemFormUI.nutriBasisAmount) || 100;
-  d.nutrition_basis_unit = (state.itemFormUI && state.itemFormUI.nutriBasisUnit) || 'g';
+  // Two independent optional slots now (weight + volume, see migrateNutritionBasis) - unlike
+  // the old single slot, an empty one is left null rather than force-defaulted to 100/g, since
+  // silently fabricating "每100g" AND "每100ml" whenever only one was actually filled in on the
+  // label would just make up nutrition-per-volume (or per-weight) numbers that were never real.
+  var fui = state.itemFormUI || {};
+  d.nutrition_basis_weight_amount = (fui.nutriBasisWeightAmount != null) ? fui.nutriBasisWeightAmount : null;
+  d.nutrition_basis_weight_unit = fui.nutriBasisWeightUnit || 'g';
+  d.nutrition_basis_volume_amount = (fui.nutriBasisVolumeAmount != null) ? fui.nutriBasisVolumeAmount : null;
+  d.nutrition_basis_volume_unit = fui.nutriBasisVolumeUnit || 'ml';
   d.updated_at = nowLocalIso();
   var idx = state.items.findIndex(function(i){ return i.id===d.id; });
   if(idx===-1){
@@ -3728,7 +3877,7 @@ function nutritionFactsBoxHtml(it){
     return '<div class="'+cls+'"><span>'+labels[row.key]+'</span><span class="nf-value">'+displayVal+'</span></div>';
   }).join('');
   return '<div class="nutrition-facts">'+
-    '<div class="nf-basis">'+nutriBasisLabel(it.nutrition_basis_amount, it.nutrition_basis_unit)+'</div>'+
+    '<div class="nf-basis">'+nutriBasisLabel(it)+'</div>'+
     '<div class="nf-calories-row"><span>'+t('nutriCalories')+'</span><span><span class="nf-calories-value">'+calVal+'</span><span class="nf-calories-unit">kcal</span></span></div>'+
     rowsHtml+
     nutriExtraRowsFlatHtml(it)+
@@ -4422,16 +4571,19 @@ async function lookupAndPrefill(code){
   var result = await lookupBarcode(code);
   if(result){
     showToast(result.fromLocal ? t('scanFoundLocal') : t('scanFoundOFF'));
-    openItemForm(null, {
+    var prefill = {
       barcode: code,
       name: result.name || '',
       brand: result.brand || '',
       photo_url: result.photo_url || '',
       nutrition: result.nutrition || emptyNutrition(),
-      nutrition_edited: false,
-      nutrition_basis_amount: result.nutrition_basis_amount || 100,
-      nutrition_basis_unit: result.nutrition_basis_unit || 'g'
-    });
+      nutrition_edited: false
+    };
+    // Two independent optional basis slots now (weight + volume - see migrateNutritionBasis);
+    // only fill in whichever ones the lookup actually found instead of force-defaulting both.
+    if(result.basisWeight){ prefill.nutrition_basis_weight_amount = result.basisWeight.amount; prefill.nutrition_basis_weight_unit = result.basisWeight.unit; }
+    if(result.basisVolume){ prefill.nutrition_basis_volume_amount = result.basisVolume.amount; prefill.nutrition_basis_volume_unit = result.basisVolume.unit; }
+    openItemForm(null, prefill);
   } else {
     showToast(t('scanNotFound'));
     openItemForm(null, {barcode: code});
@@ -4441,13 +4593,14 @@ async function lookupBarcode(barcode){
   var localItem = state.items.find(function(i){ return i.barcode===barcode; });
   if(localItem) return {
     name:localItem.name, brand:localItem.brand, nutrition:localItem.nutrition, photo_url:localItem.photo_url,
-    nutrition_basis_amount: localItem.nutrition_basis_amount || 100, nutrition_basis_unit: localItem.nutrition_basis_unit || 'g',
+    basisWeight: (localItem.nutrition_basis_weight_amount!=null) ? {amount:localItem.nutrition_basis_weight_amount, unit:localItem.nutrition_basis_weight_unit||'g'} : null,
+    basisVolume: (localItem.nutrition_basis_volume_amount!=null) ? {amount:localItem.nutrition_basis_volume_amount, unit:localItem.nutrition_basis_volume_unit||'ml'} : null,
     fromLocal:true
   };
   var localIng = state.ingredients.find(function(i){ return i.barcode===barcode; });
   if(localIng) return {
     name:localIng.name, brand:localIng.brand, nutrition:localIng.nutrition, photo_url:localIng.photo_url,
-    nutrition_basis_amount:100, nutrition_basis_unit:'g', // external ingredients are always entered per 100g/ml
+    basisWeight: {amount:100, unit:'g'}, basisVolume: null, // external ingredients are always entered per 100g/ml
     fromLocal:true
   };
   try{
@@ -4477,9 +4630,14 @@ async function lookupBarcode(barcode){
       }
       var useServing = basisIsServing && servingAmount;
       var suf = useServing ? '_serving' : '_100g';
-      if(useServing && typeof NUTRI_BASIS_UNIT_OPTIONS !== 'undefined' && NUTRI_BASIS_UNIT_OPTIONS.indexOf(servingUnit) === -1){
+      if(useServing && NUTRI_ALL_BASIS_UNITS.indexOf(servingUnit) === -1){
         servingUnit = 'g';
       }
+      // OFF only ever gives us one basis (whichever the package's primary panel used), so it
+      // lands in whichever of the two slots actually matches its unit - the other slot is left
+      // for the person to fill in by hand if the label happens to print both.
+      var offAmount = useServing ? servingAmount : 100;
+      var offUnit = useServing ? servingUnit : 'g';
       return {
         name: pickedName,
         brand: p.brands || '',
@@ -4499,8 +4657,8 @@ async function lookupBarcode(barcode){
           added_sugar: nut['added-sugars'+suf]||0,
           protein: nut['proteins'+suf]||0
         },
-        nutrition_basis_amount: useServing ? servingAmount : 100,
-        nutrition_basis_unit: useServing ? servingUnit : 'g',
+        basisWeight: isNutriVolumeUnit(offUnit) ? null : {amount:offAmount, unit:offUnit},
+        basisVolume: isNutriVolumeUnit(offUnit) ? {amount:offAmount, unit:offUnit} : null,
         fromOFF:true
       };
     }
@@ -4595,23 +4753,35 @@ function normalizeExtractedNutrition(result){
   });
   return n;
 }
-// The AI now reports numbers exactly as printed on the label, alongside whatever basis they
-// were printed for - no more silently rescaling "per serving" values onto a 100g footing.
-// Falls back to 100g when the basis is unclear so older/ambiguous results still behave
-// sensibly (values get treated as if per-100g, same as the previous default assumption).
+// The AI reports numbers exactly as printed on the label, alongside whatever basis they were
+// printed for - falls back to 100g when the basis is unclear (same default as before).
 function extractedNutritionBasis(result){
   if(!result) return {amount:100, unit:'g'};
   if(result.nutrition_basis === '100ml') return {amount:100, unit:'ml'};
   if(result.nutrition_basis === 'serving' && result.serving_size_amount && isFinite(Number(result.serving_size_amount))){
     var unit = result.serving_size_unit;
-    // NUTRI_BASIS_UNIT_OPTIONS (g/ml/tsp/tbsp/cup) is defined later in this file but already
-    // exists by the time a photo is actually taken (user interaction happens after full load).
-    if(typeof NUTRI_BASIS_UNIT_OPTIONS === 'undefined' || NUTRI_BASIS_UNIT_OPTIONS.indexOf(unit) === -1){
+    if(NUTRI_ALL_BASIS_UNITS.indexOf(unit) === -1){
       unit = 'g';
     }
     return {amount:Number(result.serving_size_amount), unit:unit};
   }
   return {amount:100, unit:'g'};
+}
+// {amount,unit} -> the matching one of the two nutrition_basis_weight_*/nutrition_basis_volume_*
+// item fields (see migrateNutritionBasis for why there are two). A single AI photo scan or OFF
+// lookup only ever detects one basis at a time, so this only ever fills in one of the two slots -
+// the other is left for the person to add by hand if the label happens to print both.
+function basisPrefillFields(amount, unit){
+  var out = {};
+  if(amount == null) return out;
+  if(isNutriVolumeUnit(unit)){
+    out.nutrition_basis_volume_amount = amount;
+    out.nutrition_basis_volume_unit = unit;
+  } else {
+    out.nutrition_basis_weight_amount = amount;
+    out.nutrition_basis_weight_unit = (NUTRI_WEIGHT_UNITS.indexOf(unit)!==-1) ? unit : 'g';
+  }
+  return out;
 }
 // Turns the AI's extra_nutrients block into the same {value, unit} shape the vitamins/minerals
 // editor expects (see nutriExtraDefs()). Skips anything null/unrecognized rather than guessing -
@@ -4648,17 +4818,15 @@ async function onPhotoSelected(input){
     showToast(t('photoFound'));
     var basis = extractedNutritionBasis(result);
     var extra = normalizeExtractedNutritionExtra(result);
-    openItemForm(null, {
+    openItemForm(null, Object.assign({
       name: result.name || '',
       brand: result.brand || '',
       barcode: result.barcode || '',
       nutrition: normalizeExtractedNutrition(result),
       nutrition_extra: extra,
       nutrition_edited: false,
-      nutrition_source: 'photo_ai',
-      nutrition_basis_amount: basis.amount,
-      nutrition_basis_unit: basis.unit
-    });
+      nutrition_source: 'photo_ai'
+    }, basisPrefillFields(basis.amount, basis.unit)));
     // Auto-expand whichever collapsed group(s) actually received a value from the photo, so
     // the person isn't left wondering why the numbers "didn't show up" behind a collapsed toggle.
     if(Object.keys(extra).some(function(k){ return NUTRI_VITAMIN_KEYS.indexOf(k)!==-1; })){
@@ -6059,7 +6227,7 @@ async function confirmImport(mode){
   if(!_pendingImport) return;
   var data = _pendingImport.data;
   if(_pendingImport.kind === 'inventory'){
-    var incomingItems = (await migrateImportedPhotos(data.items||[])).map(migrateItemQtyGroups);
+    var incomingItems = (await migrateImportedPhotos(data.items||[])).map(migrateItem);
     if(mode === 'merge'){
       state.items = mergeById(state.items, incomingItems);
       state.categories = mergeStringArrays(state.categories, data.categories||[]);
@@ -6703,7 +6871,7 @@ function applyRemoteItem(data){
     var fresh = JSON.parse(JSON.stringify(data));
     delete fresh._deleted;
     fresh.secondary_units = fresh.secondary_units || [];
-    state.items.push(migrateItemQtyGroups(fresh));
+    state.items.push(migrateItem(fresh));
     CLOUD.pushMap[data.id] = remoteTs;
     return true;
   }
@@ -6715,7 +6883,7 @@ function applyRemoteItem(data){
     if(!merged.photo_url && state.items[idx].photo_url && state.items[idx].photo_url.indexOf('photo:')===0){
       merged.photo_url = state.items[idx].photo_url;
     }
-    state.items[idx] = migrateItemQtyGroups(merged);
+    state.items[idx] = migrateItem(merged);
     CLOUD.pushMap[data.id] = remoteTs;
     return true;
   }
