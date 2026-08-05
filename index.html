@@ -622,6 +622,7 @@
   .picker-item{ display:flex; align-items:center; justify-content:space-between; padding:14px 4px; border-bottom:1px solid var(--line); cursor:pointer; }
   .picker-item .pname{ font-size:16px; color:var(--cocoa); }
   .picker-item .pmeta{ font-size:12.5px; color:var(--deep-caramel); margin-top:2px; }
+  .picker-item-child{ padding-left:20px; background:var(--cream-2); }
 
   a{ color:var(--almond); }
   .lang-toggle{ display:flex; border:1px solid var(--line); border-radius:12px; overflow:hidden; }
@@ -721,14 +722,15 @@ function emptyNutritionExtra(){ return {}; }
 // quantity groups are joined elsewhere in the app; either part is simply omitted if not set,
 // and if truly neither is set (shouldn't normally happen - blankItemDraft doesn't default
 // either to a value anymore) falls back to the old "每100g" default so nothing renders blank.
-function nutriBasisPart(amount, unit){
-  return (state.lang==='zh' ? ('每'+fmtNum(amount,amount%1===0?0:1)+unit) : ('per '+fmtNum(amount,amount%1===0?0:1)+unit));
+function nutriBasisPart(amount, unit, text){
+  var displayAmount = (text && String(text).trim()) ? text : fmtNum(amount,amount%1===0?0:1);
+  return (state.lang==='zh' ? ('每'+displayAmount+unit) : ('per '+displayAmount+unit));
 }
 function nutriBasisLabel(it){
   var parts = [];
-  if(it.nutrition_basis_weight_amount != null) parts.push(nutriBasisPart(it.nutrition_basis_weight_amount, it.nutrition_basis_weight_unit||'g'));
-  if(it.nutrition_basis_volume_amount != null) parts.push(nutriBasisPart(it.nutrition_basis_volume_amount, it.nutrition_basis_volume_unit||'ml'));
-  return parts.length ? parts.join(' / ') : nutriBasisPart(100,'g');
+  if(it.nutrition_basis_weight_amount != null) parts.push(nutriBasisPart(it.nutrition_basis_weight_amount, it.nutrition_basis_weight_unit||'g', it.nutrition_basis_weight_amount_text));
+  if(it.nutrition_basis_volume_amount != null) parts.push(nutriBasisPart(it.nutrition_basis_volume_amount, it.nutrition_basis_volume_unit||'ml', it.nutrition_basis_volume_amount_text));
+  return parts.length ? parts.join(' / ') : nutriBasisPart(100,'g',null);
 }
 // Price currency: entry + display only for now, no conversion/exchange-rate math anywhere -
 // that's deliberately left for whichever feature actually needs to compare/aggregate prices
@@ -1245,8 +1247,8 @@ function migrateItemQtyGroups(it){
 // migrateItemQtyGroups above.
 function migrateNutritionBasis(it){
   if(it.nutrition_basis_weight_amount !== undefined || it.nutrition_basis_volume_amount !== undefined) return it;
-  it.nutrition_basis_weight_amount = null; it.nutrition_basis_weight_unit = 'g';
-  it.nutrition_basis_volume_amount = null; it.nutrition_basis_volume_unit = 'ml';
+  it.nutrition_basis_weight_amount = null; it.nutrition_basis_weight_unit = 'g'; it.nutrition_basis_weight_amount_text = null;
+  it.nutrition_basis_volume_amount = null; it.nutrition_basis_volume_unit = 'ml'; it.nutrition_basis_volume_amount_text = null;
   if(it.nutrition_basis_amount != null){
     if(NUTRI_VOLUME_UNITS.indexOf(it.nutrition_basis_unit) !== -1){
       it.nutrition_basis_volume_amount = it.nutrition_basis_amount;
@@ -1659,25 +1661,47 @@ function deleteArchivedItem(id){
 // approximation for products whose nutrition was only ever recorded in one unit. Now that an
 // item can carry an independent weight basis AND volume basis (see migrateNutritionBasis),
 // scaleNutrition can pick the one that actually matches instead of assuming 1ml≈1g.
+//
+// Fixed a real bug here: picking a recipe ingredient's amount using the item's bare count unit
+// (its "单位", e.g. "件") instead of one of its packaged specs ("规格", e.g. "袋"/pack_unit)
+// used to bail out immediately with null whenever that bare unit was literally "件" or "个" -
+// without ever even checking whether the item's own primary_pack_amount/primary_pack_unit (e.g.
+// "460g x 9件", i.e. this item's "件" IS 460g each) could resolve it. Any item whose primary
+// unit is a bare count with its weight recorded via a pack spec - which is a completely normal,
+// common shape for inventory items - could never be counted in a recipe's nutrition totals
+// through its primary unit, only through a secondary group's own pack unit if one happened to
+// exist. Now it always walks the item's own conversion chain (resolveDeductionTarget already
+// knows how to match a primary unit, a primary pack unit, a secondary unit, or a secondary pack
+// unit) down to a count in primary units, then resolves THAT to weight/volume using whichever of
+// the primary unit itself or its pack spec actually carries the weight/volume information -
+// instead of losing the source item's pack info by recursing with sourceItem cleared to null.
 function amountToBasisUnits(amount, unit, sourceItem){
   if(unit === 'g') return {type:'weight', value:amount};
   if(unit === 'kg') return {type:'weight', value:amount*1000};
   if(unit === 'ml') return {type:'volume', value:amount};
   if(unit === 'l') return {type:'volume', value:amount*1000};
-  // count-based unit ("件"/legacy "个", or a custom secondary unit like "只") - needs a ratio to weight
-  if(sourceItem && sourceItem.primary_unit && unit === sourceItem.primary_unit){
-    // primary unit itself is count-based (no weight known) - cannot convert to basis, return null
-    if(sourceItem.primary_unit === '件' || sourceItem.primary_unit === '个') return null;
-  }
   if(sourceItem){
     var target = resolveDeductionTarget(sourceItem, unit);
     if(target){
-      // amount is in some other unit belonging to this item -> convert to primary qty -> then to basis
-      var primaryEquivalent = amount * target.toPrimaryRatio;
-      return amountToBasisUnits(primaryEquivalent, sourceItem.primary_unit, null);
+      var primaryCount = amount * target.toPrimaryRatio; // now expressed as a count in the item's own primary unit
+      var pu = sourceItem.primary_unit;
+      if(pu === 'g') return {type:'weight', value:primaryCount};
+      if(pu === 'kg') return {type:'weight', value:primaryCount*1000};
+      if(pu === 'ml') return {type:'volume', value:primaryCount};
+      if(pu === 'l') return {type:'volume', value:primaryCount*1000};
+      // primary unit is a bare count ("件"/"个"/custom) - its weight/volume, if known at all,
+      // comes from the item's own pack spec (primary_pack_amount + primary_pack_unit).
+      if(sourceItem.primary_pack_amount != null && sourceItem.primary_pack_unit){
+        var wv = primaryCount * sourceItem.primary_pack_amount;
+        if(sourceItem.primary_pack_unit === 'g') return {type:'weight', value:wv};
+        if(sourceItem.primary_pack_unit === 'kg') return {type:'weight', value:wv*1000};
+        if(sourceItem.primary_pack_unit === 'ml') return {type:'volume', value:wv};
+        if(sourceItem.primary_pack_unit === 'l') return {type:'volume', value:wv*1000};
+      }
+      return null; // matched a unit on this item, but genuinely nothing on it resolves to a weight/volume
     }
   }
-  if(unit === '件' || unit === '个') return null; // unknown weight per unit
+  if(unit === '件' || unit === '个') return null; // no item context (external ingredient) and not a weight/volume unit
   return {type:'weight', value:amount}; // fallback: assume basis-compatible, weight-style (matches old default)
 }
 function emptyNutrition(){
@@ -2804,8 +2828,8 @@ function blankItemDraft(){
     production_date:'', shelf_life_amount:null, shelf_life_unit:'days',
     notes:'', nutrition: emptyNutrition(), nutrition_edited:false,
     nutrition_extra: emptyNutritionExtra(), nutrition_extra_selected:[],
-    nutrition_basis_weight_amount:null, nutrition_basis_weight_unit:'g',
-    nutrition_basis_volume_amount:null, nutrition_basis_volume_unit:'ml',
+    nutrition_basis_weight_amount:null, nutrition_basis_weight_unit:'g', nutrition_basis_weight_amount_text:null,
+    nutrition_basis_volume_amount:null, nutrition_basis_volume_unit:'ml', nutrition_basis_volume_amount_text:null,
     usage_log:[],
     photo_url:'', created_at: nowLocalIso(), updated_at: nowLocalIso()
   };
@@ -2872,8 +2896,10 @@ function openItemForm(id, prefill){
     addingCategory:false, addingLocation:false, customUnitEditing:{},
     nutriBasisWeightAmount: state.itemDraft.nutrition_basis_weight_amount,
     nutriBasisWeightUnit: state.itemDraft.nutrition_basis_weight_unit || 'g',
+    nutriBasisWeightAmountText: state.itemDraft.nutrition_basis_weight_amount_text || null,
     nutriBasisVolumeAmount: state.itemDraft.nutrition_basis_volume_amount,
     nutriBasisVolumeUnit: state.itemDraft.nutrition_basis_volume_unit || 'ml',
+    nutriBasisVolumeAmountText: state.itemDraft.nutrition_basis_volume_amount_text || null,
     returnTo: returnTo,
     dateSegs: {
       expiry_date: isoToSegs(state.itemDraft.expiry_date),
@@ -3355,10 +3381,15 @@ function nutriFieldsHtml(draftPath){
 // this item and falls back to whichever one IS filled in (see scaleNutrition).
 function nutriBasisEditRowHtml(kind){
   var amountKey = kind==='weight' ? 'nutriBasisWeightAmount' : 'nutriBasisVolumeAmount';
+  var textKey = kind==='weight' ? 'nutriBasisWeightAmountText' : 'nutriBasisVolumeAmountText';
   var amount = state.itemFormUI[amountKey];
+  // Prefer the raw text as typed/scanned (e.g. "1/4") over the parsed decimal, so a fraction
+  // entered by hand or read off a label doesn't silently turn into "0.25" on the next render.
+  var displayValue = state.itemFormUI[textKey];
+  if(displayValue == null) displayValue = (amount==null ? '' : fmtNum(amount,3));
   return '<div style="display:flex;align-items:center;gap:6px;">'+
       '<span>'+t('nutriBasisAmount')+'</span>'+
-      '<input type="text" id="nutri-basis-amount-'+kind+'" class="nf-basis-input" placeholder="-" value="'+(amount==null?'':fmtNum(amount,3))+'" oninput="setNutriBasisAmount('+aj(kind)+',this.value)">'+
+      '<input type="text" id="nutri-basis-amount-'+kind+'" class="nf-basis-input" placeholder="-" value="'+esc(displayValue)+'" oninput="setNutriBasisAmount('+aj(kind)+',this.value)">'+
       nutriBasisUnitFieldHtml(kind)+
     '</div>';
 }
@@ -3382,8 +3413,12 @@ function parseFractionOrFloat(str){
   return isNaN(f) ? null : f;
 }
 function nutriBasisAmountKey(kind){ return kind==='weight' ? 'nutriBasisWeightAmount' : 'nutriBasisVolumeAmount'; }
+function nutriBasisAmountTextKey(kind){ return kind==='weight' ? 'nutriBasisWeightAmountText' : 'nutriBasisVolumeAmountText'; }
 function nutriBasisUnitKey(kind){ return kind==='weight' ? 'nutriBasisWeightUnit' : 'nutriBasisVolumeUnit'; }
 function setNutriBasisAmount(kind, v){
+  // Keep both: the raw text (exactly as typed, so a fraction round-trips through re-renders
+  // without being reformatted) and the parsed number (what recipe math actually uses).
+  state.itemFormUI[nutriBasisAmountTextKey(kind)] = v;
   state.itemFormUI[nutriBasisAmountKey(kind)] = parseFractionOrFloat(v);
 }
 function setNutriBasisUnit(kind, u){ state.itemFormUI[nutriBasisUnitKey(kind)] = u; render(); }
@@ -3687,7 +3722,7 @@ async function onItemNutritionPhotoSelected(input){
       showToast(t('photoNotFound'));
       return;
     }
-    var basis = extractedNutritionBasis(result);
+    var basisFields = extractedNutritionBasisFields(result);
     var extra = normalizeExtractedNutritionExtra(result);
     state.itemDraft.nutrition = normalizeExtractedNutrition(result);
     state.itemDraft.nutrition_extra = extra;
@@ -3695,17 +3730,18 @@ async function onItemNutritionPhotoSelected(input){
     // The "每___" basis inputs read from state.itemFormUI (a cached copy taken when the form was
     // opened), not straight from itemDraft - itemDraft only gets it back on save. Update the
     // itemFormUI copy directly or the refreshed serving size silently won't show up on screen.
-    // Only the ONE slot the rescan actually detected (weight or volume) is touched - the other
-    // slot's existing value (if the person had filled it in separately) is left alone, same
-    // "each slot is independent" rule as everywhere else (see migrateNutritionBasis).
-    var fields = basisPrefillFields(basis.amount, basis.unit);
-    if(fields.nutrition_basis_weight_amount !== undefined){
-      state.itemFormUI.nutriBasisWeightAmount = fields.nutrition_basis_weight_amount;
-      state.itemFormUI.nutriBasisWeightUnit = fields.nutrition_basis_weight_unit;
+    // Only the slot(s) this rescan actually detected are touched - a slot the rescan didn't
+    // find anything for is left exactly as it was (if the person had filled it in separately
+    // before), same "each slot is independent" rule as everywhere else (see migrateNutritionBasis).
+    if(basisFields.nutrition_basis_weight_amount !== undefined){
+      state.itemFormUI.nutriBasisWeightAmount = basisFields.nutrition_basis_weight_amount;
+      state.itemFormUI.nutriBasisWeightUnit = basisFields.nutrition_basis_weight_unit;
+      state.itemFormUI.nutriBasisWeightAmountText = basisFields.nutrition_basis_weight_amount_text;
     }
-    if(fields.nutrition_basis_volume_amount !== undefined){
-      state.itemFormUI.nutriBasisVolumeAmount = fields.nutrition_basis_volume_amount;
-      state.itemFormUI.nutriBasisVolumeUnit = fields.nutrition_basis_volume_unit;
+    if(basisFields.nutrition_basis_volume_amount !== undefined){
+      state.itemFormUI.nutriBasisVolumeAmount = basisFields.nutrition_basis_volume_amount;
+      state.itemFormUI.nutriBasisVolumeUnit = basisFields.nutrition_basis_volume_unit;
+      state.itemFormUI.nutriBasisVolumeAmountText = basisFields.nutrition_basis_volume_amount_text;
     }
     if(Object.keys(extra).some(function(k){ return NUTRI_VITAMIN_KEYS.indexOf(k)!==-1; })){
       state.itemFormUI.nutriExpanded_vitamins = true;
@@ -3762,8 +3798,10 @@ function saveItemForm(){
   var fui = state.itemFormUI || {};
   d.nutrition_basis_weight_amount = (fui.nutriBasisWeightAmount != null) ? fui.nutriBasisWeightAmount : null;
   d.nutrition_basis_weight_unit = fui.nutriBasisWeightUnit || 'g';
+  d.nutrition_basis_weight_amount_text = (d.nutrition_basis_weight_amount != null) ? (fui.nutriBasisWeightAmountText || null) : null;
   d.nutrition_basis_volume_amount = (fui.nutriBasisVolumeAmount != null) ? fui.nutriBasisVolumeAmount : null;
   d.nutrition_basis_volume_unit = fui.nutriBasisVolumeUnit || 'ml';
+  d.nutrition_basis_volume_amount_text = (d.nutrition_basis_volume_amount != null) ? (fui.nutriBasisVolumeAmountText || null) : null;
   d.updated_at = nowLocalIso();
   var idx = state.items.findIndex(function(i){ return i.id===d.id; });
   if(idx===-1){
@@ -4708,8 +4746,8 @@ async function analyzePhotoForItem(base64Data, mimeType){
   var prompt = [
     '请分析这张食品包装或营养成分表照片，尽可能提取以下信息。只返回一个JSON对象本身，不要包含任何其他文字、解释、前后缀或markdown代码块标记（不要用```包裹）。',
     '严格按此JSON格式返回：',
-    '{"name":"产品名称，看不清则为空字符串","brand":"品牌名称，看不清则为空字符串","barcode":"条码下方印刷的数字，看不到则为null","nutrition_found":true或false,"nutrition_basis":"100g或100ml或serving或unknown","serving_size_amount":"仅当nutrition_basis为serving时填写每份数量(数字)，否则为null","serving_size_unit":"仅当nutrition_basis为serving时填写，必须是g/ml/tsp/tbsp/cup五选一，选跟标签最接近的单位，否则为null","nutrition":{"calories":数字(kcal)或null,"fat":数字(g)或null,"saturated_fat":数字(g)或null,"trans_fat":数字(g)或null,"monounsaturated_fat":数字(g)或null,"polyunsaturated_fat":数字(g)或null,"cholesterol":数字(mg)或null,"sodium":数字(mg)或null,"carbs":数字(g)或null,"fiber":数字(g)或null,"sugar":数字(g)或null,"added_sugar":数字(g)或null,"protein":数字(g)或null},"extra_nutrients":{"vitamin_d":{"value":数字或null,"unit":"mcg或IU或%DV三选一"},"calcium":{"value":数字或null,"unit":"mg或%DV二选一"},"iron":{"value":数字或null,"unit":"mg或%DV二选一"},"potassium":{"value":数字或null,"unit":"mg或%DV二选一"},"vitamin_a":{"value":数字或null,"unit":"mcg或IU或%DV三选一"},"vitamin_c":{"value":数字或null,"unit":"mg或%DV二选一"},"vitamin_e":{"value":数字或null,"unit":"mg或IU或%DV三选一"},"magnesium":{"value":数字或null,"unit":"mg或%DV二选一"},"zinc":{"value":数字或null,"unit":"mg或%DV二选一"},"vitamin_b12":{"value":数字或null,"unit":"mcg或%DV二选一"}},"confidence":"high或medium或low"}',
-    '注意：sodium字段必须换算成毫克(mg)，如果标签原文是克(g)请自行乘以1000。extra_nutrients里每一项的unit必须严格从给出的选项中选一个，跟标签上实际印刷的单位对应；如果标签上这一项同时印了具体数值(mg/mcg/IU)和%DV两种，优先选具体数值那个单位，只有当标签只印了%DV、没有任何具体数值时才选%DV。标签上没有的项value填null。如果完全无法从图片中识别出任何有效信息，相应字段返回null、空字符串或false，不要编造数据。'
+    '{"name":"产品名称，看不清则为空字符串","brand":"品牌名称，看不清则为空字符串","barcode":"条码下方印刷的数字，看不到则为null","nutrition_found":true或false,"basis_weight_amount":"标签标注的重量计量数值(如有)，可以是普通数字或分数字符串如\\"1/4\\"或\\"1 1/2\\"，保持标签原始形式不要自行转换成小数，没有重量计量则为null","basis_weight_unit":"g或kg，没有重量计量则为null","basis_volume_amount":"标签标注的体积计量数值(如有)，格式同上，没有体积计量则为null","basis_volume_unit":"ml/l/tsp/tbsp/cup五选一，没有体积计量则为null","nutrition":{"calories":数字(kcal)或null,"fat":数字(g)或null,"saturated_fat":数字(g)或null,"trans_fat":数字(g)或null,"monounsaturated_fat":数字(g)或null,"polyunsaturated_fat":数字(g)或null,"cholesterol":数字(mg)或null,"sodium":数字(mg)或null,"carbs":数字(g)或null,"fiber":数字(g)或null,"sugar":数字(g)或null,"added_sugar":数字(g)或null,"protein":数字(g)或null},"extra_nutrients":{"vitamin_d":{"value":数字或null,"unit":"mcg或IU或%DV三选一"},"calcium":{"value":数字或null,"unit":"mg或%DV二选一"},"iron":{"value":数字或null,"unit":"mg或%DV二选一"},"potassium":{"value":数字或null,"unit":"mg或%DV二选一"},"vitamin_a":{"value":数字或null,"unit":"mcg或IU或%DV三选一"},"vitamin_c":{"value":数字或null,"unit":"mg或%DV二选一"},"vitamin_e":{"value":数字或null,"unit":"mg或IU或%DV三选一"},"magnesium":{"value":数字或null,"unit":"mg或%DV二选一"},"zinc":{"value":数字或null,"unit":"mg或%DV二选一"},"vitamin_b12":{"value":数字或null,"unit":"mcg或%DV二选一"}},"confidence":"high或medium或low"}',
+    '注意：basis_weight_amount/basis_volume_amount这两组是独立的两个计量槽位，分别对应标签上以重量(g/kg)和以体积(ml/l/tsp/tbsp/cup)表示的"每份"计量——如果标签只标了一种（比如只有"每100g"），只填对应那一组，另一组为null；如果标签同时标注了两种（比如"1汤匙(6g)"或"1tbsp/6g"这种重量体积并列标注），weight和volume两组都要分别填写，不要把两个数字挤在一起当成一个数（例如看到"1tbsp/6g"不要输出\'16g\'，应该输出basis_volume_amount="1",basis_volume_unit="tbsp",basis_weight_amount="6",basis_weight_unit="g"）；如果标签本身就是"每100g"或"每100ml"这种整百标准型、没有额外的份数说明，按标签实际使用的单位对应填100到weight或volume其中一组即可，另一组为null。分数一律保留原始分数字符串形式（如"1/4"、"1 1/2"），不要自行换算成小数。sodium字段必须换算成毫克(mg)，如果标签原文是克(g)请自行乘以1000。extra_nutrients里每一项的unit必须严格从给出的选项中选一个，跟标签上实际印刷的单位对应；如果标签上这一项同时印了具体数值(mg/mcg/IU)和%DV两种，优先选具体数值那个单位，只有当标签只印了%DV、没有任何具体数值时才选%DV。标签上没有的项value填null。如果完全无法从图片中识别出任何有效信息，相应字段返回null、空字符串或false，不要编造数据。'
   ].join('\n');
   // Standalone build: calls YOUR OWN backend proxy (configured in Settings) instead of
   // api.anthropic.com directly, since a browser can't safely call the Anthropic API
@@ -4754,32 +4792,37 @@ function normalizeExtractedNutrition(result){
   return n;
 }
 // The AI reports numbers exactly as printed on the label, alongside whatever basis they were
-// printed for - falls back to 100g when the basis is unclear (same default as before).
-function extractedNutritionBasis(result){
-  if(!result) return {amount:100, unit:'g'};
-  if(result.nutrition_basis === '100ml') return {amount:100, unit:'ml'};
-  if(result.nutrition_basis === 'serving' && result.serving_size_amount && isFinite(Number(result.serving_size_amount))){
-    var unit = result.serving_size_unit;
-    if(NUTRI_ALL_BASIS_UNITS.indexOf(unit) === -1){
-      unit = 'g';
-    }
-    return {amount:Number(result.serving_size_amount), unit:unit};
-  }
-  return {amount:100, unit:'g'};
-}
-// {amount,unit} -> the matching one of the two nutrition_basis_weight_*/nutrition_basis_volume_*
-// item fields (see migrateNutritionBasis for why there are two). A single AI photo scan or OFF
-// lookup only ever detects one basis at a time, so this only ever fills in one of the two slots -
-// the other is left for the person to add by hand if the label happens to print both.
-function basisPrefillFields(amount, unit){
+// printed for. Two independent optional slots now (weight g/kg + volume ml/l/tsp/tbsp/cup -
+// see migrateNutritionBasis), since some labels print both for the same serving (e.g. "1tbsp
+// (6g)") - a single scan can fill in one or both. Amounts can be fraction strings like "1/4"
+// straight from the label; parseFractionOrFloat turns that into the number used for math, but
+// the original text is kept too (in the _text fields) so the display/edit UI can show "1/4"
+// instead of silently normalizing it to "0.25" - see nutriBasisPart. Falls back to "100g" when
+// nothing usable came back at all, same default as before this function existed.
+function extractedNutritionBasisFields(result){
   var out = {};
-  if(amount == null) return out;
-  if(isNutriVolumeUnit(unit)){
-    out.nutrition_basis_volume_amount = amount;
-    out.nutrition_basis_volume_unit = unit;
-  } else {
-    out.nutrition_basis_weight_amount = amount;
-    out.nutrition_basis_weight_unit = (NUTRI_WEIGHT_UNITS.indexOf(unit)!==-1) ? unit : 'g';
+  var haveWeight = result && result.basis_weight_amount != null && result.basis_weight_amount !== '';
+  var haveVolume = result && result.basis_volume_amount != null && result.basis_volume_amount !== '';
+  if(haveWeight){
+    var wNum = parseFractionOrFloat(String(result.basis_weight_amount));
+    if(wNum != null){
+      out.nutrition_basis_weight_amount = wNum;
+      out.nutrition_basis_weight_unit = (NUTRI_WEIGHT_UNITS.indexOf(result.basis_weight_unit)!==-1) ? result.basis_weight_unit : 'g';
+      out.nutrition_basis_weight_amount_text = String(result.basis_weight_amount);
+    }
+  }
+  if(haveVolume){
+    var vNum = parseFractionOrFloat(String(result.basis_volume_amount));
+    if(vNum != null){
+      out.nutrition_basis_volume_amount = vNum;
+      out.nutrition_basis_volume_unit = (NUTRI_VOLUME_UNITS.indexOf(result.basis_volume_unit)!==-1) ? result.basis_volume_unit : 'ml';
+      out.nutrition_basis_volume_amount_text = String(result.basis_volume_amount);
+    }
+  }
+  if(out.nutrition_basis_weight_amount === undefined && out.nutrition_basis_volume_amount === undefined){
+    out.nutrition_basis_weight_amount = 100;
+    out.nutrition_basis_weight_unit = 'g';
+    out.nutrition_basis_weight_amount_text = null;
   }
   return out;
 }
@@ -4816,7 +4859,7 @@ async function onPhotoSelected(input){
       return;
     }
     showToast(t('photoFound'));
-    var basis = extractedNutritionBasis(result);
+    var basisFields = extractedNutritionBasisFields(result);
     var extra = normalizeExtractedNutritionExtra(result);
     openItemForm(null, Object.assign({
       name: result.name || '',
@@ -4826,7 +4869,7 @@ async function onPhotoSelected(input){
       nutrition_extra: extra,
       nutrition_edited: false,
       nutrition_source: 'photo_ai'
-    }, basisPrefillFields(basis.amount, basis.unit)));
+    }, basisFields));
     // Auto-expand whichever collapsed group(s) actually received a value from the photo, so
     // the person isn't left wondering why the numbers "didn't show up" behind a collapsed toggle.
     if(Object.keys(extra).some(function(k){ return NUTRI_VITAMIN_KEYS.indexOf(k)!==-1; })){
@@ -5043,23 +5086,32 @@ function recipeUnitOptionsForItem(item){
   }
   return opts;
 }
-function renderPickInventory(){
+// Shared by renderPickInventory (first paint) and onPickSearch's re-render (typing in the
+// search box) so the two can't drift out of sync with each other.
+function getPickInventoryList(){
   var q = (state.pickSearch||'').toLowerCase();
-  var list = activeItems().filter(function(i){ return !q || (i.name||'').toLowerCase().indexOf(q)!==-1; });
-  var itemsHtml = list.map(function(it){
-    var expiryText = it.expiry_date ? (t('fieldExpiry')+' '+fmtDateDots(it.expiry_date)) : '';
-    return '<div class="picker-item" onclick="pickInventoryItem('+aj(it.id)+')">'+
-      '<div><div class="pname">'+esc(it.name)+'</div><div class="pmeta">'+qtyDisplay(it)+(it.location?' · '+esc(it.location):'')+(expiryText?' · '+esc(expiryText):'')+'</div></div>'+
-      ic('chevronRight',18)+
-    '</div>';
-  }).join('') || '<div class="empty-state">'+ic('search',32)+'<p>'+(state.lang==='zh'?'没有找到食材':'No items found')+'</p></div>';
+  var list = activeItems().filter(function(i){
+    if(!q) return true;
+    return (i.name||'').toLowerCase().indexOf(q)!==-1 || (i.brand||'').toLowerCase().indexOf(q)!==-1;
+  });
+  // Soonest-expiring first (same convention as the inventory list's default expiry sort) -
+  // when adding a recipe ingredient, the batch that's about to go off is usually the one worth
+  // using up first, so surfacing it at the top of the picker saves a scroll.
+  list.sort(function(a,b){
+    var ad = a.expiry_date || '9999-99-99';
+    var bd = b.expiry_date || '9999-99-99';
+    return ad.localeCompare(bd);
+  });
+  return list;
+}
+function renderPickInventory(){
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'recipeForm\')">'+ic('back',22)+'</button><h1>'+t('pickFromInventory')+'</h1></div>'+
   '<div class="content">'+
     '<div class="pick-sticky-search" id="pick-inventory-sticky">'+
       '<div class="search-bar">'+ic('search',19)+'<input type="text" placeholder="'+t('searchPlaceholder')+'" value="'+esc(state.pickSearch||'')+'" oninput="onPickSearch(this.value)"></div>'+
     '</div>'+
-    '<div id="pick-list">'+itemsHtml+'</div>'+
+    '<div id="pick-list">'+renderPickInventoryListOnly()+'</div>'+
   '</div>';
 }
 function onPickSearch(v){
@@ -5070,22 +5122,63 @@ function onPickSearch(v){
     if(c) c.outerHTML = (state.view==='pickInventory') ? ('<div id="pick-list">'+renderPickInventoryListOnly()+'</div>') : ('<div id="pick-list">'+renderPickExternalListOnly()+'</div>');
   }, 200);
 }
+// Same "collapse same product's separate batches into one row" idea as the inventory list
+// itself (itemGroupKey/representativeGroupItem, reused as-is) - picking a recipe ingredient
+// shouldn't require scrolling past N near-identical rows for the same product bought N times.
+// A group only expands into its individual batches on tap; picking always resolves to one
+// specific item id (a recipe ingredient links to one exact batch, so a multi-batch group can't
+// itself be "picked" - only its expanded children can).
 function renderPickInventoryListOnly(){
-  var q = (state.pickSearch||'').toLowerCase();
-  var list = activeItems().filter(function(i){ return !q || (i.name||'').toLowerCase().indexOf(q)!==-1; });
-  return list.map(function(it){
-    var expiryText = it.expiry_date ? (t('fieldExpiry')+' '+fmtDateDots(it.expiry_date)) : '';
-    return '<div class="picker-item" onclick="pickInventoryItem('+aj(it.id)+')">'+
-      '<div><div class="pname">'+esc(it.name)+'</div><div class="pmeta">'+qtyDisplay(it)+(it.location?' · '+esc(it.location):'')+(expiryText?' · '+esc(expiryText):'')+'</div></div>'+
-      ic('chevronRight',18)+
+  var list = getPickInventoryList();
+  if(!list.length) return '<div class="empty-state">'+ic('search',32)+'<p>'+(state.lang==='zh'?'没有找到食材':'No items found')+'</p></div>';
+  var groupOrder = [], groupMap = {};
+  list.forEach(function(it){
+    var k = itemGroupKey(it);
+    if(!groupMap[k]){ groupMap[k] = []; groupOrder.push(k); }
+    groupMap[k].push(it);
+  });
+  return groupOrder.map(function(k){
+    var group = groupMap[k];
+    return group.length===1 ? pickInventoryRowHtml(group[0]) : pickInventoryGroupHtml(k, group);
+  }).join('');
+}
+function pickInventoryRowHtml(it){
+  var expiryText = it.expiry_date ? (t('fieldExpiry')+' '+fmtDateDots(it.expiry_date)) : '';
+  return '<div class="picker-item" onclick="pickInventoryItem('+aj(it.id)+')">'+
+    '<div><div class="pname">'+itemDisplayName(it)+'</div><div class="pmeta">'+qtyDisplay(it)+(it.location?' · '+esc(it.location):'')+(expiryText?' · '+esc(expiryText):'')+'</div></div>'+
+    ic('chevronRight',18)+
+  '</div>';
+}
+function pickInventoryGroupHtml(key, group){
+  var rep = representativeGroupItem(group);
+  var expanded = !!(state.pickExpandedGroups && state.pickExpandedGroups[key]);
+  var expiryText = rep.expiry_date ? (t('fieldExpiry')+' '+fmtDateDots(rep.expiry_date)) : '';
+  var batchCountText = group.length+(state.lang==='zh'?'个批次':' batches');
+  var header = '<div class="picker-item" onclick="togglePickInventoryGroup('+aj(key)+')">'+
+    '<div><div class="pname">'+itemDisplayName(rep)+'</div><div class="pmeta">'+batchCountText+(rep.location?' · '+esc(rep.location):'')+(expiryText?' · '+esc(expiryText):'')+'</div></div>'+
+    ic('chevronRight',18,'style="transform:rotate('+(expanded?'90':'0')+'deg);transition:transform .15s;flex-shrink:0;"')+
+  '</div>';
+  if(!expanded) return header;
+  var childrenHtml = group.map(function(it){
+    var et = it.expiry_date ? (t('fieldExpiry')+' '+fmtDateDots(it.expiry_date)) : '';
+    return '<div class="picker-item picker-item-child" onclick="event.stopPropagation();pickInventoryItem('+aj(it.id)+')">'+
+      '<div><div class="pmeta">'+qtyDisplay(it)+(it.location?' · '+esc(it.location):'')+(et?' · '+esc(et):'')+'</div></div>'+
+      ic('chevronRight',16)+
     '</div>';
-  }).join('') || '<div class="empty-state">'+ic('search',32)+'<p>'+(state.lang==='zh'?'没有找到食材':'No items found')+'</p></div>';
+  }).join('');
+  return header + childrenHtml;
+}
+function togglePickInventoryGroup(key){
+  state.pickExpandedGroups = state.pickExpandedGroups || {};
+  state.pickExpandedGroups[key] = !state.pickExpandedGroups[key];
+  var c = document.getElementById('pick-list');
+  if(c) c.outerHTML = '<div id="pick-list">'+renderPickInventoryListOnly()+'</div>';
 }
 function pickInventoryItem(id){
   var it = state.items.find(function(i){ return i.id===id; });
   if(!it) return;
   var unitOpts = recipeUnitOptionsForItem(it);
-  showModal(esc(it.name),
+  showModal(esc(itemDisplayName(it)),
     '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="number" inputmode="decimal" id="ing-amount" placeholder="-"></div>'+
     '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u,idx){ return '<div class="tag-option '+(idx===0?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+u+'</div>'; }).join('')+'</div></div>'+
     '<button class="btn btn-primary" onclick="confirmAddIngredient(\'inventory\','+aj(id)+','+aj(it.name)+')">'+t('add')+'</button>'
