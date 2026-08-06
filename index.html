@@ -930,7 +930,7 @@ var I18N = {
     exportNotesBtn:'导出笔记数据', importNotesBtn:'恢复笔记数据',
     importNotesConfirmMsg:'检测到备份文件包含 {n} 条笔记。"合并"会保留当前设备和备份文件中的所有数据，同一条笔记以最近修改时间为准；"替换"会完全清空当前数据后用备份覆盖，无法撤销。',
     // sidebars
-    statTotal:'总数', statExpired:'过期', statSoon:'临期', statUsedUp:'已用完',
+    statTotal:'总数', statExpired:'过期', statSoon:'临期', statUsedUp:'用完',
     fieldRecipeCategory:'分类', fieldRecipeSubCategory:'子分类',
     recipeCategoryLabel:'分类',
     // archive
@@ -4077,24 +4077,28 @@ function renderUsageLog(){
 // by data-item-id, so no JS changes were needed to make it work here too.
 function usageLogRowHtml(entry, itemId){
   var isMove = entry.destination_type==='move_location';
-  var destText = entry.destination_type==='recipe' ? recipeNameForUsage(entry.recipe_id)
+  var isRecipe = entry.destination_type==='recipe';
+  var recipeExists = isRecipe && state.recipes.some(function(r){ return r.id===entry.recipe_id; });
+  var destText = isRecipe ? recipeNameForUsage(entry.recipe_id)
     : isMove ? (t('usageMovedTo')+' '+entry.destination_text)
     : entry.destination_text;
   // Editing a move-location entry isn't supported (see performLocationMove/restoreUsageLogEntry
   // for why undoing one has to touch a second item, not just this one) - only delete/restore.
   var editBtnHtml = isMove ? '' :
     '<button class="swipe-action-btn action-edit" onclick="event.stopPropagation();closeItemSwipeRow('+aj(entry.id)+');openUsageLogEdit('+aj(itemId)+','+aj(entry.id)+')">'+ic('edit',20)+'<span>'+esc(t('edit'))+'</span></button>';
+  var cardClickAttr = recipeExists ? ' onclick="navigate(\'recipeDetail\',{id:'+aj(entry.recipe_id)+'})" style="cursor:pointer;"' : '';
   return '<div class="item-card-swipe" data-item-id="'+esc(entry.id)+'">'+
     '<div class="item-swipe-actions">'+
       '<button class="swipe-action-btn action-delete" onclick="event.stopPropagation();deleteUsageLogEntry('+aj(itemId)+','+aj(entry.id)+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button>'+
       '<button class="swipe-action-btn action-restore" onclick="event.stopPropagation();restoreUsageLogEntry('+aj(itemId)+','+aj(entry.id)+')">'+ic('undo',20)+'<span>'+esc(t('usageRestoreBtn'))+'</span></button>'+
       editBtnHtml+
     '</div>'+
-    '<div class="item-card">'+
+    '<div class="item-card"'+cardClickAttr+'>'+
       '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">'+
-        '<div style="min-width:0;">'+
-          '<div class="item-name" style="font-size:15px;">'+esc(destText||'-')+'</div>'+
-          '<div class="item-meta">'+esc(fmtDateDots(entry.date))+'</div>'+
+        '<div style="min-width:0;display:flex;align-items:center;gap:4px;">'+
+          '<div><div class="item-name" style="font-size:15px;">'+esc(destText||'-')+'</div>'+
+          '<div class="item-meta">'+esc(fmtDateDots(entry.date))+'</div></div>'+
+          (recipeExists ? ic('chevronRight',15,'style="color:#B79B78;flex-shrink:0;"') : '')+
         '</div>'+
         '<div style="text-align:right;font-weight:600;color:var(--cocoa);flex-shrink:0;">'+fmtNum(entry.amount,2)+esc(entry.unit)+'</div>'+
       '</div>'+
