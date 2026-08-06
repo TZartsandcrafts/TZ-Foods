@@ -814,8 +814,10 @@ var I18N = {
     // detail
     detailQtyLabel:'当前库存',
     usageBtn:'取用', usageLogTitle:'取用记录', usageLogAddTitle:'记录使用', usageLogEmpty:'还没有取用记录',
-    usageDate:'日期', usageDestination:'去向', usageDestFree:'自由输入', usageDestRecipe:'关联食谱',
+    usageDate:'日期', usageDestination:'去向', usageDestFree:'自由输入', usageDestRecipe:'关联食谱', usageDestMove:'移动位置',
     usageDestPlaceholder:'比如：早餐吐司、送朋友、直接吃掉了', usageAmount:'数量',
+    usageMoveLocationPlaceholder:'选择要移动到的位置', usageNeedMoveLocation:'请选择要移动到的位置', usageMoveSameLocation:'这就是它现在所在的位置',
+    usageMovedTo:'移动至', usageMovedToast:'已移动',
     usagePickRecipeTitle:'选择食谱', usagePickRecipePlaceholder:'点击选择食谱', usageNoRecipes:'还没有任何食谱',
     usageShowMore:'展开更早的记录', usageShowLess:'收起',
     usageSaveBtn:'保存使用记录', usageNeedAmount:'请填写使用数量', usageNeedDest:'请填写去向或选择食谱',
@@ -1003,8 +1005,10 @@ var I18N = {
     addNewTag:'+ New', newTagPrompt:'Enter new tag name',
     detailQtyLabel:'Current stock',
     usageBtn:'Use', usageLogTitle:'Usage Log', usageLogAddTitle:'Log Usage', usageLogEmpty:'No usage logged yet',
-    usageDate:'Date', usageDestination:'Where it went', usageDestFree:'Free text', usageDestRecipe:'Link a recipe',
+    usageDate:'Date', usageDestination:'Where it went', usageDestFree:'Free text', usageDestRecipe:'Link a recipe', usageDestMove:'Move to another location',
     usageDestPlaceholder:'e.g. breakfast toast, gave to a friend, ate it plain', usageAmount:'Amount',
+    usageMoveLocationPlaceholder:'Pick a destination location', usageNeedMoveLocation:'Please pick a destination location', usageMoveSameLocation:'That is already where it is',
+    usageMovedTo:'Moved to', usageMovedToast:'Moved',
     usagePickRecipeTitle:'Pick a recipe', usagePickRecipePlaceholder:'Tap to pick a recipe', usageNoRecipes:'No recipes yet',
     usageShowMore:'Show earlier entries', usageShowLess:'Show less',
     usageSaveBtn:'Save usage entry', usageNeedAmount:'Enter how much was used', usageNeedDest:'Enter where it went, or pick a recipe',
@@ -1566,18 +1570,34 @@ function resolveDeductionTarget(item, unit){
 function findQtyGroup(item, unit){
   return (item.secondary_units||[]).find(function(g){ return g.unit===unit; });
 }
+// Applies a delta already expressed in the item's own primary-unit terms (not a user-facing
+// amount+unit pair - see resolveDeductionTarget/primaryEquivalentAmount for that conversion)
+// to primary_qty AND every secondary group's qty, proportionally via each group's own ratio -
+// this is what keeps "9件×460g" and "36件×115g" reading as consistent views of the same total
+// stock no matter which one a deduction/addition was actually expressed in. Shared by
+// deductFromItem, addBackToItem, and the location-move feature's undo path below, so all three
+// stay mathematically consistent with each other by construction instead of by convention.
+function applyPrimaryEquivalentDelta(item, primaryDelta){
+  item.primary_qty = Math.max(0, (item.primary_qty||0) + primaryDelta);
+  (item.secondary_units||[]).forEach(function(g){
+    if(g.qty == null || !g.ratio) return;
+    g.qty = Math.max(0, g.qty + primaryDelta/g.ratio);
+  });
+  item.updated_at = nowLocalIso();
+}
+// amount+unit (as a person would type/pick them) -> the equivalent count in the item's own
+// primary unit, or null if this item has no known conversion for that unit at all.
+function primaryEquivalentAmount(item, amount, unit){
+  var target = resolveDeductionTarget(item, unit);
+  if(!target) return null;
+  return amount * target.toPrimaryRatio;
+}
 // Attempts to deduct `amount` of `unit` from an inventory item. Returns {ok, reason}
 function deductFromItem(item, amount, unit){
   if(amount <= 0) return {ok:true};
-  var target = resolveDeductionTarget(item, unit);
-  if(!target) return {ok:false, reason:'no_conversion'};
-  var amountInPrimary = amount * target.toPrimaryRatio;
-  item.primary_qty = Math.max(0, (item.primary_qty||0) - amountInPrimary);
-  (item.secondary_units||[]).forEach(function(g){
-    if(g.qty == null || !g.ratio) return;
-    g.qty = Math.max(0, g.qty - amountInPrimary/g.ratio);
-  });
-  item.updated_at = nowLocalIso();
+  var amountInPrimary = primaryEquivalentAmount(item, amount, unit);
+  if(amountInPrimary == null) return {ok:false, reason:'no_conversion'};
+  applyPrimaryEquivalentDelta(item, -amountInPrimary);
   return {ok:true};
 }
 // Mirrors deductFromItem exactly but adds instead of subtracts - used when a usage-log entry
@@ -1585,15 +1605,9 @@ function deductFromItem(item, amount, unit){
 // whatever the new amount is.
 function addBackToItem(item, amount, unit){
   if(amount <= 0) return {ok:true};
-  var target = resolveDeductionTarget(item, unit);
-  if(!target) return {ok:false, reason:'no_conversion'};
-  var amountInPrimary = amount * target.toPrimaryRatio;
-  item.primary_qty = (item.primary_qty||0) + amountInPrimary;
-  (item.secondary_units||[]).forEach(function(g){
-    if(g.qty == null || !g.ratio) return;
-    g.qty = g.qty + amountInPrimary/g.ratio;
-  });
-  item.updated_at = nowLocalIso();
+  var amountInPrimary = primaryEquivalentAmount(item, amount, unit);
+  if(amountInPrimary == null) return {ok:false, reason:'no_conversion'};
+  applyPrimaryEquivalentDelta(item, amountInPrimary);
   return {ok:true};
 }
 function qtyGroupDisplayText(qty, unit, packAmount, packUnit, qtyDigits){
@@ -3983,12 +3997,19 @@ function renderUsageLog(){
 // / .item-card / initItemSwipeGestures below) - the gesture engine is generic and keyed purely
 // by data-item-id, so no JS changes were needed to make it work here too.
 function usageLogRowHtml(entry, itemId){
-  var destText = entry.destination_type==='recipe' ? recipeNameForUsage(entry.recipe_id) : entry.destination_text;
+  var isMove = entry.destination_type==='move_location';
+  var destText = entry.destination_type==='recipe' ? recipeNameForUsage(entry.recipe_id)
+    : isMove ? (t('usageMovedTo')+' '+entry.destination_text)
+    : entry.destination_text;
+  // Editing a move-location entry isn't supported (see performLocationMove/restoreUsageLogEntry
+  // for why undoing one has to touch a second item, not just this one) - only delete/restore.
+  var editBtnHtml = isMove ? '' :
+    '<button class="swipe-action-btn action-edit" onclick="event.stopPropagation();closeItemSwipeRow('+aj(entry.id)+');openUsageLogEdit('+aj(itemId)+','+aj(entry.id)+')">'+ic('edit',20)+'<span>'+esc(t('edit'))+'</span></button>';
   return '<div class="item-card-swipe" data-item-id="'+esc(entry.id)+'">'+
     '<div class="item-swipe-actions">'+
       '<button class="swipe-action-btn action-delete" onclick="event.stopPropagation();deleteUsageLogEntry('+aj(itemId)+','+aj(entry.id)+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button>'+
       '<button class="swipe-action-btn action-restore" onclick="event.stopPropagation();restoreUsageLogEntry('+aj(itemId)+','+aj(entry.id)+')">'+ic('undo',20)+'<span>'+esc(t('usageRestoreBtn'))+'</span></button>'+
-      '<button class="swipe-action-btn action-edit" onclick="event.stopPropagation();closeItemSwipeRow('+aj(entry.id)+');openUsageLogEdit('+aj(itemId)+','+aj(entry.id)+')">'+ic('edit',20)+'<span>'+esc(t('edit'))+'</span></button>'+
+      editBtnHtml+
     '</div>'+
     '<div class="item-card">'+
       '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">'+
@@ -4014,7 +4035,7 @@ function openUsageLogAdd(id){
   var it = state.items.find(function(i){ return i.id===id; });
   if(!it) return;
   state.usageDraft = {
-    date: todayStr(), destination_type:'free', destination_text:'', recipe_id:'',
+    date: todayStr(), destination_type:'free', destination_text:'', recipe_id:'', move_location:'',
     amount:null, unit: it.primary_unit, _editingEntryId:null
   };
   navigate('usageLogAdd', {id:id});
@@ -4024,9 +4045,10 @@ function openUsageLogEdit(itemId, entryId){
   if(!it) return;
   var entry = (it.usage_log||[]).find(function(e){ return e.id===entryId; });
   if(!entry) return;
+  if(entry.destination_type==='move_location') return; // not editable - see usageLogRowHtml
   state.usageDraft = {
     date: entry.date, destination_type: entry.destination_type,
-    destination_text: entry.destination_text||'', recipe_id: entry.recipe_id||'',
+    destination_text: entry.destination_text||'', recipe_id: entry.recipe_id||'', move_location:'',
     amount: entry.amount, unit: entry.unit, _editingEntryId: entryId
   };
   navigate('usageLogAdd', {id:itemId});
@@ -4053,6 +4075,12 @@ function renderUsageLogAdd(){
   var editing = !!d._editingEntryId;
   var unitOptions = allUnitsForItem(it);
   var recipeLabel = d.recipe_id ? recipeNameForUsage(d.recipe_id) : t('usagePickRecipePlaceholder');
+  // Converting an existing consumption entry into a location-move (or vice versa) mid-edit would
+  // mean untangling which item(s) to undo the effects on, on top of the already-nontrivial
+  // undo path a move entry needs on its own (see performLocationMove/restoreUsageLogEntry) - so
+  // the move option is only offered for brand-new entries; editing an existing move entry isn't
+  // offered at all in the first place (see openUsageLogEdit/usageLogRowHtml).
+  var moveLocationOptions = (state.locations||[]).filter(function(l){ return l !== it.location; });
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'usageLog\',{id:'+aj(id)+'})">'+ic('back',22)+'</button><h1>'+t(editing?'usageLogEditTitle':'usageLogAddTitle')+'</h1></div>'+
   '<div class="content">'+
@@ -4069,11 +4097,20 @@ function renderUsageLogAdd(){
       '<div class="tag-select">'+
         '<div class="tag-option '+(d.destination_type==='free'?'active':'')+'" onclick="setUsageDestType(\'free\')">'+t('usageDestFree')+'</div>'+
         '<div class="tag-option '+(d.destination_type==='recipe'?'active':'')+'" onclick="setUsageDestType(\'recipe\')">'+t('usageDestRecipe')+'</div>'+
+        (editing ? '' : '<div class="tag-option '+(d.destination_type==='move_location'?'active':'')+'" onclick="setUsageDestType(\'move_location\')">'+t('usageDestMove')+'</div>')+
       '</div>'+
     '</div>'+
     (d.destination_type==='free' ?
       '<div class="field"><input type="text" placeholder="'+t('usageDestPlaceholder')+'" value="'+esc(d.destination_text)+'" oninput="setUsageField(\'destination_text\',this.value)"></div>' :
-      '<div class="field"><div class="list-row" style="cursor:pointer;background:var(--cream);border-radius:11px;padding:12px 14px;border:none;" onclick="openRecipePickerForUsage()"><span>'+esc(recipeLabel)+'</span>'+ic('chevronRight',18)+'</div></div>'
+    d.destination_type==='recipe' ?
+      '<div class="field"><div class="list-row" style="cursor:pointer;background:var(--cream);border-radius:11px;padding:12px 14px;border:none;" onclick="openRecipePickerForUsage()"><span>'+esc(recipeLabel)+'</span>'+ic('chevronRight',18)+'</div></div>' :
+      '<div class="field">'+
+        (moveLocationOptions.length ?
+          '<div class="tag-select">'+moveLocationOptions.map(function(l){
+            return '<div class="tag-option '+(d.move_location===l?'active':'')+'" onclick="setUsageMoveLocation('+aj(l)+')">'+esc(l)+'</div>';
+          }).join('')+'</div>' :
+          '<p class="hint">'+t('usageMoveSameLocation')+'</p>')+
+      '</div>'
     )+
     '<button class="btn btn-primary" style="margin-top:10px;" onclick="saveUsageLogEntry('+aj(id)+')">'+t('usageSaveBtn')+'</button>'+
   '</div>';
@@ -4084,6 +4121,7 @@ function setUsageField(key, val){
 }
 function setUsageUnit(u){ state.usageDraft.unit = u; render(); }
 function setUsageDestType(type){ state.usageDraft.destination_type = type; render(); }
+function setUsageMoveLocation(loc){ state.usageDraft.move_location = loc; render(); }
 function openRecipePickerForUsage(){
   var list = state.recipes;
   var bodyHtml = list.length ? list.map(function(r){
@@ -4096,15 +4134,71 @@ function selectRecipeForUsage(recipeId){
   closeModal();
   render();
 }
-function saveUsageLogEntry(itemId){
+// Splits `amount` of `unit` off of `it` and into a record at `targetLocation`: merges into an
+// existing item there if one already represents the same product (same itemGroupKey), otherwise
+// clones `it` into a brand-new item there (same "independent photo, fresh id, no usage_log
+// carried over" shape as copyItemToNewForm - see duplicatePhotoRef's comment for why the photo
+// specifically has to be a real independent copy, not just the same photo_url reused). Returns
+// {ok, targetId, targetWasNew, primaryDelta} so the caller can build a usage_log entry that
+// remembers enough to undo this exact move later (see restoreUsageLogEntry).
+async function performLocationMove(it, amount, unit, targetLocation){
+  var primaryDelta = primaryEquivalentAmount(it, amount, unit);
+  if(primaryDelta == null) return {ok:false};
+  var dedResult = deductFromItem(it, amount, unit);
+  if(!dedResult.ok) return {ok:false};
+  var key = itemGroupKey(it);
+  var twin = state.items.find(function(i){
+    return !i.archived && i.id!==it.id && itemGroupKey(i)===key && (i.location||'')===(targetLocation||'');
+  });
+  if(twin){
+    applyPrimaryEquivalentDelta(twin, primaryDelta);
+    return {ok:true, targetId:twin.id, targetWasNew:false, primaryDelta:primaryDelta};
+  }
+  var clone = JSON.parse(JSON.stringify(it));
+  clone.id = uid();
+  clone.location = targetLocation;
+  clone.primary_qty = primaryDelta;
+  (clone.secondary_units||[]).forEach(function(g){ g.qty = g.ratio ? primaryDelta/g.ratio : null; });
+  clone.usage_log = [];
+  clone.purchased_qty = primaryDelta;
+  clone.created_at = nowLocalIso();
+  clone.updated_at = nowLocalIso();
+  var srcPhoto = clone.photo_url;
+  clone.photo_url = '';
+  if(srcPhoto){
+    var newRef = await duplicatePhotoRef(srcPhoto);
+    clone.photo_url = newRef || '';
+  }
+  state.items.push(clone);
+  return {ok:true, targetId:clone.id, targetWasNew:true, primaryDelta:primaryDelta};
+}
+async function saveUsageLogEntry(itemId){
   var it = state.items.find(function(i){ return i.id===itemId; });
   if(!it) return;
   var d = state.usageDraft;
   if(d.amount == null || isNaN(d.amount) || d.amount <= 0){ showToast(t('usageNeedAmount')); return; }
   if(d.destination_type==='free' && !d.destination_text.trim()){ showToast(t('usageNeedDest')); return; }
   if(d.destination_type==='recipe' && !d.recipe_id){ showToast(t('usageNeedDest')); return; }
+  if(d.destination_type==='move_location' && !d.move_location){ showToast(t('usageNeedMoveLocation')); return; }
   it.usage_log = it.usage_log || [];
   var result;
+  if(d.destination_type==='move_location'){
+    // Editing into a move isn't offered in the UI (see renderUsageLogAdd) - guard against it
+    // here too in case this ever gets called some other way.
+    if(d._editingEntryId) return;
+    var moveResult = await performLocationMove(it, d.amount, d.unit, d.move_location);
+    var newEntry = {
+      id: uid(), date: d.date || todayStr(), destination_type:'move_location',
+      destination_text: d.move_location, recipe_id:'', amount: d.amount, unit: d.unit,
+      target_item_id: moveResult.targetId, target_was_new: moveResult.targetWasNew,
+      primary_delta: moveResult.primaryDelta, created_at: nowLocalIso()
+    };
+    it.usage_log.push(newEntry);
+    saveItems();
+    showToast(moveResult.ok ? t('usageMovedToast') : t('usageNoConversionWarn'));
+    navigate('usageLog', {id:itemId});
+    return;
+  }
   if(d._editingEntryId){
     var entry = it.usage_log.find(function(e){ return e.id===d._editingEntryId; });
     if(entry){
@@ -4122,7 +4216,7 @@ function saveUsageLogEntry(itemId){
       result = {ok:false};
     }
   } else {
-    var newEntry = {
+    var freeEntry = {
       id: uid(),
       date: d.date || todayStr(),
       destination_type: d.destination_type,
@@ -4132,7 +4226,7 @@ function saveUsageLogEntry(itemId){
       unit: d.unit,
       created_at: nowLocalIso()
     };
-    it.usage_log.push(newEntry);
+    it.usage_log.push(freeEntry);
     result = deductFromItem(it, d.amount, d.unit);
   }
   saveItems();
@@ -4145,7 +4239,25 @@ function restoreUsageLogEntry(itemId, entryId){
   if(!it) return;
   var entry = (it.usage_log||[]).find(function(e){ return e.id===entryId; });
   if(!entry) return;
-  addBackToItem(it, entry.amount, entry.unit);
+  if(entry.destination_type==='move_location'){
+    // Undoing a move has to touch the OTHER item too, not just this one: put the moved amount
+    // back on the source (same as any other undo), then reverse whatever happened on the
+    // destination side - delete it if it was created solely for this move (nothing else could
+    // have touched a brand-new item in between), or subtract the exact same amount back out of
+    // it if it was merged into an already-existing item there.
+    addBackToItem(it, entry.amount, entry.unit);
+    var target = state.items.find(function(i){ return i.id===entry.target_item_id; });
+    if(target){
+      if(entry.target_was_new){
+        state.items = state.items.filter(function(i){ return i.id!==target.id; });
+        if(target.photo_url) deletePhotoRef(target.photo_url);
+      } else if(entry.primary_delta != null){
+        applyPrimaryEquivalentDelta(target, -entry.primary_delta);
+      }
+    }
+  } else {
+    addBackToItem(it, entry.amount, entry.unit);
+  }
   it.usage_log = (it.usage_log||[]).filter(function(e){ return e.id!==entryId; });
   saveItems();
   closeItemSwipeRow(entryId);
@@ -5154,8 +5266,21 @@ function pickInventoryGroupHtml(key, group){
   var expanded = !!(state.pickExpandedGroups && state.pickExpandedGroups[key]);
   var expiryText = rep.expiry_date ? (t('fieldExpiry')+' '+fmtDateDots(rep.expiry_date)) : '';
   var batchCountText = group.length+(state.lang==='zh'?'个批次':' batches');
+  // Same product split across more than one location (e.g. after moving part of a batch - see
+  // performLocationMove) is a real, expected shape now, not just a data-entry accident - showing
+  // just the representative batch's single location here would misleadingly suggest every batch
+  // in this collapsed group lives in the same place. Only fall back to a plain location name
+  // when every batch in the group genuinely agrees on one.
+  var distinctLocations = [];
+  group.forEach(function(it){
+    var loc = it.location || '';
+    if(distinctLocations.indexOf(loc) === -1) distinctLocations.push(loc);
+  });
+  var locationText = (distinctLocations.length===1 && distinctLocations[0])
+    ? distinctLocations[0]
+    : (distinctLocations.length>1 ? (state.lang==='zh' ? ('分布于'+distinctLocations.length+'个位置') : ('across '+distinctLocations.length+' locations')) : '');
   var header = '<div class="picker-item" onclick="togglePickInventoryGroup('+aj(key)+')">'+
-    '<div><div class="pname">'+itemDisplayName(rep)+'</div><div class="pmeta">'+batchCountText+(rep.location?' · '+esc(rep.location):'')+(expiryText?' · '+esc(expiryText):'')+'</div></div>'+
+    '<div><div class="pname">'+itemDisplayName(rep)+'</div><div class="pmeta">'+batchCountText+(locationText?' · '+esc(locationText):'')+(expiryText?' · '+esc(expiryText):'')+'</div></div>'+
     ic('chevronRight',18,'style="transform:rotate('+(expanded?'90':'0')+'deg);transition:transform .15s;flex-shrink:0;"')+
   '</div>';
   if(!expanded) return header;
