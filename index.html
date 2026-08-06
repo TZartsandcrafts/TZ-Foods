@@ -29,6 +29,8 @@
     --danger-bg:#F7DCD3;
     --fresh:#6B7A3D;
     --fresh-bg:#E9EDDC;
+    --usedup:#9C8A78;
+    --usedup-bg:#EDE7DE;
     --line:#E3D2B4;
     --shadow:0 1px 3px rgba(74,46,30,0.08);
     --radius:14px;
@@ -147,6 +149,7 @@
   .item-card.card-expired{ border-left-color:var(--danger); }
   .item-card.card-soon{ border-left-color:var(--warn); }
   .item-card.card-fresh{ border-left-color:var(--fresh); }
+  .item-card.card-usedup{ border-left-color:var(--usedup); opacity:0.75; }
   .item-card:active{ transform:scale(0.99); }
   .item-card-main{ display:flex; align-items:flex-start; gap:12px; }
   .item-icon{
@@ -162,11 +165,13 @@
   .expiry-line.lvl-expired{ color:var(--danger); }
   .expiry-line.lvl-soon{ color:var(--warn); }
   .expiry-line.lvl-fresh{ color:var(--fresh); }
+  .expiry-line.lvl-usedup{ color:var(--usedup); }
   .expiry-date-highlight{ background:var(--danger-bg); border-radius:5px; padding:1px 6px; }
   .status-badge{ font-size:12.5px; font-weight:500; padding:5px 10px; border-radius:8px; flex-shrink:0; white-space:nowrap; }
   .status-expired{ border-color:var(--danger); color:var(--danger); background:var(--danger-bg); }
   .status-soon{ border-color:var(--warn); color:var(--warn); background:var(--warn-bg); }
   .status-fresh{ border-color:var(--fresh); color:var(--fresh); background:var(--fresh-bg); }
+  .status-usedup{ border-color:var(--usedup); color:var(--usedup); background:var(--usedup-bg); }
   /* ---------- Item card swipe-to-reveal actions ---------- */
   .item-card-swipe{ position:relative; overflow:hidden; border-radius:12px; margin-bottom:10px; }
   .item-card-swipe .item-card{ margin-bottom:0; position:relative; z-index:1; background:var(--card-bg); transition:transform .22s ease; touch-action:pan-y; border-radius:0; -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
@@ -470,6 +475,21 @@
   .modal-sheet h2{ font-size:18px; font-weight:600; margin-bottom:16px; }
   .modal-close{ position:absolute; right:18px; top:16px; }
 
+  /* ---------- Long-press "copy item" pill ----------
+     Deliberately NOT a modal: lives in its own root sibling to #app (see body), so showing/
+     hiding it never touches #app's DOM and the inventory list underneath is never re-rendered
+     or scrolled - it was never actually left. */
+  .copy-pill-overlay{ position:fixed; inset:0; z-index:58; background:rgba(74,46,30,0.06); }
+  .copy-pill{
+    position:fixed; z-index:59; display:flex; align-items:center; gap:6px;
+    background:var(--cocoa); color:#fff; border:none; border-radius:999px;
+    padding:11px 18px; font-size:14.5px; font-weight:600; white-space:nowrap;
+    box-shadow:0 6px 18px rgba(74,46,30,0.35); cursor:pointer;
+    animation:copyPillIn .13s ease;
+  }
+  .copy-pill svg{ stroke:#fff; flex-shrink:0; }
+  @keyframes copyPillIn{ from{ opacity:0; transform:scale(0.85); } to{ opacity:1; transform:scale(1); } }
+
   /* ---------- Nutrition grid ---------- */
   .nutri-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
   /* ---------- Nutrition Facts box (North American label style) ---------- */
@@ -635,6 +655,7 @@
 <div id="sidebar-overlay" onclick="closeSidebar()"></div>
 <div id="sidebar-drawer"></div>
 <div id="modal-root"></div>
+<div id="copy-pill-root"></div>
 <div id="toast-root"></div>
 <script>
 'use strict';
@@ -754,7 +775,7 @@ var I18N = {
     sortLabel:'排序', sortExpiry:'过期', sortName:'名称', sortPurchase:'购买', sortCreated:'录入',
     emptyInventory:'库存还是空的', emptyInventoryHint:'点击下方按钮扫码或手动添加第一件食材吧',
     scanAdd:'扫码添加', manualAdd:'手动添加',
-    statusExpired:'已过期', statusSoonPrefix:'', statusSoonDays:'天内', statusFresh:'新鲜', statusToday:'今天到期',
+    statusExpired:'已过期', statusSoonPrefix:'', statusSoonDays:'天内', statusFresh:'新鲜', statusToday:'今天到期', statusUsedUp:'已用完',
     // item form
     itemFormTitleAdd:'添加食材', itemFormTitleEdit:'编辑食材',
     fieldName:'名称', fieldNamePh:'例如：鸡蛋', fieldBrand:'品牌', fieldBrandPh:'例如：某某牧场',
@@ -822,6 +843,7 @@ var I18N = {
     usageShowMore:'展开更早的记录', usageShowLess:'收起',
     usageSaveBtn:'保存使用记录', usageNeedAmount:'请填写使用数量', usageNeedDest:'请填写去向或选择食谱',
     usageDeductedToast:'已记录，库存已扣减', usageNoConversionWarn:'这个单位没法直接从库存里扣减，记录会保存但不会自动扣库存',
+    usageInsufficientWarn:'已记录，但库存不够扣，已经扣到0了',
     usageLogEditTitle:'编辑使用记录', usageRestoreBtn:'恢复', usageRestoreConfirm:'恢复后这条记录会被取消，之前扣掉的数量会加回库存，确定吗？',
     usageRestoredToast:'已恢复库存并取消该记录', usageDeleteConfirm:'确定删除这条记录吗？删除后不会把数量加回库存。', usageDeletedToast:'已删除该记录',
     deleteConfirm:'确定要删除吗？此操作无法撤销。',
@@ -856,7 +878,7 @@ var I18N = {
     cookConfirmHint:'以下食材将按用量从库存扣减，确认无误后点击确认。',
     cookConfirmNone:'该食材来自外部食材库，不扣减库存',
     cookConfirmNoConversion:'单位无法自动换算，请稍后手动调整库存',
-    cookSuccess:'已扣减库存', cookConfirmBtn:'确认扣减', 
+    cookSuccess:'已扣减库存', cookSuccessInsufficient:'已记录，但部分食材库存不够扣，已经扣到0了', cookConfirmBtn:'确认扣减', 
     // settings
     settingsTitle:'设置', language:'语言', manageCategories:'管理分类', manageLocations:'管理存放位置',
     reminderDays:'临期预警天数', reminderDaysHint:'有效期在此天数内会显示"临期"提醒',
@@ -908,7 +930,7 @@ var I18N = {
     exportNotesBtn:'导出笔记数据', importNotesBtn:'恢复笔记数据',
     importNotesConfirmMsg:'检测到备份文件包含 {n} 条笔记。"合并"会保留当前设备和备份文件中的所有数据，同一条笔记以最近修改时间为准；"替换"会完全清空当前数据后用备份覆盖，无法撤销。',
     // sidebars
-    statTotal:'总数', statExpired:'过期', statSoon:'临期',
+    statTotal:'总数', statExpired:'过期', statSoon:'临期', statUsedUp:'已用完',
     fieldRecipeCategory:'分类', fieldRecipeSubCategory:'子分类',
     recipeCategoryLabel:'分类',
     // archive
@@ -924,8 +946,7 @@ var I18N = {
     bulkSelectAll:'全选', bulkSelectNone:'取消全选',
     bulkPickCategoryTitle:'设为分类', bulkPickLocationTitle:'设为位置',
     bulkAssignDone:'已批量设置',
-    copyItemModalHint:'长按复制的这条食材会作为新条目打开编辑页，所有内容（含照片）都已复制过来，可以直接改动后保存。',
-    copyItemConfirmBtn:'复制为新条目',
+    copyItemConfirmBtn:'复制条目',
     editTagTitle:'重命名', tagDuplicate:'该名称已存在', renameBtn:'重命名',
     // price history
     navPriceHistory:'历史', priceHistoryTitle:'历史价格', searchHistoryPlaceholder:'输入食材名称查看价格走势',
@@ -947,7 +968,7 @@ var I18N = {
     sortLabel:'Sort', sortExpiry:'Expiry', sortName:'Name', sortPurchase:'Purchase date', sortCreated:'Date added',
     emptyInventory:'Your pantry is empty', emptyInventoryHint:'Tap below to scan or manually add your first item',
     scanAdd:'Scan to add', manualAdd:'Add manually',
-    statusExpired:'Expired', statusSoonPrefix:'', statusSoonDays:'d left', statusFresh:'Fresh', statusToday:'Due today',
+    statusExpired:'Expired', statusSoonPrefix:'', statusSoonDays:'d left', statusFresh:'Fresh', statusToday:'Due today', statusUsedUp:'Used up',
     itemFormTitleAdd:'Add item', itemFormTitleEdit:'Edit item',
     fieldName:'Name', fieldNamePh:'e.g. Eggs', fieldBrand:'Brand', fieldBrandPh:'e.g. Farm Co.',
     fieldSource:'Source', fieldSourcePh:'e.g. Costco, gift, homegrown',
@@ -1013,6 +1034,7 @@ var I18N = {
     usageShowMore:'Show earlier entries', usageShowLess:'Show less',
     usageSaveBtn:'Save usage entry', usageNeedAmount:'Enter how much was used', usageNeedDest:'Enter where it went, or pick a recipe',
     usageDeductedToast:'Logged - stock updated', usageNoConversionWarn:'This unit can\'t be deducted from stock directly; the entry saves but stock won\'t auto-update',
+    usageInsufficientWarn:'Logged, but stock ran out before covering this - it is at 0 now',
     usageLogEditTitle:'Edit Usage Entry', usageRestoreBtn:'Restore', usageRestoreConfirm:'This will cancel the entry and add the amount back to stock. Continue?',
     usageRestoredToast:'Restored to stock and removed the entry', usageDeleteConfirm:'Delete this entry? Stock will not be added back.', usageDeletedToast:'Entry deleted',
     deleteConfirm:'Are you sure? This cannot be undone.',
@@ -1044,7 +1066,7 @@ var I18N = {
     cookConfirmHint:'These items will be deducted from inventory based on the amount used. Confirm to proceed.',
     cookConfirmNone:'External ingredient, not deducted from inventory',
     cookConfirmNoConversion:'Unit cannot be auto-converted, please adjust inventory manually later',
-    cookSuccess:'Inventory updated', cookConfirmBtn:'Confirm deduction',
+    cookSuccess:'Inventory updated', cookSuccessInsufficient:'Logged, but some ingredients ran out before covering this', cookConfirmBtn:'Confirm deduction',
     settingsTitle:'Settings', language:'Language', manageCategories:'Manage categories', manageLocations:'Manage locations',
     reminderDays:'Expiry warning days', reminderDaysHint:'Items expiring within this many days show as "soon"',
     manageCategoriesTitle:'Manage categories', manageLocationsTitle:'Manage locations',
@@ -1094,7 +1116,7 @@ var I18N = {
     exportNotesBtn:'Export notes data', importNotesBtn:'Restore notes data',
     importNotesConfirmMsg:'The backup file contains {n} notes. "Merge" keeps all data from both this device and the backup, using the most recently modified version of each note. "Replace" wipes current data and overwrites it with the backup - this cannot be undone.',
     // sidebars
-    statTotal:'Total items', statExpired:'Expired', statSoon:'Expiring soon',
+    statTotal:'Total items', statExpired:'Expired', statSoon:'Expiring soon', statUsedUp:'Used up',
     fieldRecipeCategory:'Category', fieldRecipeSubCategory:'Sub-category',
     recipeCategoryLabel:'Category',
     // archive
@@ -1110,8 +1132,7 @@ var I18N = {
     bulkSelectAll:'Select all', bulkSelectNone:'Deselect all',
     bulkPickCategoryTitle:'Set category', bulkPickLocationTitle:'Set location',
     bulkAssignDone:'Applied to selected items',
-    copyItemModalHint:'Opens a new item form pre-filled with everything from this item (including its photo) - edit anything before saving.',
-    copyItemConfirmBtn:'Copy as new item',
+    copyItemConfirmBtn:'Copy item',
     editTagTitle:'Rename', tagDuplicate:'This name already exists', renameBtn:'Rename',
     // price history
     navPriceHistory:'History', priceHistoryTitle:'Price History', searchHistoryPlaceholder:'Enter an item name to see its price trend',
@@ -1513,7 +1534,17 @@ function daysUntil(dateStr){
   var diff = Math.round((target-today)/86400000);
   return diff;
 }
+// A batch that's been fully used up (quantity deducted down to 0, whether via 取用, recipe
+// cooking, or a location-move that took the last of it) is a genuinely different situation
+// from "still have some, just check the date" - so it gets its own status level below, checked
+// ahead of and independent from expiry, rather than folding it into whatever the date happens
+// to say. null (quantity never tracked at all) is deliberately NOT treated as used-up - only an
+// item that actually reached zero counts.
+function isUsedUp(item){
+  return item.primary_qty != null && item.primary_qty <= 1e-9;
+}
 function expiryStatus(item){
+  if(isUsedUp(item)) return {level:'usedup', label: t('statusUsedUp')};
   if(!item.expiry_date) return {level:'fresh', label: t('unset')};
   var d = daysUntil(item.expiry_date);
   if(d < 0) return {level:'expired', label: t('statusExpired'), days:d};
@@ -1592,13 +1623,19 @@ function primaryEquivalentAmount(item, amount, unit){
   if(!target) return null;
   return amount * target.toPrimaryRatio;
 }
-// Attempts to deduct `amount` of `unit` from an inventory item. Returns {ok, reason}
+// Attempts to deduct `amount` of `unit` from an inventory item. Returns {ok, reason, insufficient}.
+// `insufficient` (true when the item didn't actually have this much left) is deliberately
+// separate from `ok` - the deduction still happens either way (floored at 0, same as always;
+// this app has never blocked recording real-world usage just because tracked stock ran out
+// first, and shouldn't start now), but callers can use the flag to say so honestly instead of
+// reporting a plain, unqualified "deducted" success when there was nothing left to deduct.
 function deductFromItem(item, amount, unit){
-  if(amount <= 0) return {ok:true};
+  if(amount <= 0) return {ok:true, insufficient:false};
   var amountInPrimary = primaryEquivalentAmount(item, amount, unit);
-  if(amountInPrimary == null) return {ok:false, reason:'no_conversion'};
+  if(amountInPrimary == null) return {ok:false, reason:'no_conversion', insufficient:false};
+  var insufficient = (item.primary_qty||0) < amountInPrimary - 1e-9;
   applyPrimaryEquivalentDelta(item, -amountInPrimary);
-  return {ok:true};
+  return {ok:true, insufficient:insufficient};
 }
 // Mirrors deductFromItem exactly but adds instead of subtracts - used when a usage-log entry
 // is restored (undone) or edited, to put the previously-deducted amount back before applying
@@ -1644,9 +1681,19 @@ function qtyDisplayLines(item){
 function activeItems(){
   return state.items.filter(function(it){ return !it.archived; });
 }
+// Raw (unescaped) "brand name" text - for the few spots that need the plain string itself
+// (e.g. showModal's title param, which does its own escaping - see itemDisplayName below for
+// why handing it already-escaped text double-escapes and garbles any name with symbols in it).
+function itemDisplayNameRaw(it){
+  return (it.brand ? (it.brand+' ') : '') + (it.name||'');
+}
+// Pre-escaped "brand name" text, safe to concatenate directly into an HTML string - this is
+// what nearly every call site wants, since nearly every call site is building HTML directly.
+// NEVER pass this into showModal's title (or anywhere else that escapes its input itself) -
+// use itemDisplayNameRaw for that, or the name will end up double-escaped and garbled for any
+// name containing &, <, >, quotes, etc.
 function itemDisplayName(it){
-  var n = (it.brand ? (it.brand+' ') : '') + (it.name||'');
-  return esc(n);
+  return esc(itemDisplayNameRaw(it));
 }
 function archiveItem(id){
   var it = state.items.find(function(i){ return i.id===id; });
@@ -2144,11 +2191,12 @@ function deleteItemFromSwipe(id){ closeItemSwipeRow(id); deleteItemDetail(id); }
 
 /* ---------- Long-press an inventory item to duplicate it ----------
    Holding down on any item card (single or inside an expanded group) for ~550ms without
-   moving pops up a small "copy as new entry" menu (openItemCopyMenu). Independent listener
-   from initItemSwipeGestures above (same .item-card-swipe delegation target), so it keeps
-   working after every full innerHTML re-render same as the swipe gestures do. Reuses
-   itemSwipeSwallowClick (declared above) so the tap-release that follows a fired long-press
-   doesn't also fire a click that navigates into the item detail page underneath the menu. */
+   moving pops up a small floating "复制条目" pill right at the press point (showCopyPill) -
+   not a modal, see its own comment for why. Independent listener from initItemSwipeGestures
+   above (same .item-card-swipe delegation target), so it keeps working after every full
+   innerHTML re-render same as the swipe gestures do. Reuses itemSwipeSwallowClick (declared
+   above) so the tap-release that follows a fired long-press doesn't also fire a click that
+   navigates into the item detail page underneath the pill. */
 (function initItemLongPress(){
   var LONG_PRESS_MS = 550, MOVE_TOLERANCE = 10;
   var timer = null, sx = 0, sy = 0, pressItemId = null;
@@ -2163,7 +2211,7 @@ function deleteItemFromSwipe(id){ closeItemSwipeRow(id); deleteItemDetail(id); }
     timer = setTimeout(function(){
       timer = null;
       itemSwipeSwallowClick = true; // swallow the click that touchend is about to fire
-      openItemCopyMenu(pressItemId);
+      showCopyPill(pressItemId, sx, sy);
     }, LONG_PRESS_MS);
   }, {passive:true});
   document.addEventListener('touchmove', function(e){
@@ -2534,7 +2582,15 @@ function renderItemListHtml(items){
 function itemGroupKey(it){
   return [(it.name||'').trim(), (it.brand||'').trim(), (it.barcode||'').trim()].join('\u0001');
 }
-function expiryStatusRank(level){ return level==='expired' ? 2 : (level==='soon' ? 1 : 0); }
+// Higher = takes priority when picking which batch "represents" a collapsed group row.
+// usedup sits below fresh on purpose: a batch with nothing left shouldn't be the one
+// representing a group that has another, still-actually-in-stock batch in it.
+function expiryStatusRank(level){
+  if(level==='expired') return 3;
+  if(level==='soon') return 2;
+  if(level==='fresh') return 1;
+  return 0; // usedup
+}
 // Which batch's expiry "represents" a collapsed group row: whichever is most urgent (expired
 // beats soon beats fresh), tie-broken by whichever expiry date comes soonest.
 function representativeGroupItem(group){
@@ -2694,24 +2750,29 @@ function applyBulkAssign(kind, value){
   showToast(t('bulkAssignDone'));
   render();
 }
-// Reached by tapping any of the three stat capsules (total / expired / expiring soon) at
-// the top of the inventory sidebar — opens a dedicated full-page list for that slice,
-// using the same editable item cards as the main inventory list.
+// Reached by tapping any of the four stat capsules (total / expired / expiring soon / used up)
+// at the top of the inventory sidebar — opens a dedicated full-page list for that slice, using
+// the same editable item cards as the main inventory list.
 function renderStatFilteredList(){
   var level = state.params.level || 'total';
   var items = activeItems().filter(function(it){
     if(level==='expired') return expiryStatus(it).level==='expired';
     if(level==='soon') return expiryStatus(it).level==='soon';
+    if(level==='usedup') return expiryStatus(it).level==='usedup';
     return true;
   });
-  if(level==='total'){
+  if(level==='usedup'){
+    // Nothing left, so expiry date isn't the useful ordering here - most recently emptied
+    // first (updated_at gets touched by every deduction, so this doubles as "ran out when").
+    items = items.slice().sort(function(a,b){ return (b.updated_at||'').localeCompare(a.updated_at||''); });
+  } else if(level==='total'){
     items = items.slice().sort(function(a,b){ return (b.created_at||'').localeCompare(a.created_at||''); });
   } else {
     // Both "expired" (most overdue first) and "soon" (closest to expiring first) are just
     // ascending expiry_date within their already-filtered subset.
     items = items.slice().sort(function(a,b){ return (a.expiry_date||'').localeCompare(b.expiry_date||''); });
   }
-  var titleKey = level==='expired' ? 'statExpired' : (level==='soon' ? 'statSoon' : 'statTotal');
+  var titleKey = level==='expired' ? 'statExpired' : (level==='soon' ? 'statSoon' : (level==='usedup' ? 'statUsedUp' : 'statTotal'));
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'home\')">'+ic('back',22)+'</button><h1>📦 '+t(titleKey)+'</h1></div>'+
   '<div class="content">'+renderItemListHtml(items)+'</div>'+
@@ -2732,10 +2793,12 @@ function renderHomeSidebarContent(){
   var total = activeItems().length;
   var expired = activeItems().filter(function(it){ return expiryStatus(it).level==='expired'; }).length;
   var soon = activeItems().filter(function(it){ return expiryStatus(it).level==='soon'; }).length;
+  var usedup = activeItems().filter(function(it){ return expiryStatus(it).level==='usedup'; }).length;
   var statsHtml = '<div class="sidebar-stat-row">'+
     '<div class="sidebar-stat-card clickable" onclick="openHomeStatFilter(\'total\')"><div class="sidebar-stat-num">'+total+'</div><div class="sidebar-stat-label">'+t('statTotal')+'</div></div>'+
     '<div class="sidebar-stat-card clickable" onclick="openHomeStatFilter(\'expired\')"><div class="sidebar-stat-num" style="color:var(--danger);">'+expired+'</div><div class="sidebar-stat-label">'+t('statExpired')+'</div></div>'+
     '<div class="sidebar-stat-card clickable" onclick="openHomeStatFilter(\'soon\')"><div class="sidebar-stat-num" style="color:var(--warn);">'+soon+'</div><div class="sidebar-stat-label">'+t('statSoon')+'</div></div>'+
+    '<div class="sidebar-stat-card clickable" onclick="openHomeStatFilter(\'usedup\')"><div class="sidebar-stat-num" style="color:var(--usedup);">'+usedup+'</div><div class="sidebar-stat-label">'+t('statUsedUp')+'</div></div>'+
   '</div>';
   var catOpen = !state.home.sidebarCollapsed.category;
   var locOpen = !state.home.sidebarCollapsed.location;
@@ -2848,15 +2911,31 @@ function blankItemDraft(){
     photo_url:'', created_at: nowLocalIso(), updated_at: nowLocalIso()
   };
 }
-// Long-press on an inventory item card (see initItemLongPress) opens this small confirm
-// menu instead of jumping straight into a duplicate - a stray long-press while scrolling
-// shouldn't silently spawn a new item.
-function openItemCopyMenu(id){
+// Long-press on an inventory item card (see initItemLongPress) shows this small floating pill
+// right at the press point instead of jumping straight into a duplicate - a stray long-press
+// while scrolling shouldn't silently spawn a new item. Deliberately NOT a modal/showModal: it
+// lives in its own DOM root (#copy-pill-root, a sibling of #app - see body), so showing or
+// dismissing it never re-renders or touches #app at all. That's what makes "tap anywhere else
+// to dismiss and land right back where you were, scroll position and all" free - the inventory
+// list under the pill was never actually left or re-rendered, just briefly covered.
+function showCopyPill(id, x, y){
+  var root = document.getElementById('copy-pill-root');
+  if(!root) return;
   var it = state.items.find(function(i){ return i.id===id; });
   if(!it) return;
-  var body = '<p class="hint">'+t('copyItemModalHint')+'</p>'+
-    '<button class="btn btn-primary" style="width:100%;margin-top:14px;" onclick="copyItemToNewForm('+aj(id)+')">'+ic('copy',16)+' '+t('copyItemConfirmBtn')+'</button>';
-  showModal(itemDisplayName(it), body);
+  var pillHalfWidth = 80, pillHeight = 46, margin = 10;
+  var vw = window.innerWidth, vh = window.innerHeight;
+  var left = Math.min(Math.max(x - pillHalfWidth, margin), vw - pillHalfWidth*2 - margin);
+  var top = Math.min(Math.max(y - pillHeight - 14, margin), vh - pillHeight - margin);
+  root.innerHTML =
+    '<div class="copy-pill-overlay" onclick="hideCopyPill()"></div>'+
+    '<button class="copy-pill" style="left:'+left+'px;top:'+top+'px;" onclick="event.stopPropagation();copyItemToNewForm('+aj(id)+')">'+
+      ic('copy',16)+'<span>'+esc(t('copyItemConfirmBtn'))+'</span>'+
+    '</button>';
+}
+function hideCopyPill(){
+  var root = document.getElementById('copy-pill-root');
+  if(root) root.innerHTML = '';
 }
 // Builds a prefilled draft from an existing item and opens the item form on it, same as
 // tapping "+ 新增" but pre-filled instead of blank. Every field is copied as-is (per the
@@ -2866,7 +2945,7 @@ function openItemCopyMenu(id){
 // not meaningful to carry over to a new one). The photo needs special handling - see
 // duplicatePhotoRef's comment for why it can't just reuse the same photo_url reference.
 function copyItemToNewForm(id){
-  closeModal();
+  hideCopyPill();
   var existing = state.items.find(function(i){ return i.id===id; });
   if(!existing) return;
   var clone = JSON.parse(JSON.stringify(existing));
@@ -4230,7 +4309,7 @@ async function saveUsageLogEntry(itemId){
     result = deductFromItem(it, d.amount, d.unit);
   }
   saveItems();
-  showToast(result.ok ? t('usageDeductedToast') : t('usageNoConversionWarn'));
+  showToast(!result.ok ? t('usageNoConversionWarn') : (result.insufficient ? t('usageInsufficientWarn') : t('usageDeductedToast')));
   navigate('usageLog', {id:itemId});
 }
 function restoreUsageLogEntry(itemId, entryId){
@@ -5303,7 +5382,7 @@ function pickInventoryItem(id){
   var it = state.items.find(function(i){ return i.id===id; });
   if(!it) return;
   var unitOpts = recipeUnitOptionsForItem(it);
-  showModal(esc(itemDisplayName(it)),
+  showModal(itemDisplayNameRaw(it),
     '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="number" inputmode="decimal" id="ing-amount" placeholder="-"></div>'+
     '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u,idx){ return '<div class="tag-option '+(idx===0?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+u+'</div>'; }).join('')+'</div></div>'+
     '<button class="btn btn-primary" onclick="confirmAddIngredient(\'inventory\','+aj(id)+','+aj(it.name)+')">'+t('add')+'</button>'
@@ -5921,8 +6000,11 @@ function openCookConfirm(recipeId){
     if(!item){
       return {text: esc(ri.name_snapshot)+': '+fmtNum(ri.amount,1)+' '+esc(ri.unit), note:(state.lang==='zh'?'(已从库存中移除)':'(removed from inventory)')};
     }
-    var canDeduct = resolveDeductionTarget(item, ri.unit) != null;
-    return {text: esc(item.name)+': '+fmtNum(ri.amount,1)+' '+esc(ri.unit), note: canDeduct?'':t('cookConfirmNoConversion')};
+    var primaryNeeded = primaryEquivalentAmount(item, ri.amount, ri.unit);
+    var canDeduct = primaryNeeded != null;
+    var note = !canDeduct ? t('cookConfirmNoConversion')
+      : ((item.primary_qty||0) < primaryNeeded - 1e-9 ? t('usageInsufficientWarn') : '');
+    return {text: esc(item.name)+': '+fmtNum(ri.amount,1)+' '+esc(ri.unit), note: note};
   });
   var bodyHtml = '<p class="hint" style="margin-bottom:14px;">'+t('cookConfirmHint')+'</p>' +
     lines.map(function(l){
@@ -5933,15 +6015,25 @@ function openCookConfirm(recipeId){
 }
 function confirmCook(recipeId){
   var r = state.recipes.find(function(x){ return x.id===recipeId; });
+  var anyInsufficient = false;
   r.ingredients.forEach(function(ri){
-    if(ri.source_type!=='inventory') return;
+    if(ri.type==='group' || ri.source_type!=='inventory') return;
     var item = state.items.find(function(i){ return i.id===ri.source_id; });
     if(!item) return;
-    deductFromItem(item, ri.amount, ri.unit);
+    var result = deductFromItem(item, ri.amount, ri.unit);
+    if(result.insufficient) anyInsufficient = true;
+    // Cooking a recipe is real consumption just like a manual 取用 entry - it needs to show up
+    // in the item's usage log the same way, linked to this recipe, or the log silently misses
+    // every deduction that happened via "做过这道菜" instead of the manual form.
+    item.usage_log = item.usage_log || [];
+    item.usage_log.push({
+      id: uid(), date: todayStr(), destination_type:'recipe', destination_text:'',
+      recipe_id: r.id, amount: ri.amount, unit: ri.unit, created_at: nowLocalIso()
+    });
   });
   saveItems();
   closeModal();
-  showToast(t('cookSuccess'));
+  showToast(anyInsufficient ? t('cookSuccessInsufficient') : t('cookSuccess'));
   render();
 }
 
