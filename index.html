@@ -287,6 +287,11 @@
   }
   .sidebar-item-action-btn:active{ background:var(--cream-2); color:var(--deep-caramel); }
   .sidebar-item-action-btn.danger:active{ color:var(--danger); }
+  .sidebar-item-count{
+    font-size:11.5px; font-weight:600; color:var(--deep-caramel); background:var(--cream-2);
+    border-radius:999px; padding:2px 7px; flex-shrink:0; min-width:9px; text-align:center;
+  }
+  .sidebar-item.active .sidebar-item-count{ background:var(--almond); color:#fff; }
   .sidebar-drag-handle{
     width:22px; height:30px; display:flex; align-items:center; justify-content:center;
     color:#CBB59A; flex-shrink:0; touch-action:none; cursor:grab;
@@ -474,6 +479,11 @@
   }
   .modal-sheet h2{ font-size:18px; font-weight:600; margin-bottom:16px; }
   .modal-close{ position:absolute; right:18px; top:16px; }
+  /* Centered variant - same #modal-root/closeModal() as the bottom sheet, just a different
+     resting position for popups that read more like a dialog than a sheet (a short confirm,
+     a handful of lines to check before deducting stock) - see showCenterModal. */
+  .modal-wrap-center{ align-items:center; padding:20px; }
+  .modal-sheet-center{ border-radius:20px; max-height:80vh; width:100%; }
 
   /* ---------- Long-press "copy item" pill ----------
      Deliberately NOT a modal: lives in its own root sibling to #app (see body), so showing/
@@ -813,7 +823,7 @@ var I18N = {
     aiProxySettingLabel:'AI识别代理地址(可选)',
     aiProxySettingHint:'留空则"拍照识别"功能不显示。需要自建一个转发到Anthropic API的小型代理服务，详见README.md。',
     cloudSyncSectionTitle:'云同步（多设备实时共享，可选）',
-    cloudSyncIntro:'两个人各自在手机上安装本App，配对同一个"同步房间"后，一边改库存，另一边打开App会自动看到最新数据。需要先自己搭建一个免费的Firebase项目，具体步骤见README.md。',
+    cloudSyncIntro:'两个人各自在手机上安装本App，配对同一个"同步房间"后，一边改库存/食谱，另一边打开App会自动看到最新数据。需要先自己搭建一个免费的Firebase项目，具体步骤见README.md。',
     cloudSyncConfigLabel:'Firebase 项目配置',
     cloudSyncConfigPh:'粘贴从 Firebase 控制台复制的 firebaseConfig（JSON格式）',
     cloudSyncConfigHint:'从 Firebase 控制台"项目设置→常规→你的应用"里复制那一段 firebaseConfig 对象，整段粘贴进来即可。',
@@ -867,7 +877,7 @@ var I18N = {
     sectionOil:'额外用油(可选)', fieldOilAmount:'用油量(g)', fieldOilType:'油的种类',
     sectionCookedWeight:'成品重量(可选)', fieldCookedWeight:'成品总重量(g)',
     cookedWeightHint:'填写做完这道菜实际称重的重量，可显示"每100g成品热量"',
-    nutritionSummary:'营养总览',
+    nutritionSummary:'营养',
     perTotal:'总计', perServing:'每份', per100g:'每100g成品',
     noIngredientsYet:'还没有添加食材',
     pickFromInventory:'从库存中选择', pickExternal:'外部食材库', createNewIngredient:'+ 新建外部食材', editIngredientTitle:'编辑食材',
@@ -875,6 +885,7 @@ var I18N = {
     newIngName:'食材名称', newIngNutriHint:'请填写每100g/100ml的营养信息',
     // recipe detail
     cookThis:'我做了这道菜', cookConfirmTitle:'确认扣减库存',
+    nutriToggleExpand:'展开每100g成品 / 每份', nutriToggleCollapse:'收起',
     cookConfirmHint:'以下食材将按用量从库存扣减，确认无误后点击确认。',
     cookConfirmNone:'该食材来自外部食材库，不扣减库存',
     cookConfirmNoConversion:'单位无法自动换算，请稍后手动调整库存',
@@ -1005,7 +1016,7 @@ var I18N = {
     aiProxySettingLabel:'AI recognition proxy URL (optional)',
     aiProxySettingHint:'Leave blank to hide "Photo recognition". Requires your own small proxy that forwards to the Anthropic API — see README.md.',
     cloudSyncSectionTitle:'Cloud Sync (real-time, multi-device, optional)',
-    cloudSyncIntro:'Two people can each install this app and join the same "sync room" — when one side edits inventory, the other sees it automatically next time they open the app. Requires setting up a free Firebase project first; see README.md for steps.',
+    cloudSyncIntro:'Two people can each install this app and join the same "sync room" — when one side edits inventory or recipes, the other sees it automatically next time they open the app. Requires setting up a free Firebase project first; see README.md for steps.',
     cloudSyncConfigLabel:'Firebase project config',
     cloudSyncConfigPh:'Paste the firebaseConfig object copied from the Firebase console (JSON)',
     cloudSyncConfigHint:'Copy the firebaseConfig object from Firebase Console → Project settings → General → Your apps, and paste the whole thing here.',
@@ -1056,13 +1067,14 @@ var I18N = {
     sectionOil:'Extra oil (optional)', fieldOilAmount:'Oil amount (g)', fieldOilType:'Oil type',
     sectionCookedWeight:'Cooked weight (optional)', fieldCookedWeight:'Total cooked weight (g)',
     cookedWeightHint:'Weigh the finished dish to show calories per 100g of the final product.',
-    nutritionSummary:'Nutrition summary',
+    nutritionSummary:'Nutrition',
     perTotal:'Total', perServing:'Per serving', per100g:'Per 100g cooked',
     noIngredientsYet:'No ingredients added yet',
     pickFromInventory:'Choose from inventory', pickExternal:'External ingredient library', createNewIngredient:'+ New external ingredient', editIngredientTitle:'Edit ingredient',
     ingAmountLabel:'Amount', ingUnitLabel:'Unit',
     newIngName:'Ingredient name', newIngNutriHint:'Enter nutrition per 100g/100ml',
     cookThis:"I made this dish", cookConfirmTitle:'Confirm inventory deduction',
+    nutriToggleExpand:'Show per 100g cooked / per serving', nutriToggleCollapse:'Hide',
     cookConfirmHint:'These items will be deducted from inventory based on the amount used. Confirm to proceed.',
     cookConfirmNone:'External ingredient, not deducted from inventory',
     cookConfirmNoConversion:'Unit cannot be auto-converted, please adjust inventory manually later',
@@ -1165,6 +1177,7 @@ var state = {
   recipeCategoryGroups: JSON.parse(JSON.stringify(DEFAULT_RECIPE_CATEGORY_GROUPS)),
   recipesUI: { groupId:null, sub:null, expandedGroup:null },
   recipeFormUI: {},
+  recipeDetailUI: { nutriExpanded:false },
   archiveUI: { search:'' },
   statsUI: { search:'', rangeMode:'year', startDate:'', endDate:'', ran:false },
   historyUI: { search:'' },
@@ -1176,7 +1189,7 @@ var state = {
   scan: { running:false, stream:null, detector:null, resultDraft:null, mode:'camera' },
   cloudSyncEnabled: false, cloudSyncRoomCode: DEFAULT_CLOUD_SYNC_ROOM_CODE, cloudSyncConfig: DEFAULT_CLOUD_SYNC_CONFIG,
   cloudSyncStatus: 'idle', cloudSyncError: '', cloudSyncLastSyncedAt: null,
-  categoriesUpdatedAt: null, locationsUpdatedAt: null
+  categoriesUpdatedAt: null, locationsUpdatedAt: null, recipeCategoryGroupsUpdatedAt: null
 };
 
 /* ======================= STORAGE LAYER (standalone: localStorage) ======================= */
@@ -1214,8 +1227,10 @@ async function loadAll(){
     storageGet('units', []),
     storageGet('cloudSync', {enabled:false, roomCode:'', config:''}),
     storageGet('cloudSyncPushMap', {}),
-    storageGet('tagListsMeta', {categoriesUpdatedAt:null, locationsUpdatedAt:null}),
-    storageGet('cloudSyncMetaPushMap', {})
+    storageGet('tagListsMeta', {categoriesUpdatedAt:null, locationsUpdatedAt:null, recipeCategoryGroupsUpdatedAt:null}),
+    storageGet('cloudSyncMetaPushMap', {}),
+    storageGet('cloudSyncRecipePushMap', {}),
+    storageGet('cloudSyncIngredientPushMap', {})
   ]);
   state.items = results[0].map(migrateItem);
   state.categories = results[1];
@@ -1240,7 +1255,10 @@ async function loadAll(){
   var tagMeta = results[12] || {};
   state.categoriesUpdatedAt = tagMeta.categoriesUpdatedAt || null;
   state.locationsUpdatedAt = tagMeta.locationsUpdatedAt || null;
+  state.recipeCategoryGroupsUpdatedAt = tagMeta.recipeCategoryGroupsUpdatedAt || null;
   CLOUD.metaPushMap = results[13] || {};
+  CLOUD.recipePushMap = results[14] || {};
+  CLOUD.ingredientPushMap = results[15] || {};
   state.loaded = true;
 }
 // Old data shape had a single secondary_qty/secondary_unit/unit_ratio triplet per item. The
@@ -1298,23 +1316,37 @@ function saveItems(){
 function saveCategories(){
   state.categoriesUpdatedAt = nowLocalIso();
   var p = storageSet('categories', state.categories);
-  storageSet('tagListsMeta', {categoriesUpdatedAt: state.categoriesUpdatedAt, locationsUpdatedAt: state.locationsUpdatedAt});
+  storageSet('tagListsMeta', {categoriesUpdatedAt: state.categoriesUpdatedAt, locationsUpdatedAt: state.locationsUpdatedAt, recipeCategoryGroupsUpdatedAt: state.recipeCategoryGroupsUpdatedAt});
   cloudSyncPushMeta();
   return p;
 }
 function saveLocations(){
   state.locationsUpdatedAt = nowLocalIso();
   var p = storageSet('locations', state.locations);
-  storageSet('tagListsMeta', {categoriesUpdatedAt: state.categoriesUpdatedAt, locationsUpdatedAt: state.locationsUpdatedAt});
+  storageSet('tagListsMeta', {categoriesUpdatedAt: state.categoriesUpdatedAt, locationsUpdatedAt: state.locationsUpdatedAt, recipeCategoryGroupsUpdatedAt: state.recipeCategoryGroupsUpdatedAt});
   cloudSyncPushMeta();
   return p;
 }
-function saveIngredients(){ return storageSet('ingredients', state.ingredients); }
-function saveRecipes(){ return storageSet('recipes', state.recipes); }
+function saveIngredients(){
+  var p = storageSet('ingredients', state.ingredients);
+  cloudSyncPushIngredientChanges();
+  return p;
+}
+function saveRecipes(){
+  var p = storageSet('recipes', state.recipes);
+  cloudSyncPushRecipeChanges();
+  return p;
+}
 function saveSettings(){ return storageSet('settings', {lang:state.lang, reminderDays:state.reminderDays, aiProxyUrl:state.aiProxyUrl}); }
 function saveNotes(){ return storageSet('notes', state.notes); }
 function saveNoteCategories(){ return storageSet('noteCategories', state.noteCategories); }
-function saveRecipeCategoryGroups(){ return storageSet('recipeCategoryGroups', state.recipeCategoryGroups); }
+function saveRecipeCategoryGroups(){
+  state.recipeCategoryGroupsUpdatedAt = nowLocalIso();
+  var p = storageSet('recipeCategoryGroups', state.recipeCategoryGroups);
+  storageSet('tagListsMeta', {categoriesUpdatedAt: state.categoriesUpdatedAt, locationsUpdatedAt: state.locationsUpdatedAt, recipeCategoryGroupsUpdatedAt: state.recipeCategoryGroupsUpdatedAt});
+  cloudSyncPushMeta();
+  return p;
+}
 function saveUnits(){ return storageSet('units', state.units); }
 
 /* ---- Cross-instance data sync ----------------------------------------------------------
@@ -2803,12 +2835,23 @@ function renderHomeSidebarContent(){
   var catOpen = !state.home.sidebarCollapsed.category;
   var locOpen = !state.home.sidebarCollapsed.location;
   var toolsOpen = !state.home.sidebarCollapsed.tools;
+  // Counts shown as a small pill next to each category/location name - how many active
+  // (non-archived) items currently sit under it, computed once here rather than re-filtering
+  // activeItems() once per row.
+  var catCounts = {}, locCounts = {};
+  activeItems().forEach(function(it){
+    if(it.category) catCounts[it.category] = (catCounts[it.category]||0) + 1;
+    if(it.location) locCounts[it.location] = (locCounts[it.location]||0) + 1;
+  });
   var catHtml = sidebarSectionTitleHtml('fieldCategory', 'category', catOpen) +
     (catOpen ? ('<div class="sidebar-item '+(!state.home.category?'active':'')+'" onclick="sidebarSetHomeFilter(\'category\',null)">'+t('filterAll')+'</div>'+
     '<div class="sidebar-reorder-list" data-reorder-kind="category">'+
     state.categories.map(function(c){
       return '<div class="sidebar-item-row"><span class="sidebar-drag-handle">'+ic('grip',16)+'</span>'+
-        '<div class="sidebar-item '+(state.home.category===c?'active':'')+'" onclick="sidebarSetHomeFilter(\'category\','+aj(c)+')">'+esc(c)+'</div>'+
+        '<div class="sidebar-item '+(state.home.category===c?'active':'')+'" style="display:flex;align-items:center;justify-content:space-between;gap:6px;" onclick="sidebarSetHomeFilter(\'category\','+aj(c)+')">'+
+          '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(c)+'</span>'+
+          (catCounts[c] ? '<span class="sidebar-item-count">'+catCounts[c]+'</span>' : '')+
+        '</div>'+
         '<div class="sidebar-item-actions">'+
         '<button class="sidebar-item-action-btn" onclick="event.stopPropagation();openRenameTagModal(\'category\','+aj(c)+')">'+ic('edit',15)+'</button>'+
         '</div></div>';
@@ -2820,7 +2863,10 @@ function renderHomeSidebarContent(){
     '<div class="sidebar-reorder-list" data-reorder-kind="location">'+
     state.locations.map(function(l){
       return '<div class="sidebar-item-row"><span class="sidebar-drag-handle">'+ic('grip',16)+'</span>'+
-        '<div class="sidebar-item '+(state.home.location===l?'active':'')+'" onclick="sidebarSetHomeFilter(\'location\','+aj(l)+')">'+esc(l)+'</div>'+
+        '<div class="sidebar-item '+(state.home.location===l?'active':'')+'" style="display:flex;align-items:center;justify-content:space-between;gap:6px;" onclick="sidebarSetHomeFilter(\'location\','+aj(l)+')">'+
+          '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(l)+'</span>'+
+          (locCounts[l] ? '<span class="sidebar-item-count">'+locCounts[l]+'</span>' : '')+
+        '</div>'+
         '<div class="sidebar-item-actions">'+
         '<button class="sidebar-item-action-btn" onclick="event.stopPropagation();openRenameTagModal(\'location\','+aj(l)+')">'+ic('edit',15)+'</button>'+
         '</div></div>';
@@ -4636,6 +4682,20 @@ function showModal(title, bodyHtml){
     '</div>'+
   '</div>';
 }
+// Same #modal-root / closeModal() as showModal above, just resting in the middle of the screen
+// instead of docked to the bottom - for popups that are a quick decision to make (a confirm, a
+// short checklist before deducting stock) rather than a sheet's worth of form fields. Tapping
+// anywhere outside the sheet closes it, same as showModal.
+function showCenterModal(title, bodyHtml){
+  var root = document.getElementById('modal-root');
+  root.innerHTML = '<div class="modal-wrap modal-wrap-center" onclick="if(event.target===this) closeModal()">'+
+    '<div class="modal-sheet modal-sheet-center" style="position:relative;">'+
+      '<button class="icon-btn modal-close" onclick="closeModal()">'+ic('x',18)+'</button>'+
+      '<h2>'+esc(title)+'</h2>'+
+      bodyHtml+
+    '</div>'+
+  '</div>';
+}
 function closeModal(){
   var y = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
   if(document.activeElement && document.activeElement !== document.body && document.activeElement.blur) document.activeElement.blur();
@@ -5170,21 +5230,41 @@ function toggleRecipeSidebarGroup(id){
   refreshSidebarContent();
 }
 function renderRecipeSidebarContent(){
+  // Counts shown as a small pill next to each group/sub name - group counts include every
+  // recipe in that group regardless of sub (or with no sub at all); sub counts are just that
+  // one exact group+sub combination, matching getFilteredRecipes' own matching rule exactly.
+  var groupCounts = {}, subCounts = {};
+  state.recipes.forEach(function(r){
+    if(!r.category_group) return;
+    groupCounts[r.category_group] = (groupCounts[r.category_group]||0) + 1;
+    if(r.category_sub){
+      var k = r.category_group+'\u0001'+r.category_sub;
+      subCounts[k] = (subCounts[k]||0) + 1;
+    }
+  });
   var groupsHtml = state.recipeCategoryGroups.map(function(g){
     var expanded = state.recipesUI.expandedGroup === g.id;
     var groupActive = state.recipesUI.groupId===g.id && !state.recipesUI.sub;
     var subItems = (g.subs||[]).map(function(s){
       var active = state.recipesUI.groupId===g.id && state.recipesUI.sub===s;
+      var subCount = subCounts[g.id+'\u0001'+s];
       return '<div class="sidebar-item-row"><span class="sidebar-drag-handle">'+ic('grip',16)+'</span>'+
-        '<div class="sidebar-item '+(active?'active':'')+'" onclick="sidebarSetRecipeFilter('+aj(g.id)+','+aj(s)+')">'+esc(s)+'</div>'+
+        '<div class="sidebar-item '+(active?'active':'')+'" style="display:flex;align-items:center;justify-content:space-between;gap:6px;" onclick="sidebarSetRecipeFilter('+aj(g.id)+','+aj(s)+')">'+
+          '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(s)+'</span>'+
+          (subCount ? '<span class="sidebar-item-count">'+subCount+'</span>' : '')+
+        '</div>'+
         '<div class="sidebar-item-actions">'+
         '<button class="sidebar-item-action-btn" onclick="event.stopPropagation();openRenameRecipeSubModal('+aj(g.id)+','+aj(s)+')">'+ic('edit',15)+'</button>'+
         '</div></div>';
     }).join('');
+    var groupCount = groupCounts[g.id];
     return '<div class="sidebar-group">'+
       '<div class="sidebar-group-header sidebar-item-row">'+
         '<span class="sidebar-drag-handle">'+ic('grip',16)+'</span>'+
-        '<span class="sidebar-item '+(groupActive?'active':'')+'" style="flex:1;padding:8px 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" onclick="sidebarSetRecipeFilter('+aj(g.id)+',null)">'+esc(g.name)+'</span>'+
+        '<span class="sidebar-item '+(groupActive?'active':'')+'" style="flex:1;padding:8px 4px;display:flex;align-items:center;justify-content:space-between;gap:6px;min-width:0;" onclick="sidebarSetRecipeFilter('+aj(g.id)+',null)">'+
+          '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(g.name)+'</span>'+
+          (groupCount ? '<span class="sidebar-item-count">'+groupCount+'</span>' : '')+
+        '</span>'+
         '<div class="sidebar-item-actions">'+
         '<button class="sidebar-item-action-btn" onclick="event.stopPropagation();openRenameRecipeGroupModal('+aj(g.id)+')">'+ic('edit',15)+'</button>'+
         '</div>'+
@@ -5938,40 +6018,74 @@ function deleteRecipeFromForm(){
 }
 
 /* ======================= RECIPE DETAIL ======================= */
+// One Nutrition-Facts-style box (same look as an inventory item's label - nutritionFactsBoxHtml)
+// for a recipe's computed nutrition, since recipes have up to three different totals (whole
+// recipe / per 100g of finished product / per serving) rather than one item's one label.
+// basisLabelText replaces nutriBasisLabel's item-derived text with a plain caption since there's
+// no single "每___" to compute here. Recipes don't have vitamin/mineral totals computed (
+// calcRecipeNutrition only sums the core NUTRI_KEYS), so unlike nutritionFactsBoxHtml this never
+// appends extra rows.
+function recipeNutritionFactsBoxHtml(n, basisLabelText){
+  n = n || emptyNutrition();
+  var labels = nutriLabels();
+  var units = nutriUnits();
+  var calVal = (n.calories==null) ? '-' : fmtNum(n.calories,0);
+  var rowsHtml = NUTRI_TIER1_ROWS.filter(function(row){
+    return !row.optional || n[row.key]!=null;
+  }).map(function(row){
+    var v = n[row.key];
+    var displayVal = (v==null) ? '-' : (fmtNum(v,1)+units[row.key]);
+    var cls = 'nf-row' + (row.level===1?' indent1':'') + (row.level===2?' indent2':'') + (row.bold?' bold':'');
+    return '<div class="'+cls+'"><span>'+labels[row.key]+'</span><span class="nf-value">'+displayVal+'</span></div>';
+  }).join('');
+  return '<div class="nutrition-facts">'+
+    '<div class="nf-basis">'+esc(basisLabelText)+'</div>'+
+    '<div class="nf-calories-row"><span>'+t('nutriCalories')+'</span><span><span class="nf-calories-value">'+calVal+'</span><span class="nf-calories-unit">kcal</span></span></div>'+
+    rowsHtml+
+  '</div>';
+}
+function toggleRecipeNutriExpanded(){
+  state.recipeDetailUI.nutriExpanded = !state.recipeDetailUI.nutriExpanded;
+  render();
+}
 function renderRecipeDetail(){
   var id = state.params.id;
   var r = state.recipes.find(function(x){ return x.id===id; });
   if(!r) return renderRecipesList();
   var nutri = calcRecipeNutrition(r);
-  var labels = nutriLabels();
-  var units = nutriUnits();
-  function block(title, data){
-    return '<div style="margin-bottom:14px;"><div style="font-size:13px;font-weight:600;color:var(--almond);margin-bottom:8px;">'+title+'</div><div class="nutri-grid">'+
-      NUTRI_KEYS.map(function(k){
-        return '<div class="nutri-cell"><div class="val">'+fmtNum(data[k], k==='calories'?0:1)+' <span class="unit">'+units[k]+'</span></div><div class="lbl">'+labels[k]+'</div></div>';
-      }).join('')+'</div></div>';
+  var expanded = !!state.recipeDetailUI.nutriExpanded;
+  var nutriHtml = recipeNutritionFactsBoxHtml(nutri.total, t('perTotal'));
+  if(expanded){
+    if(nutri.per100g) nutriHtml += recipeNutritionFactsBoxHtml(nutri.per100g, t('per100g'));
+    nutriHtml += recipeNutritionFactsBoxHtml(nutri.perServing, t('perServing'));
   }
-  var nutriHtml = block(t('perTotal'), nutri.total) + block(t('perServing'), nutri.perServing);
-  if(nutri.per100g) nutriHtml += block(t('per100g'), nutri.per100g);
+  var toggleHtml = '<div class="list-row" style="cursor:pointer;justify-content:center;color:var(--deep-caramel);font-size:13.5px;" onclick="toggleRecipeNutriExpanded()">'+
+    (expanded ? t('nutriToggleCollapse') : t('nutriToggleExpand'))+' '+
+    ic('chevronRight',14,'style="transform:rotate('+(expanded?'270':'90')+'deg);transition:transform .15s;vertical-align:-1px;margin-left:2px;"')+
+  '</div>';
   var ingHtml = (r.ingredients||[]).map(function(ri){
     if(ri.type==='group'){
       return '<div class="ing-group-header" style="cursor:default;">'+esc(ri.name)+'</div>';
     }
-    return '<div class="ing-row" style="cursor:default;"><div class="ing-info"><div class="ing-name">'+esc(recipeIngredientDisplayName(ri))+'</div><div class="ing-amt">'+fmtNum(ri.amount,1)+' '+esc(ri.unit)+'</div></div></div>';
+    var linkedItem = ri.source_type==='inventory' ? state.items.find(function(i){ return i.id===ri.source_id; }) : null;
+    var attrs = linkedItem ? ' onclick="navigate(\'itemDetail\',{id:'+aj(ri.source_id)+'})" style="cursor:pointer;"' : ' style="cursor:default;"';
+    return '<div class="ing-row"'+attrs+'><div class="ing-info"><div class="ing-name">'+esc(recipeIngredientDisplayName(ri))+'</div><div class="ing-amt">'+fmtNum(ri.amount,1)+' '+esc(ri.unit)+'</div></div>'+
+      (linkedItem ? ic('chevronRight',16,'style="color:#B79B78;flex-shrink:0;"') : '')+
+    '</div>';
   }).join('');
   return '' +
   '<div class="page-header">'+
     '<button class="back-btn" onclick="navigate(\'recipes\')">'+ic('back',22)+'</button>'+
     '<h1>'+esc(r.name)+'</h1>'+
+    '<button class="icon-btn" onclick="confirmDeleteRecipeDetail('+aj(r.id)+')">'+ic('trash',18)+'</button>'+
     '<button class="icon-btn" onclick="openRecipeForm('+aj(r.id)+')">'+ic('edit',18)+'</button>'+
   '</div>'+
   '<div class="content">'+
-    '<p style="color:var(--deep-caramel);font-size:14px;margin-bottom:16px;">'+r.servings+' '+t('fieldServings')+' · '+recipeIngredientCount(r)+' '+t('sectionIngredients')+'</p>'+
-    '<div class="section-title" style="margin-top:0;">'+t('nutritionSummary')+'</div>'+
-    '<div class="form-group">'+nutriHtml+
-      (nutri.warnings && nutri.warnings.length ? '<p class="hint" style="color:var(--warn);">'+(state.lang==='zh'?'部分食材未计入(单位无法换算)：':'Excluded (unit not convertible): ')+nutri.warnings.map(esc).join('、')+'</p>' : '')+
+    '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:16px;">'+
+      '<p style="color:var(--deep-caramel);font-size:14px;margin:0;">'+r.servings+' '+t('fieldServings')+' · '+recipeIngredientCount(r)+' '+t('sectionIngredients')+'</p>'+
+      '<button class="btn btn-primary btn-sm" style="flex-shrink:0;" onclick="openCookConfirm('+aj(r.id)+')">'+t('cookThis')+'</button>'+
     '</div>'+
-    '<div class="section-title">'+t('sectionIngredients')+'</div>'+
+    '<div class="section-title" style="margin-top:0;">'+t('sectionIngredients')+'</div>'+
     '<div class="form-group">'+(ingHtml||('<p class="hint">'+t('noIngredientsYet')+'</p>'))+'</div>'+
     (function(){
       var steps = (r.steps && r.steps.length) ? r.steps : (r.instructions ? [r.instructions] : []);
@@ -5983,13 +6097,26 @@ function renderRecipeDetail(){
         }).join('')+
       '</div>';
     })()+
-    '<button class="btn btn-primary" style="margin-top:18px;" onclick="openCookConfirm('+aj(r.id)+')">'+t('cookThis')+'</button>'+
-    '<button class="btn btn-danger" style="margin-top:10px;" onclick="deleteRecipeDetail('+aj(r.id)+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
+    '<div class="section-title">'+t('nutritionSummary')+'</div>'+
+    '<div class="form-group">'+nutriHtml+toggleHtml+
+      (nutri.warnings && nutri.warnings.length ? '<p class="hint" style="color:var(--warn);">'+(state.lang==='zh'?'部分食材未计入(单位无法换算)：':'Excluded (unit not convertible): ')+nutri.warnings.map(esc).join('、')+'</p>' : '')+
+    '</div>'+
   '</div>'+
   bottomNav();
 }
+function confirmDeleteRecipeDetail(id){
+  var r = state.recipes.find(function(x){ return x.id===id; });
+  if(!r) return;
+  showCenterModal(t('delete'),
+    '<p class="hint" style="margin-bottom:16px;">'+t('deleteConfirm')+'</p>'+
+    '<div class="btn-row">'+
+      '<button class="btn btn-outline" onclick="closeModal()">'+t('cancel')+'</button>'+
+      '<button class="btn btn-danger" onclick="deleteRecipeDetail('+aj(id)+')">'+t('delete')+'</button>'+
+    '</div>'
+  );
+}
 function deleteRecipeDetail(id){
-  if(!confirm(t('deleteConfirm'))) return;
+  closeModal();
   state.recipes = state.recipes.filter(function(r){ return r.id!==id; });
   saveRecipes();
   navigate('recipes');
@@ -6015,7 +6142,7 @@ function openCookConfirm(recipeId){
       return '<div class="list-row"><div><div class="row-label" style="font-size:15px;">'+l.text+'</div>'+(l.note?'<div class="row-sub" style="color:var(--warn);">'+l.note+'</div>':'')+'</div></div>';
     }).join('') +
     '<button class="btn btn-primary" style="margin-top:14px;" onclick="confirmCook('+aj(recipeId)+')">'+t('cookConfirmBtn')+'</button>';
-  showModal(t('cookConfirmTitle'), bodyHtml);
+  showCenterModal(t('cookConfirmTitle'), bodyHtml);
 }
 function confirmCook(recipeId){
   var r = state.recipes.find(function(x){ return x.id===recipeId; });
@@ -6888,7 +7015,7 @@ document.addEventListener('click', function(e){
    - Security is "room code = shared secret", same trust model as a shareable doc link -
      fine for 2-3 people you already trust, not a real multi-tenant permission system.
 */
-var CLOUD = { app:null, auth:null, db:null, uid:null, unsub:null, metaUnsub:null, pushMap:{}, metaPushMap:{}, sdkLoadPromise:null };
+var CLOUD = { app:null, auth:null, db:null, uid:null, unsub:null, metaUnsub:null, recipeUnsub:null, ingredientUnsub:null, pushMap:{}, metaPushMap:{}, recipePushMap:{}, ingredientPushMap:{}, sdkLoadPromise:null };
 
 function cloudSyncActive(){ return !!(state.cloudSyncEnabled && CLOUD.db && CLOUD.uid && state.cloudSyncRoomCode); }
 
@@ -7017,6 +7144,12 @@ function toggleCloudSync(){
 function itemsCollectionRef(){
   return CLOUD.db.collection('syncRooms').doc(state.cloudSyncRoomCode).collection('items');
 }
+function recipesCollectionRef(){
+  return CLOUD.db.collection('syncRooms').doc(state.cloudSyncRoomCode).collection('recipes');
+}
+function ingredientsCollectionRef(){
+  return CLOUD.db.collection('syncRooms').doc(state.cloudSyncRoomCode).collection('ingredients');
+}
 function metaCollectionRef(){
   return CLOUD.db.collection('syncRooms').doc(state.cloudSyncRoomCode).collection('meta');
 }
@@ -7055,10 +7188,14 @@ async function startCloudSync(){
     CLOUD.uid = cred.user.uid;
     subscribeCloudItems();
     subscribeCloudMeta();
+    subscribeCloudRecipes();
+    subscribeCloudIngredients();
     // Also push once right away: covers the case where the collection is empty (brand new
     // room, nothing to receive yet) but this device already has local items/lists to upload.
     cloudSyncPushChanges();
     cloudSyncPushMeta();
+    cloudSyncPushRecipeChanges();
+    cloudSyncPushIngredientChanges();
     state.cloudSyncStatus = 'connected';
   }catch(e){
     console.error('cloud sync start failed', e);
@@ -7071,6 +7208,8 @@ async function startCloudSync(){
 function stopCloudSync(){
   if(CLOUD.unsub){ CLOUD.unsub(); CLOUD.unsub = null; }
   if(CLOUD.metaUnsub){ CLOUD.metaUnsub(); CLOUD.metaUnsub = null; }
+  if(CLOUD.recipeUnsub){ CLOUD.recipeUnsub(); CLOUD.recipeUnsub = null; }
+  if(CLOUD.ingredientUnsub){ CLOUD.ingredientUnsub(); CLOUD.ingredientUnsub = null; }
   CLOUD.db = null; CLOUD.auth = null; CLOUD.uid = null;
   state.cloudSyncStatus = 'idle';
   state.cloudSyncError = '';
@@ -7096,11 +7235,12 @@ function subscribeCloudItems(){
   });
 }
 
-// Categories/locations are simple flat string arrays (no per-record id like items have), and
-// get renamed/reordered as a whole rather than edited field-by-field, so unlike items these
-// sync as one whole-array document each (`meta/categories`, `meta/locations`) rather than
-// per-entry - last-write-wins on the *whole list* when both sides touched it, same timestamp
-// rule as items just applied to the array as a unit instead of to individual entries.
+// Categories/locations/recipe category groups are simple whole-array values (no per-record id
+// like items/recipes have), and get renamed/reordered as a whole rather than edited field-by-
+// field, so unlike items these sync as one whole-array document each (`meta/categories`,
+// `meta/locations`, `meta/recipeCategoryGroups`) rather than per-entry - last-write-wins on the
+// *whole list* when both sides touched it, same timestamp rule as items just applied to the
+// array as a unit instead of to individual entries.
 function saveCloudSyncMetaPushMap(){ return storageSet('cloudSyncMetaPushMap', CLOUD.metaPushMap); }
 function subscribeCloudMeta(){
   if(CLOUD.metaUnsub){ CLOUD.metaUnsub(); CLOUD.metaUnsub = null; }
@@ -7114,7 +7254,8 @@ function subscribeCloudMeta(){
     if(changed){
       storageSet('categories', state.categories);
       storageSet('locations', state.locations);
-      storageSet('tagListsMeta', {categoriesUpdatedAt: state.categoriesUpdatedAt, locationsUpdatedAt: state.locationsUpdatedAt});
+      storageSet('recipeCategoryGroups', state.recipeCategoryGroups);
+      storageSet('tagListsMeta', {categoriesUpdatedAt: state.categoriesUpdatedAt, locationsUpdatedAt: state.locationsUpdatedAt, recipeCategoryGroupsUpdatedAt: state.recipeCategoryGroupsUpdatedAt});
     }
     state.cloudSyncLastSyncedAt = nowLocalIso();
     cloudSyncSafeRender();
@@ -7125,7 +7266,8 @@ function subscribeCloudMeta(){
     render();
   });
 }
-// key is 'categories' or 'locations'. Returns true if local state actually changed.
+// key is 'categories', 'locations', or 'recipeCategoryGroups'. Returns true if local state
+// actually changed.
 function applyRemoteMeta(key, data){
   if(!data || !data.list) return false;
   var field = key+'UpdatedAt';
@@ -7140,7 +7282,7 @@ function applyRemoteMeta(key, data){
 async function cloudSyncPushMeta(){
   if(!cloudSyncActive()) return;
   var toPush = [];
-  [['categories', state.categoriesUpdatedAt], ['locations', state.locationsUpdatedAt]].forEach(function(pair){
+  [['categories', state.categoriesUpdatedAt], ['locations', state.locationsUpdatedAt], ['recipeCategoryGroups', state.recipeCategoryGroupsUpdatedAt]].forEach(function(pair){
     var key = pair[0], ts = pair[1] || '';
     if(ts && CLOUD.metaPushMap[key] !== ts) toPush.push(key);
   });
@@ -7256,6 +7398,200 @@ async function cloudSyncPushChanges(){
   }
 }
 
+/* ---------- Recipes ----------
+   Same per-record collection/pushMap/last-write-wins pattern as items above, including the
+   same "recipe cover photo is a local IndexedDB ref, never synced, preserved on merge" rule -
+   recipes gained their own cover photo (README 9.x recipe management work) after items already
+   had this exact problem solved, so this just reuses the solution rather than re-deriving it. */
+function saveCloudSyncRecipePushMap(){ return storageSet('cloudSyncRecipePushMap', CLOUD.recipePushMap); }
+function subscribeCloudRecipes(){
+  if(CLOUD.recipeUnsub){ CLOUD.recipeUnsub(); CLOUD.recipeUnsub = null; }
+  CLOUD.recipeUnsub = recipesCollectionRef().onSnapshot(function(snapshot){
+    var changed = false;
+    snapshot.docChanges().forEach(function(change){
+      if(change.type === 'removed') return;
+      if(applyRemoteRecipe(change.doc.data())) changed = true;
+    });
+    saveCloudSyncRecipePushMap();
+    if(changed) storageSet('recipes', state.recipes);
+    state.cloudSyncLastSyncedAt = nowLocalIso();
+    cloudSyncSafeRender();
+  }, function(err){
+    console.error('cloud sync recipe snapshot error', err);
+    state.cloudSyncStatus = 'error';
+    state.cloudSyncError = (err && err.message) || String(err);
+    render();
+  });
+}
+function applyRemoteRecipe(data){
+  if(!data || !data.id) return false;
+  var idx = -1;
+  for(var i=0;i<state.recipes.length;i++){ if(state.recipes[i].id===data.id){ idx=i; break; } }
+  var localTs = idx>=0 ? (state.recipes[idx].updated_at || state.recipes[idx].created_at || '') : '';
+  var remoteTs = data.updated_at || data.created_at || '';
+  if(data._deleted){
+    if(idx>=0 && remoteTs >= localTs){
+      state.recipes.splice(idx,1);
+      CLOUD.recipePushMap[data.id] = '__deleted__';
+      return true;
+    }
+    return false;
+  }
+  if(idx===-1){
+    var fresh = JSON.parse(JSON.stringify(data));
+    delete fresh._deleted;
+    state.recipes.push(fresh);
+    CLOUD.recipePushMap[data.id] = remoteTs;
+    return true;
+  }
+  if(remoteTs > localTs){
+    var merged = JSON.parse(JSON.stringify(data));
+    delete merged._deleted;
+    if(!merged.photo_url && state.recipes[idx].photo_url && state.recipes[idx].photo_url.indexOf('photo:')===0){
+      merged.photo_url = state.recipes[idx].photo_url;
+    }
+    state.recipes[idx] = merged;
+    CLOUD.recipePushMap[data.id] = remoteTs;
+    return true;
+  }
+  return false;
+}
+function sanitizeRecipeForCloud(r){
+  var copy = JSON.parse(JSON.stringify(r));
+  if(copy.photo_url && copy.photo_url.indexOf('photo:')===0) copy.photo_url = '';
+  copy._deleted = false;
+  return copy;
+}
+async function cloudSyncPushRecipeChanges(){
+  if(!cloudSyncActive()) return;
+  var toPush = [], currentIds = {};
+  state.recipes.forEach(function(r){
+    currentIds[r.id] = true;
+    var ts = r.updated_at || r.created_at || '';
+    if(CLOUD.recipePushMap[r.id] !== ts) toPush.push(r);
+  });
+  var tombstoneIds = [];
+  Object.keys(CLOUD.recipePushMap).forEach(function(id){
+    if(!currentIds[id] && CLOUD.recipePushMap[id] !== '__deleted__') tombstoneIds.push(id);
+  });
+  if(!toPush.length && !tombstoneIds.length) return;
+  try{
+    var batch = CLOUD.db.batch();
+    var now = nowLocalIso();
+    toPush.forEach(function(r){
+      var docData = sanitizeRecipeForCloud(r);
+      batch.set(recipesCollectionRef().doc(r.id), docData);
+      CLOUD.recipePushMap[r.id] = docData.updated_at || docData.created_at || '';
+    });
+    tombstoneIds.forEach(function(id){
+      batch.set(recipesCollectionRef().doc(id), {id:id, _deleted:true, updated_at:now});
+      CLOUD.recipePushMap[id] = '__deleted__';
+    });
+    await batch.commit();
+    saveCloudSyncRecipePushMap();
+    state.cloudSyncLastSyncedAt = nowLocalIso();
+    cloudSyncSafeRender();
+  }catch(e){
+    console.error('cloud sync recipe push failed', e);
+    state.cloudSyncStatus = 'error';
+    state.cloudSyncError = (e && e.message) || String(e);
+    render();
+  }
+}
+
+/* ---------- External ingredients (the recipe-only ingredient library, not inventory items) ----
+   Same pattern again, minus the photo handling - external ingredients don't have a photo field. */
+function saveCloudSyncIngredientPushMap(){ return storageSet('cloudSyncIngredientPushMap', CLOUD.ingredientPushMap); }
+function subscribeCloudIngredients(){
+  if(CLOUD.ingredientUnsub){ CLOUD.ingredientUnsub(); CLOUD.ingredientUnsub = null; }
+  CLOUD.ingredientUnsub = ingredientsCollectionRef().onSnapshot(function(snapshot){
+    var changed = false;
+    snapshot.docChanges().forEach(function(change){
+      if(change.type === 'removed') return;
+      if(applyRemoteIngredient(change.doc.data())) changed = true;
+    });
+    saveCloudSyncIngredientPushMap();
+    if(changed) storageSet('ingredients', state.ingredients);
+    state.cloudSyncLastSyncedAt = nowLocalIso();
+    cloudSyncSafeRender();
+  }, function(err){
+    console.error('cloud sync ingredient snapshot error', err);
+    state.cloudSyncStatus = 'error';
+    state.cloudSyncError = (err && err.message) || String(err);
+    render();
+  });
+}
+function applyRemoteIngredient(data){
+  if(!data || !data.id) return false;
+  var idx = -1;
+  for(var i=0;i<state.ingredients.length;i++){ if(state.ingredients[i].id===data.id){ idx=i; break; } }
+  var localTs = idx>=0 ? (state.ingredients[idx].updated_at || state.ingredients[idx].created_at || '') : '';
+  var remoteTs = data.updated_at || data.created_at || '';
+  if(data._deleted){
+    if(idx>=0 && remoteTs >= localTs){
+      state.ingredients.splice(idx,1);
+      CLOUD.ingredientPushMap[data.id] = '__deleted__';
+      return true;
+    }
+    return false;
+  }
+  if(idx===-1){
+    var fresh = JSON.parse(JSON.stringify(data));
+    delete fresh._deleted;
+    state.ingredients.push(fresh);
+    CLOUD.ingredientPushMap[data.id] = remoteTs;
+    return true;
+  }
+  if(remoteTs > localTs){
+    var merged = JSON.parse(JSON.stringify(data));
+    delete merged._deleted;
+    state.ingredients[idx] = merged;
+    CLOUD.ingredientPushMap[data.id] = remoteTs;
+    return true;
+  }
+  return false;
+}
+function sanitizeIngredientForCloud(ing){
+  var copy = JSON.parse(JSON.stringify(ing));
+  copy._deleted = false;
+  return copy;
+}
+async function cloudSyncPushIngredientChanges(){
+  if(!cloudSyncActive()) return;
+  var toPush = [], currentIds = {};
+  state.ingredients.forEach(function(ing){
+    currentIds[ing.id] = true;
+    var ts = ing.updated_at || ing.created_at || '';
+    if(CLOUD.ingredientPushMap[ing.id] !== ts) toPush.push(ing);
+  });
+  var tombstoneIds = [];
+  Object.keys(CLOUD.ingredientPushMap).forEach(function(id){
+    if(!currentIds[id] && CLOUD.ingredientPushMap[id] !== '__deleted__') tombstoneIds.push(id);
+  });
+  if(!toPush.length && !tombstoneIds.length) return;
+  try{
+    var batch = CLOUD.db.batch();
+    var now = nowLocalIso();
+    toPush.forEach(function(ing){
+      var docData = sanitizeIngredientForCloud(ing);
+      batch.set(ingredientsCollectionRef().doc(ing.id), docData);
+      CLOUD.ingredientPushMap[ing.id] = docData.updated_at || docData.created_at || '';
+    });
+    tombstoneIds.forEach(function(id){
+      batch.set(ingredientsCollectionRef().doc(id), {id:id, _deleted:true, updated_at:now});
+      CLOUD.ingredientPushMap[id] = '__deleted__';
+    });
+    await batch.commit();
+    saveCloudSyncIngredientPushMap();
+    state.cloudSyncLastSyncedAt = nowLocalIso();
+    cloudSyncSafeRender();
+  }catch(e){
+    console.error('cloud sync ingredient push failed', e);
+    state.cloudSyncStatus = 'error';
+    state.cloudSyncError = (e && e.message) || String(e);
+    render();
+  }
+}
 
 /* ======================= INIT / BOOTSTRAP ======================= */
 function renderLoading(){
