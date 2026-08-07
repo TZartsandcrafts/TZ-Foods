@@ -679,6 +679,12 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // and re-enter this URL from memory. Still fully a *default*, not a hardcoded override - typing
 // a different address into Settings > AI代理地址 and saving still takes precedence, exactly like
 // before; this only fills in when nothing has been saved yet.
+// Bumped on every meaningful deploy - shown small and unobtrusive at the bottom of Settings.
+// Purpose: given how many times a stale Service-Worker/CDN-cached copy of this file has caused
+// confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
+// sync follow-up), a visible version string is a much faster way to confirm whether a device is
+// actually running the current code than inferring it indirectly from Firestore console state.
+var BUILD_VERSION = '9.69';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -896,7 +902,7 @@ var I18N = {
     manageCategoriesTitle:'管理分类', manageLocationsTitle:'管理存放位置',
     addCategoryPh:'新分类名称', addLocationPh:'新位置名称',
     aboutTitle:'关于', aboutText:'数据保存在本设备/当前浏览器中，暂不支持云端同步。',
-    storagePersistLabel:'存储持久化状态',
+    storagePersistLabel:'存储持久化状态', buildVersionLabel:'当前代码版本',
     storagePersistYes:'已启用(浏览器已同意保护本应用数据，减少被系统清理的概率)',
     storagePersistNo:'未启用(浏览器拒绝了持久化请求，数据存在被系统清理的风险，建议定期在上方导出备份)',
     storagePersistUnknown:'当前浏览器不支持此项检测，建议定期在上方导出备份以防万一',
@@ -1084,7 +1090,7 @@ var I18N = {
     manageCategoriesTitle:'Manage categories', manageLocationsTitle:'Manage locations',
     addCategoryPh:'New category name', addLocationPh:'New location name',
     aboutTitle:'About', aboutText:'Data is stored on this device/browser only. Cloud sync is not yet supported.',
-    storagePersistLabel:'Storage persistence status',
+    storagePersistLabel:'Storage persistence status', buildVersionLabel:'Build version',
     storagePersistYes:'Enabled (the browser agreed to protect this app\'s data, lowering the risk of automatic cleanup)',
     storagePersistNo:'Not enabled (the browser declined the persistence request — data is at risk of being cleared by the system; export a backup regularly using the buttons above)',
     storagePersistUnknown:'This browser doesn\'t support this check — export a backup regularly above just in case',
@@ -2814,6 +2820,13 @@ function setHomeFilter(kind, val){ state.home[kind]=val; render(); }
 function clearHomeFilters(){ state.home.category=null; state.home.location=null; render(); }
 function sidebarSetHomeFilter(kind, val){
   state.home[kind] = val;
+  // Picking a category/location while already on the main list just re-renders in place
+  // (keeps scroll position, no navigation animation) - but if the sidebar was opened from
+  // some OTHER view under the home tab (the four stat capsules' dedicated pages, archive,
+  // etc.), a plain render() would just redraw that same other view with the filter silently
+  // having no effect on it, leaving the person stuck looking like nothing happened. Route back
+  // to the actual filterable list in that case.
+  if(state.view !== 'home'){ navigate('home', {}); return; }
   closeSidebar();
   render();
 }
@@ -5221,6 +5234,11 @@ function clearRecipeFilters(){ state.recipesUI.groupId=null; state.recipesUI.sub
 function sidebarSetRecipeFilter(groupId, sub){
   state.recipesUI.groupId = groupId;
   state.recipesUI.sub = sub;
+  // Same reasoning as sidebarSetHomeFilter above - only skip navigation (plain render, keeps
+  // scroll position) when already on the actual filterable list; route back to it from any
+  // other recipes-tab view (a recipe's own detail/edit page) so the picked filter is actually
+  // visible instead of silently doing nothing to whatever page happened to be open.
+  if(state.view !== 'recipes'){ navigate('recipes', {}); return; }
   closeSidebar();
   render();
 }
@@ -6477,6 +6495,7 @@ function renderSettings(){
       '<p style="font-size:13px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);color:'+(state.storagePersisted?'var(--fresh)':'var(--warn)')+';">'+
         t('storagePersistLabel')+': '+(state.storagePersisted===true? t('storagePersistYes') : state.storagePersisted===false ? t('storagePersistNo') : t('storagePersistUnknown'))+
       '</p>'+
+      '<p style="font-size:12px;margin-top:8px;color:#B79B78;">'+t('buildVersionLabel')+' '+esc(BUILD_VERSION)+'</p>'+
     '</div>'+
   '</div>'+
   bottomNav();
