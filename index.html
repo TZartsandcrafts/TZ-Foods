@@ -683,7 +683,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.73';
+var BUILD_VERSION = '9.74';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2168,6 +2168,17 @@ function menuButtonHtml(page){
 var itemSwipeOpenId = null;
 var itemSwipeSwallowClick = false;
 var ITEM_SWIPE_ACTIONS_WIDTH = 192;
+// Whether a modal popup is currently on screen. The swipe-row gestures below use this to bail
+// out entirely while a modal is up (see README 9.74): without it, a tap meant for the modal -
+// its confirm button, or tapping the backdrop to dismiss it - lands on something outside
+// `.item-card-swipe`/`.recipe-card-swipe`, which the touchstart handler read as "tap outside
+// the open row" and used to auto-close the row *and* swallow that same tap's click event so it
+// doesn't fall through into whatever card is now underneath. That swallowed click was the same
+// click meant for the modal, so the modal's button/backdrop only responded on a second tap.
+function modalIsOpen(){
+  var r = document.getElementById('modal-root');
+  return !!(r && r.firstChild);
+}
 function closeItemSwipeRow(id){
   if(itemSwipeOpenId===id) itemSwipeOpenId=null;
   var wrap = document.querySelector('.item-card-swipe[data-item-id="'+id+'"]');
@@ -2179,6 +2190,7 @@ function deleteItemFromSwipe(id){ closeItemSwipeRow(id); deleteItemDetail(id); }
 (function initItemSwipeGestures(){
   var sx=0, sy=0, tracking=false, cardEl=null, itemId=null, startedOpen=false, moved=false;
   document.addEventListener('touchstart', function(e){
+    if(modalIsOpen()){ tracking=false; cardEl=null; return; }
     var wrap = e.target.closest ? e.target.closest('.item-card-swipe') : null;
     if(itemSwipeOpenId && (!wrap || wrap.getAttribute('data-item-id')!==itemSwipeOpenId)){
       closeItemSwipeRow(itemSwipeOpenId);
@@ -2298,6 +2310,7 @@ function deleteRecipeFromSwipe(id){
 (function initRecipeSwipeGestures(){
   var sx=0, sy=0, tracking=false, cardEl=null, recipeId=null, startedOpen=false, moved=false;
   document.addEventListener('touchstart', function(e){
+    if(modalIsOpen()){ tracking=false; cardEl=null; return; }
     var wrap = e.target.closest ? e.target.closest('.recipe-card-swipe') : null;
     if(recipeSwipeOpenId && (!wrap || wrap.getAttribute('data-recipe-id')!==recipeSwipeOpenId)){
       closeRecipeSwipeRow(recipeSwipeOpenId);
