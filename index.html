@@ -683,7 +683,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.74';
+var BUILD_VERSION = '9.75';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2039,8 +2039,33 @@ function sidebarContentFor(page){
   if(page==='notes') return renderNotesSidebarContent();
   return '';
 }
+// Freezes the page's own scroll while the sidebar is open (see README 9.75). #app has no
+// overflow-y of its own - the whole page scrolls natively - so without this, the sidebar's
+// touch-scrollable drawer just sits on top of a page that's still scrollable underneath. On
+// iOS Safari specifically, the first touch-drag inside the drawer can get read as continuing
+// that still-scrollable background instead of starting a new scroll on the drawer, and only
+// the second attempt actually scrolls the drawer - exactly the "need to swipe twice, and it's
+// inconsistent about it" symptom this fixes. Standard fix: pin the body in place (position:
+// fixed, offset by the current scroll position) for as long as the drawer is open, then put it
+// back exactly where it was.
+var _sidebarScrollLockY = 0;
+function lockBodyScrollForSidebar(){
+  _sidebarScrollLockY = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
+  document.body.style.position = 'fixed';
+  document.body.style.top = (-_sidebarScrollLockY) + 'px';
+  document.body.style.left = '0';
+  document.body.style.right = '0';
+}
+function unlockBodyScrollForSidebar(){
+  document.body.style.position = '';
+  document.body.style.top = '';
+  document.body.style.left = '';
+  document.body.style.right = '';
+  window.scrollTo(0, _sidebarScrollLockY);
+}
 function openSidebar(page){
   if(!page) return;
+  if(!state.sidebarOpen) lockBodyScrollForSidebar();
   state.sidebarOpen = page;
   var drawer = document.getElementById('sidebar-drawer');
   var overlay = document.getElementById('sidebar-overlay');
@@ -2052,6 +2077,7 @@ function openSidebar(page){
   });
 }
 function closeSidebar(){
+  if(state.sidebarOpen) unlockBodyScrollForSidebar();
   state.sidebarOpen = null;
   var drawer = document.getElementById('sidebar-drawer');
   var overlay = document.getElementById('sidebar-overlay');
