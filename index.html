@@ -469,21 +469,20 @@
   .row-del{ color:var(--danger); background:none; border:none; font-size:20px; cursor:pointer; padding:6px; }
 
   /* ---------- Modal / sheet ---------- */
+  /* Single modal style app-wide (see README 9.70): centered dialog, not docked to the
+     bottom. Was previously two variants (a bottom sheet + a "center" variant introduced
+     for the recipe detail page's delete/cook-confirm popups) - now unified into one so
+     every popup in the app looks and behaves the same way. */
   .modal-wrap{
     position:fixed; inset:0; background:rgba(74,46,30,0.4); z-index:50;
-    display:flex; align-items:flex-end; justify-content:center;
+    display:flex; align-items:center; justify-content:center; padding:20px;
   }
   .modal-sheet{
-    background:var(--cream); width:100%; max-width:480px; border-radius:20px 20px 0 0;
-    max-height:88vh; overflow-y:auto; padding:20px 18px calc(24px + var(--safe-bottom));
+    background:var(--cream); width:100%; max-width:480px; border-radius:20px;
+    max-height:80vh; overflow-y:auto; padding:20px 18px calc(24px + var(--safe-bottom));
   }
   .modal-sheet h2{ font-size:18px; font-weight:600; margin-bottom:16px; }
   .modal-close{ position:absolute; right:18px; top:16px; }
-  /* Centered variant - same #modal-root/closeModal() as the bottom sheet, just a different
-     resting position for popups that read more like a dialog than a sheet (a short confirm,
-     a handful of lines to check before deducting stock) - see showCenterModal. */
-  .modal-wrap-center{ align-items:center; padding:20px; }
-  .modal-sheet-center{ border-radius:20px; max-height:80vh; width:100%; }
 
   /* ---------- Long-press "copy item" pill ----------
      Deliberately NOT a modal: lives in its own root sibling to #app (see body), so showing/
@@ -684,7 +683,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.69';
+var BUILD_VERSION = '9.73';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -1736,21 +1735,23 @@ function itemDisplayName(it){
 function archiveItem(id){
   var it = state.items.find(function(i){ return i.id===id; });
   if(!it) return;
-  if(!confirm(t('archiveConfirmMsg'))) return;
-  it.archived = true;
-  it.archived_at = nowLocalIso();
-  it.updated_at = nowLocalIso();
-  saveItems();
-  navigate('home');
-  showToast(t('archivedToast'));
+  showConfirmModal(t('archiveConfirmMsg'), function(){
+    it.archived = true;
+    it.archived_at = nowLocalIso();
+    it.updated_at = nowLocalIso();
+    saveItems();
+    navigate('home');
+    showToast(t('archivedToast'));
+  }, {title:t('archiveBtn'), confirmLabel:t('archiveBtn'), danger:false});
 }
 function deleteArchivedItem(id){
-  if(!confirm(t('deleteArchivedConfirmMsg'))) return;
-  var it = state.items.find(function(i){ return i.id===id; });
-  if(it) deletePhotoRef(it.photo_url);
-  state.items = state.items.filter(function(i){ return i.id!==id; });
-  saveItems();
-  navigate('archive');
+  showConfirmModal(t('deleteArchivedConfirmMsg'), function(){
+    var it = state.items.find(function(i){ return i.id===id; });
+    if(it) deletePhotoRef(it.photo_url);
+    state.items = state.items.filter(function(i){ return i.id!==id; });
+    saveItems();
+    navigate('archive');
+  }, {title:t('delete')});
 }
 
 /* ======================= NUTRITION CALC ======================= */
@@ -2120,7 +2121,7 @@ function menuButtonHtml(page){
 (function initItemDetailBackSwipe(){
   var startX=null, startY=null, tracking=false;
   function backTarget(){
-    if(state.view==='itemDetail') return {view:'home'};
+    if(state.view==='itemDetail') return (state.params && state.params.from) || {view:'home'};
     if(state.view==='itemViewOnly') return {view: state.params.from || 'archive'};
     if(state.view==='usageLog') return {view:'itemDetail', params:{id:state.params.id}};
     if(state.view==='usageLogAdd') return {view:'usageLog', params:{id:state.params.id}};
@@ -2128,7 +2129,16 @@ function menuButtonHtml(page){
     if(state.view==='pickExternal') return {view:'recipeForm'};
     if(state.view==='pickInventory') return {view:'recipeForm'};
     if(state.view==='recipeForm') return {view:'recipes'};
-    if(state.view==='recipeDetail') return {view:'recipes'};
+    if(state.view==='recipeDetail') return (state.params && state.params.from) || {view:'recipes'};
+    if(state.view==='scan') return {view:'home'};
+    if(state.view==='archive') return {view:'home'};
+    if(state.view==='stats') return {view:'home'};
+    if(state.view==='priceHistory') return {view:'home'};
+    if(state.view==='statFilteredList') return {view:'home'};
+    if(state.view==='manageTags') return {view:'settings'};
+    if(state.view==='manageRecipeCategories') return {view:'settings'};
+    if(state.view==='noteForm') return {view:'notes'};
+    if(state.view==='noteDetail') return {view:'notes'};
     return null;
   }
   document.addEventListener('touchstart', function(e){
@@ -2147,6 +2157,7 @@ function menuButtonHtml(page){
     if(dx > 60 && Math.abs(dy) < 60){
       if(state.view==='itemForm') cancelItemForm();
       else if(state.view==='recipeForm') cancelRecipeForm();
+      else if(state.view==='noteForm') cancelNoteForm();
       else navigate(target.view, target.params);
     }
   }, {passive:true});
@@ -2276,12 +2287,13 @@ function closeRecipeSwipeRow(id){
 }
 function deleteRecipeFromSwipe(id){
   closeRecipeSwipeRow(id);
-  if(!confirm(t('deleteConfirm'))) return;
-  var r = state.recipes.find(function(x){ return x.id===id; });
-  if(r) deletePhotoRef(r.photo_url);
-  state.recipes = state.recipes.filter(function(x){ return x.id!==id; });
-  saveRecipes();
-  render();
+  showConfirmModal(t('deleteConfirm'), function(){
+    var r = state.recipes.find(function(x){ return x.id===id; });
+    if(r) deletePhotoRef(r.photo_url);
+    state.recipes = state.recipes.filter(function(x){ return x.id!==id; });
+    saveRecipes();
+    render();
+  }, {title:t('delete')});
 }
 (function initRecipeSwipeGestures(){
   var sx=0, sy=0, tracking=false, cardEl=null, recipeId=null, startedOpen=false, moved=false;
@@ -3975,12 +3987,13 @@ function saveItemForm(){
   navigate('itemDetail',{id:d.id});
 }
 function deleteItemFromForm(){
-  if(!confirm(t('deleteConfirm'))) return;
-  deletePhotoRef(state.itemDraft.photo_url);
-  state.items = state.items.filter(function(i){ return i.id!==state.itemDraft.id; });
-  saveItems();
-  state.itemDraft=null;
-  navigate('home');
+  showConfirmModal(t('deleteConfirm'), function(){
+    deletePhotoRef(state.itemDraft.photo_url);
+    state.items = state.items.filter(function(i){ return i.id!==state.itemDraft.id; });
+    saveItems();
+    state.itemDraft=null;
+    navigate('home');
+  }, {title:t('delete')});
 }
 
 /* ======================= ITEM DETAIL ======================= */
@@ -3989,12 +4002,13 @@ function renderItemDetail(){
   var it = state.items.find(function(i){ return i.id===id; });
   if(!it) return renderHome();
   var st = expiryStatus(it);
+  var backTo = (state.params && state.params.from) || {view:'home'};
   var photoBlock = it.photo_url
     ? photoImgHtml(it.photo_url, 'width:100%;height:100%;border-radius:14px;display:block;border:1px solid var(--line);object-fit:cover;')
     : '<div class="item-detail-photo-placeholder">'+ic('box',30)+'</div>';
   return '' +
   '<div class="page-header">'+
-    '<button class="back-btn" onclick="navigate(\'home\')">'+ic('back',22)+'</button>'+
+    '<button class="back-btn" onclick="navigate('+aj(backTo.view)+','+aj(backTo.params||{})+')">'+ic('back',22)+'</button>'+
     '<h1>'+itemDisplayName(it)+'</h1>'+
   '</div>'+
   '<div class="content">'+
@@ -4088,12 +4102,13 @@ function nutriExtraRowsFlatHtml(it){
   }).join('');
 }
 function deleteItemDetail(id){
-  if(!confirm(t('deleteConfirm'))) return;
-  var it = state.items.find(function(i){ return i.id===id; });
-  if(it) deletePhotoRef(it.photo_url);
-  state.items = state.items.filter(function(i){ return i.id!==id; });
-  saveItems();
-  navigate('home');
+  showConfirmModal(t('deleteConfirm'), function(){
+    var it = state.items.find(function(i){ return i.id===id; });
+    if(it) deletePhotoRef(it.photo_url);
+    state.items = state.items.filter(function(i){ return i.id!==id; });
+    saveItems();
+    navigate('home');
+  }, {title:t('delete')});
 }
 
 /* ======================= USAGE LOG ("取用") ======================= */
@@ -4145,7 +4160,7 @@ function usageLogRowHtml(entry, itemId){
   // for why undoing one has to touch a second item, not just this one) - only delete/restore.
   var editBtnHtml = isMove ? '' :
     '<button class="swipe-action-btn action-edit" onclick="event.stopPropagation();closeItemSwipeRow('+aj(entry.id)+');openUsageLogEdit('+aj(itemId)+','+aj(entry.id)+')">'+ic('edit',20)+'<span>'+esc(t('edit'))+'</span></button>';
-  var cardClickAttr = recipeExists ? ' onclick="navigate(\'recipeDetail\',{id:'+aj(entry.recipe_id)+'})" style="cursor:pointer;"' : '';
+  var cardClickAttr = recipeExists ? ' onclick="navigate(\'recipeDetail\',{id:'+aj(entry.recipe_id)+',from:{view:\'usageLog\',params:{id:'+aj(itemId)+'}}})" style="cursor:pointer;"' : '';
   return '<div class="item-card-swipe" data-item-id="'+esc(entry.id)+'">'+
     '<div class="item-swipe-actions">'+
       '<button class="swipe-action-btn action-delete" onclick="event.stopPropagation();deleteUsageLogEntry('+aj(itemId)+','+aj(entry.id)+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button>'+
@@ -4376,45 +4391,47 @@ async function saveUsageLogEntry(itemId){
   navigate('usageLog', {id:itemId});
 }
 function restoreUsageLogEntry(itemId, entryId){
-  if(!confirm(t('usageRestoreConfirm'))) return;
   var it = state.items.find(function(i){ return i.id===itemId; });
   if(!it) return;
   var entry = (it.usage_log||[]).find(function(e){ return e.id===entryId; });
   if(!entry) return;
-  if(entry.destination_type==='move_location'){
-    // Undoing a move has to touch the OTHER item too, not just this one: put the moved amount
-    // back on the source (same as any other undo), then reverse whatever happened on the
-    // destination side - delete it if it was created solely for this move (nothing else could
-    // have touched a brand-new item in between), or subtract the exact same amount back out of
-    // it if it was merged into an already-existing item there.
-    addBackToItem(it, entry.amount, entry.unit);
-    var target = state.items.find(function(i){ return i.id===entry.target_item_id; });
-    if(target){
-      if(entry.target_was_new){
-        state.items = state.items.filter(function(i){ return i.id!==target.id; });
-        if(target.photo_url) deletePhotoRef(target.photo_url);
-      } else if(entry.primary_delta != null){
-        applyPrimaryEquivalentDelta(target, -entry.primary_delta);
+  showConfirmModal(t('usageRestoreConfirm'), function(){
+    if(entry.destination_type==='move_location'){
+      // Undoing a move has to touch the OTHER item too, not just this one: put the moved amount
+      // back on the source (same as any other undo), then reverse whatever happened on the
+      // destination side - delete it if it was created solely for this move (nothing else could
+      // have touched a brand-new item in between), or subtract the exact same amount back out of
+      // it if it was merged into an already-existing item there.
+      addBackToItem(it, entry.amount, entry.unit);
+      var target = state.items.find(function(i){ return i.id===entry.target_item_id; });
+      if(target){
+        if(entry.target_was_new){
+          state.items = state.items.filter(function(i){ return i.id!==target.id; });
+          if(target.photo_url) deletePhotoRef(target.photo_url);
+        } else if(entry.primary_delta != null){
+          applyPrimaryEquivalentDelta(target, -entry.primary_delta);
+        }
       }
+    } else {
+      addBackToItem(it, entry.amount, entry.unit);
     }
-  } else {
-    addBackToItem(it, entry.amount, entry.unit);
-  }
-  it.usage_log = (it.usage_log||[]).filter(function(e){ return e.id!==entryId; });
-  saveItems();
-  closeItemSwipeRow(entryId);
-  showToast(t('usageRestoredToast'));
-  render();
+    it.usage_log = (it.usage_log||[]).filter(function(e){ return e.id!==entryId; });
+    saveItems();
+    closeItemSwipeRow(entryId);
+    showToast(t('usageRestoredToast'));
+    render();
+  }, {title:t('usageRestoreBtn'), confirmLabel:t('usageRestoreBtn'), danger:false});
 }
 function deleteUsageLogEntry(itemId, entryId){
-  if(!confirm(t('usageDeleteConfirm'))) return;
-  var it = state.items.find(function(i){ return i.id===itemId; });
-  if(!it) return;
-  it.usage_log = (it.usage_log||[]).filter(function(e){ return e.id!==entryId; });
-  saveItems();
-  closeItemSwipeRow(entryId);
-  showToast(t('usageDeletedToast'));
-  render();
+  showConfirmModal(t('usageDeleteConfirm'), function(){
+    var it = state.items.find(function(i){ return i.id===itemId; });
+    if(!it) return;
+    it.usage_log = (it.usage_log||[]).filter(function(e){ return e.id!==entryId; });
+    saveItems();
+    closeItemSwipeRow(entryId);
+    showToast(t('usageDeletedToast'));
+    render();
+  }, {title:t('delete')});
 }
 
 /* ======================= ARCHIVE ======================= */
@@ -4685,24 +4702,14 @@ function renderPriceHistory(){
 }
 
 /* ======================= MODAL ======================= */
+// Single shared popup used everywhere in the app (see README 9.70): centered dialog,
+// tap-outside or the X to close, same #modal-root/closeModal() for all of it. Used to be
+// two functions (a bottom sheet + this centered style, added for the recipe detail page's
+// delete/cook-confirm popups) - now every modal in the app goes through this one.
 function showModal(title, bodyHtml){
   var root = document.getElementById('modal-root');
   root.innerHTML = '<div class="modal-wrap" onclick="if(event.target===this) closeModal()">'+
     '<div class="modal-sheet" style="position:relative;">'+
-      '<button class="icon-btn modal-close" onclick="closeModal()">'+ic('x',18)+'</button>'+
-      '<h2>'+esc(title)+'</h2>'+
-      bodyHtml+
-    '</div>'+
-  '</div>';
-}
-// Same #modal-root / closeModal() as showModal above, just resting in the middle of the screen
-// instead of docked to the bottom - for popups that are a quick decision to make (a confirm, a
-// short checklist before deducting stock) rather than a sheet's worth of form fields. Tapping
-// anywhere outside the sheet closes it, same as showModal.
-function showCenterModal(title, bodyHtml){
-  var root = document.getElementById('modal-root');
-  root.innerHTML = '<div class="modal-wrap modal-wrap-center" onclick="if(event.target===this) closeModal()">'+
-    '<div class="modal-sheet modal-sheet-center" style="position:relative;">'+
       '<button class="icon-btn modal-close" onclick="closeModal()">'+ic('x',18)+'</button>'+
       '<h2>'+esc(title)+'</h2>'+
       bodyHtml+
@@ -4716,6 +4723,29 @@ function closeModal(){
   if(r) r.innerHTML='';
   window.scrollTo(0, y);
   requestAnimationFrame(function(){ window.scrollTo(0, y); });
+}
+// Generic confirm popup (see README 9.72): same shape as confirmDeleteRecipeDetail below,
+// pulled out into one reusable helper so every "are you sure?" in the app - the ones that used
+// to be a native browser confirm() - goes through the same styled modal instead. The action to
+// run on confirm is stashed here and only fires if the confirm button is actually tapped;
+// closing any other way (X, tap-outside, Cancel) just discards it, same as closeModal always did.
+var pendingConfirmAction = null;
+function showConfirmModal(message, onConfirm, opts){
+  opts = opts || {};
+  pendingConfirmAction = onConfirm;
+  showModal(opts.title || t('delete'),
+    '<p class="hint" style="margin-bottom:16px;">'+esc(message)+'</p>'+
+    '<div class="btn-row">'+
+      '<button class="btn btn-outline" onclick="closeModal()">'+t('cancel')+'</button>'+
+      '<button class="btn '+(opts.danger===false ? 'btn-primary' : 'btn-danger')+'" onclick="runPendingConfirmAction()">'+(opts.confirmLabel || t('delete'))+'</button>'+
+    '</div>'
+  );
+}
+function runPendingConfirmAction(){
+  var fn = pendingConfirmAction;
+  pendingConfirmAction = null;
+  closeModal();
+  if(fn) fn();
 }
 
 /* ======================= SCAN ======================= */
@@ -5557,10 +5587,11 @@ function quickAddExternalIngredient(id){
   addIngredientToRecipe('external', id, ing.name, 100, 'g');
 }
 function deleteExternalIngredientConfirm(id){
-  if(!confirm(t('deleteConfirm'))) return;
-  state.ingredients = state.ingredients.filter(function(i){ return i.id!==id; });
-  saveIngredients();
-  render();
+  showConfirmModal(t('deleteConfirm'), function(){
+    state.ingredients = state.ingredients.filter(function(i){ return i.id!==id; });
+    saveIngredients();
+    render();
+  }, {title:t('delete')});
 }
 function openNewExternalIngredientModal(){
   var labels = nutriLabels();
@@ -6027,12 +6058,13 @@ function saveRecipeForm(){
   navigate('recipeDetail',{id:d.id});
 }
 function deleteRecipeFromForm(){
-  if(!confirm(t('deleteConfirm'))) return;
-  deletePhotoRef(state.recipeDraft.photo_url);
-  state.recipes = state.recipes.filter(function(r){ return r.id!==state.recipeDraft.id; });
-  saveRecipes();
-  state.recipeDraft=null;
-  navigate('recipes');
+  showConfirmModal(t('deleteConfirm'), function(){
+    deletePhotoRef(state.recipeDraft.photo_url);
+    state.recipes = state.recipes.filter(function(r){ return r.id!==state.recipeDraft.id; });
+    saveRecipes();
+    state.recipeDraft=null;
+    navigate('recipes');
+  }, {title:t('delete')});
 }
 
 /* ======================= RECIPE DETAIL ======================= */
@@ -6070,6 +6102,7 @@ function renderRecipeDetail(){
   var id = state.params.id;
   var r = state.recipes.find(function(x){ return x.id===id; });
   if(!r) return renderRecipesList();
+  var backTo = (state.params && state.params.from) || {view:'recipes'};
   var nutri = calcRecipeNutrition(r);
   var expanded = !!state.recipeDetailUI.nutriExpanded;
   var nutriHtml = recipeNutritionFactsBoxHtml(nutri.total, t('perTotal'));
@@ -6086,14 +6119,14 @@ function renderRecipeDetail(){
       return '<div class="ing-group-header" style="cursor:default;">'+esc(ri.name)+'</div>';
     }
     var linkedItem = ri.source_type==='inventory' ? state.items.find(function(i){ return i.id===ri.source_id; }) : null;
-    var attrs = linkedItem ? ' onclick="navigate(\'itemDetail\',{id:'+aj(ri.source_id)+'})" style="cursor:pointer;"' : ' style="cursor:default;"';
+    var attrs = linkedItem ? ' onclick="navigate(\'itemDetail\',{id:'+aj(ri.source_id)+',from:{view:\'recipeDetail\',params:{id:'+aj(r.id)+'}}})" style="cursor:pointer;"' : ' style="cursor:default;"';
     return '<div class="ing-row"'+attrs+'><div class="ing-info"><div class="ing-name">'+esc(recipeIngredientDisplayName(ri))+'</div><div class="ing-amt">'+fmtNum(ri.amount,1)+' '+esc(ri.unit)+'</div></div>'+
       (linkedItem ? ic('chevronRight',16,'style="color:#B79B78;flex-shrink:0;"') : '')+
     '</div>';
   }).join('');
   return '' +
   '<div class="page-header">'+
-    '<button class="back-btn" onclick="navigate(\'recipes\')">'+ic('back',22)+'</button>'+
+    '<button class="back-btn" onclick="navigate('+aj(backTo.view)+','+aj(backTo.params||{})+')">'+ic('back',22)+'</button>'+
     '<h1>'+esc(r.name)+'</h1>'+
     '<button class="icon-btn" onclick="confirmDeleteRecipeDetail('+aj(r.id)+')">'+ic('trash',18)+'</button>'+
     '<button class="icon-btn" onclick="openRecipeForm('+aj(r.id)+')">'+ic('edit',18)+'</button>'+
@@ -6125,16 +6158,9 @@ function renderRecipeDetail(){
 function confirmDeleteRecipeDetail(id){
   var r = state.recipes.find(function(x){ return x.id===id; });
   if(!r) return;
-  showCenterModal(t('delete'),
-    '<p class="hint" style="margin-bottom:16px;">'+t('deleteConfirm')+'</p>'+
-    '<div class="btn-row">'+
-      '<button class="btn btn-outline" onclick="closeModal()">'+t('cancel')+'</button>'+
-      '<button class="btn btn-danger" onclick="deleteRecipeDetail('+aj(id)+')">'+t('delete')+'</button>'+
-    '</div>'
-  );
+  showConfirmModal(t('deleteConfirm'), function(){ deleteRecipeDetail(id); }, {title:t('delete')});
 }
 function deleteRecipeDetail(id){
-  closeModal();
   state.recipes = state.recipes.filter(function(r){ return r.id!==id; });
   saveRecipes();
   navigate('recipes');
@@ -6160,7 +6186,7 @@ function openCookConfirm(recipeId){
       return '<div class="list-row"><div><div class="row-label" style="font-size:15px;">'+l.text+'</div>'+(l.note?'<div class="row-sub" style="color:var(--warn);">'+l.note+'</div>':'')+'</div></div>';
     }).join('') +
     '<button class="btn btn-primary" style="margin-top:14px;" onclick="confirmCook('+aj(recipeId)+')">'+t('cookConfirmBtn')+'</button>';
-  showCenterModal(t('cookConfirmTitle'), bodyHtml);
+  showModal(t('cookConfirmTitle'), bodyHtml);
 }
 function confirmCook(recipeId){
   var r = state.recipes.find(function(x){ return x.id===recipeId; });
@@ -6298,17 +6324,19 @@ function saveNoteForm(){
   navigate('noteDetail',{id:d.id});
 }
 function deleteNoteFromForm(){
-  if(!confirm(t('deleteConfirm'))) return;
-  state.notes = state.notes.filter(function(n){ return n.id!==state.noteDraft.id; });
-  saveNotes();
-  state.noteDraft=null;
-  navigate('notes');
+  showConfirmModal(t('deleteConfirm'), function(){
+    state.notes = state.notes.filter(function(n){ return n.id!==state.noteDraft.id; });
+    saveNotes();
+    state.noteDraft=null;
+    navigate('notes');
+  }, {title:t('delete')});
 }
 function deleteNoteDetail(id){
-  if(!confirm(t('deleteConfirm'))) return;
-  state.notes = state.notes.filter(function(n){ return n.id!==id; });
-  saveNotes();
-  navigate('notes');
+  showConfirmModal(t('deleteConfirm'), function(){
+    state.notes = state.notes.filter(function(n){ return n.id!==id; });
+    saveNotes();
+    navigate('notes');
+  }, {title:t('delete')});
 }
 function getFilteredNotes(){
   var q = (state.notesUI.search||'').trim().toLowerCase();
@@ -6403,10 +6431,10 @@ function renderNoteDetail(){
     (n.category ? '<div class="chip active" style="display:inline-block;margin-bottom:12px;">'+esc(n.category)+'</div>' : '')+
     '<div class="form-group"><p style="font-size:15px;line-height:1.7;white-space:pre-wrap;">'+esc(n.content||'')+'</p></div>'+
     (linkedItems.length ? '<div class="section-title">'+t('linkedItems')+'</div><div class="tag-select">'+linkedItems.map(function(it){
-      var target = it.archived ? ('navigate(\'itemViewOnly\',{id:'+aj(it.id)+',from:\'notes\'})') : ('navigate(\'itemDetail\',{id:'+aj(it.id)+'})');
+      var target = it.archived ? ('navigate(\'itemViewOnly\',{id:'+aj(it.id)+',from:\'notes\'})') : ('navigate(\'itemDetail\',{id:'+aj(it.id)+',from:{view:\'noteDetail\',params:{id:'+aj(n.id)+'}}})');
       return '<div class="tag-option active" onclick="'+target+'">'+esc(it.name)+'</div>';
     }).join('')+'</div>' : '')+
-    (linkedRecipes.length ? '<div class="section-title">'+t('linkedRecipes')+'</div><div class="tag-select">'+linkedRecipes.map(function(r){ return '<div class="tag-option active" onclick="navigate(\'recipeDetail\',{id:'+aj(r.id)+'})">'+esc(r.name)+'</div>'; }).join('')+'</div>' : '')+
+    (linkedRecipes.length ? '<div class="section-title">'+t('linkedRecipes')+'</div><div class="tag-select">'+linkedRecipes.map(function(r){ return '<div class="tag-option active" onclick="navigate(\'recipeDetail\',{id:'+aj(r.id)+',from:{view:\'noteDetail\',params:{id:'+aj(n.id)+'}}})">'+esc(r.name)+'</div>'; }).join('')+'</div>' : '')+
     '<div class="hint" style="margin-top:16px;">'+t('noteUpdatedAt')+' '+esc((n.updated_at||'').slice(0,10))+'</div>'+
     '<button class="btn btn-danger" style="margin-top:22px;" onclick="deleteNoteDetail('+aj(n.id)+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
   '</div>'+
@@ -6814,25 +6842,28 @@ function deleteTagItem(kind, name){
   if(kind==='category') inUse = state.items.some(function(i){ return i.category===name; });
   else if(kind==='location') inUse = state.items.some(function(i){ return i.location===name; });
   else inUse = state.notes.some(function(n){ return n.category===name; });
-  if(inUse && !confirm(t('tagInUseWarning'))) return;
-  if(kind==='category'){
-    state.categories = state.categories.filter(function(c){ return c!==name; });
-    state.items.forEach(function(i){ if(i.category===name) i.category=''; });
-    if(state.home.category===name) state.home.category=null;
-    saveCategories(); saveItems();
-  } else if(kind==='location'){
-    state.locations = state.locations.filter(function(l){ return l!==name; });
-    state.items.forEach(function(i){ if(i.location===name) i.location=''; });
-    if(state.home.location===name) state.home.location=null;
-    saveLocations(); saveItems();
-  } else {
-    state.noteCategories = state.noteCategories.filter(function(c){ return c!==name; });
-    state.notes.forEach(function(n){ if(n.category===name) n.category=''; });
-    if(state.notesUI.category===name) state.notesUI.category=null;
-    saveNoteCategories(); saveNotes();
+  function doDelete(){
+    if(kind==='category'){
+      state.categories = state.categories.filter(function(c){ return c!==name; });
+      state.items.forEach(function(i){ if(i.category===name) i.category=''; });
+      if(state.home.category===name) state.home.category=null;
+      saveCategories(); saveItems();
+    } else if(kind==='location'){
+      state.locations = state.locations.filter(function(l){ return l!==name; });
+      state.items.forEach(function(i){ if(i.location===name) i.location=''; });
+      if(state.home.location===name) state.home.location=null;
+      saveLocations(); saveItems();
+    } else {
+      state.noteCategories = state.noteCategories.filter(function(c){ return c!==name; });
+      state.notes.forEach(function(n){ if(n.category===name) n.category=''; });
+      if(state.notesUI.category===name) state.notesUI.category=null;
+      saveNoteCategories(); saveNotes();
+    }
+    render();
+    refreshSidebarContent();
   }
-  render();
-  refreshSidebarContent();
+  if(inUse) showConfirmModal(t('tagInUseWarning'), doDelete, {title:t('delete')});
+  else doDelete();
 }
 // Sidebar-driven rename dialog (reuses the app's modal sheet rather than a native prompt()
 // so it matches the rest of the UI). Used for categories, locations, and note categories —
@@ -6902,14 +6933,17 @@ function deleteRecipeGroup(groupId){
   var g = recipeGroupById(groupId);
   if(!g) return;
   var inUse = state.recipes.some(function(r){ return r.category_group===groupId; });
-  if(inUse && !confirm(t('tagInUseWarning'))) return;
-  state.recipeCategoryGroups = state.recipeCategoryGroups.filter(function(x){ return x.id!==groupId; });
-  state.recipes.forEach(function(r){ if(r.category_group===groupId){ r.category_group=''; r.category_sub=''; } });
-  if(state.recipesUI.groupId===groupId){ state.recipesUI.groupId=null; state.recipesUI.sub=null; }
-  if(state.recipesUI.expandedGroup===groupId) state.recipesUI.expandedGroup=null;
-  saveRecipeCategoryGroups();
-  render();
-  refreshSidebarContent();
+  function doDelete(){
+    state.recipeCategoryGroups = state.recipeCategoryGroups.filter(function(x){ return x.id!==groupId; });
+    state.recipes.forEach(function(r){ if(r.category_group===groupId){ r.category_group=''; r.category_sub=''; } });
+    if(state.recipesUI.groupId===groupId){ state.recipesUI.groupId=null; state.recipesUI.sub=null; }
+    if(state.recipesUI.expandedGroup===groupId) state.recipesUI.expandedGroup=null;
+    saveRecipeCategoryGroups();
+    render();
+    refreshSidebarContent();
+  }
+  if(inUse) showConfirmModal(t('tagInUseWarning'), doDelete, {title:t('delete')});
+  else doDelete();
 }
 function openRenameRecipeSubModal(groupId, oldSub){
   var body = '<div class="field" style="margin-bottom:14px;">'+
@@ -6941,13 +6975,16 @@ function deleteRecipeSub(groupId, sub){
   var g = recipeGroupById(groupId);
   if(!g) return;
   var inUse = state.recipes.some(function(r){ return r.category_group===groupId && r.category_sub===sub; });
-  if(inUse && !confirm(t('tagInUseWarning'))) return;
-  g.subs = (g.subs||[]).filter(function(s){ return s!==sub; });
-  state.recipes.forEach(function(r){ if(r.category_group===groupId && r.category_sub===sub) r.category_sub=''; });
-  if(state.recipesUI.groupId===groupId && state.recipesUI.sub===sub) state.recipesUI.sub=null;
-  saveRecipeCategoryGroups();
-  render();
-  refreshSidebarContent();
+  function doDelete(){
+    g.subs = (g.subs||[]).filter(function(s){ return s!==sub; });
+    state.recipes.forEach(function(r){ if(r.category_group===groupId && r.category_sub===sub) r.category_sub=''; });
+    if(state.recipesUI.groupId===groupId && state.recipesUI.sub===sub) state.recipesUI.sub=null;
+    saveRecipeCategoryGroups();
+    render();
+    refreshSidebarContent();
+  }
+  if(inUse) showConfirmModal(t('tagInUseWarning'), doDelete, {title:t('delete')});
+  else doDelete();
 }
 
 /* ======================= AFTER RENDER HOOK ======================= */
