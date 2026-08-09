@@ -683,7 +683,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.77';
+var BUILD_VERSION = '9.78';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -853,7 +853,7 @@ var I18N = {
     usageDate:'日期', usageDestination:'去向', usageDestFree:'自由输入', usageDestRecipe:'关联食谱', usageDestMove:'移动位置',
     usageDestPlaceholder:'比如：早餐吐司、送朋友、直接吃掉了', usageAmount:'数量',
     usageMoveLocationPlaceholder:'选择要移动到的位置', usageNeedMoveLocation:'请选择要移动到的位置', usageMoveSameLocation:'这就是它现在所在的位置',
-    usageMovedTo:'移动至', usageMovedToast:'已移动',
+    usageMovedTo:'移动至', usageMovedToast:'已移动', usageTransferInPrefix:'从', usageTransferInSuffix:'转入', usageTransferInUnknown:'其它位置',
     usagePickRecipeTitle:'选择食谱', usagePickRecipePlaceholder:'点击选择食谱', usageNoRecipes:'还没有任何食谱',
     usageShowMore:'展开更早的记录', usageShowLess:'收起',
     usageSaveBtn:'保存使用记录', usageNeedAmount:'请填写使用数量', usageNeedDest:'请填写去向或选择食谱',
@@ -1045,7 +1045,7 @@ var I18N = {
     usageDate:'Date', usageDestination:'Where it went', usageDestFree:'Free text', usageDestRecipe:'Link a recipe', usageDestMove:'Move to another location',
     usageDestPlaceholder:'e.g. breakfast toast, gave to a friend, ate it plain', usageAmount:'Amount',
     usageMoveLocationPlaceholder:'Pick a destination location', usageNeedMoveLocation:'Please pick a destination location', usageMoveSameLocation:'That is already where it is',
-    usageMovedTo:'Moved to', usageMovedToast:'Moved',
+    usageMovedTo:'Moved to', usageMovedToast:'Moved', usageTransferInPrefix:'Transferred in from ', usageTransferInSuffix:'', usageTransferInUnknown:'another location',
     usagePickRecipeTitle:'Pick a recipe', usagePickRecipePlaceholder:'Tap to pick a recipe', usageNoRecipes:'No recipes yet',
     usageShowMore:'Show earlier entries', usageShowLess:'Show less',
     usageSaveBtn:'Save usage entry', usageNeedAmount:'Enter how much was used', usageNeedDest:'Enter where it went, or pick a recipe',
@@ -4209,15 +4209,33 @@ function renderUsageLog(){
 function usageLogRowHtml(entry, itemId){
   var isMove = entry.destination_type==='move_location';
   var isRecipe = entry.destination_type==='recipe';
+  var isTransferIn = entry.destination_type==='transfer_in';
   var recipeExists = isRecipe && state.recipes.some(function(r){ return r.id===entry.recipe_id; });
   var destText = isRecipe ? recipeNameForUsage(entry.recipe_id)
     : isMove ? (t('usageMovedTo')+' '+entry.destination_text)
+    : isTransferIn ? (t('usageTransferInPrefix')+(entry.source_location||t('usageTransferInUnknown'))+t('usageTransferInSuffix'))
     : entry.destination_text;
+  var cardClickAttr = recipeExists ? ' onclick="navigate(\'recipeDetail\',{id:'+aj(entry.recipe_id)+',from:{view:\'usageLog\',params:{id:'+aj(itemId)+'}}})" style="cursor:pointer;"' : '';
+  var amountHtml = (isTransferIn?'+':'')+fmtNum(entry.amount,2)+esc(entry.unit);
+  // transfer_in is a read-only mirror of a move_location entry that lives on the OTHER item
+  // (see README 9.78 / performLocationMove) - there's nothing here to edit, delete, or restore
+  // independently of that source entry, so it skips the .item-card-swipe wrapper entirely
+  // (no swipe actions to reveal) rather than offering buttons that would only half-work.
+  if(isTransferIn){
+    return '<div class="item-card"'+cardClickAttr+'>'+
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">'+
+        '<div style="min-width:0;display:flex;align-items:center;gap:4px;">'+
+          '<div><div class="item-name" style="font-size:15px;">'+esc(destText||'-')+'</div>'+
+          '<div class="item-meta">'+esc(fmtDateDots(entry.date))+'</div></div>'+
+        '</div>'+
+        '<div style="text-align:right;font-weight:600;color:var(--fresh);flex-shrink:0;">'+amountHtml+'</div>'+
+      '</div>'+
+    '</div>';
+  }
   // Editing a move-location entry isn't supported (see performLocationMove/restoreUsageLogEntry
   // for why undoing one has to touch a second item, not just this one) - only delete/restore.
   var editBtnHtml = isMove ? '' :
     '<button class="swipe-action-btn action-edit" onclick="event.stopPropagation();closeItemSwipeRow('+aj(entry.id)+');openUsageLogEdit('+aj(itemId)+','+aj(entry.id)+')">'+ic('edit',20)+'<span>'+esc(t('edit'))+'</span></button>';
-  var cardClickAttr = recipeExists ? ' onclick="navigate(\'recipeDetail\',{id:'+aj(entry.recipe_id)+',from:{view:\'usageLog\',params:{id:'+aj(itemId)+'}}})" style="cursor:pointer;"' : '';
   return '<div class="item-card-swipe" data-item-id="'+esc(entry.id)+'">'+
     '<div class="item-swipe-actions">'+
       '<button class="swipe-action-btn action-delete" onclick="event.stopPropagation();deleteUsageLogEntry('+aj(itemId)+','+aj(entry.id)+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button>'+
@@ -4231,7 +4249,7 @@ function usageLogRowHtml(entry, itemId){
           '<div class="item-meta">'+esc(fmtDateDots(entry.date))+'</div></div>'+
           (recipeExists ? ic('chevronRight',15,'style="color:#B79B78;flex-shrink:0;"') : '')+
         '</div>'+
-        '<div style="text-align:right;font-weight:600;color:var(--cocoa);flex-shrink:0;">'+fmtNum(entry.amount,2)+esc(entry.unit)+'</div>'+
+        '<div style="text-align:right;font-weight:600;color:var(--cocoa);flex-shrink:0;">'+amountHtml+'</div>'+
       '</div>'+
     '</div>'+
   '</div>';
@@ -4259,7 +4277,7 @@ function openUsageLogEdit(itemId, entryId){
   if(!it) return;
   var entry = (it.usage_log||[]).find(function(e){ return e.id===entryId; });
   if(!entry) return;
-  if(entry.destination_type==='move_location') return; // not editable - see usageLogRowHtml
+  if(entry.destination_type==='move_location' || entry.destination_type==='transfer_in') return; // not editable - see usageLogRowHtml
   state.usageDraft = {
     date: entry.date, destination_type: entry.destination_type,
     destination_text: entry.destination_text||'', recipe_id: entry.recipe_id||'', move_location:'',
@@ -4401,13 +4419,30 @@ async function saveUsageLogEntry(itemId){
     // here too in case this ever gets called some other way.
     if(d._editingEntryId) return;
     var moveResult = await performLocationMove(it, d.amount, d.unit, d.move_location);
+    var moveEntryId = uid();
+    var transferInEntryId = uid();
     var newEntry = {
-      id: uid(), date: d.date || todayStr(), destination_type:'move_location',
+      id: moveEntryId, date: d.date || todayStr(), destination_type:'move_location',
       destination_text: d.move_location, recipe_id:'', amount: d.amount, unit: d.unit,
       target_item_id: moveResult.targetId, target_was_new: moveResult.targetWasNew,
+      target_entry_id: transferInEntryId,
       primary_delta: moveResult.primaryDelta, created_at: nowLocalIso()
     };
     it.usage_log.push(newEntry);
+    // Mirror the transfer onto the receiving item's own usage log too (see README 9.78) - so
+    // "how did this batch's stock get here" is visible from either end, not just the source's
+    // outgoing record. Read-only (see usageLogRowHtml): the source's move_location entry above
+    // stays the single place to undo/delete a transfer, via target_entry_id/source_entry_id
+    // linking the two so restoring or deleting one cleans up its mirror on the other side.
+    var targetItem = state.items.find(function(i){ return i.id===moveResult.targetId; });
+    if(targetItem){
+      targetItem.usage_log = targetItem.usage_log || [];
+      targetItem.usage_log.push({
+        id: transferInEntryId, date: d.date || todayStr(), destination_type:'transfer_in',
+        source_item_id: it.id, source_location: it.location || '', amount: d.amount, unit: d.unit,
+        source_entry_id: moveEntryId, created_at: nowLocalIso()
+      });
+    }
     saveItems();
     showToast(moveResult.ok ? t('usageMovedToast') : t('usageNoConversionWarn'));
     navigate('usageLog', {id:itemId});
@@ -4452,6 +4487,7 @@ function restoreUsageLogEntry(itemId, entryId){
   if(!it) return;
   var entry = (it.usage_log||[]).find(function(e){ return e.id===entryId; });
   if(!entry) return;
+  if(entry.destination_type==='transfer_in') return; // read-only mirror - undo from the source's move_location entry instead
   showConfirmModal(t('usageRestoreConfirm'), function(){
     if(entry.destination_type==='move_location'){
       // Undoing a move has to touch the OTHER item too, not just this one: put the moved amount
@@ -4467,6 +4503,14 @@ function restoreUsageLogEntry(itemId, entryId){
           if(target.photo_url) deletePhotoRef(target.photo_url);
         } else if(entry.primary_delta != null){
           applyPrimaryEquivalentDelta(target, -entry.primary_delta);
+          // Target item still exists (this was a merge into an existing batch, not a fresh
+          // one) - its own usage_log still has the mirrored "transfer in" entry from README
+          // 9.78, which needs to go too, or it'd be left pointing at stock that's no longer
+          // actually there. If target_was_new, the whole item (and its log) was just deleted
+          // above, so there's nothing left to clean up in that branch.
+          if(entry.target_entry_id){
+            target.usage_log = (target.usage_log||[]).filter(function(e){ return e.id!==entry.target_entry_id; });
+          }
         }
       }
     } else {
@@ -4480,9 +4524,21 @@ function restoreUsageLogEntry(itemId, entryId){
   }, {title:t('usageRestoreBtn'), confirmLabel:t('usageRestoreBtn'), danger:false});
 }
 function deleteUsageLogEntry(itemId, entryId){
+  var itCheck = state.items.find(function(i){ return i.id===itemId; });
+  var entryCheck = itCheck && (itCheck.usage_log||[]).find(function(e){ return e.id===entryId; });
+  if(entryCheck && entryCheck.destination_type==='transfer_in') return; // read-only mirror - delete the source's move_location entry instead
   showConfirmModal(t('usageDeleteConfirm'), function(){
     var it = state.items.find(function(i){ return i.id===itemId; });
     if(!it) return;
+    var entry = (it.usage_log||[]).find(function(e){ return e.id===entryId; });
+    // Deleting a move_location entry just tidies up the log (same as deleting any other entry -
+    // the quantity effect already happened and stays put), but its mirrored "transfer in" entry
+    // on the target item (README 9.78) would be left dangling with no source record to point
+    // back to, so it comes along for the ride here too.
+    if(entry && entry.destination_type==='move_location' && entry.target_entry_id){
+      var target = state.items.find(function(i){ return i.id===entry.target_item_id; });
+      if(target) target.usage_log = (target.usage_log||[]).filter(function(e){ return e.id!==entry.target_entry_id; });
+    }
     it.usage_log = (it.usage_log||[]).filter(function(e){ return e.id!==entryId; });
     saveItems();
     closeItemSwipeRow(entryId);
