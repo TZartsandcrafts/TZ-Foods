@@ -683,7 +683,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.75';
+var BUILD_VERSION = '9.77';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2194,16 +2194,20 @@ function menuButtonHtml(page){
 var itemSwipeOpenId = null;
 var itemSwipeSwallowClick = false;
 var ITEM_SWIPE_ACTIONS_WIDTH = 192;
-// Whether a modal popup is currently on screen. The swipe-row gestures below use this to bail
-// out entirely while a modal is up (see README 9.74): without it, a tap meant for the modal -
-// its confirm button, or tapping the backdrop to dismiss it - lands on something outside
-// `.item-card-swipe`/`.recipe-card-swipe`, which the touchstart handler read as "tap outside
-// the open row" and used to auto-close the row *and* swallow that same tap's click event so it
-// doesn't fall through into whatever card is now underneath. That swallowed click was the same
-// click meant for the modal, so the modal's button/backdrop only responded on a second tap.
+// Whether a modal popup OR the long-press copy pill is currently on screen. The swipe-row
+// gestures below use this to bail out entirely while either is up (see README 9.74/9.76):
+// without it, a tap meant for that overlay - its button, or tapping outside it to dismiss -
+// lands on something outside `.item-card-swipe`/`.recipe-card-swipe`, which the touchstart
+// handler read as "tap outside the open row" and used to auto-close the row *and* swallow that
+// same tap's click event so it doesn't fall through into whatever card is now underneath. That
+// swallowed click was the same click meant for the overlay, so its button/backdrop only
+// responded on a second (or, if the swallow kept re-arming, a third) tap.
 function modalIsOpen(){
   var r = document.getElementById('modal-root');
-  return !!(r && r.firstChild);
+  if(r && r.firstChild) return true;
+  var p = document.getElementById('copy-pill-root');
+  if(p && p.firstChild) return true;
+  return false;
 }
 function closeItemSwipeRow(id){
   if(itemSwipeOpenId===id) itemSwipeOpenId=null;
@@ -2290,6 +2294,7 @@ function deleteItemFromSwipe(id){ closeItemSwipeRow(id); deleteItemDetail(id); }
   function cancelTimer(){ if(timer){ clearTimeout(timer); timer = null; } }
   document.addEventListener('touchstart', function(e){
     cancelTimer();
+    if(modalIsOpen()) return;
     var wrap = e.target.closest ? e.target.closest('.item-card-swipe') : null;
     if(!wrap) return;
     var t0 = e.touches[0];
@@ -2540,7 +2545,19 @@ function getFilteredSortedItems(){
     return true;
   });
   var dir = state.home.sortDir==='desc' ? -1 : 1;
-  list.sort(function(a,b){
+  // Used-up batches (isUsedUp) sink to the bottom of the list, below every in-stock item,
+  // regardless of which sort pill is active - "已用完" is a different kind of thing to be
+  // looking at than "still have some, just checking the date/name/etc.", so it gets pulled out
+  // into its own trailing section with its own fixed order (most recently emptied first, same
+  // "updated_at doubles as ran-out-when" convention already used by the 已用完 stat-capsule
+  // list) instead of competing for a spot in whatever the person happens to have sorted by.
+  // A product with SOME batches still in stock is unaffected: only a batch that's itself used
+  // up gets pulled down here, so if the group has another batch with real stock left, that
+  // batch still sorts normally up top and the group is folded into (and represented by) that
+  // position, same as before - see representativeGroupItem/expiryStatusRank below.
+  var inStock = list.filter(function(it){ return !isUsedUp(it); });
+  var usedUp = list.filter(isUsedUp);
+  inStock.sort(function(a,b){
     var cmp;
     if(state.home.sort === 'name'){
       cmp = (a.name||'').localeCompare(b.name||'');
@@ -2556,7 +2573,8 @@ function getFilteredSortedItems(){
     }
     return cmp * dir;
   });
-  return list;
+  usedUp.sort(function(a,b){ return (b.updated_at||'').localeCompare(a.updated_at||''); });
+  return inStock.concat(usedUp);
 }
 function renderHome(){
   var items = getFilteredSortedItems();
