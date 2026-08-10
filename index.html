@@ -549,6 +549,8 @@
   .nf-input:focus{ border-color:var(--almond); outline:none; }
   .nf-input-cal{ width:84px; font-size:22px; font-weight:800; }
   .nf-input-unit{ font-size:13px; color:var(--deep-caramel); min-width:18px; }
+  .nf-conversion-hint-row{ padding:0 12px 8px; margin-top:-4px; text-align:right; }
+  .nf-conversion-hint{ font-size:11.5px; color:#B79B78; white-space:nowrap; }
   .nf-input-unit-select{ font-size:16px; padding:3px 5px; border:1px solid var(--line); border-radius:6px; background:var(--card-bg); color:var(--cocoa); -webkit-appearance:none; appearance:none; }
   .nf-input-unit-select:focus{ border-color:var(--almond); outline:none; }
   .nf-row.indent1 .nf-input, .nf-row.indent2 .nf-input{ font-weight:400; }
@@ -649,8 +651,11 @@
   .ing-group-block{ margin-bottom:18px; }
   .ing-group-block:last-child{ margin-bottom:4px; }
   .ing-group-title-row{ display:flex; align-items:center; gap:4px; margin-bottom:8px; }
+  /* font-size kept at 16px (not the 14.5px the read-only .ing-group-header prints at) for the
+     same reason as the nf-basis-input/nf-input rule above - anything smaller makes iOS Safari
+     auto-zoom the page the moment this field is focused. Bold+color still match the header look. */
   .ing-group-title-input{
-    flex:1; min-width:0; font-size:14.5px; font-weight:700; color:var(--fresh); border:none;
+    flex:1; min-width:0; font-size:16px; font-weight:700; color:var(--fresh); border:none;
     border-bottom:1px dashed var(--line); background:transparent; padding:4px 2px 6px; outline:none;
   }
   .ing-group-title-input:focus{ border-bottom-color:var(--almond); }
@@ -699,7 +704,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.79';
+var BUILD_VERSION = '9.82';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -768,6 +773,82 @@ function nutriExtraDefs(){
   };
 }
 function emptyNutritionExtra(){ return {}; }
+// Vitamin D's mcg<->IU is the one vitamin/mineral unit pair with a fixed, universally-agreed
+// conversion factor (1 IU cholecalciferol = 0.025 mcg, an international unit definition - not a
+// country-specific reference value). Returns the value in mcg, or null if this key/unit isn't
+// vitamin D in mcg or IU.
+var VITAMIN_D_IU_PER_MCG = 40;
+function vitaminDToMcg(key, value, unit){
+  if(key !== 'vitamin_d' || value==null || isNaN(value)) return null;
+  if(unit==='mcg') return value;
+  if(unit==='IU') return value/VITAMIN_D_IU_PER_MCG;
+  return null;
+}
+// Health Canada's current Table of Daily Values (published Oct 2022, transition period for
+// manufacturers to switch over ended Dec 31 2025 - see canada.ca/en/health-canada/services/
+// technical-documents-labelling-requirements/table-daily-values/nutrition-labelling.html),
+// "any other case" column (general population 4+, not the infant/toddler-specific columns).
+// This is what lets %DV be converted to/from an absolute amount for every vitamin/mineral this
+// app tracks - safe to hardcode here specifically because this household's own groceries are
+// mainly North American-market products (confirmed with the person, not assumed), so this is
+// the actual reference their labels are printed against, not a guess at "some" standard. It
+// would NOT be safe to apply this table to products labelled under a different standard (e.g.
+// China's GB 28050 NRV, which has its own different numbers and its own separate 2011/2025
+// revision split) - see README 9.82 for the fuller reasoning and the one remaining caveat
+// (older Canadian labels sold before the Dec 2025 deadline may still carry the previous 2016
+// potassium DV of 4700mg rather than the current 3400mg).
+var NUTRI_DV_REFERENCE = {
+  vitamin_d: {amount:20, unit:'mcg'},
+  calcium: {amount:1300, unit:'mg'},
+  iron: {amount:18, unit:'mg'},
+  potassium: {amount:3400, unit:'mg'},
+  vitamin_a: {amount:900, unit:'mcg'},
+  vitamin_c: {amount:90, unit:'mg'},
+  vitamin_e: {amount:15, unit:'mg'},
+  magnesium: {amount:420, unit:'mg'},
+  zinc: {amount:11, unit:'mg'},
+  vitamin_b12: {amount:2.4, unit:'mcg'}
+};
+// Converts a value recorded in ANY of a nutrient's offered units - its natural mg/mcg unit,
+// %DV via NUTRI_DV_REFERENCE, or (vitamin D only) IU via vitaminDToMcg - into that nutrient's
+// natural absolute unit. This is what calcRecipeNutrition uses to sum contributions that were
+// recorded in different units instead of excluding them (see calcRecipeNutrition). Returns null
+// only for vitamin A/E's IU (see vitaminDToMcg's comment on why that one can't be placed).
+function extraToNaturalUnit(key, value, unit){
+  var dv = NUTRI_DV_REFERENCE[key];
+  if(!dv || value==null || isNaN(value)) return null;
+  if(unit === dv.unit) return {value:value, unit:dv.unit};
+  if(unit === '%DV') return {value: value/100*dv.amount, unit:dv.unit};
+  if(unit === 'IU'){
+    var mcg = vitaminDToMcg(key, value, unit);
+    return (mcg==null) ? null : {value:mcg, unit:dv.unit};
+  }
+  return null;
+}
+// Small "≈ 400 IU · 50% DV" reference hint shown under a vitamin/mineral input, purely
+// informational (doesn't change what's stored) - lets someone typing in whichever unit their
+// product's label uses immediately see what that comes to in the other unit(s), in case a
+// recipe they're about to use it in already has other ingredients recorded in one of those.
+function nutriExtraConversionHint(key, unit, value){
+  if(value==null || value==='' || isNaN(value)) return '';
+  var num = parseFloat(value);
+  var dv = NUTRI_DV_REFERENCE[key];
+  var parts = [];
+  if(key==='vitamin_d'){
+    if(unit==='mcg') parts.push(fmtNum(num*VITAMIN_D_IU_PER_MCG,2)+' IU');
+    else if(unit==='IU') parts.push(fmtNum(num/VITAMIN_D_IU_PER_MCG,2)+' mcg');
+  }
+  if(dv){
+    if(unit==='%DV'){
+      parts.push(fmtNum(num/100*dv.amount,2)+dv.unit);
+    } else {
+      var natural = extraToNaturalUnit(key, num, unit);
+      if(natural) parts.push(fmtNum(natural.value/dv.amount*100,2)+'% DV');
+    }
+  }
+  if(!parts.length) return '';
+  return '<span class="nf-conversion-hint">≈ '+parts.join(' · ')+'</span>';
+}
 // "每88g" / "per 88g" - shown next to the nutrition section title so it's clear exactly what
 // amount the printed numbers are for. Now up to two parts (a weight basis and a volume basis
 // can both be set - see migrateNutritionBasis for why), joined the same " / " way multiple
@@ -1890,14 +1971,20 @@ function calcRecipeNutrition(recipe){
     if(basisAmount == null) basisAmount = 100;
     var factor = used.value/basisAmount;
     var extra = src.nutrition_extra || {};
+    // Every contribution gets normalized to that nutrient's natural absolute unit up front
+    // (extraToNaturalUnit - mg/mcg directly, %DV via NUTRI_DV_REFERENCE, vitamin D's IU via
+    // vitaminDToMcg), so mixed-unit ingredients for the same nutrient just add up normally
+    // instead of needing to match the first contribution's unit. Only falls through to the
+    // exclude-and-warn path for vitamin A/E's IU, which has no reliable conversion - see
+    // vitaminDToMcg's comment.
     NUTRI_EXTRA_CORE_KEYS.concat(NUTRI_EXTRA_OPTIONAL_KEYS).forEach(function(k){
       var e = extra[k];
       if(!e || e.value==null) return;
       var scaled = Number(e.value)*factor;
-      if(!extraTotals[k]){
-        extraTotals[k] = {unit:e.unit, value:scaled};
-      } else if(extraTotals[k].unit === e.unit){
-        extraTotals[k].value += scaled;
+      var norm = extraToNaturalUnit(k, scaled, e.unit);
+      if(norm){
+        if(!extraTotals[k]) extraTotals[k] = {unit:norm.unit, value:0};
+        extraTotals[k].value += norm.value;
       } else {
         extraWarnings.push(t(nutriExtraDefs()[k].labelKey)+'('+src.name+')');
       }
@@ -3768,10 +3855,14 @@ function nutriExtraRowHtml(key){
   var unitHtml = def.units.length > 1 ?
     ('<div style="width:64px;">'+inlineDropdownHtml(key, unit, def.units, 'onNutriExtraUnitChange', null, 'compact')+'</div>') :
     ('<span class="nf-input-unit">'+def.units[0]+'</span>');
+  // "≈ 400 IU · 50% DV" readout under the row (not squeezed into the value-wrap itself, which
+  // doesn't shrink and would overflow on a narrow screen) - see nutriExtraConversionHint.
+  var hint = nutriExtraConversionHint(key, unit, val);
   return '<div class="nf-row"><span>'+t(def.labelKey)+'</span><span class="nf-edit-value-wrap">'+
     '<input type="number" inputmode="decimal" class="nf-input" placeholder="-" value="'+val+'" oninput="onNutriExtraInput('+aj(key)+',this.value)">'+
     unitHtml+
-  '</span></div>';
+  '</span></div>'+
+  (hint ? '<div class="nf-conversion-hint-row">'+hint+'</div>' : '');
 }
 function nutriExtraFieldsHtml(){
   return nutriExtraGroupHtml('vitamins', t('nutriGroupVitamins'), NUTRI_VITAMIN_KEYS) +
@@ -5872,10 +5963,12 @@ function externalIngNutriExtraGroupHtml(groupKey, label, keys){
     var unitHtml = def.units.length > 1 ?
       extIngDropdownHtml(key, unit, def.units) :
       ('<span class="nf-input-unit">'+def.units[0]+'</span>');
+    var hint = nutriExtraConversionHint(key, unit, val);
     return '<div class="nf-row"><span>'+t(def.labelKey)+'</span><span class="nf-edit-value-wrap">'+
       '<input type="number" inputmode="decimal" class="nf-input" placeholder="-" value="'+val+'" oninput="onExtIngExtraInput('+aj(key)+',this.value)">'+
       unitHtml+
-    '</span></div>';
+    '</span></div>'+
+    (hint ? '<div class="nf-conversion-hint-row">'+hint+'</div>' : '');
   }).join('')+'</div>';
 }
 function toggleExtIngExtraGroup(groupKey){
