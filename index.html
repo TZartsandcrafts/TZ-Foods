@@ -500,7 +500,6 @@
   @keyframes copyPillIn{ from{ opacity:0; transform:scale(0.85); } to{ opacity:1; transform:scale(1); } }
 
   /* ---------- Nutrition grid ---------- */
-  .nutri-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
   /* ---------- Nutrition Facts box (North American label style) ---------- */
   .nutrition-facts{ border:1px solid var(--cocoa); border-radius:10px; overflow:hidden; background:var(--card-bg); margin-bottom:14px; }
   .nutrition-facts.nutrition-facts-edit{ overflow:visible; }
@@ -604,10 +603,6 @@
   .item-detail-action-btn.edit{ border-color:var(--almond); color:var(--almond); }
   .item-detail-action-btn.archive{ border-color:var(--deep-caramel); color:var(--deep-caramel); }
   .item-detail-action-btn.danger{ border-color:var(--danger); color:var(--danger); }
-  .nutri-cell{ background:var(--cream); border-radius:10px; padding:12px; }
-  .nutri-cell .val{ font-size:19px; font-weight:600; color:var(--cocoa); }
-  .nutri-cell .unit{ font-size:12px; font-weight:400; color:var(--deep-caramel); }
-  .nutri-cell .lbl{ font-size:12.5px; color:var(--deep-caramel); margin-top:2px; }
 
   .toast{
     position:fixed; bottom:calc(96px + var(--safe-bottom)); left:50%; transform:translateX(-50%);
@@ -639,6 +634,27 @@
   .ing-row .ing-amt{ font-size:12.5px; color:var(--deep-caramel); flex-shrink:0; }
   .ing-group-header{ font-size:14.5px; font-weight:700; color:var(--fresh); margin:14px 2px 6px; cursor:pointer; }
   .ing-group-header:first-child{ margin-top:2px; }
+  /* Recipe detail page ingredient list (see README): plain menu-style rows, name/dots/amount,
+     instead of the boxed .ing-row pill above - matches the steps section below it, which is
+     also just plain text in a vertical flow rather than individually-boxed cards. */
+  .ing-list-row{ display:flex; align-items:baseline; gap:6px; padding:9px 2px; }
+  .ing-list-name{ font-size:15px; font-weight:500; color:var(--cocoa); min-width:0; word-break:break-word; }
+  .ing-list-dots{ flex:1 1 auto; min-width:10px; align-self:flex-end; margin-bottom:4px; border-bottom:2px dotted var(--line); }
+  .ing-list-amt{ font-size:13px; color:var(--deep-caramel); white-space:nowrap; flex-shrink:0; }
+  .ing-list-chevron{ flex-shrink:0; }
+  /* Recipe edit page ingredient groups (see README): each group is its own block - a free-text
+     title input (styled like the ing-group-header it becomes on the detail page: bold, left-
+     aligned) plus whatever ingredients were added under it - rather than one flat list with
+     "add a group" as an afterthought button at the bottom. */
+  .ing-group-block{ margin-bottom:18px; }
+  .ing-group-block:last-child{ margin-bottom:4px; }
+  .ing-group-title-row{ display:flex; align-items:center; gap:4px; margin-bottom:8px; }
+  .ing-group-title-input{
+    flex:1; min-width:0; font-size:14.5px; font-weight:700; color:var(--fresh); border:none;
+    border-bottom:1px dashed var(--line); background:transparent; padding:4px 2px 6px; outline:none;
+  }
+  .ing-group-title-input:focus{ border-bottom-color:var(--almond); }
+  .ing-group-title-input::placeholder{ font-weight:500; color:#B79B78; }
   .step-card{ margin-bottom:12px; }
   .step-card .step-title{ font-size:14px; font-weight:600; color:var(--cocoa); margin-bottom:6px; }
   .step-card textarea{
@@ -683,7 +699,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.78';
+var BUILD_VERSION = '9.79';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -880,7 +896,7 @@ var I18N = {
     sectionIngredients:'食材', addFromInventory:'从库存选择', addExternal:'添加外部食材',
     addIngredientGroupBtn:'分组', addIngredientGroupTitle:'添加分组', editIngredientGroupTitle:'编辑分组', ingredientGroupNameLabel:'分组名称', ingredientGroupNamePh:'例如：饺子皮',
     sectionOil:'额外用油(可选)', fieldOilAmount:'用油量(g)', fieldOilType:'油的种类',
-    sectionCookedWeight:'成品重量(可选)', fieldCookedWeight:'成品总重量(g)',
+    sectionCookedWeight:'成品重量(可选)', fieldCookedWeight:'成品总重量(g)', recipeTotalWeightLabel:'成品总重量',
     cookedWeightHint:'填写做完这道菜实际称重的重量，可显示"每100g成品热量"',
     nutritionSummary:'营养',
     perTotal:'总计', perServing:'每份', per100g:'每100g成品',
@@ -1070,7 +1086,7 @@ var I18N = {
     sectionIngredients:'Ingredients', addFromInventory:'Add from inventory', addExternal:'Add external ingredient',
     addIngredientGroupBtn:'Group', addIngredientGroupTitle:'Add group', editIngredientGroupTitle:'Edit group', ingredientGroupNameLabel:'Group name', ingredientGroupNamePh:'e.g. Dough',
     sectionOil:'Extra oil (optional)', fieldOilAmount:'Oil amount (g)', fieldOilType:'Oil type',
-    sectionCookedWeight:'Cooked weight (optional)', fieldCookedWeight:'Total cooked weight (g)',
+    sectionCookedWeight:'Cooked weight (optional)', fieldCookedWeight:'Total cooked weight (g)', recipeTotalWeightLabel:'Total cooked weight',
     cookedWeightHint:'Weigh the finished dish to show calories per 100g of the final product.',
     nutritionSummary:'Nutrition',
     perTotal:'Total', perServing:'Per serving', per100g:'Per 100g cooked',
@@ -1850,6 +1866,16 @@ function ingredientBasisInfo(src){
 function calcRecipeNutrition(recipe){
   var total = emptyNutrition();
   var warnings = [];
+  // Tier-2 vitamins/minerals (nutrition_extra) can't just be summed like the core macros: each
+  // item picks its own unit per nutrient (mcg/IU/%DV etc - see nutriExtraDefs), so two
+  // ingredients' vitamin D could be in genuinely incompatible units. extraTotals accumulates
+  // per-key as {unit, value}, only combining contributions that share the SAME unit; the first
+  // contribution for a key sets that key's unit, and any later ingredient with a different unit
+  // for the same key is skipped and reported in extraWarnings rather than silently added into
+  // the wrong total (a la carte, not applying scaleNutrition's assumption that ever key uses one
+  // fixed global unit, which is only actually true for NUTRI_KEYS).
+  var extraTotals = {};
+  var extraWarnings = [];
   (recipe.ingredients||[]).forEach(function(ri){
     if(ri.type==='group') return;
     var src = getIngredientSource(ri);
@@ -1859,6 +1885,23 @@ function calcRecipeNutrition(recipe){
     var used = amountToBasisUnits(ri.amount, ri.unit, ri.source_type==='inventory'?src:null);
     if(used == null){ warnings.push(src.name); return; }
     total = addNutrition(total, scaleNutrition(perBasis, basisInfo, used));
+    var basisAmount = used.type==='volume' ? basisInfo.volumeAmount : basisInfo.weightAmount;
+    if(basisAmount == null) basisAmount = used.type==='volume' ? basisInfo.weightAmount : basisInfo.volumeAmount;
+    if(basisAmount == null) basisAmount = 100;
+    var factor = used.value/basisAmount;
+    var extra = src.nutrition_extra || {};
+    NUTRI_EXTRA_CORE_KEYS.concat(NUTRI_EXTRA_OPTIONAL_KEYS).forEach(function(k){
+      var e = extra[k];
+      if(!e || e.value==null) return;
+      var scaled = Number(e.value)*factor;
+      if(!extraTotals[k]){
+        extraTotals[k] = {unit:e.unit, value:scaled};
+      } else if(extraTotals[k].unit === e.unit){
+        extraTotals[k].value += scaled;
+      } else {
+        extraWarnings.push(t(nutriExtraDefs()[k].labelKey)+'('+src.name+')');
+      }
+    });
   });
   // extra oil
   var oilCal = 0, oilFat = 0;
@@ -1875,8 +1918,21 @@ function calcRecipeNutrition(recipe){
   if(recipe.cooked_weight){
     per100g = {}; NUTRI_KEYS.forEach(function(k){ per100g[k] = total[k]/recipe.cooked_weight*100; });
   }
-  return {total:total, perServing:perServing, per100g:per100g, warnings:warnings};
+  // Same treatment as the core macros above: extras scale by servings/cooked-weight the same
+  // linear way, just carrying their per-key unit along for display instead of assuming grams.
+  var extraPerServing = {};
+  Object.keys(extraTotals).forEach(function(k){ extraPerServing[k] = {unit:extraTotals[k].unit, value:extraTotals[k].value/servings}; });
+  var extraPer100g = null;
+  if(recipe.cooked_weight){
+    extraPer100g = {};
+    Object.keys(extraTotals).forEach(function(k){ extraPer100g[k] = {unit:extraTotals[k].unit, value:extraTotals[k].value/recipe.cooked_weight*100}; });
+  }
+  return {
+    total:total, perServing:perServing, per100g:per100g, warnings:warnings,
+    extraTotal:extraTotals, extraPerServing:extraPerServing, extraPer100g:extraPer100g, extraWarnings:extraWarnings
+  };
 }
+
 
 /* ======================= ICONS (hand-built inline SVG, no external deps) ======================= */
 var ICONS = {
@@ -5649,8 +5705,23 @@ function confirmAddIngredient(sourceType, id, name){
   if(!amount || amount<=0){ showToast(state.lang==='zh'?'请输入用量':'Please enter an amount'); return; }
   addIngredientToRecipe(sourceType, id, name, amount, unit);
 }
+// Inserts right after the last ingredient already under whichever group was active when
+// goPickInventory/goPickExternal was tapped (see README) - i.e. right before the next group
+// marker, or at the very end if this is the last group - so a new ingredient always lands inside
+// the group the person was actually adding to, not just tacked onto the end of the whole recipe.
+// Falls back to a plain append if there's somehow no active group (shouldn't happen now that
+// ensureRecipeIngredientGroups always guarantees at least one, but kept as a safe default).
 function addIngredientToRecipe(sourceType, sourceId, nameSnapshot, amount, unit){
-  state.recipeDraft.ingredients.push({id:uid(), source_type:sourceType, source_id:sourceId, name_snapshot:nameSnapshot, amount:amount, unit:unit});
+  var list = state.recipeDraft.ingredients || (state.recipeDraft.ingredients=[]);
+  var entry = {id:uid(), source_type:sourceType, source_id:sourceId, name_snapshot:nameSnapshot, amount:amount, unit:unit};
+  var groupIdx = state.recipeFormUI && state.recipeFormUI.activeIngredientGroupIdx;
+  if(groupIdx!=null && list[groupIdx] && list[groupIdx].type==='group'){
+    var i = groupIdx+1;
+    while(i<list.length && list[i].type!=='group') i++;
+    list.splice(i, 0, entry);
+  } else {
+    list.push(entry);
+  }
   closeModal();
   navigate('recipeForm');
 }
@@ -5706,37 +5777,18 @@ function deleteExternalIngredientConfirm(id){
     render();
   }, {title:t('delete')});
 }
+// External ingredient add/edit modal (see README): now a live-state-bound draft
+// (state.extIngUI), same idea as state.itemDraft for the item form, instead of the old
+// "leave values sitting in the DOM, scrape them all at submit time" approach. That change is
+// necessary, not just cosmetic: this modal now includes the same interactive vitamin/mineral
+// toggle-groups and unit dropdowns as the item form's nutrition editor (see nutriExtraGroupHtml),
+// and those need to re-render the modal's own content on every toggle/pick - which would have
+// wiped out anything already typed into the plain number inputs if those weren't ALSO backed by
+// state instead of living only in the DOM.
 function openNewExternalIngredientModal(){
-  var labels = nutriLabels();
-  var nutriInputs = NUTRI_KEYS.map(function(k){
-    return '<div class="field" style="margin-bottom:10px;"><label style="font-size:12.5px;">'+labels[k]+'</label><input type="number" inputmode="decimal" id="newing-'+k+'" placeholder="-"></div>';
-  }).join('');
-  showModal(t('createNewIngredient'),
-    '<div class="field"><label>'+t('newIngName')+'</label><input type="text" autocapitalize="words" id="newing-name" placeholder="'+t('newIngName')+'"></div>'+
-    '<p class="hint" style="margin-bottom:10px;">'+t('newIngNutriHint')+'</p>'+
-    '<div class="nutri-grid">'+nutriInputs+'</div>'+
-    '<div class="field" style="margin-top:14px;"><label>'+t('ingAmountLabel')+'</label><input type="number" inputmode="decimal" id="ing-amount" placeholder="-"></div>'+
-    '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+['g','kg','ml','l'].map(function(u,idx){ return '<div class="tag-option '+(idx===0?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+u+'</div>'; }).join('')+'</div></div>'+
-    '<button class="btn btn-primary" onclick="createExternalIngredientAndAdd()">'+t('add')+'</button>'
-  );
+  state.extIngUI = {mode:'new', id:null, name:'', nutrition:{}, nutrition_extra:{}, amount:null, unit:'g', expandedGroups:{}, openDropdown:null};
+  renderExternalIngredientModal();
 }
-function createExternalIngredientAndAdd(){
-  var name = document.getElementById('newing-name').value.trim();
-  if(!name){ showToast(state.lang==='zh'?'请输入食材名称':'Please enter a name'); return; }
-  var nutrition = {};
-  NUTRI_KEYS.forEach(function(k){
-    var v = document.getElementById('newing-'+k).value;
-    var n = (v==='') ? null : parseFloat(v);
-    nutrition[k] = (n==null || isNaN(n)) ? null : n;
-  });
-  var ing = {id:uid(), name:name, nutrition:nutrition, created_at:todayStr(), updated_at:nowLocalIso()};
-  state.ingredients.push(ing);
-  saveIngredients();
-  var amount = parseFloat(document.getElementById('ing-amount').value)||100;
-  var unit = getActivePill('ing-unit-pills');
-  addIngredientToRecipe('external', ing.id, ing.name, amount, unit);
-}
-
 // Edits the external ingredient's own library attributes (name + its per-100g nutrition
 // values) - NOT the amount/unit of any particular use of it in a recipe. Since
 // getIngredientSource() resolves external ingredients live from state.ingredients by id
@@ -5745,30 +5797,142 @@ function createExternalIngredientAndAdd(){
 function editExternalIngredientModal(id){
   var ing = state.ingredients.find(function(i){ return i.id===id; });
   if(!ing) return;
-  var labels = nutriLabels();
-  var nutrition = ing.nutrition || {};
-  var nutriInputs = NUTRI_KEYS.map(function(k){
-    return '<div class="field" style="margin-bottom:10px;"><label style="font-size:12.5px;">'+labels[k]+'</label><input type="number" inputmode="decimal" id="editing-'+k+'" value="'+(nutrition[k]==null?'':nutrition[k])+'" placeholder="-"></div>';
-  }).join('');
-  showModal(t('editIngredientTitle'),
-    '<div class="field"><label>'+t('newIngName')+'</label><input type="text" autocapitalize="words" id="editing-name" value="'+esc(ing.name)+'" placeholder="'+t('newIngName')+'"></div>'+
+  state.extIngUI = {
+    mode:'edit', id:id, name:ing.name,
+    nutrition: JSON.parse(JSON.stringify(ing.nutrition||{})),
+    nutrition_extra: JSON.parse(JSON.stringify(ing.nutrition_extra||{})),
+    amount:null, unit:'g', expandedGroups:{}, openDropdown:null
+  };
+  renderExternalIngredientModal();
+}
+function renderExternalIngredientModal(){
+  var ui = state.extIngUI;
+  var isNew = ui.mode==='new';
+  var amountUnitHtml = isNew ?
+    '<div class="field" style="margin-top:14px;"><label>'+t('ingAmountLabel')+'</label><input type="number" inputmode="decimal" placeholder="-" value="'+(ui.amount==null?'':ui.amount)+'" oninput="onExtIngAmountInput(this.value)"></div>'+
+    '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select">'+['g','kg','ml','l'].map(function(u){ return '<div class="tag-option '+(u===ui.unit?'active':'')+'" onclick="onExtIngUnitPick('+aj(u)+')">'+u+'</div>'; }).join('')+'</div></div>'
+    : '';
+  showModal(isNew ? t('createNewIngredient') : t('editIngredientTitle'),
+    '<div class="field"><label>'+t('newIngName')+'</label><input type="text" autocapitalize="words" value="'+esc(ui.name)+'" placeholder="'+t('newIngName')+'" oninput="onExtIngNameInput(this.value)"></div>'+
     '<p class="hint" style="margin-bottom:10px;">'+t('newIngNutriHint')+'</p>'+
-    '<div class="nutri-grid">'+nutriInputs+'</div>'+
-    '<button class="btn btn-primary" style="margin-top:14px;" onclick="saveExternalIngredientEdit('+aj(id)+')">'+t('save')+'</button>'
+    externalIngNutriFieldsHtml()+
+    externalIngNutriExtraGroupHtml('vitamins', t('nutriGroupVitamins'), NUTRI_VITAMIN_KEYS)+
+    externalIngNutriExtraGroupHtml('minerals', t('nutriGroupMinerals'), NUTRI_MINERAL_KEYS)+
+    amountUnitHtml+
+    (isNew
+      ? '<button class="btn btn-primary" style="margin-top:14px;" onclick="createExternalIngredientAndAdd()">'+t('add')+'</button>'
+      : '<button class="btn btn-primary" style="margin-top:14px;" onclick="saveExternalIngredientEdit()">'+t('save')+'</button>')
   );
 }
-function saveExternalIngredientEdit(id){
-  var ing = state.ingredients.find(function(i){ return i.id===id; });
+function onExtIngNameInput(val){ state.extIngUI.name = val; }
+function onExtIngAmountInput(val){ state.extIngUI.amount = (val==='') ? null : parseFloat(val); }
+function onExtIngUnitPick(u){ state.extIngUI.unit = u; renderExternalIngredientModal(); }
+// Same box/row markup as nutriFieldsHtml (the item form's editable label) minus the basis-amount
+// row - external ingredients predate the weight/volume split and are always fixed at per-100g
+// (see ingredientBasisInfo), so there's no basis to pick here, just the "每100g/100ml" hint text
+// already printed above this box.
+function externalIngNutriFieldsHtml(){
+  var ui = state.extIngUI;
+  var labels = nutriLabels();
+  var units = nutriUnits();
+  var calHtml = '<div class="nf-calories-row"><span>'+t('nutriCalories')+'</span><span class="nf-edit-value-wrap">'+
+      '<input type="number" inputmode="decimal" class="nf-input nf-input-cal" placeholder="-" value="'+(ui.nutrition.calories==null?'':ui.nutrition.calories)+'" oninput="onExtIngNutriInput(\'calories\',this.value)">'+
+      '<span class="nf-calories-unit">kcal</span>'+
+    '</span></div>';
+  var rowsHtml = NUTRI_TIER1_ROWS.map(function(row){
+    var cls = 'nf-row'+(row.level===1?' indent1':'')+(row.level===2?' indent2':'')+(row.bold?' bold':'');
+    var v = ui.nutrition[row.key];
+    return '<div class="'+cls+'"><span>'+labels[row.key]+'</span><span class="nf-edit-value-wrap">'+
+      '<input type="number" inputmode="decimal" class="nf-input" placeholder="-" value="'+(v==null?'':v)+'" oninput="onExtIngNutriInput('+aj(row.key)+',this.value)">'+
+      '<span class="nf-input-unit">'+units[row.key]+'</span>'+
+    '</span></div>';
+  }).join('');
+  return '<div class="nutrition-facts nutrition-facts-edit">'+calHtml+rowsHtml+'</div>';
+}
+function onExtIngNutriInput(key, val){
+  var n = (val==='') ? null : parseFloat(val);
+  state.extIngUI.nutrition[key] = (n==null || isNaN(n)) ? null : n;
+}
+// Same collapsed-by-default toggle group as the item form's nutriExtraGroupHtml, scoped to
+// state.extIngUI instead of state.itemDraft/state.itemFormUI, and re-rendering the modal
+// (renderExternalIngredientModal) instead of the page (render()) on every toggle/pick, since
+// this whole editor lives inside a modal, not the page underneath it.
+function externalIngNutriExtraGroupHtml(groupKey, label, keys){
+  var ui = state.extIngUI;
+  var expanded = !!ui.expandedGroups[groupKey];
+  var toggleRow = '<div class="nf-toggle-row" onclick="toggleExtIngExtraGroup('+aj(groupKey)+')"><span>'+label+'</span>'+
+    ic('chevronRight',15,'style="transform:rotate('+(expanded?'90':'0')+'deg);transition:transform .15s;"')+'</div>';
+  if(!expanded) return '<div class="nutrition-facts nutrition-facts-edit">'+toggleRow+'</div>';
+  var defs = nutriExtraDefs();
+  return '<div class="nutrition-facts nutrition-facts-edit">'+toggleRow+keys.map(function(key){
+    var def = defs[key];
+    var stored = ui.nutrition_extra[key] || {};
+    var unit = stored.unit || def.units[0];
+    var val = (stored.value != null) ? stored.value : '';
+    var unitHtml = def.units.length > 1 ?
+      extIngDropdownHtml(key, unit, def.units) :
+      ('<span class="nf-input-unit">'+def.units[0]+'</span>');
+    return '<div class="nf-row"><span>'+t(def.labelKey)+'</span><span class="nf-edit-value-wrap">'+
+      '<input type="number" inputmode="decimal" class="nf-input" placeholder="-" value="'+val+'" oninput="onExtIngExtraInput('+aj(key)+',this.value)">'+
+      unitHtml+
+    '</span></div>';
+  }).join('')+'</div>';
+}
+function toggleExtIngExtraGroup(groupKey){
+  state.extIngUI.expandedGroups[groupKey] = !state.extIngUI.expandedGroups[groupKey];
+  renderExternalIngredientModal();
+}
+function onExtIngExtraInput(key, val){
+  var def = nutriExtraDefs()[key];
+  var existing = state.extIngUI.nutrition_extra[key] || {};
+  var unit = existing.unit || def.units[0];
+  var num = (val==='') ? null : parseFloat(val);
+  if(num == null || isNaN(num)){
+    delete state.extIngUI.nutrition_extra[key];
+  } else {
+    state.extIngUI.nutrition_extra[key] = {value:num, unit:unit};
+  }
+}
+function extIngDropdownHtml(key, currentValue, options){
+  var isOpen = state.extIngUI.openDropdown === key;
+  var label = currentValue ? esc(currentValue) : ('<span style="color:#B79B78;">'+esc(options[0])+'</span>');
+  var trigger = '<div class="inline-dd-trigger'+(isOpen?' open':'')+'" onclick="toggleExtIngDropdown('+aj(key)+')"><span>'+label+'</span>'+
+      ic('chevronRight',14,'style="transform:rotate('+(isOpen?'90':'0')+'deg);transition:transform .15s;flex-shrink:0;"')+
+    '</div>';
+  var listHtml = isOpen ? ('<div class="inline-dd-list">'+options.map(function(val){
+    return '<div class="inline-dd-option '+(val===currentValue?'active':'')+'" onclick="onExtIngExtraUnitChange('+aj(key)+','+aj(val)+')">'+esc(val)+'</div>';
+  }).join('')+'</div>') : '';
+  return '<div class="inline-dd-wrap" style="width:64px;">'+trigger+listHtml+'</div>';
+}
+function toggleExtIngDropdown(key){
+  state.extIngUI.openDropdown = (state.extIngUI.openDropdown===key) ? null : key;
+  renderExternalIngredientModal();
+}
+function onExtIngExtraUnitChange(key, unit){
+  var existing = state.extIngUI.nutrition_extra[key] || {};
+  state.extIngUI.nutrition_extra[key] = {value: existing.value!=null?existing.value:null, unit:unit};
+  if(state.extIngUI.nutrition_extra[key].value==null) delete state.extIngUI.nutrition_extra[key]; // don't create a row from a bare unit pick with no value yet
+  state.extIngUI.openDropdown = null;
+  renderExternalIngredientModal();
+}
+function createExternalIngredientAndAdd(){
+  var ui = state.extIngUI;
+  var name = (ui.name||'').trim();
+  if(!name){ showToast(state.lang==='zh'?'请输入食材名称':'Please enter a name'); return; }
+  var ing = {id:uid(), name:name, nutrition:ui.nutrition, nutrition_extra:ui.nutrition_extra, created_at:todayStr(), updated_at:nowLocalIso()};
+  state.ingredients.push(ing);
+  saveIngredients();
+  addIngredientToRecipe('external', ing.id, ing.name, ui.amount||100, ui.unit||'g');
+}
+function saveExternalIngredientEdit(){
+  var ui = state.extIngUI;
+  var ing = state.ingredients.find(function(i){ return i.id===ui.id; });
   if(!ing) return;
-  var name = document.getElementById('editing-name').value.trim();
+  var name = (ui.name||'').trim();
   if(!name){ showToast(state.lang==='zh'?'请输入食材名称':'Please enter a name'); return; }
   ing.name = name;
-  ing.nutrition = ing.nutrition || {};
-  NUTRI_KEYS.forEach(function(k){
-    var v = document.getElementById('editing-'+k).value;
-    var n = (v==='') ? null : parseFloat(v);
-    ing.nutrition[k] = (n==null || isNaN(n)) ? null : n;
-  });
+  ing.nutrition = ui.nutrition;
+  ing.nutrition_extra = ui.nutrition_extra;
   ing.updated_at = nowLocalIso();
   saveIngredients();
   closeModal();
@@ -5812,21 +5976,89 @@ function openRecipeForm(id){
   state.recipeFormUI = {
     returnTo: returnTo,
     originalPhotoUrl: state.recipeDraft.photo_url || '',
-    pendingPhotoDeleteRefs: []
+    pendingPhotoDeleteRefs: [],
+    activeIngredientGroupIdx: null
   };
   navigate('recipeForm', {id:id});
 }
-function ingredientRowsHtml(){
-  var ings = state.recipeDraft.ingredients||[];
-  if(ings.length===0) return '<p class="hint" style="margin-bottom:12px;">'+t('noIngredientsYet')+'</p>';
-  return ings.map(function(ri,idx){
-    if(ri.type==='group'){
-      return '<div class="ing-group-header" onclick="editIngredientGroupModal('+idx+')">'+esc(ri.name)+'</div>';
+// Ingredient groups (e.g. "饺子皮" / "饺子馅") are represented as a pseudo-entry
+// {id, type:'group', name} living right in state.recipeDraft.ingredients at whatever position
+// it was inserted - same array, same display order, as the real ingredient entries. Everything
+// after a group header "belongs" to it purely by position, until the next header or the end of
+// the list - the same convention Xiaochufang uses with a typed "#name" line.
+//
+// (see README) The editor now always keeps at least one group block on screen, auto-appending a
+// fresh blank one right after whichever group is currently last, as soon as THAT group's title
+// gets typed into - so there's always exactly one ready, empty "next group" slot at the bottom,
+// the same way stepsEditorHtml always keeps a blank final step ready. Called at the top of every
+// render of the ingredients editor (idempotent - safe to call on every render, not just once).
+function ensureRecipeIngredientGroups(d){
+  var list = d.ingredients || (d.ingredients = []);
+  if(!list.length || list[0].type !== 'group'){
+    list.unshift({id:uid(), type:'group', name:''});
+  }
+  var lastGroupIdx = -1;
+  for(var i=list.length-1; i>=0; i--){ if(list[i].type==='group'){ lastGroupIdx=i; break; } }
+  if(lastGroupIdx!==-1 && (list[lastGroupIdx].name||'').trim()){
+    list.push({id:uid(), type:'group', name:''});
+  }
+}
+// Splits state.recipeDraft.ingredients into {group, groupIdx, rows:[{ri,idx}]} segments (see
+// ensureRecipeIngredientGroups - the array always starts with a group marker now, so every
+// ingredient falls under exactly one segment) and renders one block per group: a free-text title
+// input (blank = no header on the detail page, see renderRecipeDetail), whichever ingredients
+// are already under it, and the same add-from-inventory/add-external buttons as before, now
+// scoped to THIS group via goPickInventory/goPickExternal's groupIdx argument.
+function ingredientGroupsEditorHtml(){
+  var d = state.recipeDraft;
+  ensureRecipeIngredientGroups(d);
+  var list = d.ingredients;
+  var segments = [];
+  var cur = null;
+  list.forEach(function(entry, idx){
+    if(entry.type==='group'){
+      cur = {groupIdx: idx, group: entry, rows: []};
+      segments.push(cur);
+    } else if(cur){
+      cur.rows.push({ri: entry, idx: idx});
     }
-    return '<div class="ing-row" onclick="editRecipeIngredient('+idx+')"><div class="ing-info"><span class="ing-name">'+esc(recipeIngredientDisplayName(ri))+
-      (ri.source_type==='external' ? ' <span style="font-size:11px;color:var(--almond);">('+t('pickExternal')+')</span>' : '')+
-      '</span><span class="ing-amt">'+fmtNum(ri.amount,1)+' '+esc(ri.unit)+'</span></div></div>';
+  });
+  return segments.map(function(seg, segPos){
+    var isLast = segPos === segments.length-1;
+    var isEmpty = !(seg.group.name||'').trim() && seg.rows.length===0;
+    var rowsHtml = seg.rows.map(function(r){
+      return '<div class="ing-row" onclick="editRecipeIngredient('+r.idx+')"><div class="ing-info"><span class="ing-name">'+esc(recipeIngredientDisplayName(r.ri))+
+        (r.ri.source_type==='external' ? ' <span style="font-size:11px;color:var(--almond);">('+t('pickExternal')+')</span>' : '')+
+        '</span><span class="ing-amt">'+fmtNum(r.ri.amount,1)+' '+esc(r.ri.unit)+'</span></div></div>';
+    }).join('');
+    return '<div class="ing-group-block">'+
+      '<div class="ing-group-title-row">'+
+        '<input type="text" class="ing-group-title-input" autocapitalize="words" placeholder="'+t('ingredientGroupNamePh')+'" value="'+esc(seg.group.name||'')+'" oninput="onIngredientGroupTitleInput('+seg.groupIdx+',this.value)" onblur="render()">'+
+        (!isLast && isEmpty ? '<button type="button" class="icon-btn" onclick="removeIngredientGroupBlock('+seg.groupIdx+')" aria-label="'+t('delete')+'">'+ic('trash',16)+'</button>' : '')+
+      '</div>'+
+      rowsHtml+
+      '<div class="btn-row" style="margin-top:6px;">'+
+        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="goPickInventory('+seg.groupIdx+')">'+t('addFromInventory')+'</button>'+
+        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="goPickExternal('+seg.groupIdx+')">'+t('addExternal')+'</button>'+
+      '</div>'+
+    '</div>';
   }).join('');
+}
+// Typing itself just updates the model in place, same as r_str/onStepInput elsewhere in this
+// form - no render() on every keystroke, so focus/cursor position isn't disrupted mid-type. The
+// auto-append-next-group check (ensureRecipeIngredientGroups) only needs to run once the person
+// is done with this field, so the title input's onblur triggers the actual re-render instead.
+function onIngredientGroupTitleInput(idx, val){
+  var g = state.recipeDraft.ingredients[idx];
+  if(g) g.name = val;
+}
+// Only ever offered on a group that's genuinely empty (no title, no ingredients) and isn't the
+// trailing "ready for more" slot - see ingredientGroupsEditorHtml's isEmpty/isLast check. Removing
+// the actual trailing slot would just have it reappear next render anyway (ensureRecipe
+// IngredientGroups), so it's never offered there in the first place rather than being a no-op button.
+function removeIngredientGroupBlock(idx){
+  state.recipeDraft.ingredients.splice(idx,1);
+  render();
 }
 function removeRecipeIngredient(idx){
   state.recipeDraft.ingredients.splice(idx,1);
@@ -5835,56 +6067,6 @@ function removeRecipeIngredient(idx){
 function deleteRecipeIngredientFromModal(idx){
   closeModal();
   removeRecipeIngredient(idx);
-}
-// Ingredient groups (e.g. "饺子皮" / "饺子馅") are represented as a pseudo-entry
-// {id, type:'group', name} living right in state.recipeDraft.ingredients at whatever position
-// it was inserted - same array, same display order, as the real ingredient entries. Everything
-// after a group header "belongs" to it purely by position, until the next header or the end of
-// the list - the same convention Xiaochufang uses with a typed "#name" line, just added through
-// a proper button/modal here instead of parsed out of free text. New ingredients are always
-// appended to the end (see addIngredientToRecipe), so adding a header and then adding
-// ingredients naturally nests them under it.
-function addIngredientGroupModal(){
-  showModal(t('addIngredientGroupTitle'),
-    '<div class="field"><label>'+t('ingredientGroupNameLabel')+'</label><input type="text" autocapitalize="words" id="new-ing-group-name" placeholder="'+t('ingredientGroupNamePh')+'"></div>'+
-    '<button class="btn btn-primary" onclick="confirmAddIngredientGroup()">'+t('add')+'</button>'
-  );
-}
-function confirmAddIngredientGroup(){
-  var el = document.getElementById('new-ing-group-name');
-  var name = el ? el.value.trim() : '';
-  if(!name){ showToast(state.lang==='zh'?'请输入分组名称':'Please enter a group name'); return; }
-  state.recipeDraft.ingredients.push({id:uid(), type:'group', name:name});
-  closeModal();
-  render();
-}
-function editIngredientGroupModal(idx){
-  var g = (state.recipeDraft.ingredients||[])[idx];
-  if(!g || g.type!=='group') return;
-  showModal(t('editIngredientGroupTitle'),
-    '<div class="field"><label>'+t('ingredientGroupNameLabel')+'</label><input type="text" autocapitalize="words" id="edit-ing-group-name" value="'+esc(g.name)+'"></div>'+
-    '<div class="btn-row" style="margin-top:14px;">'+
-      '<button class="btn btn-danger btn-sm" style="flex:1;" onclick="deleteIngredientGroupFromModal('+idx+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
-      '<button class="btn btn-primary btn-sm" style="flex:1;" onclick="confirmEditIngredientGroup('+idx+')">'+t('save')+'</button>'+
-    '</div>'
-  );
-}
-function confirmEditIngredientGroup(idx){
-  var g = state.recipeDraft.ingredients[idx];
-  var el = document.getElementById('edit-ing-group-name');
-  var name = el ? el.value.trim() : '';
-  if(!name){ showToast(state.lang==='zh'?'请输入分组名称':'Please enter a group name'); return; }
-  if(g) g.name = name;
-  closeModal();
-  render();
-}
-function deleteIngredientGroupFromModal(idx){
-  // Only removes the header itself - the ingredients that were under it stay exactly where
-  // they are (they just fall under whatever group precedes them, or become ungrouped if there
-  // isn't one), same as deleting a heading in a document doesn't delete the paragraphs under it.
-  closeModal();
-  state.recipeDraft.ingredients.splice(idx,1);
-  render();
 }
 // Tapping an existing ingredient row reopens the same amount/unit modal used when first
 // adding it (pickInventoryItem/pickExternalItem), pre-filled with its current values, so
@@ -5964,20 +6146,22 @@ function r_num(field,val){
   state.recipeDraft[field] = val===''? null : parseFloat(val);
   updateNutritionSummaryDOM();
 }
+// Same three Nutrition-Facts-style boxes as the recipe detail page (recipeNutritionFactsBoxHtml)
+// instead of the old .nutri-grid pill cells (see README) - this is a live, read-only preview of
+// what the detail page's own label will show once saved, so it should actually look like that
+// label, not a different grid layout the person then has to mentally translate. Always shows all
+// three bases (no expand/collapse toggle here, unlike the detail page) since reviewing the full
+// picture while still editing ingredients/servings/cooked weight is the point of this preview.
 function nutritionSummaryHtml(){
   var nutri = calcRecipeNutrition(state.recipeDraft);
-  var labels = nutriLabels();
-  var units = nutriUnits();
-  function block(title, data){
-    return '<div style="margin-bottom:14px;"><div style="font-size:13px;font-weight:600;color:var(--almond);margin-bottom:8px;">'+title+'</div><div class="nutri-grid">'+
-      NUTRI_KEYS.map(function(k){
-        return '<div class="nutri-cell"><div class="val">'+fmtNum(data[k], k==='calories'?0:1)+' <span class="unit">'+units[k]+'</span></div><div class="lbl">'+labels[k]+'</div></div>';
-      }).join('')+'</div></div>';
-  }
-  var html = block(t('perTotal'), nutri.total) + block(t('perServing'), nutri.perServing);
-  if(nutri.per100g) html += block(t('per100g'), nutri.per100g);
+  var html = recipeNutritionFactsBoxHtml(nutri.total, t('perTotal'), nutri.extraTotal, state.recipeDraft.cooked_weight);
+  html += recipeNutritionFactsBoxHtml(nutri.perServing, t('perServing'), nutri.extraPerServing);
+  if(nutri.per100g) html += recipeNutritionFactsBoxHtml(nutri.per100g, t('per100g'), nutri.extraPer100g);
   if(nutri.warnings && nutri.warnings.length){
     html += '<p class="hint" style="color:var(--warn);">'+(state.lang==='zh'?'以下食材因单位无法自动换算，未计入营养统计：':'These ingredients could not be auto-converted and are excluded from the totals: ')+nutri.warnings.map(esc).join('、')+'</p>';
+  }
+  if(nutri.extraWarnings && nutri.extraWarnings.length){
+    html += '<p class="hint" style="color:var(--warn);">'+(state.lang==='zh'?'部分维生素/矿物质因单位不一致，未计入总计：':'Some vitamins/minerals used mismatched units and were excluded from the totals: ')+nutri.extraWarnings.map(esc).join('、')+'</p>';
   }
   return html;
 }
@@ -6082,12 +6266,7 @@ function renderRecipeForm(){
     '</div>'+
     '<div class="section-title">'+t('sectionIngredients')+'</div>'+
     '<div class="form-group">'+
-      ingredientRowsHtml()+
-      '<div class="btn-row">'+
-        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="goPickInventory()">'+t('addFromInventory')+'</button>'+
-        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="goPickExternal()">'+t('addExternal')+'</button>'+
-      '</div>'+
-      '<button class="btn btn-outline btn-sm" style="width:100%;margin-top:8px;color:var(--fresh);border-color:var(--fresh);" onclick="addIngredientGroupModal()">'+ic('plus',15)+' '+t('addIngredientGroupBtn')+'</button>'+
+      ingredientGroupsEditorHtml()+
     '</div>'+
     '<div class="section-title">'+t('fieldInstructions')+'</div>'+
     '<div class="form-group">'+
@@ -6142,8 +6321,11 @@ function removeRecipePhoto(){
   state.recipeDraft.photo_url = '';
   render();
 }
-function goPickInventory(){ state.pickSearch=''; navigate('pickInventory'); }
-function goPickExternal(){ state.pickSearch=''; navigate('pickExternal'); }
+// groupIdx (position of a {type:'group'} marker in state.recipeDraft.ingredients) records which
+// group block's button was tapped, so addIngredientToRecipe knows where to insert once the
+// picker flow (and possibly the amount/unit modal after it) finishes - see its own comment.
+function goPickInventory(groupIdx){ state.pickSearch=''; state.recipeFormUI.activeIngredientGroupIdx = groupIdx; navigate('pickInventory'); }
+function goPickExternal(groupIdx){ state.pickSearch=''; state.recipeFormUI.activeIngredientGroupIdx = groupIdx; navigate('pickExternal'); }
 function cancelRecipeForm(){
   // Same logic as cancelItemForm: the original photo (if any) was never touched, only a
   // brand-new upload from this session (never saved) needs cleaning up so it doesn't sit
@@ -6155,10 +6337,29 @@ function cancelRecipeForm(){
   state.recipeDraft=null;
   navigate(target.view, target.params);
 }
+// Drops any group marker with no title AND no ingredients under it - the auto-appended trailing
+// "ready for more" slot (ensureRecipeIngredientGroups) plus any mid-list group the person typed
+// into and then emptied back out again without using the delete button. Nothing is lost: an
+// empty group renders nothing on the detail page anyway (see renderRecipeDetail), this just
+// keeps that same "nothing to show" state from also being "a permanent empty marker in the
+// saved data" every time the recipe gets edited again.
+function stripEmptyIngredientGroups(list){
+  var out = [];
+  for(var i=0;i<list.length;i++){
+    var entry = list[i];
+    if(entry.type==='group'){
+      var hasIngredients = (i+1<list.length) && list[i+1].type!=='group';
+      if(!(entry.name||'').trim() && !hasIngredients) continue;
+    }
+    out.push(entry);
+  }
+  return out;
+}
 function saveRecipeForm(){
   var d = state.recipeDraft;
   if(!d.name || !d.name.trim()){ showToast(state.lang==='zh'?'请填写食谱名称':'Please enter a recipe name'); return; }
   if(!d.servings || d.servings<=0) d.servings=1;
+  d.ingredients = stripEmptyIngredientGroups(d.ingredients||[]);
   d.updated_at = nowLocalIso();
   var idx = state.recipes.findIndex(function(r){ return r.id===d.id; });
   if(idx===-1) state.recipes.push(d); else state.recipes[idx]=d;
@@ -6185,10 +6386,12 @@ function deleteRecipeFromForm(){
 // for a recipe's computed nutrition, since recipes have up to three different totals (whole
 // recipe / per 100g of finished product / per serving) rather than one item's one label.
 // basisLabelText replaces nutriBasisLabel's item-derived text with a plain caption since there's
-// no single "每___" to compute here. Recipes don't have vitamin/mineral totals computed (
-// calcRecipeNutrition only sums the core NUTRI_KEYS), so unlike nutritionFactsBoxHtml this never
-// appends extra rows.
-function recipeNutritionFactsBoxHtml(n, basisLabelText){
+// no single "每___" to compute here. extra is the {key:{value,unit}} tier-2 vitamin/mineral
+// total for this same basis (see calcRecipeNutrition) - rendered the same flat, never-folded way
+// as an item's own label (nutriExtraRowsFlatHtml), only for whichever keys actually got a value.
+// totalWeightG, when given, prints the finished weight as a second line under the basis caption -
+// only meaningful for the whole-recipe total, so callers only pass it for that one box.
+function recipeNutritionFactsBoxHtml(n, basisLabelText, extra, totalWeightG){
   n = n || emptyNutrition();
   var labels = nutriLabels();
   var units = nutriUnits();
@@ -6201,11 +6404,28 @@ function recipeNutritionFactsBoxHtml(n, basisLabelText){
     var cls = 'nf-row' + (row.level===1?' indent1':'') + (row.level===2?' indent2':'') + (row.bold?' bold':'');
     return '<div class="'+cls+'"><span>'+labels[row.key]+'</span><span class="nf-value">'+displayVal+'</span></div>';
   }).join('');
+  var extraRowsHtml = recipeNutriExtraRowsHtml(extra);
+  var basisHtml = esc(basisLabelText) + (totalWeightG ? ('<br>'+t('recipeTotalWeightLabel')+' '+fmtNum(totalWeightG,0)+'g') : '');
   return '<div class="nutrition-facts">'+
-    '<div class="nf-basis">'+esc(basisLabelText)+'</div>'+
+    '<div class="nf-basis">'+basisHtml+'</div>'+
     '<div class="nf-calories-row"><span>'+t('nutriCalories')+'</span><span><span class="nf-calories-value">'+calVal+'</span><span class="nf-calories-unit">kcal</span></span></div>'+
     rowsHtml+
+    extraRowsHtml+
   '</div>';
+}
+// Same idea as nutriExtraRowsFlatHtml (item detail's own label) but reads from a computed
+// {key:{value,unit}} total instead of an item's stored nutrition_extra - see calcRecipeNutrition.
+function recipeNutriExtraRowsHtml(extra){
+  extra = extra || {};
+  var defs = nutriExtraDefs();
+  var keys = NUTRI_EXTRA_CORE_KEYS.concat(NUTRI_EXTRA_OPTIONAL_KEYS).filter(function(k){
+    return extra[k] && extra[k].value != null;
+  });
+  if(!keys.length) return '';
+  return keys.map(function(k){
+    var e = extra[k];
+    return '<div class="nf-row"><span>'+t(defs[k].labelKey)+'</span><span class="nf-value">'+fmtNum(e.value,1)+esc(e.unit)+'</span></div>';
+  }).join('');
 }
 function toggleRecipeNutriExpanded(){
   state.recipeDetailUI.nutriExpanded = !state.recipeDetailUI.nutriExpanded;
@@ -6218,24 +6438,34 @@ function renderRecipeDetail(){
   var backTo = (state.params && state.params.from) || {view:'recipes'};
   var nutri = calcRecipeNutrition(r);
   var expanded = !!state.recipeDetailUI.nutriExpanded;
-  var nutriHtml = recipeNutritionFactsBoxHtml(nutri.total, t('perTotal'));
+  var nutriHtml = recipeNutritionFactsBoxHtml(nutri.total, t('perTotal'), nutri.extraTotal, r.cooked_weight);
   if(expanded){
-    if(nutri.per100g) nutriHtml += recipeNutritionFactsBoxHtml(nutri.per100g, t('per100g'));
-    nutriHtml += recipeNutritionFactsBoxHtml(nutri.perServing, t('perServing'));
+    if(nutri.per100g) nutriHtml += recipeNutritionFactsBoxHtml(nutri.per100g, t('per100g'), nutri.extraPer100g);
+    nutriHtml += recipeNutritionFactsBoxHtml(nutri.perServing, t('perServing'), nutri.extraPerServing);
   }
   var toggleHtml = '<div class="list-row" style="cursor:pointer;justify-content:center;color:var(--deep-caramel);font-size:13.5px;" onclick="toggleRecipeNutriExpanded()">'+
     (expanded ? t('nutriToggleCollapse') : t('nutriToggleExpand'))+' '+
     ic('chevronRight',14,'style="transform:rotate('+(expanded?'270':'90')+'deg);transition:transform .15s;vertical-align:-1px;margin-left:2px;"')+
   '</div>';
+  // Ingredients read like a menu now (see README): a group's title, left-aligned and bold, same
+  // as before - but each ingredient below it is a plain name-dots-amount line instead of a
+  // boxed/pill row, matching how the steps section below it is just plain text in a vertical
+  // flow, not individually boxed either. A group left untitled in the editor (see
+  // ingredientGroupsEditorHtml) just prints no header line here - its ingredients still show,
+  // simply without a label above them.
   var ingHtml = (r.ingredients||[]).map(function(ri){
     if(ri.type==='group'){
+      if(!(ri.name||'').trim()) return '';
       return '<div class="ing-group-header" style="cursor:default;">'+esc(ri.name)+'</div>';
     }
     var linkedItem = ri.source_type==='inventory' ? state.items.find(function(i){ return i.id===ri.source_id; }) : null;
     var attrs = linkedItem ? ' onclick="navigate(\'itemDetail\',{id:'+aj(ri.source_id)+',from:{view:\'recipeDetail\',params:{id:'+aj(r.id)+'}}})" style="cursor:pointer;"' : ' style="cursor:default;"';
-    return '<div class="ing-row"'+attrs+'><div class="ing-info"><div class="ing-name">'+esc(recipeIngredientDisplayName(ri))+'</div><div class="ing-amt">'+fmtNum(ri.amount,1)+' '+esc(ri.unit)+'</div></div>'+
-      (linkedItem ? ic('chevronRight',16,'style="color:#B79B78;flex-shrink:0;"') : '')+
-    '</div>';
+    return '<div class="ing-list-row"'+attrs+'>'+
+        '<span class="ing-list-name">'+esc(recipeIngredientDisplayName(ri))+'</span>'+
+        '<span class="ing-list-dots"></span>'+
+        '<span class="ing-list-amt">'+fmtNum(ri.amount,1)+' '+esc(ri.unit)+'</span>'+
+        (linkedItem ? ic('chevronRight',15,'class="ing-list-chevron" style="color:#B79B78;"') : '')+
+      '</div>';
   }).join('');
   return '' +
   '<div class="page-header">'+
@@ -6264,6 +6494,7 @@ function renderRecipeDetail(){
     '<div class="section-title">'+t('nutritionSummary')+'</div>'+
     '<div class="form-group">'+nutriHtml+toggleHtml+
       (nutri.warnings && nutri.warnings.length ? '<p class="hint" style="color:var(--warn);">'+(state.lang==='zh'?'部分食材未计入(单位无法换算)：':'Excluded (unit not convertible): ')+nutri.warnings.map(esc).join('、')+'</p>' : '')+
+      (nutri.extraWarnings && nutri.extraWarnings.length ? '<p class="hint" style="color:var(--warn);">'+(state.lang==='zh'?'部分维生素/矿物质因单位不一致，未计入总计：':'Some vitamins/minerals used mismatched units and were excluded from the totals: ')+nutri.extraWarnings.map(esc).join('、')+'</p>' : '')+
     '</div>'+
   '</div>'+
   bottomNav();
