@@ -704,7 +704,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.82';
+var BUILD_VERSION = '9.83';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -947,8 +947,10 @@ var I18N = {
     // detail
     detailQtyLabel:'当前库存',
     usageBtn:'取用', usageLogTitle:'取用记录', usageLogAddTitle:'记录使用', usageLogEmpty:'还没有取用记录',
-    usageDate:'日期', usageDestination:'去向', usageDestFree:'自由输入', usageDestRecipe:'关联食谱', usageDestMove:'移动位置',
-    usageDestPlaceholder:'比如：早餐吐司、送朋友、直接吃掉了', usageAmount:'数量',
+    usageDate:'日期', usageDestination:'去向', usageDestFree:'自由输入', usageDestRecipe:'关联食谱', usageDestMove:'移动位置', usageDestAdjust:'调整余量',
+    usageDestPlaceholder:'比如：早餐吐司、送朋友、直接吃掉了', usageAmount:'数量', usageAdjustAmountLabel:'调整后剩余数量', usageAdjustCurrentPrefix:'当前库存约为 ',
+    usageAdjustPreviewDecrease:'将扣减', usageAdjustPreviewIncrease:'将增加', usageAdjustPreviewNoChange:'跟当前库存一致，不会有变化',
+    usageAdjustDecreaseToast:'已调整，库存已扣减', usageAdjustIncreaseToast:'已调整，库存已增加', usageAdjustNoChangeToast:'库存没有变化',
     usageMoveLocationPlaceholder:'选择要移动到的位置', usageNeedMoveLocation:'请选择要移动到的位置', usageMoveSameLocation:'这就是它现在所在的位置',
     usageMovedTo:'移动至', usageMovedToast:'已移动', usageTransferInPrefix:'从', usageTransferInSuffix:'转入', usageTransferInUnknown:'其它位置',
     usagePickRecipeTitle:'选择食谱', usagePickRecipePlaceholder:'点击选择食谱', usageNoRecipes:'还没有任何食谱',
@@ -1139,8 +1141,10 @@ var I18N = {
     addNewTag:'+ New', newTagPrompt:'Enter new tag name',
     detailQtyLabel:'Current stock',
     usageBtn:'Use', usageLogTitle:'Usage Log', usageLogAddTitle:'Log Usage', usageLogEmpty:'No usage logged yet',
-    usageDate:'Date', usageDestination:'Where it went', usageDestFree:'Free text', usageDestRecipe:'Link a recipe', usageDestMove:'Move to another location',
-    usageDestPlaceholder:'e.g. breakfast toast, gave to a friend, ate it plain', usageAmount:'Amount',
+    usageDate:'Date', usageDestination:'Where it went', usageDestFree:'Free text', usageDestRecipe:'Link a recipe', usageDestMove:'Move to another location', usageDestAdjust:'Adjust remaining',
+    usageDestPlaceholder:'e.g. breakfast toast, gave to a friend, ate it plain', usageAmount:'Amount', usageAdjustAmountLabel:'Remaining after adjustment', usageAdjustCurrentPrefix:'Currently about ',
+    usageAdjustPreviewDecrease:'Will deduct', usageAdjustPreviewIncrease:'Will add', usageAdjustPreviewNoChange:'Matches current stock, no change',
+    usageAdjustDecreaseToast:'Adjusted - stock deducted', usageAdjustIncreaseToast:'Adjusted - stock increased', usageAdjustNoChangeToast:'No change to stock',
     usageMoveLocationPlaceholder:'Pick a destination location', usageNeedMoveLocation:'Please pick a destination location', usageMoveSameLocation:'That is already where it is',
     usageMovedTo:'Moved to', usageMovedToast:'Moved', usageTransferInPrefix:'Transferred in from ', usageTransferInSuffix:'', usageTransferInUnknown:'another location',
     usagePickRecipeTitle:'Pick a recipe', usagePickRecipePlaceholder:'Tap to pick a recipe', usageNoRecipes:'No recipes yet',
@@ -1707,6 +1711,30 @@ function showToast(msg){
 function categoryLabel(catName){ return catName || (state.lang==='zh' ? '未分类' : 'Uncategorized'); }
 
 /* ======================= UNIT CONVERSION (per inventory item) ======================= */
+// Fixed, unambiguous physical unit conversions (unlike the %DV/NRV situation - these are plain
+// metric/customary definitions, not a country-specific reference table) - g<->kg and the
+// ml<->l<->tsp<->tbsp<->cup volume family (tsp=5ml, tbsp=15ml, cup=240ml, the standard cooking-
+// measurement conversion). Used by both amountToBasisUnits (nutrition math) and
+// resolveDeductionTarget (stock deduction) so an item recorded only in one unit of a family can
+// still be used/consumed/cooked-with in any sibling unit of that same family - see README 9.83.
+var WEIGHT_UNITS = ['g','kg'];
+var VOLUME_UNITS = ['ml','l','tsp','tbsp','cup'];
+var WEIGHT_UNIT_TO_G = {g:1, kg:1000};
+var VOLUME_UNIT_TO_ML = {ml:1, l:1000, tsp:5, tbsp:15, cup:240};
+// Converts `amount` of `fromUnit` into the equivalent amount of `toUnit`, only if both are in
+// the same family (both weight, or both volume). Returns null for anything else - different
+// families, or a unit with no fixed conversion at all (a bare count like "件"/"个", or a custom
+// unit typed in on an item).
+function convertSameFamilyUnit(amount, fromUnit, toUnit){
+  if(fromUnit===toUnit) return amount;
+  if(WEIGHT_UNIT_TO_G[fromUnit]!=null && WEIGHT_UNIT_TO_G[toUnit]!=null){
+    return amount * WEIGHT_UNIT_TO_G[fromUnit] / WEIGHT_UNIT_TO_G[toUnit];
+  }
+  if(VOLUME_UNIT_TO_ML[fromUnit]!=null && VOLUME_UNIT_TO_ML[toUnit]!=null){
+    return amount * VOLUME_UNIT_TO_ML[fromUnit] / VOLUME_UNIT_TO_ML[toUnit];
+  }
+  return null;
+}
 // item.primary_unit / primary_qty : the "count" unit used at purchase time, source of truth
 // item.primary_pack_amount / primary_pack_unit : optional "规格" - how much ONE count-unit
 //   holds (e.g. 500 g per bottle). Fixed/descriptive - deducting/adding never changes this,
@@ -1717,9 +1745,11 @@ function categoryLabel(catName){ return catName || (state.lang==='zh' ? '未分�
 //   time a group has both a unit and a quantity filled in (see saveItemForm) and then locked -
 //   to recalibrate it, delete the group on the edit page and add it again with the corrected count.
 // resolveDeductionTarget maps ANY unit belonging to this item (a count-unit or a pack-unit, on
-// the primary group or any secondary group) to "how many primary-count-units is 1 of this unit
-// worth" - deductFromItem/addBackToItem then just multiply by that once, uniformly, whether the
-// person is recording usage in "瓶" or directly in "g".
+// the primary group or any secondary group), OR any same-family sibling of one of those units
+// (see convertSameFamilyUnit above - README 9.83), to "how many primary-count-units is 1 of this
+// unit worth" - deductFromItem/addBackToItem then just multiply by that once, uniformly, whether
+// the person is recording usage in "瓶", in "g" directly, or in "kg" even though the item was
+// only ever recorded in "g".
 function resolveDeductionTarget(item, unit){
   if(!unit) return null;
   if(unit === item.primary_unit) return {kind:'primary_count', toPrimaryRatio:1};
@@ -1729,6 +1759,21 @@ function resolveDeductionTarget(item, unit){
     var g = secs[i];
     if(g.unit === unit && g.ratio) return {kind:'secondary_count', idx:i, toPrimaryRatio: g.ratio};
     if(g.pack_unit === unit && g.pack_amount && g.ratio) return {kind:'secondary_pack', idx:i, toPrimaryRatio: g.ratio/g.pack_amount};
+  }
+  // No exact match on any unit literally recorded on this item - see if `unit` is a same-family
+  // (weight<->weight or volume<->volume) conversion of one of them (README 9.83): e.g. an item
+  // recorded only as "10kg x 1件" can still be deducted in "g", by converting the requested
+  // grams into kg first and reusing that group's already-known kg->primary-count ratio.
+  var candidates = [];
+  if(item.primary_pack_unit && item.primary_pack_amount) candidates.push({toUnit:item.primary_pack_unit, toPrimaryRatio: 1/item.primary_pack_amount});
+  if(WEIGHT_UNIT_TO_G[item.primary_unit]!=null || VOLUME_UNIT_TO_ML[item.primary_unit]!=null) candidates.push({toUnit:item.primary_unit, toPrimaryRatio:1});
+  secs.forEach(function(g){
+    if(g.pack_unit && g.pack_amount && g.ratio) candidates.push({toUnit:g.pack_unit, toPrimaryRatio: g.ratio/g.pack_amount});
+    if(g.unit && g.ratio && (WEIGHT_UNIT_TO_G[g.unit]!=null || VOLUME_UNIT_TO_ML[g.unit]!=null)) candidates.push({toUnit:g.unit, toPrimaryRatio: g.ratio});
+  });
+  for(var j=0;j<candidates.length;j++){
+    var conv = convertSameFamilyUnit(1, unit, candidates[j].toUnit);
+    if(conv != null) return {kind:'converted', toPrimaryRatio: candidates[j].toPrimaryRatio * conv};
   }
   return null;
 }
@@ -1873,27 +1918,22 @@ function deleteArchivedItem(id){
 // the primary unit itself or its pack spec actually carries the weight/volume information -
 // instead of losing the source item's pack info by recursing with sourceItem cleared to null.
 function amountToBasisUnits(amount, unit, sourceItem){
-  if(unit === 'g') return {type:'weight', value:amount};
-  if(unit === 'kg') return {type:'weight', value:amount*1000};
-  if(unit === 'ml') return {type:'volume', value:amount};
-  if(unit === 'l') return {type:'volume', value:amount*1000};
+  if(WEIGHT_UNIT_TO_G[unit]!=null) return {type:'weight', value:amount*WEIGHT_UNIT_TO_G[unit]};
+  if(VOLUME_UNIT_TO_ML[unit]!=null) return {type:'volume', value:amount*VOLUME_UNIT_TO_ML[unit]};
   if(sourceItem){
     var target = resolveDeductionTarget(sourceItem, unit);
     if(target){
       var primaryCount = amount * target.toPrimaryRatio; // now expressed as a count in the item's own primary unit
       var pu = sourceItem.primary_unit;
-      if(pu === 'g') return {type:'weight', value:primaryCount};
-      if(pu === 'kg') return {type:'weight', value:primaryCount*1000};
-      if(pu === 'ml') return {type:'volume', value:primaryCount};
-      if(pu === 'l') return {type:'volume', value:primaryCount*1000};
+      if(WEIGHT_UNIT_TO_G[pu]!=null) return {type:'weight', value:primaryCount*WEIGHT_UNIT_TO_G[pu]};
+      if(VOLUME_UNIT_TO_ML[pu]!=null) return {type:'volume', value:primaryCount*VOLUME_UNIT_TO_ML[pu]};
       // primary unit is a bare count ("件"/"个"/custom) - its weight/volume, if known at all,
       // comes from the item's own pack spec (primary_pack_amount + primary_pack_unit).
       if(sourceItem.primary_pack_amount != null && sourceItem.primary_pack_unit){
         var wv = primaryCount * sourceItem.primary_pack_amount;
-        if(sourceItem.primary_pack_unit === 'g') return {type:'weight', value:wv};
-        if(sourceItem.primary_pack_unit === 'kg') return {type:'weight', value:wv*1000};
-        if(sourceItem.primary_pack_unit === 'ml') return {type:'volume', value:wv};
-        if(sourceItem.primary_pack_unit === 'l') return {type:'volume', value:wv*1000};
+        var ppu = sourceItem.primary_pack_unit;
+        if(WEIGHT_UNIT_TO_G[ppu]!=null) return {type:'weight', value:wv*WEIGHT_UNIT_TO_G[ppu]};
+        if(VOLUME_UNIT_TO_ML[ppu]!=null) return {type:'volume', value:wv*VOLUME_UNIT_TO_ML[ppu]};
       }
       return null; // matched a unit on this item, but genuinely nothing on it resolves to a weight/volume
     }
@@ -4357,13 +4397,21 @@ function usageLogRowHtml(entry, itemId){
   var isMove = entry.destination_type==='move_location';
   var isRecipe = entry.destination_type==='recipe';
   var isTransferIn = entry.destination_type==='transfer_in';
+  var isAdjust = entry.destination_type==='adjust';
   var recipeExists = isRecipe && state.recipes.some(function(r){ return r.id===entry.recipe_id; });
   var destText = isRecipe ? recipeNameForUsage(entry.recipe_id)
     : isMove ? (t('usageMovedTo')+' '+entry.destination_text)
     : isTransferIn ? (t('usageTransferInPrefix')+(entry.source_location||t('usageTransferInUnknown'))+t('usageTransferInSuffix'))
+    : isAdjust ? t('usageDestAdjust')
     : entry.destination_text;
   var cardClickAttr = recipeExists ? ' onclick="navigate(\'recipeDetail\',{id:'+aj(entry.recipe_id)+',from:{view:\'usageLog\',params:{id:'+aj(itemId)+'}}})" style="cursor:pointer;"' : '';
-  var amountHtml = (isTransferIn?'+':'')+fmtNum(entry.amount,2)+esc(entry.unit);
+  // adjust shows the target value it was set TO, not delta_primary (which is in the item's own
+  // primary unit, not necessarily the unit the person actually typed in) - colored the same
+  // green-for-increase convention as transfer_in when the adjustment raised the stock, so a
+  // quick scan of the log tells decreases and increases apart at a glance.
+  var amountColor = (isTransferIn || (isAdjust && entry.delta_primary<0)) ? 'var(--fresh)' : 'var(--cocoa)';
+  var amountHtml = fmtNum(entry.amount,2)+esc(entry.unit);
+  if(isTransferIn) amountHtml = '+'+amountHtml;
   // transfer_in is a read-only mirror of a move_location entry that lives on the OTHER item
   // (see README 9.78 / performLocationMove) - there's nothing here to edit, delete, or restore
   // independently of that source entry, so it skips the .item-card-swipe wrapper entirely
@@ -4379,9 +4427,10 @@ function usageLogRowHtml(entry, itemId){
       '</div>'+
     '</div>';
   }
-  // Editing a move-location entry isn't supported (see performLocationMove/restoreUsageLogEntry
-  // for why undoing one has to touch a second item, not just this one) - only delete/restore.
-  var editBtnHtml = isMove ? '' :
+  // Editing a move-location or stock-adjustment entry isn't supported (see
+  // performLocationMove/restoreUsageLogEntry - both need more than just this one row's own
+  // amount/unit to undo correctly) - only delete/restore.
+  var editBtnHtml = (isMove || isAdjust) ? '' :
     '<button class="swipe-action-btn action-edit" onclick="event.stopPropagation();closeItemSwipeRow('+aj(entry.id)+');openUsageLogEdit('+aj(itemId)+','+aj(entry.id)+')">'+ic('edit',20)+'<span>'+esc(t('edit'))+'</span></button>';
   return '<div class="item-card-swipe" data-item-id="'+esc(entry.id)+'">'+
     '<div class="item-swipe-actions">'+
@@ -4396,7 +4445,7 @@ function usageLogRowHtml(entry, itemId){
           '<div class="item-meta">'+esc(fmtDateDots(entry.date))+'</div></div>'+
           (recipeExists ? ic('chevronRight',15,'style="color:#B79B78;flex-shrink:0;"') : '')+
         '</div>'+
-        '<div style="text-align:right;font-weight:600;color:var(--cocoa);flex-shrink:0;">'+amountHtml+'</div>'+
+        '<div style="text-align:right;font-weight:600;color:'+amountColor+';flex-shrink:0;">'+amountHtml+'</div>'+
       '</div>'+
     '</div>'+
   '</div>';
@@ -4424,7 +4473,7 @@ function openUsageLogEdit(itemId, entryId){
   if(!it) return;
   var entry = (it.usage_log||[]).find(function(e){ return e.id===entryId; });
   if(!entry) return;
-  if(entry.destination_type==='move_location' || entry.destination_type==='transfer_in') return; // not editable - see usageLogRowHtml
+  if(entry.destination_type==='move_location' || entry.destination_type==='transfer_in' || entry.destination_type==='adjust') return; // not editable - see usageLogRowHtml
   state.usageDraft = {
     date: entry.date, destination_type: entry.destination_type,
     destination_text: entry.destination_text||'', recipe_id: entry.recipe_id||'', move_location:'',
@@ -4443,8 +4492,26 @@ function allUnitsForItem(item){
     if(g.unit) units.push(g.unit);
     if(g.pack_unit && g.pack_amount && g.ratio) units.push(g.pack_unit);
   });
+  // Same-family sibling units (see README 9.83): if this item records weight/volume in ANY
+  // unit, every other unit in that same family becomes usable via resolveDeductionTarget's
+  // same-family fallback, so it makes sense to offer them here as pill choices too, not just
+  // whatever literal unit happened to get typed in when the item was first added.
+  [WEIGHT_UNITS, VOLUME_UNITS].forEach(function(fam){
+    if(units.some(function(u){ return fam.indexOf(u)!==-1; })){
+      fam.forEach(function(u){ if(units.indexOf(u)===-1) units.push(u); });
+    }
+  });
   // de-dupe while preserving order
   return units.filter(function(u,i){ return units.indexOf(u)===i; });
+}
+// Current stock expressed in `unit` - the inverse of resolveDeductionTarget's ratio (which says
+// "how many primary-units is 1 of this unit worth"), used to preview/prefill the "调整余量"
+// destination type (README 9.83): the person types what they actually counted, not a delta they
+// have to calculate themselves.
+function currentQtyInUnit(item, unit){
+  var target = resolveDeductionTarget(item, unit);
+  if(!target || !target.toPrimaryRatio) return null;
+  return (item.primary_qty||0) / target.toPrimaryRatio;
 }
 function renderUsageLogAdd(){
   var id = state.params.id;
@@ -4452,37 +4519,49 @@ function renderUsageLogAdd(){
   if(!it || !state.usageDraft) return renderHome();
   var d = state.usageDraft;
   var editing = !!d._editingEntryId;
+  var isAdjust = d.destination_type==='adjust';
   var unitOptions = allUnitsForItem(it);
   var recipeLabel = d.recipe_id ? recipeNameForUsage(d.recipe_id) : t('usagePickRecipePlaceholder');
-  // Converting an existing consumption entry into a location-move (or vice versa) mid-edit would
-  // mean untangling which item(s) to undo the effects on, on top of the already-nontrivial
-  // undo path a move entry needs on its own (see performLocationMove/restoreUsageLogEntry) - so
-  // the move option is only offered for brand-new entries; editing an existing move entry isn't
-  // offered at all in the first place (see openUsageLogEdit/usageLogRowHtml).
+  // Converting an existing consumption entry into a location-move or stock-adjustment (or vice
+  // versa) mid-edit would mean untangling which item(s)/how much to undo the effects on, on top
+  // of the already-nontrivial undo path those need on their own (see performLocationMove/
+  // restoreUsageLogEntry) - so both are only offered for brand-new entries; editing an existing
+  // one of either isn't offered at all in the first place (see openUsageLogEdit/usageLogRowHtml).
   var moveLocationOptions = (state.locations||[]).filter(function(l){ return l !== it.location; });
+  var currentInUnit = isAdjust ? currentQtyInUnit(it, d.unit) : null;
+  var adjustPreviewHtml = '';
+  if(isAdjust && currentInUnit != null && d.amount != null && !isNaN(d.amount)){
+    var diff = currentInUnit - d.amount;
+    var previewText = Math.abs(diff) < 1e-9 ? t('usageAdjustPreviewNoChange')
+      : (diff > 0 ? t('usageAdjustPreviewDecrease') : t('usageAdjustPreviewIncrease'))+' '+fmtNum(Math.abs(diff),2)+esc(d.unit);
+    adjustPreviewHtml = '<p class="hint">'+t('usageAdjustCurrentPrefix')+fmtNum(currentInUnit,2)+esc(d.unit)+' · '+previewText+'</p>';
+  }
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'usageLog\',{id:'+aj(id)+'})">'+ic('back',22)+'</button><h1>'+t(editing?'usageLogEditTitle':'usageLogAddTitle')+'</h1></div>'+
   '<div class="content">'+
     '<div class="field"><label>'+t('usageDate')+'</label><input type="date" value="'+esc(d.date)+'" oninput="setUsageField(\'date\',this.value)"></div>'+
-    '<div class="field"><label>'+t('usageAmount')+'</label>'+
+    '<div class="field"><label>'+t(isAdjust?'usageAdjustAmountLabel':'usageAmount')+'</label>'+
       '<div style="display:flex;gap:8px;align-items:center;">'+
         '<input type="number" inputmode="decimal" value="'+(d.amount!=null?d.amount:'')+'" oninput="setUsageField(\'amount\',this.value)" style="flex:1;min-width:0;">'+
         '<div class="tag-select" style="flex-shrink:0;">'+unitOptions.map(function(u){
           return '<div class="tag-option '+(d.unit===u?'active':'')+'" onclick="setUsageUnit('+aj(u)+')">'+esc(u)+'</div>';
         }).join('')+'</div>'+
       '</div>'+
+      adjustPreviewHtml+
     '</div>'+
     '<div class="field"><label>'+t('usageDestination')+'</label>'+
       '<div class="tag-select">'+
         '<div class="tag-option '+(d.destination_type==='free'?'active':'')+'" onclick="setUsageDestType(\'free\')">'+t('usageDestFree')+'</div>'+
         '<div class="tag-option '+(d.destination_type==='recipe'?'active':'')+'" onclick="setUsageDestType(\'recipe\')">'+t('usageDestRecipe')+'</div>'+
         (editing ? '' : '<div class="tag-option '+(d.destination_type==='move_location'?'active':'')+'" onclick="setUsageDestType(\'move_location\')">'+t('usageDestMove')+'</div>')+
+        (editing ? '' : '<div class="tag-option '+(isAdjust?'active':'')+'" onclick="setUsageDestType(\'adjust\')">'+t('usageDestAdjust')+'</div>')+
       '</div>'+
     '</div>'+
     (d.destination_type==='free' ?
       '<div class="field"><input type="text" placeholder="'+t('usageDestPlaceholder')+'" value="'+esc(d.destination_text)+'" oninput="setUsageField(\'destination_text\',this.value)"></div>' :
     d.destination_type==='recipe' ?
       '<div class="field"><div class="list-row" style="cursor:pointer;background:var(--cream);border-radius:11px;padding:12px 14px;border:none;" onclick="openRecipePickerForUsage()"><span>'+esc(recipeLabel)+'</span>'+ic('chevronRight',18)+'</div></div>' :
+    d.destination_type==='move_location' ?
       '<div class="field">'+
         (moveLocationOptions.length ?
           '<div class="tag-select">'+moveLocationOptions.map(function(l){
@@ -4490,6 +4569,7 @@ function renderUsageLogAdd(){
           }).join('')+'</div>' :
           '<p class="hint">'+t('usageMoveSameLocation')+'</p>')+
       '</div>'
+      : '' // adjust: no destination needed, this is a stock correction not a consumption event
     )+
     '<button class="btn btn-primary" style="margin-top:10px;" onclick="saveUsageLogEntry('+aj(id)+')">'+t('usageSaveBtn')+'</button>'+
   '</div>';
@@ -4499,7 +4579,21 @@ function setUsageField(key, val){
   else { state.usageDraft[key] = val; }
 }
 function setUsageUnit(u){ state.usageDraft.unit = u; render(); }
-function setUsageDestType(type){ state.usageDraft.destination_type = type; render(); }
+function setUsageDestType(type){
+  state.usageDraft.destination_type = type;
+  // Nice starting point for a correction: prefill with what's currently on record in whichever
+  // unit is already selected, so the person only has to change the number if it's wrong, rather
+  // than type the whole thing from scratch. Only when the field is still empty, so switching
+  // destination types back and forth never clobbers something already typed in.
+  if(type==='adjust' && state.usageDraft.amount==null){
+    var it = state.items.find(function(i){ return i.id===state.params.id; });
+    if(it){
+      var cur = currentQtyInUnit(it, state.usageDraft.unit);
+      if(cur != null) state.usageDraft.amount = Math.round(cur*100)/100;
+    }
+  }
+  render();
+}
 function setUsageMoveLocation(loc){ state.usageDraft.move_location = loc; render(); }
 function openRecipePickerForUsage(){
   var list = state.recipes;
@@ -4555,7 +4649,10 @@ async function saveUsageLogEntry(itemId){
   var it = state.items.find(function(i){ return i.id===itemId; });
   if(!it) return;
   var d = state.usageDraft;
-  if(d.amount == null || isNaN(d.amount) || d.amount <= 0){ showToast(t('usageNeedAmount')); return; }
+  // "调整余量" is a target value, not a used-up amount - 0 is a perfectly valid answer (the
+  // item's actually empty), so only reject a missing/negative number here, not a zero one.
+  var minAmount = d.destination_type==='adjust' ? 0 : 1e-9;
+  if(d.amount == null || isNaN(d.amount) || d.amount < minAmount){ showToast(t('usageNeedAmount')); return; }
   if(d.destination_type==='free' && !d.destination_text.trim()){ showToast(t('usageNeedDest')); return; }
   if(d.destination_type==='recipe' && !d.recipe_id){ showToast(t('usageNeedDest')); return; }
   if(d.destination_type==='move_location' && !d.move_location){ showToast(t('usageNeedMoveLocation')); return; }
@@ -4592,6 +4689,26 @@ async function saveUsageLogEntry(itemId){
     }
     saveItems();
     showToast(moveResult.ok ? t('usageMovedToast') : t('usageNoConversionWarn'));
+    navigate('usageLog', {id:itemId});
+    return;
+  }
+  if(d.destination_type==='adjust'){
+    // Editing into/out of an adjustment isn't offered (see renderUsageLogAdd's comment on why),
+    // same reasoning as move_location above.
+    if(d._editingEntryId) return;
+    var target = resolveDeductionTarget(it, d.unit);
+    if(!target){ showToast(t('usageNoConversionWarn')); return; }
+    var beforePrimary = it.primary_qty||0;
+    var targetPrimary = d.amount * target.toPrimaryRatio;
+    var deltaPrimary = beforePrimary - targetPrimary; // positive = stock went down, negative = went up
+    if(Math.abs(deltaPrimary) < 1e-9){ showToast(t('usageAdjustNoChangeToast')); navigate('usageLog', {id:itemId}); return; }
+    applyPrimaryEquivalentDelta(it, -deltaPrimary);
+    it.usage_log.push({
+      id: uid(), date: d.date || todayStr(), destination_type:'adjust',
+      amount: d.amount, unit: d.unit, delta_primary: deltaPrimary, created_at: nowLocalIso()
+    });
+    saveItems();
+    showToast(deltaPrimary > 0 ? t('usageAdjustDecreaseToast') : t('usageAdjustIncreaseToast'));
     navigate('usageLog', {id:itemId});
     return;
   }
@@ -4660,6 +4777,13 @@ function restoreUsageLogEntry(itemId, entryId){
           }
         }
       }
+    } else if(entry.destination_type==='adjust'){
+      // delta_primary is exactly what got subtracted from primary_qty when this adjustment was
+      // saved (positive if stock went down, negative if it went up) - adding it straight back
+      // undoes it exactly, regardless of sign. entry.amount is the target value that was typed
+      // in, not a usable delta on its own, so this can't reuse the generic addBackToItem path
+      // below the way every other entry type can.
+      applyPrimaryEquivalentDelta(it, entry.delta_primary);
     } else {
       addBackToItem(it, entry.amount, entry.unit);
     }
@@ -5661,7 +5785,7 @@ function addRecipeGroupFromInput(elId){
 
 /* ======================= INGREDIENT PICKERS ======================= */
 function recipeUnitOptionsForItem(item){
-  var opts = ['g','kg','ml','l'];
+  var opts = WEIGHT_UNITS.concat(VOLUME_UNITS);
   if(item){
     allUnitsForItem(item).forEach(function(u){
       if(opts.indexOf(u)===-1) opts.unshift(u);
@@ -5901,7 +6025,7 @@ function renderExternalIngredientModal(){
   var isNew = ui.mode==='new';
   var amountUnitHtml = isNew ?
     '<div class="field" style="margin-top:14px;"><label>'+t('ingAmountLabel')+'</label><input type="number" inputmode="decimal" placeholder="-" value="'+(ui.amount==null?'':ui.amount)+'" oninput="onExtIngAmountInput(this.value)"></div>'+
-    '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select">'+['g','kg','ml','l'].map(function(u){ return '<div class="tag-option '+(u===ui.unit?'active':'')+'" onclick="onExtIngUnitPick('+aj(u)+')">'+u+'</div>'; }).join('')+'</div></div>'
+    '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select">'+WEIGHT_UNITS.concat(VOLUME_UNITS).map(function(u){ return '<div class="tag-option '+(u===ui.unit?'active':'')+'" onclick="onExtIngUnitPick('+aj(u)+')">'+u+'</div>'; }).join('')+'</div></div>'
     : '';
   showModal(isNew ? t('createNewIngredient') : t('editIngredientTitle'),
     '<div class="field"><label>'+t('newIngName')+'</label><input type="text" autocapitalize="words" value="'+esc(ui.name)+'" placeholder="'+t('newIngName')+'" oninput="onExtIngNameInput(this.value)"></div>'+
@@ -6175,7 +6299,7 @@ function editRecipeIngredient(idx){
     var item = state.items.find(function(i){ return i.id===ri.source_id; });
     unitOpts = recipeUnitOptionsForItem(item);
   } else {
-    unitOpts = ['g','kg','ml','l'];
+    unitOpts = WEIGHT_UNITS.concat(VOLUME_UNITS);
   }
   if(unitOpts.indexOf(ri.unit)===-1) unitOpts.unshift(ri.unit);
   showModal(esc(recipeIngredientDisplayName(ri)),
