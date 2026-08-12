@@ -550,6 +550,12 @@
   .nf-input-cal{ width:84px; font-size:22px; font-weight:800; }
   .nf-input-unit{ font-size:13px; color:var(--deep-caramel); min-width:18px; }
   .nf-conversion-hint-row{ padding:0 12px 8px; margin-top:-4px; text-align:right; }
+  .fresh-ref-card{
+    display:flex; align-items:center; gap:10px; background:var(--fresh-bg); border:1px solid var(--fresh);
+    border-radius:11px; padding:11px 12px; margin-bottom:12px;
+  }
+  .fresh-ref-card-text{ flex:1; min-width:0; font-size:13.5px; color:var(--cocoa); line-height:1.4; }
+  .fresh-ref-card-actions{ display:flex; align-items:center; gap:4px; flex-shrink:0; }
   .nf-conversion-hint{ font-size:11.5px; color:#B79B78; white-space:nowrap; }
   .nf-input-unit-select{ font-size:16px; padding:3px 5px; border:1px solid var(--line); border-radius:6px; background:var(--card-bg); color:var(--cocoa); -webkit-appearance:none; appearance:none; }
   .nf-input-unit-select:focus{ border-color:var(--almond); outline:none; }
@@ -704,7 +710,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.83';
+var BUILD_VERSION = '9.84';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -758,6 +764,70 @@ var NUTRI_EXTRA_CORE_KEYS = ['vitamin_d','calcium','iron','potassium'];
 var NUTRI_EXTRA_OPTIONAL_KEYS = ['vitamin_a','vitamin_c','vitamin_e','magnesium','zinc','vitamin_b12'];
 var NUTRI_VITAMIN_KEYS = ['vitamin_d','vitamin_a','vitamin_c','vitamin_e','vitamin_b12'];
 var NUTRI_MINERAL_KEYS = ['calcium','iron','potassium','magnesium','zinc'];
+// Reference nutrition for common generic produce/meat/fish (see README 9.84) - per 100g raw,
+// sourced from USDA FoodData Central. This is a STARTER batch (Lynn's most-used items from
+// their own list), not the full list - more will be added in batches, each individually
+// checked against FDC rather than guessed at, since these are exactly the kind of numbers where
+// a wrong guess looks just as confident as a right one. name_zh/name_en/aliases_* are all
+// matched against (case/whitespace-insensitive) so either language, or a common alternate name,
+// finds the same entry - see matchFreshProduceReference.
+var FRESH_PRODUCE_REFERENCE = [
+  { id:'napa_cabbage', name_zh:'大白菜', aliases_zh:['白菜','黄芽白'], name_en:'Napa Cabbage', aliases_en:['Chinese Cabbage'],
+    nutrition:{calories:16,fat:0.2,saturated_fat:0,trans_fat:0,cholesterol:0,sodium:9,carbs:3.2,fiber:1.2,sugar:1.4,protein:1.2},
+    nutrition_extra:{vitamin_c:{value:27,unit:'mg'},potassium:{value:238,unit:'mg'},calcium:{value:77,unit:'mg'}} },
+  { id:'cabbage', name_zh:'卷心菜', aliases_zh:['包菜','高丽菜','牛心菜'], name_en:'Cabbage', aliases_en:['Green Cabbage'],
+    nutrition:{calories:25,fat:0.1,saturated_fat:0,trans_fat:0,cholesterol:0,sodium:18,carbs:5.8,fiber:2.5,sugar:3.2,protein:1.3},
+    nutrition_extra:{vitamin_c:{value:36.6,unit:'mg'},potassium:{value:170,unit:'mg'},calcium:{value:40,unit:'mg'}} },
+  { id:'spinach', name_zh:'菠菜', aliases_zh:[], name_en:'Spinach', aliases_en:[],
+    nutrition:{calories:23,fat:0.4,saturated_fat:0.1,trans_fat:0,cholesterol:0,sodium:79,carbs:3.6,fiber:2.2,sugar:0.4,protein:2.9},
+    nutrition_extra:{vitamin_c:{value:28.1,unit:'mg'},vitamin_a:{value:469,unit:'mcg'},potassium:{value:558,unit:'mg'},calcium:{value:99,unit:'mg'},iron:{value:2.7,unit:'mg'}} },
+  { id:'carrot', name_zh:'胡萝卜', aliases_zh:[], name_en:'Carrot', aliases_en:[],
+    nutrition:{calories:41,fat:0.2,saturated_fat:0,trans_fat:0,cholesterol:0,sodium:69,carbs:9.6,fiber:2.8,sugar:4.7,protein:0.9},
+    nutrition_extra:{vitamin_a:{value:835,unit:'mcg'},vitamin_c:{value:5.9,unit:'mg'},potassium:{value:320,unit:'mg'}} },
+  { id:'onion', name_zh:'洋葱', aliases_zh:['红葱头','大葱头'], name_en:'Onion', aliases_en:['Sweet Onion','Red Onion','Yellow Onion'],
+    nutrition:{calories:40,fat:0.1,saturated_fat:0,trans_fat:0,cholesterol:0,sodium:4,carbs:9.3,fiber:1.7,sugar:4.2,protein:1.1},
+    nutrition_extra:{vitamin_c:{value:7.4,unit:'mg'},potassium:{value:146,unit:'mg'}} },
+  { id:'tomato', name_zh:'西红柿', aliases_zh:['番茄'], name_en:'Tomato', aliases_en:[],
+    nutrition:{calories:18,fat:0.2,saturated_fat:0,trans_fat:0,cholesterol:0,sodium:5,carbs:3.9,fiber:1.2,sugar:2.6,protein:0.9},
+    nutrition_extra:{vitamin_c:{value:13.7,unit:'mg'},vitamin_a:{value:42,unit:'mcg'},potassium:{value:237,unit:'mg'}} },
+  { id:'cucumber', name_zh:'黄瓜', aliases_zh:[], name_en:'Cucumber', aliases_en:[],
+    nutrition:{calories:15,fat:0.1,saturated_fat:0,trans_fat:0,cholesterol:0,sodium:2,carbs:3.6,fiber:0.5,sugar:1.7,protein:0.7},
+    nutrition_extra:{vitamin_c:{value:2.8,unit:'mg'},potassium:{value:147,unit:'mg'}} },
+  { id:'apple', name_zh:'苹果', aliases_zh:[], name_en:'Apple', aliases_en:[],
+    nutrition:{calories:52,fat:0.2,saturated_fat:0,trans_fat:0,cholesterol:0,sodium:1,carbs:13.8,fiber:2.4,sugar:10.4,protein:0.3},
+    nutrition_extra:{vitamin_c:{value:4.6,unit:'mg'},potassium:{value:107,unit:'mg'}} },
+  { id:'banana', name_zh:'香蕉', aliases_zh:[], name_en:'Banana', aliases_en:[],
+    nutrition:{calories:89,fat:0.3,saturated_fat:0.1,trans_fat:0,cholesterol:0,sodium:1,carbs:22.8,fiber:2.6,sugar:12.2,protein:1.1},
+    nutrition_extra:{vitamin_c:{value:8.7,unit:'mg'},potassium:{value:358,unit:'mg'}} },
+  { id:'chicken_breast', name_zh:'鸡胸肉', aliases_zh:[], name_en:'Chicken Breast', aliases_en:['Chicken Breast Boneless Skinless'],
+    nutrition:{calories:120,fat:2.6,saturated_fat:0.6,trans_fat:0,cholesterol:64,sodium:45,carbs:0,fiber:0,sugar:0,protein:22.5},
+    nutrition_extra:{potassium:{value:334,unit:'mg'},iron:{value:0.4,unit:'mg'}} },
+  { id:'pork_tenderloin', name_zh:'猪里脊', aliases_zh:['猪柳'], name_en:'Pork Tenderloin', aliases_en:['Pork Loin'],
+    nutrition:{calories:143,fat:3.5,saturated_fat:1.2,trans_fat:0,cholesterol:62,sodium:50,carbs:0,fiber:0,sugar:0,protein:26},
+    nutrition_extra:{potassium:{value:423,unit:'mg'},iron:{value:1.1,unit:'mg'},zinc:{value:2.3,unit:'mg'}} },
+  { id:'ground_beef', name_zh:'牛肉末', aliases_zh:['牛绞肉'], name_en:'Ground Beef', aliases_en:['Beef Mince'],
+    nutrition:{calories:254,fat:20,saturated_fat:7.8,trans_fat:1,cholesterol:78,sodium:66,carbs:0,fiber:0,sugar:0,protein:17.2},
+    nutrition_extra:{potassium:{value:270,unit:'mg'},iron:{value:2.2,unit:'mg'},zinc:{value:4.6,unit:'mg'}} },
+  { id:'shrimp', name_zh:'虾', aliases_zh:['大虾','基围虾'], name_en:'Shrimp', aliases_en:['Prawn'],
+    nutrition:{calories:85,fat:0.5,saturated_fat:0.1,trans_fat:0,cholesterol:161,sodium:119,carbs:0.2,fiber:0,sugar:0,protein:20.1},
+    nutrition_extra:{potassium:{value:259,unit:'mg'}} }
+];
+// Matches typed name against name_zh/aliases_zh/name_en/aliases_en (trimmed, case-insensitive) -
+// used by both the item form and the external-ingredient modal (README 9.84) so the same
+// reference data is reachable from either entry point without maintaining two lookup paths.
+function matchFreshProduceReference(name){
+  if(!name) return null;
+  var q = name.trim().toLowerCase();
+  if(!q) return null;
+  for(var i=0;i<FRESH_PRODUCE_REFERENCE.length;i++){
+    var ref = FRESH_PRODUCE_REFERENCE[i];
+    var candidates = [ref.name_zh].concat(ref.aliases_zh||[]).concat([ref.name_en]).concat(ref.aliases_en||[]);
+    for(var j=0;j<candidates.length;j++){
+      if(candidates[j] && candidates[j].trim().toLowerCase()===q) return ref;
+    }
+  }
+  return null;
+}
 function nutriExtraDefs(){
   return {
     vitamin_d: {labelKey:'nutriVitaminD', units:['mcg','IU','%DV']},
@@ -987,6 +1057,7 @@ var I18N = {
     pickFromInventory:'从库存中选择', pickExternal:'外部食材库', createNewIngredient:'+ 新建外部食材', editIngredientTitle:'编辑食材',
     ingAmountLabel:'用量', ingUnitLabel:'单位',
     newIngName:'食材名称', newIngNutriHint:'请填写每100g/100ml的营养信息',
+    freshRefFoundPrefix:'检测到「', freshRefFoundSuffix:'」的参考营养数据，点击填入', freshRefApplyBtn:'填入', freshRefAppliedToast:'已填入参考数据，可自行调整',
     // recipe detail
     cookThis:'我做了这道菜', cookConfirmTitle:'确认扣减库存',
     nutriToggleExpand:'展开每100g成品 / 每份', nutriToggleCollapse:'收起',
@@ -1179,6 +1250,7 @@ var I18N = {
     pickFromInventory:'Choose from inventory', pickExternal:'External ingredient library', createNewIngredient:'+ New external ingredient', editIngredientTitle:'Edit ingredient',
     ingAmountLabel:'Amount', ingUnitLabel:'Unit',
     newIngName:'Ingredient name', newIngNutriHint:'Enter nutrition per 100g/100ml',
+    freshRefFoundPrefix:'Found reference nutrition for "', freshRefFoundSuffix:'" - tap to fill in', freshRefApplyBtn:'Fill in', freshRefAppliedToast:'Filled in - feel free to adjust',
     cookThis:"I made this dish", cookConfirmTitle:'Confirm inventory deduction',
     nutriToggleExpand:'Show per 100g cooked / per serving', nutriToggleCollapse:'Hide',
     cookConfirmHint:'These items will be deducted from inventory based on the amount used. Confirm to proceed.',
@@ -3758,6 +3830,53 @@ function expiryFieldHtml(d){
 // read-only original) - same box, same NUTRI_TIER1_ROWS hierarchy/indentation, just with an
 // input in place of each printed value so editing it actually still looks like the label
 // you're copying it from, instead of a generic grid of separate fields.
+// Suggestion card offering to fill in FRESH_PRODUCE_REFERENCE data (see README 9.84) - only
+// when there's a real chance this item IS one of those generic items: no brand and no barcode
+// typed in (a branded/scanned product has its own real label, this shouldn't second-guess it),
+// and the name matches. Dismissing (freshRefDismissed) only suppresses it for the rest of this
+// editing session, not permanently - reopening the form re-evaluates fresh, e.g. after the name
+// gets changed to something else and back.
+function freshProduceSuggestionCardHtml(){
+  var d = state.itemDraft;
+  var ui = state.itemFormUI;
+  if(!d || ui.freshRefDismissed) return '';
+  if((d.brand||'').trim() || (d.barcode||'').trim()) return '';
+  var ref = matchFreshProduceReference(d.name);
+  if(!ref) return '';
+  return '<div class="fresh-ref-card">'+
+    '<div class="fresh-ref-card-text">'+t('freshRefFoundPrefix')+esc(ref.name_zh)+t('freshRefFoundSuffix')+'</div>'+
+    '<div class="fresh-ref-card-actions">'+
+      '<button type="button" class="btn btn-primary btn-sm" onclick="applyFreshProduceReference('+aj(ref.id)+')">'+t('freshRefApplyBtn')+'</button>'+
+      '<button type="button" class="icon-btn" onclick="dismissFreshProduceCard()" aria-label="'+t('close')+'">'+ic('x',16)+'</button>'+
+    '</div>'+
+  '</div>';
+}
+function dismissFreshProduceCard(){ state.itemFormUI.freshRefDismissed = true; render(); }
+// Fills ONLY empty fields - never overwrites a value the person already typed, whether that's
+// because they scanned/photographed the real label first, or already started filling this in
+// by hand. Same reasoning for the weight basis: only set to 100g if neither basis is set yet.
+function applyFreshProduceReference(refId){
+  var ref = FRESH_PRODUCE_REFERENCE.find(function(r){ return r.id===refId; });
+  if(!ref) return;
+  var d = state.itemDraft;
+  var ui = state.itemFormUI;
+  if(!ui.nutriBasisWeightAmount && !ui.nutriBasisVolumeAmount){
+    ui.nutriBasisWeightAmount = 100;
+    ui.nutriBasisWeightAmountText = '100';
+    ui.nutriBasisWeightUnit = 'g';
+  }
+  d.nutrition = d.nutrition || {};
+  Object.keys(ref.nutrition).forEach(function(k){
+    if(d.nutrition[k]==null) d.nutrition[k] = ref.nutrition[k];
+  });
+  d.nutrition_extra = d.nutrition_extra || {};
+  Object.keys(ref.nutrition_extra||{}).forEach(function(k){
+    if(!d.nutrition_extra[k]) d.nutrition_extra[k] = ref.nutrition_extra[k];
+  });
+  state.itemFormUI.freshRefDismissed = true;
+  showToast(t('freshRefAppliedToast'));
+  render();
+}
 function nutriFieldsHtml(draftPath){
   var labels = nutriLabels();
   var units = nutriUnits();
@@ -3951,8 +4070,8 @@ function renderItemForm(){
   '<div class="content">'+
     '<div class="section-title">'+t('sectionBasic')+'</div>'+
     '<div class="form-group">'+
-      '<div class="field"><label>'+t('fieldBrand')+'</label><input type="text" autocapitalize="words" value="'+esc(d.brand)+'" placeholder="'+t('fieldBrandPh')+'" oninput="d_str(\'brand\',this.value)"></div>'+
-      '<div class="field"><label>'+t('fieldName')+' *</label><input type="text" autocapitalize="words" value="'+esc(d.name)+'" placeholder="'+t('fieldNamePh')+'" oninput="d_str(\'name\',this.value)"></div>'+
+      '<div class="field"><label>'+t('fieldBrand')+'</label><input type="text" autocapitalize="words" value="'+esc(d.brand)+'" placeholder="'+t('fieldBrandPh')+'" oninput="d_str(\'brand\',this.value)" onblur="render()"></div>'+
+      '<div class="field"><label>'+t('fieldName')+' *</label><input type="text" autocapitalize="words" value="'+esc(d.name)+'" placeholder="'+t('fieldNamePh')+'" oninput="d_str(\'name\',this.value)" onblur="render()"></div>'+
       '<div class="field"><label>'+t('fieldSource')+'</label><input type="text" autocapitalize="words" value="'+esc(d.source||'')+'" placeholder="'+t('fieldSourcePh')+'" oninput="d_str(\'source\',this.value)"></div>'+
       '<div class="field" style="margin-bottom:0;"><label>'+t('fieldBarcode')+'</label><input type="text" inputmode="numeric" value="'+esc(d.barcode||'')+'" placeholder="'+t('fieldBarcodePh')+'" oninput="d_str(\'barcode\',this.value)"></div>'+
     '</div>'+
@@ -3993,6 +4112,7 @@ function renderItemForm(){
       '<input type="file" accept="image/*" capture="environment" id="item-nutrition-photo-input" style="display:none" onchange="onItemNutritionPhotoSelected(this)">'+
       '<div id="item-nutrition-photo-status" class="hint" style="margin:-6px 0 10px;"></div>'
     ) : '')+
+    freshProduceSuggestionCardHtml()+
     nutriFieldsHtml(d)+
     '<div class="section-title">'+t('sectionNutritionMore')+'</div>'+
     nutriExtraFieldsHtml()+
@@ -6001,7 +6121,7 @@ function deleteExternalIngredientConfirm(id){
 // wiped out anything already typed into the plain number inputs if those weren't ALSO backed by
 // state instead of living only in the DOM.
 function openNewExternalIngredientModal(){
-  state.extIngUI = {mode:'new', id:null, name:'', nutrition:{}, nutrition_extra:{}, amount:null, unit:'g', expandedGroups:{}, openDropdown:null};
+  state.extIngUI = {mode:'new', id:null, name:'', nutrition:{}, nutrition_extra:{}, amount:null, unit:'g', expandedGroups:{}, openDropdown:null, freshRefDismissed:false};
   renderExternalIngredientModal();
 }
 // Edits the external ingredient's own library attributes (name + its per-100g nutrition
@@ -6016,8 +6136,40 @@ function editExternalIngredientModal(id){
     mode:'edit', id:id, name:ing.name,
     nutrition: JSON.parse(JSON.stringify(ing.nutrition||{})),
     nutrition_extra: JSON.parse(JSON.stringify(ing.nutrition_extra||{})),
-    amount:null, unit:'g', expandedGroups:{}, openDropdown:null
+    amount:null, unit:'g', expandedGroups:{}, openDropdown:null, freshRefDismissed:false
   };
+  renderExternalIngredientModal();
+}
+// Same FRESH_PRODUCE_REFERENCE lookup as the item form's freshProduceSuggestionCardHtml (README
+// 9.84), reused here rather than duplicated - external ingredients have no brand/barcode field
+// to gate on (they're never a scanned/labelled product to begin with), so this just checks the
+// name match and whether it's been dismissed this modal session.
+function extIngFreshRefCardHtml(){
+  var ui = state.extIngUI;
+  if(ui.freshRefDismissed) return '';
+  var ref = matchFreshProduceReference(ui.name);
+  if(!ref) return '';
+  return '<div class="fresh-ref-card">'+
+    '<div class="fresh-ref-card-text">'+t('freshRefFoundPrefix')+esc(ref.name_zh)+t('freshRefFoundSuffix')+'</div>'+
+    '<div class="fresh-ref-card-actions">'+
+      '<button type="button" class="btn btn-primary btn-sm" onclick="applyExtIngFreshRef('+aj(ref.id)+')">'+t('freshRefApplyBtn')+'</button>'+
+      '<button type="button" class="icon-btn" onclick="dismissExtIngFreshRefCard()" aria-label="'+t('close')+'">'+ic('x',16)+'</button>'+
+    '</div>'+
+  '</div>';
+}
+function dismissExtIngFreshRefCard(){ state.extIngUI.freshRefDismissed = true; renderExternalIngredientModal(); }
+function applyExtIngFreshRef(refId){
+  var ref = FRESH_PRODUCE_REFERENCE.find(function(r){ return r.id===refId; });
+  if(!ref) return;
+  var ui = state.extIngUI;
+  Object.keys(ref.nutrition).forEach(function(k){
+    if(ui.nutrition[k]==null) ui.nutrition[k] = ref.nutrition[k];
+  });
+  Object.keys(ref.nutrition_extra||{}).forEach(function(k){
+    if(!ui.nutrition_extra[k]) ui.nutrition_extra[k] = ref.nutrition_extra[k];
+  });
+  ui.freshRefDismissed = true;
+  showToast(t('freshRefAppliedToast'));
   renderExternalIngredientModal();
 }
 function renderExternalIngredientModal(){
@@ -6028,7 +6180,8 @@ function renderExternalIngredientModal(){
     '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select">'+WEIGHT_UNITS.concat(VOLUME_UNITS).map(function(u){ return '<div class="tag-option '+(u===ui.unit?'active':'')+'" onclick="onExtIngUnitPick('+aj(u)+')">'+u+'</div>'; }).join('')+'</div></div>'
     : '';
   showModal(isNew ? t('createNewIngredient') : t('editIngredientTitle'),
-    '<div class="field"><label>'+t('newIngName')+'</label><input type="text" autocapitalize="words" value="'+esc(ui.name)+'" placeholder="'+t('newIngName')+'" oninput="onExtIngNameInput(this.value)"></div>'+
+    '<div class="field"><label>'+t('newIngName')+'</label><input type="text" autocapitalize="words" value="'+esc(ui.name)+'" placeholder="'+t('newIngName')+'" oninput="onExtIngNameInput(this.value)" onblur="renderExternalIngredientModal()"></div>'+
+    extIngFreshRefCardHtml()+
     '<p class="hint" style="margin-bottom:10px;">'+t('newIngNutriHint')+'</p>'+
     externalIngNutriFieldsHtml()+
     externalIngNutriExtraGroupHtml('vitamins', t('nutriGroupVitamins'), NUTRI_VITAMIN_KEYS)+
