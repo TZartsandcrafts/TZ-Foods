@@ -556,6 +556,14 @@
   }
   .fresh-ref-card-text{ flex:1; min-width:0; font-size:13.5px; color:var(--cocoa); line-height:1.4; }
   .fresh-ref-card-actions{ display:flex; align-items:center; gap:4px; flex-shrink:0; }
+  .usda-search-row{ display:flex; gap:8px; margin-bottom:12px; }
+  .usda-search-row input{ flex:1; min-width:0; font-size:16px; padding:11px 12px; border-radius:10px; border:1px solid var(--line); }
+  .usda-result-list{ max-height:min(52vh,420px); overflow-y:auto; border:1px solid var(--line); border-radius:11px; }
+  .usda-result-row{ padding:11px 12px; border-bottom:1px solid var(--line); cursor:pointer; }
+  .usda-result-row:last-child{ border-bottom:none; }
+  .usda-result-row:active{ background:var(--cream); }
+  .usda-result-desc{ font-size:14px; color:var(--cocoa); line-height:1.35; }
+  .usda-result-sub{ margin-top:2px; }
   .nf-conversion-hint{ font-size:11.5px; color:#B79B78; white-space:nowrap; }
   .nf-input-unit-select{ font-size:16px; padding:3px 5px; border:1px solid var(--line); border-radius:6px; background:var(--card-bg); color:var(--cocoa); -webkit-appearance:none; appearance:none; }
   .nf-input-unit-select:focus{ border-color:var(--almond); outline:none; }
@@ -710,7 +718,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.86';
+var BUILD_VERSION = '9.88';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -764,20 +772,21 @@ var NUTRI_EXTRA_CORE_KEYS = ['vitamin_d','calcium','iron','potassium'];
 var NUTRI_EXTRA_OPTIONAL_KEYS = ['vitamin_a','vitamin_c','vitamin_e','magnesium','zinc','vitamin_b12'];
 var NUTRI_VITAMIN_KEYS = ['vitamin_d','vitamin_a','vitamin_c','vitamin_e','vitamin_b12'];
 var NUTRI_MINERAL_KEYS = ['calcium','iron','potassium','magnesium','zinc'];
-// Reference nutrition for common generic produce/meat/fish (see README 9.85) - per 100g raw,
-// sourced from USDA FoodData Central. The meat/poultry/seafood entries added in 9.85 came from
-// Lynn's own downloaded USDA Foundation Foods JSON (2026-04-30 release), read directly from the
-// file rather than searched/approximated - exact figures for that exact cut. A handful of items
-// (beef brisket/shank/back ribs/hotpot roll, and anything pork/lamb/crab/lobster beyond what's
-// listed just above those entries) predate that file and are still approximations from before
-// it was available - see README for exactly which. Saturated fat for a few Foundation-Foods-
-// sourced entries wasn't in that file's analytical data and was estimated from typical
-// species-level saturated-fat-share-of-total-fat ratios instead (also noted in README) - every
-// other figure on those entries is the file's own measured value. Not the full target list yet;
-// more (SR Legacy cuts Foundation Foods doesn't cover, and the rest of the vegetable/fruit list)
-// will be added in further batches. name_zh/name_en/aliases_* are all matched against
-// (case/whitespace-insensitive) so either language, or a common alternate name, finds the same
-// entry - see matchFreshProduceReference.
+// Reference nutrition for common generic produce/meat/fish (see README 9.85/9.86/9.87) - per
+// 100g raw, sourced from USDA FoodData Central. The meat/poultry/seafood entries added in 9.85/
+// 9.86 came from Lynn's own downloaded USDA Foundation Foods JSON (2026-04-30 release), read
+// directly from the file rather than searched/approximated - exact figures for that exact cut.
+// 9.87 added a second precise source, the USDA SR Legacy JSON (2018-04 release), covering cuts
+// Foundation Foods doesn't have (organ meats, feet, chicken feet, lamb shoulder/leg) and used to
+// upgrade beef brisket/shank/back ribs (renamed "牛肋排"/Beef Short Ribs to match the SR Legacy
+// cut) from their pre-9.85 approximations to exact file values. Only "火锅牛肉卷"/Hot Pot Beef
+// Roll (a thin-sliced retail product, not a USDA cut) and pork blood/chicken frame (no raw-weight
+// entry in either USDA file) remain unresolved. Saturated fat for a few Foundation-Foods-sourced
+// entries wasn't in that file's analytical data and was estimated from typical species-level
+// saturated-fat-share-of-total-fat ratios instead (also noted in README) - every other figure on
+// those entries, and all 9.87 SR Legacy entries, are the source file's own measured values.
+// name_zh/name_en/aliases_* are all matched against (case/whitespace-insensitive) so either
+// language, or a common alternate name, finds the same entry - see matchFreshProduceReference.
 var FRESH_PRODUCE_REFERENCE = [
   { id:'cabbage', name_zh:'卷心菜', aliases_zh:['包菜','高丽菜','牛心菜'], name_en:'Cabbage', aliases_en:['Green Cabbage'],
     nutrition:{calories:25,fat:0.1,saturated_fat:0,trans_fat:0,cholesterol:0,sodium:18,carbs:5.8,fiber:2.5,sugar:3.2,protein:1.3},
@@ -804,14 +813,14 @@ var FRESH_PRODUCE_REFERENCE = [
     nutrition:{calories:902,fat:100,saturated_fat:50,trans_fat:0,cholesterol:109,sodium:0,carbs:0,fiber:0,sugar:0,protein:0},
     nutrition_extra:{} },
   { id:'beef_brisket', name_zh:'牛腩', aliases_zh:['牛胸肉'], name_en:'Beef Brisket', aliases_en:['Beef Plate'],
-    nutrition:{calories:137,fat:5,saturated_fat:1.7,trans_fat:0.2,cholesterol:60,sodium:60,carbs:0,fiber:0,sugar:0,protein:22},
-    nutrition_extra:{potassium:{value:330,unit:'mg'},iron:{value:2.4,unit:'mg'},zinc:{value:4.9,unit:'mg'}} },
-  { id:'beef_back_ribs', name_zh:'牛肋排', aliases_zh:[], name_en:'Beef Back Ribs', aliases_en:['Beef Ribs Bone-In'],
-    nutrition:{calories:291,fat:24,saturated_fat:10,trans_fat:1.1,cholesterol:73,sodium:58,carbs:0,fiber:0,sugar:0,protein:17},
-    nutrition_extra:{potassium:{value:260,unit:'mg'},iron:{value:1.9,unit:'mg'},zinc:{value:4,unit:'mg'}} },
+    nutrition:{calories:253,fat:19.1,saturated_fat:7.53,trans_fat:0,cholesterol:68,sodium:69,carbs:0.56,fiber:0,sugar:0,protein:18.4},
+    nutrition_extra:{calcium:{value:6,unit:'mg'},iron:{value:1.7,unit:'mg'},potassium:{value:282,unit:'mg'},magnesium:{value:19,unit:'mg'},zinc:{value:3.71,unit:'mg'},vitamin_b12:{value:2.25,unit:'mcg'}} },
+  { id:'beef_back_ribs', name_zh:'牛肋排', aliases_zh:[], name_en:'Beef Short Ribs', aliases_en:['Beef Back Ribs'],
+    nutrition:{calories:390,fat:36.2,saturated_fat:15.8,trans_fat:0,cholesterol:76,sodium:49,carbs:0.4,fiber:0,sugar:0,protein:14.4},
+    nutrition_extra:{calcium:{value:9,unit:'mg'},iron:{value:1.55,unit:'mg'},potassium:{value:232,unit:'mg'},magnesium:{value:14,unit:'mg'},zinc:{value:3.16,unit:'mg'},vitamin_b12:{value:2.56,unit:'mcg'}} },
   { id:'beef_shank', name_zh:'牛腱子', aliases_zh:['牛腱'], name_en:'Beef Shank', aliases_en:[],
-    nutrition:{calories:137,fat:4.5,saturated_fat:1.6,trans_fat:0.2,cholesterol:60,sodium:60,carbs:0,fiber:0,sugar:0,protein:23},
-    nutrition_extra:{potassium:{value:345,unit:'mg'},iron:{value:2.8,unit:'mg'},zinc:{value:5.1,unit:'mg'}} },
+    nutrition:{calories:128,fat:3.85,saturated_fat:1.28,trans_fat:0,cholesterol:39,sodium:63,carbs:0,fiber:0,sugar:0,protein:21.8},
+    nutrition_extra:{calcium:{value:20,unit:'mg'},iron:{value:2.32,unit:'mg'},potassium:{value:387,unit:'mg'},magnesium:{value:14,unit:'mg'},zinc:{value:6.94,unit:'mg'},vitamin_b12:{value:3.33,unit:'mcg'}} },
   { id:'beef_hotpot_roll', name_zh:'火锅牛肉卷', aliases_zh:['肥牛卷'], name_en:'Hot Pot Beef Roll', aliases_en:['Shabu Shabu Beef'],
     nutrition:{calories:232,fat:17.8,saturated_fat:6.34,trans_fat:0.67,cholesterol:67,sodium:48,carbs:0,fiber:0,sugar:0,protein:18.4},
     nutrition_extra:{potassium:{value:281,unit:'mg'},iron:{value:2.06,unit:'mg'},zinc:{value:5.39,unit:'mg'}} },
@@ -1801,7 +1810,38 @@ var FRESH_PRODUCE_REFERENCE = [
     nutrition_extra:{calcium:{value:7.86,unit:'mg'},iron:{value:0.021,unit:'mg'},potassium:{value:112,unit:'mg'},vitamin_c:{value:8.1,unit:'mg'},magnesium:{value:11.4,unit:'mg'},zinc:{value:0.102,unit:'mg'}} },
   { id:'watermelon_rind', name_zh:'西瓜皮', aliases_zh:[], name_en:'Watermelon Rind', aliases_en:[],
     nutrition:{calories:19.4,fat:0.07,saturated_fat:0,trans_fat:0,cholesterol:0,sodium:3.76,carbs:4.17,fiber:1.54,sugar:2.22,protein:0.531},
-    nutrition_extra:{calcium:{value:16.9,unit:'mg'},iron:{value:0,unit:'mg'},potassium:{value:272,unit:'mg'},vitamin_c:{value:7.09,unit:'mg'},magnesium:{value:9.67,unit:'mg'},zinc:{value:0.121,unit:'mg'}} }
+    nutrition_extra:{calcium:{value:16.9,unit:'mg'},iron:{value:0,unit:'mg'},potassium:{value:272,unit:'mg'},vitamin_c:{value:7.09,unit:'mg'},magnesium:{value:9.67,unit:'mg'},zinc:{value:0.121,unit:'mg'}} },
+  // ===== 9.87 新增：猪内脏/猪蹄/鸡爪/羊肩腿（USDA SR Legacy 数据文件精确提取，每100g生重，鸡爪为煮熟）=====
+  { id:'pork_feet', name_zh:'猪蹄', aliases_zh:['猪脚','猪手'], name_en:'Pork Feet', aliases_en:['Pork Trotters'],
+    nutrition:{calories:212,fat:12.6,saturated_fat:3.57,trans_fat:0,cholesterol:88,sodium:132,carbs:0,fiber:0,sugar:0,protein:23.2},
+    nutrition_extra:{calcium:{value:70,unit:'mg'},iron:{value:0.58,unit:'mg'},potassium:{value:63,unit:'mg'},magnesium:{value:6,unit:'mg'},zinc:{value:0.76,unit:'mg'},vitamin_b12:{value:0.52,unit:'mcg'}} },
+  { id:'pork_liver', name_zh:'猪肝', aliases_zh:[], name_en:'Pork Liver', aliases_en:[],
+    nutrition:{calories:134,fat:3.65,saturated_fat:1.17,trans_fat:0,cholesterol:301,sodium:87,carbs:2.47,fiber:0,sugar:0,protein:21.4},
+    nutrition_extra:{calcium:{value:9,unit:'mg'},iron:{value:23.3,unit:'mg'},potassium:{value:273,unit:'mg'},magnesium:{value:18,unit:'mg'},zinc:{value:5.76,unit:'mg'},vitamin_a:{value:6500,unit:'mcg'},vitamin_c:{value:25.3,unit:'mg'},vitamin_b12:{value:26,unit:'mcg'}} },
+  { id:'pork_kidney', name_zh:'猪腰子', aliases_zh:['猪腰'], name_en:'Pork Kidney', aliases_en:[],
+    nutrition:{calories:100,fat:3.25,saturated_fat:1.04,trans_fat:0,cholesterol:319,sodium:121,carbs:0,fiber:0,sugar:0,protein:16.5},
+    nutrition_extra:{calcium:{value:9,unit:'mg'},iron:{value:4.89,unit:'mg'},potassium:{value:229,unit:'mg'},magnesium:{value:17,unit:'mg'},zinc:{value:2.75,unit:'mg'},vitamin_a:{value:59,unit:'mcg'},vitamin_c:{value:13.3,unit:'mg'},vitamin_b12:{value:8.49,unit:'mcg'}} },
+  { id:'pork_intestine', name_zh:'猪大肠', aliases_zh:['肥肠'], name_en:'Pork Chitterlings', aliases_en:['Pork Intestine'],
+    nutrition:{calories:182,fat:16.6,saturated_fat:7.62,trans_fat:0,cholesterol:154,sodium:24,carbs:0,fiber:0,sugar:0,protein:7.64},
+    nutrition_extra:{calcium:{value:16,unit:'mg'},iron:{value:1.02,unit:'mg'},potassium:{value:18,unit:'mg'},magnesium:{value:6,unit:'mg'},zinc:{value:1.02,unit:'mg'},vitamin_c:{value:1.1,unit:'mg'},vitamin_b12:{value:0.82,unit:'mcg'}} },
+  { id:'pork_heart', name_zh:'猪心', aliases_zh:[], name_en:'Pork Heart', aliases_en:[],
+    nutrition:{calories:118,fat:4.36,saturated_fat:1.16,trans_fat:0,cholesterol:131,sodium:56,carbs:1.33,fiber:0,sugar:0,protein:17.3},
+    nutrition_extra:{calcium:{value:5,unit:'mg'},iron:{value:4.68,unit:'mg'},potassium:{value:294,unit:'mg'},magnesium:{value:19,unit:'mg'},zinc:{value:2.8,unit:'mg'},vitamin_a:{value:8,unit:'mcg'},vitamin_c:{value:5.3,unit:'mg'},vitamin_b12:{value:3.79,unit:'mcg'}} },
+  { id:'pork_tongue', name_zh:'猪舌', aliases_zh:['口条'], name_en:'Pork Tongue', aliases_en:[],
+    nutrition:{calories:225,fat:17.2,saturated_fat:5.96,trans_fat:0,cholesterol:101,sodium:110,carbs:0,fiber:0,sugar:0,protein:16.3},
+    nutrition_extra:{calcium:{value:16,unit:'mg'},iron:{value:3.35,unit:'mg'},potassium:{value:243,unit:'mg'},magnesium:{value:18,unit:'mg'},zinc:{value:3.01,unit:'mg'},vitamin_c:{value:4.4,unit:'mg'},vitamin_b12:{value:2.84,unit:'mcg'}} },
+  { id:'pork_stomach', name_zh:'猪肚', aliases_zh:[], name_en:'Pork Stomach', aliases_en:['Pork Tripe'],
+    nutrition:{calories:159,fat:10.1,saturated_fat:4.02,trans_fat:0.13,cholesterol:223,sodium:75,carbs:0,fiber:0,sugar:0,protein:16.8},
+    nutrition_extra:{calcium:{value:11,unit:'mg'},iron:{value:1.01,unit:'mg'},potassium:{value:140,unit:'mg'},magnesium:{value:11,unit:'mg'},zinc:{value:1.85,unit:'mg'},vitamin_b12:{value:0.3,unit:'mcg'}} },
+  { id:'chicken_feet', name_zh:'鸡爪', aliases_zh:['凤爪'], name_en:'Chicken Feet', aliases_en:[],
+    nutrition:{calories:215,fat:14.6,saturated_fat:3.92,trans_fat:0,cholesterol:84,sodium:67,carbs:0.2,fiber:0,sugar:0,protein:19.4},
+    nutrition_extra:{calcium:{value:88,unit:'mg'},iron:{value:0.91,unit:'mg'},potassium:{value:31,unit:'mg'},magnesium:{value:5,unit:'mg'},zinc:{value:0.69,unit:'mg'},vitamin_a:{value:30,unit:'mcg'},vitamin_b12:{value:0.47,unit:'mcg'}} },
+  { id:'lamb_shoulder', name_zh:'羊肩', aliases_zh:['羊肩肉'], name_en:'Lamb Shoulder', aliases_en:[],
+    nutrition:{calories:264,fat:21.4,saturated_fat:9.28,trans_fat:0,cholesterol:72,sodium:61,carbs:0,fiber:0,sugar:0,protein:16.6},
+    nutrition_extra:{calcium:{value:16,unit:'mg'},iron:{value:1.5,unit:'mg'},potassium:{value:230,unit:'mg'},magnesium:{value:21,unit:'mg'},zinc:{value:3.94,unit:'mg'},vitamin_b12:{value:2.53,unit:'mcg'}} },
+  { id:'lamb_leg', name_zh:'羊腿', aliases_zh:[], name_en:'Lamb Leg', aliases_en:[],
+    nutrition:{calories:230,fat:17.1,saturated_fat:7.43,trans_fat:0,cholesterol:69,sodium:56,carbs:0,fiber:0,sugar:0,protein:17.9},
+    nutrition_extra:{calcium:{value:9,unit:'mg'},iron:{value:1.66,unit:'mg'},potassium:{value:249,unit:'mg'},magnesium:{value:23,unit:'mg'},zinc:{value:3.32,unit:'mg'},vitamin_b12:{value:2.5,unit:'mcg'}} }
 ];
 // Matches typed name against name_zh/aliases_zh/name_en/aliases_en (trimmed, case-insensitive) -
 // used by both the item form and the external-ingredient modal (README 9.84) so the same
@@ -2049,6 +2089,12 @@ var I18N = {
     ingAmountLabel:'用量', ingUnitLabel:'单位',
     newIngName:'食材名称', newIngNutriHint:'请填写每100g/100ml的营养信息',
     freshRefFoundPrefix:'检测到「', freshRefFoundSuffix:'」的参考营养数据，点击填入', freshRefApplyBtn:'填入', freshRefAppliedToast:'已填入参考数据，可自行调整',
+    usdaSearchBtn:'搜索USDA数据库', usdaSearchTitle:'搜索 USDA 食品数据库', usdaSearchPlaceholder:'输入英文关键词，如 chicken breast',
+    usdaSearchGoBtn:'搜索', usdaSearchLoading:'搜索中…', usdaSearchLoadingDetail:'加载营养数据中…',
+    usdaSearchNoResults:'没有找到匹配结果，换个关键词试试', usdaSearchEmptyPrompt:'输入关键词后点击搜索',
+    usdaSearchError:'搜索失败，请检查网络或稍后再试', usdaSearchNotConfigured:'请先在设置里填写云端代理地址',
+    usdaSearchApplyToast:'已填入 USDA 数据，可自行调整', usdaSearchBack:'返回',
+    usdaDataTypeFoundation:'官方实测', usdaDataTypeSRLegacy:'官方数据', usdaDataTypeBranded:'品牌食品',
     // recipe detail
     cookThis:'我做了这道菜', cookConfirmTitle:'确认扣减库存',
     nutriToggleExpand:'展开每100g成品 / 每份', nutriToggleCollapse:'收起',
@@ -2242,6 +2288,12 @@ var I18N = {
     ingAmountLabel:'Amount', ingUnitLabel:'Unit',
     newIngName:'Ingredient name', newIngNutriHint:'Enter nutrition per 100g/100ml',
     freshRefFoundPrefix:'Found reference nutrition for "', freshRefFoundSuffix:'" - tap to fill in', freshRefApplyBtn:'Fill in', freshRefAppliedToast:'Filled in - feel free to adjust',
+    usdaSearchBtn:'Search USDA Database', usdaSearchTitle:'Search USDA Food Database', usdaSearchPlaceholder:'Enter an English keyword, e.g. chicken breast',
+    usdaSearchGoBtn:'Search', usdaSearchLoading:'Searching…', usdaSearchLoadingDetail:'Loading nutrition data…',
+    usdaSearchNoResults:'No matches found, try a different keyword', usdaSearchEmptyPrompt:'Enter a keyword and tap search',
+    usdaSearchError:'Search failed, check your connection and try again', usdaSearchNotConfigured:'Please set up the cloud proxy URL in Settings first',
+    usdaSearchApplyToast:'Filled in USDA data - feel free to adjust', usdaSearchBack:'Back',
+    usdaDataTypeFoundation:'USDA Lab-Tested', usdaDataTypeSRLegacy:'USDA Data', usdaDataTypeBranded:'Branded',
     cookThis:"I made this dish", cookConfirmTitle:'Confirm inventory deduction',
     nutriToggleExpand:'Show per 100g cooked / per serving', nutriToggleCollapse:'Hide',
     cookConfirmHint:'These items will be deducted from inventory based on the amount used. Confirm to proceed.',
@@ -4868,6 +4920,182 @@ function applyFreshProduceReference(refId){
   showToast(t('freshRefAppliedToast'));
   render();
 }
+// ===== USDA 云端食品数据库搜索（README 9.87后续）=====
+// 跟 FRESH_PRODUCE_REFERENCE 那套本地精选参考库是互补关系，不是替代：本地库覆盖常用生鲜
+//食材、有中文名，命中就优先用（上面 freshProduceSuggestionCardHtml 那张绿卡片）；这里是
+// "本地库没有"时候的兜底 - 通过 Cloudflare Worker 代理 USDA 官方接口，能搜到的范围大得多
+// （品牌食品、各种细分部位），代价是搜索关键词得用英文，且大部分条目没有中文名。
+//
+// Worker 的两个新接口（/food-search、/food-detail）跟已有的 AI 拍照识别代理挂在同一个
+// Worker 上，所以直接复用 state.aiProxyUrl 所在的域名，不需要用户单独配置一个新地址。
+function usdaWorkerBase(){
+  if(!state.aiProxyUrl) return null;
+  try{ return new URL(state.aiProxyUrl).origin; }catch(e){ return null; }
+}
+async function usdaSearchFoods(query){
+  var base = usdaWorkerBase();
+  if(!base) throw new Error('not configured');
+  var res = await fetch(base+'/food-search?q='+encodeURIComponent(query));
+  if(!res.ok) throw new Error('search failed: '+res.status);
+  var data = await res.json();
+  return data.foods || [];
+}
+async function usdaFetchFoodDetail(fdcId){
+  var base = usdaWorkerBase();
+  if(!base) throw new Error('not configured');
+  var res = await fetch(base+'/food-detail?fdcId='+encodeURIComponent(fdcId));
+  if(!res.ok) throw new Error('detail failed: '+res.status);
+  return await res.json();
+}
+function usdaDataTypeLabel(dataType){
+  if(dataType==='Foundation') return t('usdaDataTypeFoundation');
+  if(dataType==='SR Legacy') return t('usdaDataTypeSRLegacy');
+  if(dataType==='Branded') return t('usdaDataTypeBranded');
+  return dataType || '';
+}
+function usdaResultRowHtml(food, onclickExpr){
+  var sub = usdaDataTypeLabel(food.dataType) + (food.brandName ? ' · '+esc(food.brandName) : '');
+  return '<div class="usda-result-row" onclick="'+onclickExpr+'">'+
+    '<div class="usda-result-desc">'+esc(food.description)+'</div>'+
+    '<div class="usda-result-sub hint">'+sub+'</div>'+
+  '</div>';
+}
+// Shared "state shape" for the search UI, reused by both entry points (item form uses its own
+// top-level showModal; the recipe external-ingredient editor renders this inline inside its own
+// modal instead - see extIngUsdaSearchHtml below - since that editor is already a modal itself
+// and stacking a second one via showModal would blow away the first, see README 9.87).
+function freshUsdaSearchState(){
+  return { query:'', results:[], loading:false, detailLoading:false, error:null, searched:false };
+}
+
+/* ---- Entry point 1: inventory item form (state.itemDraft), standalone showModal ---- */
+function openItemUsdaSearchModal(){
+  state.itemUsdaSearchUI = freshUsdaSearchState();
+  renderItemUsdaSearchModal();
+}
+function renderItemUsdaSearchModal(){
+  var ui = state.itemUsdaSearchUI;
+  showModal(t('usdaSearchTitle'), usdaSearchBodyHtml(ui, 'renderItemUsdaSearchModal', 'onItemUsdaResultPick'));
+}
+function onItemUsdaQueryInput(val){ state.itemUsdaSearchUI.query = val; }
+async function runItemUsdaSearch(){
+  var ui = state.itemUsdaSearchUI;
+  if(!ui.query.trim()) return;
+  ui.loading = true; ui.error = null; ui.searched = true;
+  renderItemUsdaSearchModal();
+  try{
+    ui.results = await usdaSearchFoods(ui.query.trim());
+  }catch(e){
+    ui.error = t('usdaSearchError'); ui.results = [];
+  }
+  ui.loading = false;
+  renderItemUsdaSearchModal();
+}
+async function onItemUsdaResultPick(fdcId){
+  var ui = state.itemUsdaSearchUI;
+  ui.detailLoading = true;
+  renderItemUsdaSearchModal();
+  try{
+    var detail = await usdaFetchFoodDetail(fdcId);
+    applyUsdaDetailToItemDraft(detail);
+    closeModal();
+    showToast(t('usdaSearchApplyToast'));
+    render();
+  }catch(e){
+    ui.detailLoading = false;
+    ui.error = t('usdaSearchError');
+    renderItemUsdaSearchModal();
+  }
+}
+// Full overwrite (per Lynn's call, see README 9.87 follow-up) - unlike applyFreshProduceReference
+// (which only fills empty fields), a USDA search result replaces the whole nutrition block, since
+// picking a specific USDA entry is a deliberate "use exactly this" action, not a soft suggestion.
+// Still fully editable afterward, same input fields as any other source.
+function applyUsdaDetailToItemDraft(detail){
+  var d = state.itemDraft;
+  var ui = state.itemFormUI;
+  if(!ui.nutriBasisWeightAmount && !ui.nutriBasisVolumeAmount){
+    ui.nutriBasisWeightAmount = 100;
+    ui.nutriBasisWeightAmountText = '100';
+    ui.nutriBasisWeightUnit = 'g';
+  }
+  d.nutrition = detail.nutrition || {};
+  d.nutrition_extra = detail.nutrition_extra || {};
+  if(!d.name || !d.name.trim()) d.name = detail.description;
+}
+
+/* ---- Entry point 2: recipe external-ingredient modal (state.extIngUI), rendered inline ---- */
+function openExtIngUsdaSearch(){
+  state.extIngUI.usdaSearch = freshUsdaSearchState();
+  renderExternalIngredientModal();
+}
+function closeExtIngUsdaSearch(){
+  state.extIngUI.usdaSearch = null;
+  renderExternalIngredientModal();
+}
+function onExtIngUsdaQueryInput(val){ state.extIngUI.usdaSearch.query = val; }
+async function runExtIngUsdaSearch(){
+  var ui = state.extIngUI.usdaSearch;
+  if(!ui.query.trim()) return;
+  ui.loading = true; ui.error = null; ui.searched = true;
+  renderExternalIngredientModal();
+  try{
+    ui.results = await usdaSearchFoods(ui.query.trim());
+  }catch(e){
+    ui.error = t('usdaSearchError'); ui.results = [];
+  }
+  ui.loading = false;
+  renderExternalIngredientModal();
+}
+async function onExtIngUsdaResultPick(fdcId){
+  var ui = state.extIngUI.usdaSearch;
+  ui.detailLoading = true;
+  renderExternalIngredientModal();
+  try{
+    var detail = await usdaFetchFoodDetail(fdcId);
+    var extUi = state.extIngUI;
+    extUi.nutrition = detail.nutrition || {};
+    extUi.nutrition_extra = detail.nutrition_extra || {};
+    if(!extUi.name || !extUi.name.trim()) extUi.name = detail.description;
+    extUi.usdaSearch = null;
+    showToast(t('usdaSearchApplyToast'));
+    renderExternalIngredientModal();
+  }catch(e){
+    ui.detailLoading = false;
+    ui.error = t('usdaSearchError');
+    renderExternalIngredientModal();
+  }
+}
+
+/* ---- Shared body markup for both entry points ---- */
+function usdaSearchBodyHtml(ui, rerenderFn, pickFn){
+  if(!usdaWorkerBase()){
+    return '<p class="hint">'+t('usdaSearchNotConfigured')+'</p>';
+  }
+  var resultsHtml;
+  if(ui.detailLoading){
+    resultsHtml = '<p class="hint">'+t('usdaSearchLoadingDetail')+'</p>';
+  } else if(ui.loading){
+    resultsHtml = '<p class="hint">'+t('usdaSearchLoading')+'</p>';
+  } else if(ui.error){
+    resultsHtml = '<p class="hint">'+esc(ui.error)+'</p>';
+  } else if(ui.searched && ui.results.length===0){
+    resultsHtml = '<p class="hint">'+t('usdaSearchNoResults')+'</p>';
+  } else if(ui.results.length){
+    resultsHtml = '<div class="usda-result-list">'+ui.results.map(function(f){
+      return usdaResultRowHtml(f, pickFn+'('+aj(f.fdcId)+')');
+    }).join('')+'</div>';
+  } else {
+    resultsHtml = '<p class="hint">'+t('usdaSearchEmptyPrompt')+'</p>';
+  }
+  return '<div class="usda-search-row">'+
+      '<input type="text" inputmode="search" autocapitalize="none" placeholder="'+t('usdaSearchPlaceholder')+'" '+
+        'value="'+esc(ui.query)+'" oninput="'+(rerenderFn==='renderItemUsdaSearchModal'?'onItemUsdaQueryInput':'onExtIngUsdaQueryInput')+'(this.value)" '+
+        'onkeydown="if(event.key===\'Enter\'){event.preventDefault();'+(rerenderFn==='renderItemUsdaSearchModal'?'runItemUsdaSearch':'runExtIngUsdaSearch')+'();}">'+
+      '<button type="button" class="btn btn-primary" style="flex-shrink:0;" onclick="'+(rerenderFn==='renderItemUsdaSearchModal'?'runItemUsdaSearch':'runExtIngUsdaSearch')+'()">'+t('usdaSearchGoBtn')+'</button>'+
+    '</div>'+
+    resultsHtml;
+}
 function nutriFieldsHtml(draftPath){
   var labels = nutriLabels();
   var units = nutriUnits();
@@ -5103,6 +5331,7 @@ function renderItemForm(){
       '<input type="file" accept="image/*" capture="environment" id="item-nutrition-photo-input" style="display:none" onchange="onItemNutritionPhotoSelected(this)">'+
       '<div id="item-nutrition-photo-status" class="hint" style="margin:-6px 0 10px;"></div>'
     ) : '')+
+    (state.aiProxyUrl ? '<div style="margin:-2px 0 12px;"><button type="button" class="btn btn-outline btn-sm" onclick="openItemUsdaSearchModal()">'+ic('search',16)+' '+t('usdaSearchBtn')+'</button></div>' : '')+
     freshProduceSuggestionCardHtml()+
     nutriFieldsHtml(d)+
     '<div class="section-title">'+t('sectionNutritionMore')+'</div>'+
@@ -7112,7 +7341,7 @@ function deleteExternalIngredientConfirm(id){
 // wiped out anything already typed into the plain number inputs if those weren't ALSO backed by
 // state instead of living only in the DOM.
 function openNewExternalIngredientModal(){
-  state.extIngUI = {mode:'new', id:null, name:'', nutrition:{}, nutrition_extra:{}, amount:null, unit:'g', expandedGroups:{}, openDropdown:null, freshRefDismissed:false};
+  state.extIngUI = {mode:'new', id:null, name:'', nutrition:{}, nutrition_extra:{}, amount:null, unit:'g', expandedGroups:{}, openDropdown:null, freshRefDismissed:false, usdaSearch:null};
   renderExternalIngredientModal();
 }
 // Edits the external ingredient's own library attributes (name + its per-100g nutrition
@@ -7127,7 +7356,7 @@ function editExternalIngredientModal(id){
     mode:'edit', id:id, name:ing.name,
     nutrition: JSON.parse(JSON.stringify(ing.nutrition||{})),
     nutrition_extra: JSON.parse(JSON.stringify(ing.nutrition_extra||{})),
-    amount:null, unit:'g', expandedGroups:{}, openDropdown:null, freshRefDismissed:false
+    amount:null, unit:'g', expandedGroups:{}, openDropdown:null, freshRefDismissed:false, usdaSearch:null
   };
   renderExternalIngredientModal();
 }
@@ -7165,6 +7394,13 @@ function applyExtIngFreshRef(refId){
 }
 function renderExternalIngredientModal(){
   var ui = state.extIngUI;
+  if(ui.usdaSearch){
+    showModal(t('usdaSearchTitle'),
+      usdaSearchBodyHtml(ui.usdaSearch, 'renderExternalIngredientModal', 'onExtIngUsdaResultPick')+
+      '<button type="button" class="btn btn-outline" style="margin-top:14px;" onclick="closeExtIngUsdaSearch()">'+t('usdaSearchBack')+'</button>'
+    );
+    return;
+  }
   var isNew = ui.mode==='new';
   var amountUnitHtml = isNew ?
     '<div class="field" style="margin-top:14px;"><label>'+t('ingAmountLabel')+'</label><input type="number" inputmode="decimal" placeholder="-" value="'+(ui.amount==null?'':ui.amount)+'" oninput="onExtIngAmountInput(this.value)"></div>'+
@@ -7173,6 +7409,7 @@ function renderExternalIngredientModal(){
   showModal(isNew ? t('createNewIngredient') : t('editIngredientTitle'),
     '<div class="field"><label>'+t('newIngName')+'</label><input type="text" autocapitalize="words" value="'+esc(ui.name)+'" placeholder="'+t('newIngName')+'" oninput="onExtIngNameInput(this.value)" onblur="renderExternalIngredientModal()"></div>'+
     extIngFreshRefCardHtml()+
+    (state.aiProxyUrl ? '<div style="margin:-2px 0 12px;"><button type="button" class="btn btn-outline btn-sm" onclick="openExtIngUsdaSearch()">'+ic('search',16)+' '+t('usdaSearchBtn')+'</button></div>' : '')+
     '<p class="hint" style="margin-bottom:10px;">'+t('newIngNutriHint')+'</p>'+
     externalIngNutriFieldsHtml()+
     externalIngNutriExtraGroupHtml('vitamins', t('nutriGroupVitamins'), NUTRI_VITAMIN_KEYS)+
