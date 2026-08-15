@@ -718,7 +718,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.88';
+var BUILD_VERSION = '9.89';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -3569,9 +3569,13 @@ function deleteItemFromSwipe(id){ closeItemSwipeRow(id); deleteItemDetail(id); }
   }, {passive:true});
   // A tap that lands outside the open row auto-closes it (handled in touchstart above);
   // swallow that same tap's synthetic click so it doesn't also navigate into a different card.
+  // Never swallow a tap that lands on the copy pill itself (#copy-pill-root) - initItemLongPress
+  // below sets this same flag when it fires, but a tap on the pill's own button/overlay is a
+  // brand new, deliberate interaction, not the leftover stray click this flag exists to catch.
   document.addEventListener('click', function(e){
     if(itemSwipeSwallowClick){
       itemSwipeSwallowClick = false;
+      if(e.target.closest && e.target.closest('#copy-pill-root')) return;
       e.stopPropagation();
       e.preventDefault();
     }
@@ -3601,6 +3605,14 @@ function deleteItemFromSwipe(id){ closeItemSwipeRow(id); deleteItemDetail(id); }
     timer = setTimeout(function(){
       timer = null;
       itemSwipeSwallowClick = true; // swallow the click that touchend is about to fire
+      // Safety net: on iOS Safari, a touch held past LONG_PRESS_MS often does NOT synthesize a
+      // click on release at all (unlike a normal tap) - so the flag above was frequently never
+      // consumed by the click it was meant for, and sat stuck at `true` until whatever the
+      // *next* real tap was (usually the tap meant for the pill button itself), silently eating
+      // that one instead. This was the root cause of needing 2-3 taps to actually copy an item.
+      // Auto-clear shortly after if nothing consumed it, so a stray leftover flag can never eat
+      // a later, unrelated tap.
+      setTimeout(function(){ itemSwipeSwallowClick = false; }, 400);
       showCopyPill(pressItemId, sx, sy);
     }, LONG_PRESS_MS);
   }, {passive:true});
@@ -5314,7 +5326,7 @@ function renderItemForm(){
     '<div class="section-title">'+t('sectionOther')+'</div>'+
     '<div class="form-group">'+
       expiryFieldHtml(d)+
-      dateSegmentsFieldHtml(t('fieldPurchaseDate'), 'purchase_date')+
+      dateSegmentsFieldHtml(t('fieldPurchaseDate'), 'purchase_date', false)+
       '<div class="field"><label>'+t('fieldPrice')+'</label>'+
         '<div style="display:flex;gap:8px;align-items:center;">'+
           '<input type="number" inputmode="decimal" value="'+(d.price||'')+'" oninput="d_num(\'price\',this.value)" style="flex:2;min-width:0;">'+
