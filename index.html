@@ -718,7 +718,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.89';
+var BUILD_VERSION = '9.90';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -1846,6 +1846,16 @@ var FRESH_PRODUCE_REFERENCE = [
 // Matches typed name against name_zh/aliases_zh/name_en/aliases_en (trimmed, case-insensitive) -
 // used by both the item form and the external-ingredient modal (README 9.84) so the same
 // reference data is reachable from either entry point without maintaining two lookup paths.
+// Exact match first (cheapest, most precise); if that misses, fall back to substring
+// containment - the product name (which may have a brand prefix, package size, etc. tacked on)
+// contains one of the reference's zh/en names or aliases as a run of text. README 9.89 follow-up:
+// this used to be exact-match-only and was gated to only run when the item had no brand/barcode
+// (branded/scanned items were assumed too far from a generic "raw ingredient" reference to be
+// worth checking) - loosened on request to fire regardless of brand/barcode, since a name like
+// "某某超市 有机西兰花 300g" should still surface the 西兰花 reference even though it's a
+// branded, barcoded product. Candidates under 2 characters are skipped for substring matching
+// (only used for the exact-match check) to avoid single-character false positives like a
+// reference alias "肉" matching almost anything.
 function matchFreshProduceReference(name){
   if(!name) return null;
   var q = name.trim().toLowerCase();
@@ -1855,6 +1865,14 @@ function matchFreshProduceReference(name){
     var candidates = [ref.name_zh].concat(ref.aliases_zh||[]).concat([ref.name_en]).concat(ref.aliases_en||[]);
     for(var j=0;j<candidates.length;j++){
       if(candidates[j] && candidates[j].trim().toLowerCase()===q) return ref;
+    }
+  }
+  for(var i2=0;i2<FRESH_PRODUCE_REFERENCE.length;i2++){
+    var ref2 = FRESH_PRODUCE_REFERENCE[i2];
+    var candidates2 = [ref2.name_zh].concat(ref2.aliases_zh||[]).concat([ref2.name_en]).concat(ref2.aliases_en||[]);
+    for(var j2=0;j2<candidates2.length;j2++){
+      var c = candidates2[j2] ? candidates2[j2].trim().toLowerCase() : '';
+      if(c.length>=2 && q.indexOf(c)!==-1) return ref2;
     }
   }
   return null;
@@ -3581,6 +3599,17 @@ function deleteItemFromSwipe(id){ closeItemSwipeRow(id); deleteItemDetail(id); }
     }
   }, true);
 })();
+// iOS Safari sometimes starts its own native text-selection gesture on a long touch-hold before
+// initItemLongPress's own 550ms timer below even fires - the -webkit-user-select:none CSS on
+// .item-card-swipe .item-card (see its own comment) should prevent this but isn't 100% reliable
+// across iOS versions for a dynamically re-rendered list. Intercepting 'selectstart' directly is
+// a second, more direct line of defense: it stops the browser from beginning a selection at all
+// within an item card, and - unlike the passive touch listeners elsewhere in this file - doesn't
+// need to be passive itself, since it's a different event entirely from touchstart/move/end and
+// has no bearing on scroll performance.
+document.addEventListener('selectstart', function(e){
+  if(e.target.closest && e.target.closest('.item-card-swipe')) e.preventDefault();
+}, false);
 
 /* ---------- Long-press an inventory item to duplicate it ----------
    Holding down on any item card (single or inside an expanded group) for ~550ms without
@@ -4895,7 +4924,6 @@ function freshProduceSuggestionCardHtml(){
   var d = state.itemDraft;
   var ui = state.itemFormUI;
   if(!d || ui.freshRefDismissed) return '';
-  if((d.brand||'').trim() || (d.barcode||'').trim()) return '';
   var ref = matchFreshProduceReference(d.name);
   if(!ref) return '';
   return '<div class="fresh-ref-card">'+
@@ -4983,6 +5011,20 @@ function freshUsdaSearchState(){
 /* ---- Entry point 1: inventory item form (state.itemDraft), standalone showModal ---- */
 function openItemUsdaSearchModal(){
   state.itemUsdaSearchUI = freshUsdaSearchState();
+  // Barcode-scan fallback (README 9.89 follow-up): if this form was opened from a scan that
+  // didn't match anything locally or on Open Food Facts (see scanNotFound in lookupAndPrefill),
+  // all we have is the raw barcode and an empty name - nothing to type into the search box yet.
+  // USDA's Branded Foods dataset is itself indexed by GTIN/UPC, so the scanned digits are very
+  // often searchable as-is. Auto-fill and auto-run the search with the barcode in that specific
+  // case (barcode present, name still empty) rather than making the person retype digits they
+  // already scanned; leave the box empty as usual whenever there's already a name to search by.
+  var d = state.itemDraft;
+  if(d && (d.barcode||'').trim() && !(d.name||'').trim()){
+    state.itemUsdaSearchUI.query = d.barcode.trim();
+    renderItemUsdaSearchModal();
+    runItemUsdaSearch();
+    return;
+  }
   renderItemUsdaSearchModal();
 }
 function renderItemUsdaSearchModal(){
@@ -5104,7 +5146,7 @@ function usdaSearchBodyHtml(ui, rerenderFn, pickFn){
       '<input type="text" inputmode="search" autocapitalize="none" placeholder="'+t('usdaSearchPlaceholder')+'" '+
         'value="'+esc(ui.query)+'" oninput="'+(rerenderFn==='renderItemUsdaSearchModal'?'onItemUsdaQueryInput':'onExtIngUsdaQueryInput')+'(this.value)" '+
         'onkeydown="if(event.key===\'Enter\'){event.preventDefault();'+(rerenderFn==='renderItemUsdaSearchModal'?'runItemUsdaSearch':'runExtIngUsdaSearch')+'();}">'+
-      '<button type="button" class="btn btn-primary" style="flex-shrink:0;" onclick="'+(rerenderFn==='renderItemUsdaSearchModal'?'runItemUsdaSearch':'runExtIngUsdaSearch')+'()">'+t('usdaSearchGoBtn')+'</button>'+
+      '<button type="button" class="btn btn-primary" style="width:auto;flex-shrink:0;white-space:nowrap;padding-left:16px;padding-right:16px;" onclick="'+(rerenderFn==='renderItemUsdaSearchModal'?'runItemUsdaSearch':'runExtIngUsdaSearch')+'()">'+t('usdaSearchGoBtn')+'</button>'+
     '</div>'+
     resultsHtml;
 }
