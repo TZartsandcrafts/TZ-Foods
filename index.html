@@ -223,7 +223,7 @@
     border-radius:8px; padding:1px 6px; margin-left:6px; vertical-align:1px; white-space:nowrap;
   }
   .item-group{ margin-bottom:10px; }
-  .item-group-header{ margin-bottom:0; }
+  .item-group-header{ margin-bottom:0; -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
   .item-group-children{ margin-left:14px; padding-left:10px; border-left:2px solid var(--line); margin-top:8px; }
   .item-group-children .item-card-swipe:last-child{ margin-bottom:0; }
   /* ---------- Bulk select mode ---------- */
@@ -718,7 +718,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.90';
+var BUILD_VERSION = '9.91';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -3608,7 +3608,7 @@ function deleteItemFromSwipe(id){ closeItemSwipeRow(id); deleteItemDetail(id); }
 // need to be passive itself, since it's a different event entirely from touchstart/move/end and
 // has no bearing on scroll performance.
 document.addEventListener('selectstart', function(e){
-  if(e.target.closest && e.target.closest('.item-card-swipe')) e.preventDefault();
+  if(e.target.closest && e.target.closest('.item-card-swipe, .item-group-header')) e.preventDefault();
 }, false);
 
 /* ---------- Long-press an inventory item to duplicate it ----------
@@ -3626,7 +3626,15 @@ document.addEventListener('selectstart', function(e){
   document.addEventListener('touchstart', function(e){
     cancelTimer();
     if(modalIsOpen()) return;
-    var wrap = e.target.closest ? e.target.closest('.item-card-swipe') : null;
+    // Group headers (collapsed "共N批" rows, see renderItemGroupHtml) aren't wrapped in
+    // .item-card-swipe - they don't get swipe-to-delete (deleting "a group" isn't a single
+    // well-defined action), but long-press-to-copy still makes sense there: it copies whichever
+    // batch is currently shown as the group's representative, same starting point a person would
+    // reach for when adding another batch of the same thing. README 9.90 follow-up: this was
+    // originally .item-card-swipe-only, which is why group header rows had neither the pill nor
+    // the text-selection guard below - a long press there just fell through to iOS's native
+    // text selection instead.
+    var wrap = e.target.closest ? e.target.closest('.item-card-swipe, .item-group-header') : null;
     if(!wrap) return;
     var t0 = e.touches[0];
     sx = t0.clientX; sy = t0.clientY;
@@ -4105,7 +4113,7 @@ function renderItemGroupHtml(key, group){
   var batchMeta = state.lang==='zh' ? ('共'+group.length+'批') : (group.length+' batches');
   var childrenHtml = expanded ? group.map(renderSingleItemCard).join('') : '';
   return '<div class="item-group">'+
-    '<div class="item-card card-'+st.level+' item-group-header" onclick="toggleItemGroup('+aj(key)+')">'+
+    '<div class="item-card card-'+st.level+' item-group-header" data-item-id="'+esc(rep.id)+'" onclick="toggleItemGroup('+aj(key)+')">'+
       '<div class="item-card-main">'+
         '<div class="item-icon">'+thumb+'</div>'+
         '<div class="item-info">'+
