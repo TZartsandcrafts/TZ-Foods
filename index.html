@@ -720,7 +720,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.92';
+var BUILD_VERSION = '9.93';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -4456,6 +4456,7 @@ function openItemForm(id, prefill){
   // printed on the label, e.g. "per 88g", instead of being auto-converted to per-100g on
   // save) - so reopening an existing item for editing has to pick up whatever basis it was
   // actually saved with, not silently reset to 100g every time.
+  usdaDropdownCache['item-name-usda-dropdown'] = ''; // don't carry a stale dropdown in from a previous item's form session
   state.itemFormUI = {
     addingCategory:false, addingLocation:false, customUnitEditing:{},
     nutriBasisWeightAmount: state.itemDraft.nutrition_basis_weight_amount,
@@ -5012,6 +5013,18 @@ function usdaDataTypeLabel(dataType){
 // getQuery/dropdownId/onPick 三个参数）。
 var usdaAutocompleteTimer = null;
 var usdaAutocompleteSeq = 0; // 用来丢弃"用户又继续打字"之后才姗姗来迟的旧请求结果
+// 缓存每个下拉框当前显示的 HTML（dropdownId -> HTML字符串，空字符串代表"当前没有下拉内容"）。
+// README 9.93 follow-up：食材名称输入框失焦时（不管是因为点了别的输入框，还是仅仅因为点了
+// iOS 键盘上的"完成/√"把键盘收起来 —— 这两种情况在浏览器眼里都是同一个 blur 事件，没法从
+// blur 本身区分），原来的做法是失焦直接触发整页 render()，而 render() 生成的 HTML 模板里这个
+// 下拉容器永远是空的，所以下拉菜单会被这次重渲染顺带清空 —— 用户反馈"关闭键盘也会导致下拉
+// 消失"正是这个原因。改成失焦后先正常 render()（该刷新的绿色建议卡片之类还是要刷新)，
+// render() 结束后如果这个下拉框在缓存里还有内容，就把缓存的 HTML 立刻塞回刚刚重新生成、此刻
+// 还是空的容器里 —— 这样只要没人真的点到输入框和下拉菜单以外的地方，下拉内容就会一直留着，
+// 收键盘不会把它带走。真正"点别处"的清空逻辑另外用一个不触发整页重渲染的点击监听器处理（见
+// 文件后面 document.addEventListener('click', ...) 那段，跟"数量/单位"下拉框关闭用的是同一套
+// 已有模式，看那段自己的注释）。
+var usdaDropdownCache = {};
 function usdaAutocompleteDropdownHtml(inner){
   return '<div class="usda-autocomplete-list">'+inner+'</div>';
 }
@@ -5028,13 +5041,17 @@ function usdaAutocompleteRowHtml(food, onPickFnName){
 }
 function usdaAutocompleteInput(dropdownId, query, onPickFnName){
   clearTimeout(usdaAutocompleteTimer);
-  var el = document.getElementById(dropdownId);
   var q = (query||'').trim();
   if(!usdaWorkerBase() || q.length<2){
-    if(el) el.innerHTML = '';
+    usdaDropdownCache[dropdownId] = '';
+    var el0 = document.getElementById(dropdownId);
+    if(el0) el0.innerHTML = '';
     return;
   }
-  if(el) el.innerHTML = usdaAutocompleteDropdownHtml('<p class="hint" style="padding:10px 12px;margin:0;">'+t('usdaSearchLoading')+'</p>');
+  var loadingHtml = usdaAutocompleteDropdownHtml('<p class="hint" style="padding:10px 12px;margin:0;">'+t('usdaSearchLoading')+'</p>');
+  usdaDropdownCache[dropdownId] = loadingHtml;
+  var el = document.getElementById(dropdownId);
+  if(el) el.innerHTML = loadingHtml;
   usdaAutocompleteTimer = setTimeout(function(){
     usdaAutocompleteRun(q, dropdownId, onPickFnName);
   }, 450);
@@ -5044,30 +5061,40 @@ async function usdaAutocompleteRun(q, dropdownId, onPickFnName){
   try{
     var results = await usdaSearchFoods(q);
     if(mySeq !== usdaAutocompleteSeq) return; // 期间用户又输入了新内容，这次结果已经过期
+    var html = !results.length
+      ? usdaAutocompleteDropdownHtml('<p class="hint" style="padding:10px 12px;margin:0;">'+t('usdaSearchNoResults')+'</p>')
+      : usdaAutocompleteDropdownHtml(results.slice(0,12).map(function(f){ return usdaAutocompleteRowHtml(f, onPickFnName); }).join(''));
+    usdaDropdownCache[dropdownId] = html;
     var el = document.getElementById(dropdownId);
-    if(!el) return;
-    if(!results.length){
-      el.innerHTML = usdaAutocompleteDropdownHtml('<p class="hint" style="padding:10px 12px;margin:0;">'+t('usdaSearchNoResults')+'</p>');
-      return;
-    }
-    el.innerHTML = usdaAutocompleteDropdownHtml(results.slice(0,12).map(function(f){
-      return usdaAutocompleteRowHtml(f, onPickFnName);
-    }).join(''));
+    if(el) el.innerHTML = html;
   }catch(e){
     if(mySeq !== usdaAutocompleteSeq) return;
+    usdaDropdownCache[dropdownId] = '';
     var el2 = document.getElementById(dropdownId);
     if(el2) el2.innerHTML = '';
   }
 }
 function usdaAutocompleteClear(dropdownId){
+  usdaDropdownCache[dropdownId] = '';
   var el = document.getElementById(dropdownId);
   if(el) el.innerHTML = '';
+}
+// 名称输入框失焦时调用这个，而不是直接 render() —— 见上面 usdaDropdownCache 的注释。
+function reinjectUsdaDropdown(dropdownId){
+  var html = usdaDropdownCache[dropdownId];
+  if(!html) return;
+  var el = document.getElementById(dropdownId);
+  if(el) el.innerHTML = html;
 }
 
 /* ---- Entry point 1: inventory item form (state.itemDraft) ---- */
 function onItemNameInput(val){
   d_str('name', val);
   usdaAutocompleteInput('item-name-usda-dropdown', val, 'onItemUsdaAutocompletePick');
+}
+function onItemNameBlur(){
+  render();
+  reinjectUsdaDropdown('item-name-usda-dropdown');
 }
 async function onItemUsdaAutocompletePick(fdcId){
   usdaAutocompleteClear('item-name-usda-dropdown');
@@ -5085,7 +5112,10 @@ async function onItemUsdaAutocompletePick(fdcId){
 // nutrition block AND the name field itself (standard autocomplete convention - picking a
 // suggestion is expected to fill in its canonical text), since it's a deliberate "use exactly
 // this" action, not a soft suggestion. Still fully editable afterward, same input fields as any
-// other source.
+// other source. README 9.93 follow-up: a Branded result also carries a brand owner and (often) a
+// GTIN/UPC barcode straight from USDA - fill those into the item's own brand/barcode fields too,
+// same full-overwrite treatment, since picking a specific branded product is exactly the same
+// "use exactly this" intent as picking its nutrition data.
 function applyUsdaDetailToItemDraft(detail){
   var d = state.itemDraft;
   var ui = state.itemFormUI;
@@ -5097,6 +5127,8 @@ function applyUsdaDetailToItemDraft(detail){
   d.nutrition = detail.nutrition || {};
   d.nutrition_extra = detail.nutrition_extra || {};
   d.name = detail.description;
+  if(detail.brandOwner) d.brand = detail.brandOwner;
+  if(detail.gtinUpc) d.barcode = detail.gtinUpc;
 }
 // Barcode-scan fallback (README 9.89, kept in 9.92's rewrite): if this form was opened from a
 // scan that didn't match anything locally or on Open Food Facts (see scanNotFound in
@@ -5116,6 +5148,10 @@ function maybeAutoSearchUsdaFromBarcode(){
 function onExtIngNameInput(val){
   state.extIngUI.name = val;
   usdaAutocompleteInput('exting-name-usda-dropdown', val, 'onExtIngUsdaAutocompletePick');
+}
+function onExtIngNameBlur(){
+  renderExternalIngredientModal();
+  reinjectUsdaDropdown('exting-name-usda-dropdown');
 }
 async function onExtIngUsdaAutocompletePick(fdcId){
   usdaAutocompleteClear('exting-name-usda-dropdown');
@@ -5325,7 +5361,7 @@ function renderItemForm(){
     '<div class="section-title">'+t('sectionBasic')+'</div>'+
     '<div class="form-group">'+
       '<div class="field"><label>'+t('fieldBrand')+'</label><input type="text" autocapitalize="words" value="'+esc(d.brand)+'" placeholder="'+t('fieldBrandPh')+'" oninput="d_str(\'brand\',this.value)" onblur="render()"></div>'+
-      '<div class="field" style="position:relative;"><label>'+t('fieldName')+' *</label><input type="text" autocapitalize="words" value="'+esc(d.name)+'" placeholder="'+t('fieldNamePh')+'" oninput="onItemNameInput(this.value)" onblur="render()">'+
+      '<div class="field" style="position:relative;"><label>'+t('fieldName')+' *</label><input type="text" autocapitalize="words" value="'+esc(d.name)+'" placeholder="'+t('fieldNamePh')+'" oninput="onItemNameInput(this.value)" onblur="onItemNameBlur()">'+
         '<div id="item-name-usda-dropdown"></div>'+
       '</div>'+
       '<div class="field"><label>'+t('fieldSource')+'</label><input type="text" autocapitalize="words" value="'+esc(d.source||'')+'" placeholder="'+t('fieldSourcePh')+'" oninput="d_str(\'source\',this.value)"></div>'+
@@ -7376,9 +7412,25 @@ function deleteExternalIngredientConfirm(id){
 // and those need to re-render the modal's own content on every toggle/pick - which would have
 // wiped out anything already typed into the plain number inputs if those weren't ALSO backed by
 // state instead of living only in the DOM.
+// External ingredient add/edit modal (see README): now a live-state-bound draft
+// (state.extIngUI), same idea as state.itemDraft for the item form, instead of the old
+// "leave values sitting in the DOM, scrape them all at submit time" approach. That change is
+// necessary, not just cosmetic: this modal now includes the same interactive vitamin/mineral
+// toggle-groups and unit dropdowns as the item form's nutrition editor (see nutriExtraGroupHtml),
+// and those need to re-render the modal's own content on every toggle/pick - which would have
+// wiped out anything already typed into the plain number inputs if those weren't ALSO backed by
+// state instead of living only in the DOM.
 function openNewExternalIngredientModal(){
-  state.extIngUI = {mode:'new', id:null, name:'', nutrition:{}, nutrition_extra:{}, amount:null, unit:'g', expandedGroups:{}, openDropdown:null, freshRefDismissed:false};
+  // README 9.93 follow-up: if this "+" was tapped after searching the external ingredient
+  // library and not finding a match, state.pickSearch already holds whatever was typed there -
+  // carry it straight into the new ingredient's name instead of making the person retype it,
+  // and go ahead and kick off the USDA autocomplete for it immediately (same as the barcode-scan
+  // fallback does for the item form) so the dropdown is already showing when the modal opens.
+  var carriedName = (state.pickSearch||'').trim();
+  usdaDropdownCache['exting-name-usda-dropdown'] = ''; // don't carry a stale dropdown in from a previous session
+  state.extIngUI = {mode:'new', id:null, name:carriedName, nutrition:{}, nutrition_extra:{}, amount:null, unit:'g', expandedGroups:{}, openDropdown:null, freshRefDismissed:false};
   renderExternalIngredientModal();
+  if(carriedName) usdaAutocompleteInput('exting-name-usda-dropdown', carriedName, 'onExtIngUsdaAutocompletePick');
 }
 // Edits the external ingredient's own library attributes (name + its per-100g nutrition
 // values) - NOT the amount/unit of any particular use of it in a recipe. Since
@@ -7388,6 +7440,7 @@ function openNewExternalIngredientModal(){
 function editExternalIngredientModal(id){
   var ing = state.ingredients.find(function(i){ return i.id===id; });
   if(!ing) return;
+  usdaDropdownCache['exting-name-usda-dropdown'] = ''; // don't carry a stale dropdown in from a previous session
   state.extIngUI = {
     mode:'edit', id:id, name:ing.name,
     nutrition: JSON.parse(JSON.stringify(ing.nutrition||{})),
@@ -7436,7 +7489,7 @@ function renderExternalIngredientModal(){
     '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select">'+WEIGHT_UNITS.concat(VOLUME_UNITS).map(function(u){ return '<div class="tag-option '+(u===ui.unit?'active':'')+'" onclick="onExtIngUnitPick('+aj(u)+')">'+u+'</div>'; }).join('')+'</div></div>'
     : '';
   showModal(isNew ? t('createNewIngredient') : t('editIngredientTitle'),
-    '<div class="field" style="position:relative;"><label>'+t('newIngName')+'</label><input type="text" autocapitalize="words" value="'+esc(ui.name)+'" placeholder="'+t('newIngName')+'" oninput="onExtIngNameInput(this.value)" onblur="renderExternalIngredientModal()">'+
+    '<div class="field" style="position:relative;"><label>'+t('newIngName')+'</label><input type="text" autocapitalize="words" value="'+esc(ui.name)+'" placeholder="'+t('newIngName')+'" oninput="onExtIngNameInput(this.value)" onblur="onExtIngNameBlur()">'+
       '<div id="exting-name-usda-dropdown"></div>'+
     '</div>'+
     extIngFreshRefCardHtml()+
@@ -9016,6 +9069,22 @@ document.addEventListener('click', function(e){
     el.classList.remove('open');
     var svg = el.querySelector('svg');
     if(svg) svg.style.transform = 'rotate(0deg)';
+  });
+}, true);
+// Close an open USDA autocomplete dropdown (see usdaDropdownCache's own comment above, near
+// onItemNameBlur/onExtIngNameBlur, for why this can't just be handled inside blur) on a genuine
+// tap outside both the dropdown and the name input it belongs to. Same non-render()-based
+// pattern as the unit-dropdown closer just above, for the same reason: a full re-render here
+// could wipe out whatever the person is actually trying to tap right as their tap lands.
+document.addEventListener('click', function(e){
+  ['item-name-usda-dropdown', 'exting-name-usda-dropdown'].forEach(function(id){
+    if(!usdaDropdownCache[id]) return;
+    var dropdownEl = document.getElementById(id);
+    if(dropdownEl && dropdownEl.contains(e.target)) return; // a tap that landed on the dropdown's own rows is handled by their own onmousedown, not here
+    var inputEl = dropdownEl && dropdownEl.previousElementSibling;
+    if(inputEl && inputEl===e.target) return; // tapped back into the same name input - still typing, leave it open
+    usdaDropdownCache[id] = '';
+    if(dropdownEl) dropdownEl.innerHTML = '';
   });
 }, true);
 
