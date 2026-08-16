@@ -556,9 +556,11 @@
   }
   .fresh-ref-card-text{ flex:1; min-width:0; font-size:13.5px; color:var(--cocoa); line-height:1.4; }
   .fresh-ref-card-actions{ display:flex; align-items:center; gap:4px; flex-shrink:0; }
-  .usda-search-row{ display:flex; gap:8px; margin-bottom:12px; }
-  .usda-search-row input{ flex:1; min-width:0; font-size:16px; padding:11px 12px; border-radius:10px; border:1px solid var(--line); }
-  .usda-result-list{ max-height:min(52vh,420px); overflow-y:auto; border:1px solid var(--line); border-radius:11px; }
+  .usda-autocomplete-list{
+    position:absolute; left:0; right:0; top:100%; margin-top:4px; z-index:20;
+    max-height:min(45vh,340px); overflow-y:auto; background:var(--card-bg);
+    border:1px solid var(--line); border-radius:11px; box-shadow:0 6px 18px rgba(74,46,30,0.18);
+  }
   .usda-result-row{ padding:11px 12px; border-bottom:1px solid var(--line); cursor:pointer; }
   .usda-result-row:last-child{ border-bottom:none; }
   .usda-result-row:active{ background:var(--cream); }
@@ -718,7 +720,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.91';
+var BUILD_VERSION = '9.92';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2107,11 +2109,8 @@ var I18N = {
     ingAmountLabel:'用量', ingUnitLabel:'单位',
     newIngName:'食材名称', newIngNutriHint:'请填写每100g/100ml的营养信息',
     freshRefFoundPrefix:'检测到「', freshRefFoundSuffix:'」的参考营养数据，点击填入', freshRefApplyBtn:'填入', freshRefAppliedToast:'已填入参考数据，可自行调整',
-    usdaSearchBtn:'搜索USDA数据库', usdaSearchTitle:'搜索 USDA 食品数据库', usdaSearchPlaceholder:'输入英文关键词，如 chicken breast',
-    usdaSearchGoBtn:'搜索', usdaSearchLoading:'搜索中…', usdaSearchLoadingDetail:'加载营养数据中…',
-    usdaSearchNoResults:'没有找到匹配结果，换个关键词试试', usdaSearchEmptyPrompt:'输入关键词后点击搜索',
-    usdaSearchError:'搜索失败，请检查网络或稍后再试', usdaSearchNotConfigured:'请先在设置里填写云端代理地址',
-    usdaSearchApplyToast:'已填入 USDA 数据，可自行调整', usdaSearchBack:'返回',
+    usdaSearchLoading:'搜索中…', usdaSearchNoResults:'没有找到匹配结果，换个关键词试试',
+    usdaSearchError:'搜索失败，请检查网络或稍后再试', usdaSearchApplyToast:'已填入 USDA 数据，可自行调整',
     usdaDataTypeFoundation:'官方实测', usdaDataTypeSRLegacy:'官方数据', usdaDataTypeBranded:'品牌食品',
     // recipe detail
     cookThis:'我做了这道菜', cookConfirmTitle:'确认扣减库存',
@@ -2306,11 +2305,8 @@ var I18N = {
     ingAmountLabel:'Amount', ingUnitLabel:'Unit',
     newIngName:'Ingredient name', newIngNutriHint:'Enter nutrition per 100g/100ml',
     freshRefFoundPrefix:'Found reference nutrition for "', freshRefFoundSuffix:'" - tap to fill in', freshRefApplyBtn:'Fill in', freshRefAppliedToast:'Filled in - feel free to adjust',
-    usdaSearchBtn:'Search USDA Database', usdaSearchTitle:'Search USDA Food Database', usdaSearchPlaceholder:'Enter an English keyword, e.g. chicken breast',
-    usdaSearchGoBtn:'Search', usdaSearchLoading:'Searching…', usdaSearchLoadingDetail:'Loading nutrition data…',
-    usdaSearchNoResults:'No matches found, try a different keyword', usdaSearchEmptyPrompt:'Enter a keyword and tap search',
-    usdaSearchError:'Search failed, check your connection and try again', usdaSearchNotConfigured:'Please set up the cloud proxy URL in Settings first',
-    usdaSearchApplyToast:'Filled in USDA data - feel free to adjust', usdaSearchBack:'Back',
+    usdaSearchLoading:'Searching…', usdaSearchNoResults:'No matches found, try a different keyword',
+    usdaSearchError:'Search failed, check your connection and try again', usdaSearchApplyToast:'Filled in USDA data - feel free to adjust',
     usdaDataTypeFoundation:'USDA Lab-Tested', usdaDataTypeSRLegacy:'USDA Data', usdaDataTypeBranded:'Branded',
     cookThis:"I made this dish", cookConfirmTitle:'Confirm inventory deduction',
     nutriToggleExpand:'Show per 100g cooked / per serving', nutriToggleCollapse:'Hide',
@@ -4482,6 +4478,9 @@ function openItemForm(id, prefill){
     pendingPhotoDeleteRefs: []
   };
   navigate('itemForm', {id:id});
+  // See maybeAutoSearchUsdaFromBarcode's own comment - only actually does anything when this
+  // form was opened from a failed barcode scan (barcode set, name still empty).
+  maybeAutoSearchUsdaFromBarcode();
 }
 /* ---- inline (non-native) dropdown: fixes iOS Safari's native <select> popup rendering
    wider than the trigger box when option text is long (a real width-mismatch OS renders,
@@ -5001,78 +5000,92 @@ function usdaDataTypeLabel(dataType){
   if(dataType==='Branded') return t('usdaDataTypeBranded');
   return dataType || '';
 }
-function usdaResultRowHtml(food, onclickExpr){
+// ===== USDA 云端食品搜索 - 输入名称时的下拉自动补全（README 9.92 重做） =====
+// 9.87-9.91 那版是个独立的"搜索USDA数据库"按钮 + 弹窗，跟本地参考库的绿色建议卡片体验很不
+// 一样，得先填完别的字段、划到营养标签区域、点按钮、再重新输入一遍关键词才能搜 - 操作链路太
+// 长。这次重做成输入食材名称时直接在输入框下面弹下拉菜单，跟本地参考库的交互逻辑统一：
+// 打字触发（防抖 450ms 再搜，不是每个字符都发请求）、可以选、也可以完全不管继续手动输入、
+// 点别的地方下拉自动收起。
+//
+// 两个入口（库存录入/编辑页的食材名称、食谱"添加/编辑外部食材"弹窗的食材名称）共用同一套
+// 防抖/请求/渲染逻辑，只是各自的"取值"/"应用结果"函数不同（下面 usdaAutocomplete() 的
+// getQuery/dropdownId/onPick 三个参数）。
+var usdaAutocompleteTimer = null;
+var usdaAutocompleteSeq = 0; // 用来丢弃"用户又继续打字"之后才姗姗来迟的旧请求结果
+function usdaAutocompleteDropdownHtml(inner){
+  return '<div class="usda-autocomplete-list">'+inner+'</div>';
+}
+function usdaAutocompleteRowHtml(food, onPickFnName){
   var sub = usdaDataTypeLabel(food.dataType) + (food.brandName ? ' · '+esc(food.brandName) : '');
-  return '<div class="usda-result-row" onclick="'+onclickExpr+'">'+
+  // onmousedown (not onclick) + preventDefault: on iOS Safari, mousedown fires before the name
+  // input's blur - calling preventDefault() here stops that blur from ever happening, so the
+  // dropdown never gets torn down by the input's own onblur handler before this tap can register
+  // (the classic "autocomplete dropdown disappears right before your tap lands" bug).
+  return '<div class="usda-result-row" onmousedown="event.preventDefault();'+onPickFnName+'('+aj(food.fdcId)+')">'+
     '<div class="usda-result-desc">'+esc(food.description)+'</div>'+
     '<div class="usda-result-sub hint">'+sub+'</div>'+
   '</div>';
 }
-// Shared "state shape" for the search UI, reused by both entry points (item form uses its own
-// top-level showModal; the recipe external-ingredient editor renders this inline inside its own
-// modal instead - see extIngUsdaSearchHtml below - since that editor is already a modal itself
-// and stacking a second one via showModal would blow away the first, see README 9.87).
-function freshUsdaSearchState(){
-  return { query:'', results:[], loading:false, detailLoading:false, error:null, searched:false };
-}
-
-/* ---- Entry point 1: inventory item form (state.itemDraft), standalone showModal ---- */
-function openItemUsdaSearchModal(){
-  state.itemUsdaSearchUI = freshUsdaSearchState();
-  // Barcode-scan fallback (README 9.89 follow-up): if this form was opened from a scan that
-  // didn't match anything locally or on Open Food Facts (see scanNotFound in lookupAndPrefill),
-  // all we have is the raw barcode and an empty name - nothing to type into the search box yet.
-  // USDA's Branded Foods dataset is itself indexed by GTIN/UPC, so the scanned digits are very
-  // often searchable as-is. Auto-fill and auto-run the search with the barcode in that specific
-  // case (barcode present, name still empty) rather than making the person retype digits they
-  // already scanned; leave the box empty as usual whenever there's already a name to search by.
-  var d = state.itemDraft;
-  if(d && (d.barcode||'').trim() && !(d.name||'').trim()){
-    state.itemUsdaSearchUI.query = d.barcode.trim();
-    renderItemUsdaSearchModal();
-    runItemUsdaSearch();
+function usdaAutocompleteInput(dropdownId, query, onPickFnName){
+  clearTimeout(usdaAutocompleteTimer);
+  var el = document.getElementById(dropdownId);
+  var q = (query||'').trim();
+  if(!usdaWorkerBase() || q.length<2){
+    if(el) el.innerHTML = '';
     return;
   }
-  renderItemUsdaSearchModal();
+  if(el) el.innerHTML = usdaAutocompleteDropdownHtml('<p class="hint" style="padding:10px 12px;margin:0;">'+t('usdaSearchLoading')+'</p>');
+  usdaAutocompleteTimer = setTimeout(function(){
+    usdaAutocompleteRun(q, dropdownId, onPickFnName);
+  }, 450);
 }
-function renderItemUsdaSearchModal(){
-  var ui = state.itemUsdaSearchUI;
-  showModal(t('usdaSearchTitle'), usdaSearchBodyHtml(ui, 'renderItemUsdaSearchModal', 'onItemUsdaResultPick'));
-}
-function onItemUsdaQueryInput(val){ state.itemUsdaSearchUI.query = val; }
-async function runItemUsdaSearch(){
-  var ui = state.itemUsdaSearchUI;
-  if(!ui.query.trim()) return;
-  ui.loading = true; ui.error = null; ui.searched = true;
-  renderItemUsdaSearchModal();
+async function usdaAutocompleteRun(q, dropdownId, onPickFnName){
+  var mySeq = ++usdaAutocompleteSeq;
   try{
-    ui.results = await usdaSearchFoods(ui.query.trim());
+    var results = await usdaSearchFoods(q);
+    if(mySeq !== usdaAutocompleteSeq) return; // 期间用户又输入了新内容，这次结果已经过期
+    var el = document.getElementById(dropdownId);
+    if(!el) return;
+    if(!results.length){
+      el.innerHTML = usdaAutocompleteDropdownHtml('<p class="hint" style="padding:10px 12px;margin:0;">'+t('usdaSearchNoResults')+'</p>');
+      return;
+    }
+    el.innerHTML = usdaAutocompleteDropdownHtml(results.slice(0,12).map(function(f){
+      return usdaAutocompleteRowHtml(f, onPickFnName);
+    }).join(''));
   }catch(e){
-    ui.error = t('usdaSearchError'); ui.results = [];
+    if(mySeq !== usdaAutocompleteSeq) return;
+    var el2 = document.getElementById(dropdownId);
+    if(el2) el2.innerHTML = '';
   }
-  ui.loading = false;
-  renderItemUsdaSearchModal();
 }
-async function onItemUsdaResultPick(fdcId){
-  var ui = state.itemUsdaSearchUI;
-  ui.detailLoading = true;
-  renderItemUsdaSearchModal();
+function usdaAutocompleteClear(dropdownId){
+  var el = document.getElementById(dropdownId);
+  if(el) el.innerHTML = '';
+}
+
+/* ---- Entry point 1: inventory item form (state.itemDraft) ---- */
+function onItemNameInput(val){
+  d_str('name', val);
+  usdaAutocompleteInput('item-name-usda-dropdown', val, 'onItemUsdaAutocompletePick');
+}
+async function onItemUsdaAutocompletePick(fdcId){
+  usdaAutocompleteClear('item-name-usda-dropdown');
   try{
     var detail = await usdaFetchFoodDetail(fdcId);
     applyUsdaDetailToItemDraft(detail);
-    closeModal();
     showToast(t('usdaSearchApplyToast'));
     render();
   }catch(e){
-    ui.detailLoading = false;
-    ui.error = t('usdaSearchError');
-    renderItemUsdaSearchModal();
+    showToast(t('usdaSearchError'));
   }
 }
 // Full overwrite (per Lynn's call, see README 9.87 follow-up) - unlike applyFreshProduceReference
-// (which only fills empty fields), a USDA search result replaces the whole nutrition block, since
-// picking a specific USDA entry is a deliberate "use exactly this" action, not a soft suggestion.
-// Still fully editable afterward, same input fields as any other source.
+// (which only fills empty fields), picking a USDA autocomplete result replaces the whole
+// nutrition block AND the name field itself (standard autocomplete convention - picking a
+// suggestion is expected to fill in its canonical text), since it's a deliberate "use exactly
+// this" action, not a soft suggestion. Still fully editable afterward, same input fields as any
+// other source.
 function applyUsdaDetailToItemDraft(detail){
   var d = state.itemDraft;
   var ui = state.itemFormUI;
@@ -5083,80 +5096,40 @@ function applyUsdaDetailToItemDraft(detail){
   }
   d.nutrition = detail.nutrition || {};
   d.nutrition_extra = detail.nutrition_extra || {};
-  if(!d.name || !d.name.trim()) d.name = detail.description;
+  d.name = detail.description;
+}
+// Barcode-scan fallback (README 9.89, kept in 9.92's rewrite): if this form was opened from a
+// scan that didn't match anything locally or on Open Food Facts (see scanNotFound in
+// lookupAndPrefill), all we have is the raw barcode and an empty name - nothing typed yet for
+// the autocomplete's oninput to react to. USDA's Branded Foods dataset is itself indexed by
+// GTIN/UPC, so the scanned digits are very often searchable as-is. Called once, right after the
+// item form's first render, so the dropdown appears on its own instead of requiring the person
+// to know to retype the barcode as a search term.
+function maybeAutoSearchUsdaFromBarcode(){
+  var d = state.itemDraft;
+  if(d && (d.barcode||'').trim() && !(d.name||'').trim() && usdaWorkerBase()){
+    usdaAutocompleteInput('item-name-usda-dropdown', d.barcode.trim(), 'onItemUsdaAutocompletePick');
+  }
 }
 
-/* ---- Entry point 2: recipe external-ingredient modal (state.extIngUI), rendered inline ---- */
-function openExtIngUsdaSearch(){
-  state.extIngUI.usdaSearch = freshUsdaSearchState();
-  renderExternalIngredientModal();
+/* ---- Entry point 2: recipe external-ingredient modal (state.extIngUI) ---- */
+function onExtIngNameInput(val){
+  state.extIngUI.name = val;
+  usdaAutocompleteInput('exting-name-usda-dropdown', val, 'onExtIngUsdaAutocompletePick');
 }
-function closeExtIngUsdaSearch(){
-  state.extIngUI.usdaSearch = null;
-  renderExternalIngredientModal();
-}
-function onExtIngUsdaQueryInput(val){ state.extIngUI.usdaSearch.query = val; }
-async function runExtIngUsdaSearch(){
-  var ui = state.extIngUI.usdaSearch;
-  if(!ui.query.trim()) return;
-  ui.loading = true; ui.error = null; ui.searched = true;
-  renderExternalIngredientModal();
-  try{
-    ui.results = await usdaSearchFoods(ui.query.trim());
-  }catch(e){
-    ui.error = t('usdaSearchError'); ui.results = [];
-  }
-  ui.loading = false;
-  renderExternalIngredientModal();
-}
-async function onExtIngUsdaResultPick(fdcId){
-  var ui = state.extIngUI.usdaSearch;
-  ui.detailLoading = true;
-  renderExternalIngredientModal();
+async function onExtIngUsdaAutocompletePick(fdcId){
+  usdaAutocompleteClear('exting-name-usda-dropdown');
   try{
     var detail = await usdaFetchFoodDetail(fdcId);
     var extUi = state.extIngUI;
     extUi.nutrition = detail.nutrition || {};
     extUi.nutrition_extra = detail.nutrition_extra || {};
-    if(!extUi.name || !extUi.name.trim()) extUi.name = detail.description;
-    extUi.usdaSearch = null;
+    extUi.name = detail.description;
     showToast(t('usdaSearchApplyToast'));
     renderExternalIngredientModal();
   }catch(e){
-    ui.detailLoading = false;
-    ui.error = t('usdaSearchError');
-    renderExternalIngredientModal();
+    showToast(t('usdaSearchError'));
   }
-}
-
-/* ---- Shared body markup for both entry points ---- */
-function usdaSearchBodyHtml(ui, rerenderFn, pickFn){
-  if(!usdaWorkerBase()){
-    return '<p class="hint">'+t('usdaSearchNotConfigured')+'</p>';
-  }
-  var resultsHtml;
-  if(ui.detailLoading){
-    resultsHtml = '<p class="hint">'+t('usdaSearchLoadingDetail')+'</p>';
-  } else if(ui.loading){
-    resultsHtml = '<p class="hint">'+t('usdaSearchLoading')+'</p>';
-  } else if(ui.error){
-    resultsHtml = '<p class="hint">'+esc(ui.error)+'</p>';
-  } else if(ui.searched && ui.results.length===0){
-    resultsHtml = '<p class="hint">'+t('usdaSearchNoResults')+'</p>';
-  } else if(ui.results.length){
-    resultsHtml = '<div class="usda-result-list">'+ui.results.map(function(f){
-      return usdaResultRowHtml(f, pickFn+'('+aj(f.fdcId)+')');
-    }).join('')+'</div>';
-  } else {
-    resultsHtml = '<p class="hint">'+t('usdaSearchEmptyPrompt')+'</p>';
-  }
-  return '<div class="usda-search-row">'+
-      '<input type="text" inputmode="search" autocapitalize="none" placeholder="'+t('usdaSearchPlaceholder')+'" '+
-        'value="'+esc(ui.query)+'" oninput="'+(rerenderFn==='renderItemUsdaSearchModal'?'onItemUsdaQueryInput':'onExtIngUsdaQueryInput')+'(this.value)" '+
-        'onkeydown="if(event.key===\'Enter\'){event.preventDefault();'+(rerenderFn==='renderItemUsdaSearchModal'?'runItemUsdaSearch':'runExtIngUsdaSearch')+'();}">'+
-      '<button type="button" class="btn btn-primary" style="width:auto;flex-shrink:0;white-space:nowrap;padding-left:16px;padding-right:16px;" onclick="'+(rerenderFn==='renderItemUsdaSearchModal'?'runItemUsdaSearch':'runExtIngUsdaSearch')+'()">'+t('usdaSearchGoBtn')+'</button>'+
-    '</div>'+
-    resultsHtml;
 }
 function nutriFieldsHtml(draftPath){
   var labels = nutriLabels();
@@ -5352,7 +5325,9 @@ function renderItemForm(){
     '<div class="section-title">'+t('sectionBasic')+'</div>'+
     '<div class="form-group">'+
       '<div class="field"><label>'+t('fieldBrand')+'</label><input type="text" autocapitalize="words" value="'+esc(d.brand)+'" placeholder="'+t('fieldBrandPh')+'" oninput="d_str(\'brand\',this.value)" onblur="render()"></div>'+
-      '<div class="field"><label>'+t('fieldName')+' *</label><input type="text" autocapitalize="words" value="'+esc(d.name)+'" placeholder="'+t('fieldNamePh')+'" oninput="d_str(\'name\',this.value)" onblur="render()"></div>'+
+      '<div class="field" style="position:relative;"><label>'+t('fieldName')+' *</label><input type="text" autocapitalize="words" value="'+esc(d.name)+'" placeholder="'+t('fieldNamePh')+'" oninput="onItemNameInput(this.value)" onblur="render()">'+
+        '<div id="item-name-usda-dropdown"></div>'+
+      '</div>'+
       '<div class="field"><label>'+t('fieldSource')+'</label><input type="text" autocapitalize="words" value="'+esc(d.source||'')+'" placeholder="'+t('fieldSourcePh')+'" oninput="d_str(\'source\',this.value)"></div>'+
       '<div class="field" style="margin-bottom:0;"><label>'+t('fieldBarcode')+'</label><input type="text" inputmode="numeric" value="'+esc(d.barcode||'')+'" placeholder="'+t('fieldBarcodePh')+'" oninput="d_str(\'barcode\',this.value)"></div>'+
     '</div>'+
@@ -5393,7 +5368,6 @@ function renderItemForm(){
       '<input type="file" accept="image/*" capture="environment" id="item-nutrition-photo-input" style="display:none" onchange="onItemNutritionPhotoSelected(this)">'+
       '<div id="item-nutrition-photo-status" class="hint" style="margin:-6px 0 10px;"></div>'
     ) : '')+
-    (state.aiProxyUrl ? '<div style="margin:-2px 0 12px;"><button type="button" class="btn btn-outline btn-sm" onclick="openItemUsdaSearchModal()">'+ic('search',16)+' '+t('usdaSearchBtn')+'</button></div>' : '')+
     freshProduceSuggestionCardHtml()+
     nutriFieldsHtml(d)+
     '<div class="section-title">'+t('sectionNutritionMore')+'</div>'+
@@ -7403,7 +7377,7 @@ function deleteExternalIngredientConfirm(id){
 // wiped out anything already typed into the plain number inputs if those weren't ALSO backed by
 // state instead of living only in the DOM.
 function openNewExternalIngredientModal(){
-  state.extIngUI = {mode:'new', id:null, name:'', nutrition:{}, nutrition_extra:{}, amount:null, unit:'g', expandedGroups:{}, openDropdown:null, freshRefDismissed:false, usdaSearch:null};
+  state.extIngUI = {mode:'new', id:null, name:'', nutrition:{}, nutrition_extra:{}, amount:null, unit:'g', expandedGroups:{}, openDropdown:null, freshRefDismissed:false};
   renderExternalIngredientModal();
 }
 // Edits the external ingredient's own library attributes (name + its per-100g nutrition
@@ -7418,7 +7392,7 @@ function editExternalIngredientModal(id){
     mode:'edit', id:id, name:ing.name,
     nutrition: JSON.parse(JSON.stringify(ing.nutrition||{})),
     nutrition_extra: JSON.parse(JSON.stringify(ing.nutrition_extra||{})),
-    amount:null, unit:'g', expandedGroups:{}, openDropdown:null, freshRefDismissed:false, usdaSearch:null
+    amount:null, unit:'g', expandedGroups:{}, openDropdown:null, freshRefDismissed:false 
   };
   renderExternalIngredientModal();
 }
@@ -7456,22 +7430,16 @@ function applyExtIngFreshRef(refId){
 }
 function renderExternalIngredientModal(){
   var ui = state.extIngUI;
-  if(ui.usdaSearch){
-    showModal(t('usdaSearchTitle'),
-      usdaSearchBodyHtml(ui.usdaSearch, 'renderExternalIngredientModal', 'onExtIngUsdaResultPick')+
-      '<button type="button" class="btn btn-outline" style="margin-top:14px;" onclick="closeExtIngUsdaSearch()">'+t('usdaSearchBack')+'</button>'
-    );
-    return;
-  }
   var isNew = ui.mode==='new';
   var amountUnitHtml = isNew ?
     '<div class="field" style="margin-top:14px;"><label>'+t('ingAmountLabel')+'</label><input type="number" inputmode="decimal" placeholder="-" value="'+(ui.amount==null?'':ui.amount)+'" oninput="onExtIngAmountInput(this.value)"></div>'+
     '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select">'+WEIGHT_UNITS.concat(VOLUME_UNITS).map(function(u){ return '<div class="tag-option '+(u===ui.unit?'active':'')+'" onclick="onExtIngUnitPick('+aj(u)+')">'+u+'</div>'; }).join('')+'</div></div>'
     : '';
   showModal(isNew ? t('createNewIngredient') : t('editIngredientTitle'),
-    '<div class="field"><label>'+t('newIngName')+'</label><input type="text" autocapitalize="words" value="'+esc(ui.name)+'" placeholder="'+t('newIngName')+'" oninput="onExtIngNameInput(this.value)" onblur="renderExternalIngredientModal()"></div>'+
+    '<div class="field" style="position:relative;"><label>'+t('newIngName')+'</label><input type="text" autocapitalize="words" value="'+esc(ui.name)+'" placeholder="'+t('newIngName')+'" oninput="onExtIngNameInput(this.value)" onblur="renderExternalIngredientModal()">'+
+      '<div id="exting-name-usda-dropdown"></div>'+
+    '</div>'+
     extIngFreshRefCardHtml()+
-    (state.aiProxyUrl ? '<div style="margin:-2px 0 12px;"><button type="button" class="btn btn-outline btn-sm" onclick="openExtIngUsdaSearch()">'+ic('search',16)+' '+t('usdaSearchBtn')+'</button></div>' : '')+
     '<p class="hint" style="margin-bottom:10px;">'+t('newIngNutriHint')+'</p>'+
     externalIngNutriFieldsHtml()+
     externalIngNutriExtraGroupHtml('vitamins', t('nutriGroupVitamins'), NUTRI_VITAMIN_KEYS)+
@@ -7482,7 +7450,6 @@ function renderExternalIngredientModal(){
       : '<button class="btn btn-primary" style="margin-top:14px;" onclick="saveExternalIngredientEdit()">'+t('save')+'</button>')
   );
 }
-function onExtIngNameInput(val){ state.extIngUI.name = val; }
 function onExtIngAmountInput(val){ state.extIngUI.amount = (val==='') ? null : parseFloat(val); }
 function onExtIngUnitPick(u){ state.extIngUI.unit = u; renderExternalIngredientModal(); }
 // Same box/row markup as nutriFieldsHtml (the item form's editable label) minus the basis-amount
