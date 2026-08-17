@@ -720,7 +720,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.95';
+var BUILD_VERSION = '9.96';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2001,7 +2001,8 @@ function formatPrice(it){
 var I18N = {
   zh:{
     appName:'食法典', appSub:'库存 · 食谱 · 营养',
-    navHome:'库存', navRecipes:'食谱', navScan:'扫码', navNotes:'笔记', navSettings:'设置', navMenu:'菜单',
+    navHome:'库存', navRecipes:'食谱', navScan:'扫码', navNotes:'笔记', navSettings:'设置', navMenu:'菜单', navMeals:'三餐', navHealth:'健康',
+    mealsTitle:'三餐', healthTitle:'健康',
     remainingQtyLabel:'剩余',
     searchPlaceholder:'搜索食品名称 / 品牌',
     filterAll:'全部',
@@ -2201,7 +2202,8 @@ var I18N = {
   },
   en:{
     appName:'Shi Fa Dian', appSub:'Inventory · Recipes · Nutrition',
-    navHome:'Inventory', navRecipes:'Recipes', navScan:'Scan', navNotes:'Notes', navSettings:'Settings', navMenu:'Menu',
+    navHome:'Inventory', navRecipes:'Recipes', navScan:'Scan', navNotes:'Notes', navSettings:'Settings', navMenu:'Menu', navMeals:'Meals', navHealth:'Health',
+    mealsTitle:'Meals', healthTitle:'Health',
     remainingQtyLabel:'Remaining',
     searchPlaceholder:'Search name / brand',
     filterAll:'All',
@@ -2409,6 +2411,14 @@ var state = {
   noteDraft: null,
   noteFormUI: {},
   notesUI: { search:'', category:null },
+  // README 9.96: data model for 三餐/健康 (batch 1 - skeleton pages only, these arrays/object
+  // are wired into storage load/save now so later batches don't need to touch this plumbing
+  // again, but nothing populates them yet).
+  mealLogs: [],
+  weightLogs: [],
+  weightPlan: {},
+  mealsUI: {},
+  healthUI: {},
   recipeCategoryGroups: JSON.parse(JSON.stringify(DEFAULT_RECIPE_CATEGORY_GROUPS)),
   recipesUI: { groupId:null, sub:null, expandedGroup:null },
   recipeFormUI: {},
@@ -2465,7 +2475,10 @@ async function loadAll(){
     storageGet('tagListsMeta', {categoriesUpdatedAt:null, locationsUpdatedAt:null, recipeCategoryGroupsUpdatedAt:null}),
     storageGet('cloudSyncMetaPushMap', {}),
     storageGet('cloudSyncRecipePushMap', {}),
-    storageGet('cloudSyncIngredientPushMap', {})
+    storageGet('cloudSyncIngredientPushMap', {}),
+    storageGet('mealLogs', []),
+    storageGet('weightLogs', []),
+    storageGet('weightPlan', {})
   ]);
   state.items = results[0].map(migrateItem);
   state.categories = results[1];
@@ -2494,6 +2507,9 @@ async function loadAll(){
   CLOUD.metaPushMap = results[13] || {};
   CLOUD.recipePushMap = results[14] || {};
   CLOUD.ingredientPushMap = results[15] || {};
+  state.mealLogs = results[16] || [];
+  state.weightLogs = results[17] || [];
+  state.weightPlan = results[18] || {};
   state.loaded = true;
 }
 // Old data shape had a single secondary_qty/secondary_unit/unit_ratio triplet per item. The
@@ -2574,6 +2590,9 @@ function saveRecipes(){
 }
 function saveSettings(){ return storageSet('settings', {lang:state.lang, reminderDays:state.reminderDays, aiProxyUrl:state.aiProxyUrl}); }
 function saveNotes(){ return storageSet('notes', state.notes); }
+function saveMealLogs(){ return storageSet('mealLogs', state.mealLogs); }
+function saveWeightLogs(){ return storageSet('weightLogs', state.weightLogs); }
+function saveWeightPlan(){ return storageSet('weightPlan', state.weightPlan); }
 function saveNoteCategories(){ return storageSet('noteCategories', state.noteCategories); }
 function saveRecipeCategoryGroups(){
   state.recipeCategoryGroupsUpdatedAt = nowLocalIso();
@@ -3285,6 +3304,8 @@ function render(){
     case 'stats': html = renderStats(); break;
     case 'priceHistory': html = renderPriceHistory(); break;
     case 'statFilteredList': html = renderStatFilteredList(); break;
+    case 'meals': html = renderMeals(); break;
+    case 'health': html = renderHealth(); break;
     default: html = renderHome();
   }
   app.innerHTML = html;
@@ -3294,13 +3315,15 @@ function bottomNav(){
   var v = state.view;
   var isHome = (v==='home'||v==='itemForm'||v==='itemDetail'||v==='archive'||v==='stats'||v==='priceHistory'||v==='itemViewOnly'||v==='statFilteredList'||v==='usageLog'||v==='usageLogAdd');
   var isRecipes = (v==='recipes'||v==='recipeForm'||v==='recipeDetail'||v==='pickInventory'||v==='pickExternal');
-  var isNotes = (v==='notes'||v==='noteForm'||v==='noteDetail');
+  var isMeals = (v==='meals');
+  var isHealth = (v==='health');
   return '' +
   '<div class="bottom-nav">'+
     '<button class="nav-item '+(isHome&&v==='home'?'active':'')+'" onclick="navBottomHome()">'+ic('box',22)+'<span>'+t('navHome')+'</span></button>'+
     '<button class="nav-item '+(v==='recipes'?'active':'')+'" onclick="navBottomRecipes()">'+ic('book',22)+'<span>'+t('navRecipes')+'</span></button>'+
     '<button class="nav-scan" onclick="navigate(\'scan\')" aria-label="'+t('navScan')+'">'+ic('barcode',26)+'</button>'+
-    '<button class="nav-item '+(isNotes?'active':'')+'" onclick="navBottomNotes()">'+ic('note',22)+'<span>'+t('navNotes')+'</span></button>'+
+    '<button class="nav-item '+(isMeals?'active':'')+'" onclick="navBottomMeals()">'+ic('spoon',22)+'<span>'+t('navMeals')+'</span></button>'+
+    '<button class="nav-item '+(isHealth?'active':'')+'" onclick="navBottomHealth()">'+ic('scale',22)+'<span>'+t('navHealth')+'</span></button>'+
   '</div>';
 }
 // Bottom-nav taps always jump straight to that section's unfiltered main list, even from a
@@ -3331,6 +3354,19 @@ function navBottomNotes(){
   state.notesUI.category = null;
   navigate('notes');
 }
+// README 9.96: 笔记 dropped off the bottom nav (its two use cases - recipe notes, and item
+// notes - already had homes: the item edit form's own 备注 field, and recipe's own new 笔记
+// field added this same batch). The notes feature/data itself hasn't been touched or removed -
+// existing notes are still fully intact in state.notes and readable/editable at
+// navigate('notes') if something ever needs to reach them directly - only its bottom-nav tab
+// slot changed hands, to 三餐, which is a new feature area of its own (see renderMeals below),
+// not a continuation of notes.
+function navBottomMeals(){
+  navigate('meals');
+}
+function navBottomHealth(){
+  navigate('health');
+}
 
 /* ======================= SIDEBAR (per-page filter drawer) ======================= */
 // The three list pages (inventory / recipes / notes) each get an off-canvas sidebar
@@ -3341,12 +3377,16 @@ function sidebarPageForCurrentView(){
   if(state.view==='home' || state.view==='archive' || state.view==='stats' || state.view==='priceHistory' || state.view==='statFilteredList') return 'home';
   if(state.view==='recipes') return 'recipes';
   if(state.view==='notes') return 'notes';
+  if(state.view==='meals') return 'meals';
+  if(state.view==='health') return 'health';
   return null;
 }
 function sidebarContentFor(page){
   if(page==='home') return renderHomeSidebarContent();
   if(page==='recipes') return renderRecipeSidebarContent();
   if(page==='notes') return renderNotesSidebarContent();
+  if(page==='meals') return renderMealsSidebarContent();
+  if(page==='health') return renderHealthSidebarContent();
   return '';
 }
 // Freezes the page's own scroll while the sidebar is open (see README 9.75). #app has no
@@ -7662,7 +7702,7 @@ function openRecipeForm(id){
     // and taps "+", assume they mean "add a recipe here" - otherwise the new recipe defaults
     // to uncategorized and, being outside the active filter, would correctly but confusingly
     // not show up until the filter is cleared (e.g. by switching tabs and back).
-    state.recipeDraft = {id:uid(), name:'', servings:null, steps:[''], ingredients:[], cooked_weight:null, category_group:state.recipesUI.groupId||'', category_sub:state.recipesUI.sub||'', photo_url:'', created_at:todayStr(), updated_at:nowLocalIso()};
+    state.recipeDraft = {id:uid(), name:'', servings:null, steps:[''], ingredients:[], cooked_weight:null, category_group:state.recipesUI.groupId||'', category_sub:state.recipesUI.sub||'', photo_url:'', notes:'', created_at:todayStr(), updated_at:nowLocalIso()};
   }
   state.recipeDraft._isNew = !id;
   // Mirrors itemFormUI's photo bookkeeping (see openItemForm): originalPhotoUrl lets cancel()
@@ -7969,6 +8009,10 @@ function renderRecipeForm(){
       stepsEditorHtml()+
       '<button class="btn btn-outline btn-sm" style="width:100%;margin-top:4px;" onclick="addStep()">'+ic('plus',15)+' '+t('addStepBtn')+'</button>'+
     '</div>'+
+    '<div class="section-title">'+t('fieldNotes')+'</div>'+
+    '<div class="form-group">'+
+      '<div class="field" style="margin-bottom:0;"><textarea placeholder="'+t('fieldNotesPh')+'" oninput="r_str(\'notes\',this.value)">'+esc(d.notes)+'</textarea></div>'+
+    '</div>'+
     '<div class="section-title">'+t('nutritionSummary')+'</div>'+
     '<div class="form-group" id="nutri-summary-container">'+nutritionSummaryHtml()+'</div>'+
     '<div class="btn-row" style="margin-top:8px;">'+
@@ -8187,6 +8231,7 @@ function renderRecipeDetail(){
         }).join('')+
       '</div>';
     })()+
+    (r.notes ? '<div class="section-title">'+t('fieldNotes')+'</div><div class="form-group"><p style="font-size:14.5px;line-height:1.6;white-space:pre-wrap;margin:0;">'+esc(r.notes)+'</p></div>' : '')+
     '<div class="section-title">'+t('nutritionSummary')+'</div>'+
     '<div class="form-group">'+nutriHtml+toggleHtml+
       (nutri.warnings && nutri.warnings.length ? '<p class="hint" style="color:var(--warn);">'+(state.lang==='zh'?'部分食材未计入(单位无法换算)：':'Excluded (unit not convertible): ')+nutri.warnings.map(esc).join('、')+'</p>' : '')+
@@ -8454,6 +8499,37 @@ function onNotesSearch(v){
     var c = document.getElementById('notes-list-container');
     if(c) c.innerHTML = renderNotesListHtml(getFilteredNotes());
   }, 200);
+}
+
+/* ======================= MEALS (三餐) - README 9.96, skeleton only =======================
+   Real content (today's diary, add-food search, history chart, macro widget, fasting timer)
+   lands in later batches - this is just the page shell: topbar, sidebar plumbing, bottom nav
+   highlighting, so the bottom-nav restructure in this batch has somewhere real to point at. */
+function renderMeals(){
+  return '' +
+  '<div class="topbar"><div><h1>🍽️ '+t('mealsTitle')+'</h1></div>'+menuButtonHtml('meals', false)+'</div>'+
+  '<div class="content">'+
+    '<div class="empty-state">'+ic('spoon',36)+'<p>'+(state.lang==='zh'?'三餐记录正在建设中，敬请期待':'Meal tracking is under construction - stay tuned')+'</p></div>'+
+  '</div>'+
+  bottomNav();
+}
+function renderMealsSidebarContent(){
+  return '<div class="sidebar-header"><h2>🍽️ '+t('mealsTitle')+'</h2><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div>'+
+    '<p class="hint" style="padding:0 4px;">'+(state.lang==='zh'?'更多功能陆续加入':'More coming soon')+'</p>';
+}
+
+/* ======================= HEALTH (健康) - README 9.96, skeleton only ======================= */
+function renderHealth(){
+  return '' +
+  '<div class="topbar"><div><h1>⚖️ '+t('healthTitle')+'</h1></div>'+menuButtonHtml('health', false)+'</div>'+
+  '<div class="content">'+
+    '<div class="empty-state">'+ic('scale',36)+'<p>'+(state.lang==='zh'?'健康记录正在建设中，敬请期待':'Health tracking is under construction - stay tuned')+'</p></div>'+
+  '</div>'+
+  bottomNav();
+}
+function renderHealthSidebarContent(){
+  return '<div class="sidebar-header"><h2>⚖️ '+t('healthTitle')+'</h2><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div>'+
+    '<p class="hint" style="padding:0 4px;">'+(state.lang==='zh'?'更多功能陆续加入':'More coming soon')+'</p>';
 }
 function renderNoteDetail(){
   var id = state.params.id;
