@@ -720,7 +720,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.93';
+var BUILD_VERSION = '9.95';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2001,7 +2001,7 @@ function formatPrice(it){
 var I18N = {
   zh:{
     appName:'食法典', appSub:'库存 · 食谱 · 营养',
-    navHome:'库存', navRecipes:'食谱', navScan:'扫码', navNotes:'笔记', navSettings:'设置',
+    navHome:'库存', navRecipes:'食谱', navScan:'扫码', navNotes:'笔记', navSettings:'设置', navMenu:'菜单',
     remainingQtyLabel:'剩余',
     searchPlaceholder:'搜索食品名称 / 品牌',
     filterAll:'全部',
@@ -2201,7 +2201,7 @@ var I18N = {
   },
   en:{
     appName:'Shi Fa Dian', appSub:'Inventory · Recipes · Nutrition',
-    navHome:'Inventory', navRecipes:'Recipes', navScan:'Scan', navNotes:'Notes', navSettings:'Settings',
+    navHome:'Inventory', navRecipes:'Recipes', navScan:'Scan', navNotes:'Notes', navSettings:'Settings', navMenu:'Menu',
     remainingQtyLabel:'Remaining',
     searchPlaceholder:'Search name / brand',
     filterAll:'All',
@@ -3295,14 +3295,12 @@ function bottomNav(){
   var isHome = (v==='home'||v==='itemForm'||v==='itemDetail'||v==='archive'||v==='stats'||v==='priceHistory'||v==='itemViewOnly'||v==='statFilteredList'||v==='usageLog'||v==='usageLogAdd');
   var isRecipes = (v==='recipes'||v==='recipeForm'||v==='recipeDetail'||v==='pickInventory'||v==='pickExternal');
   var isNotes = (v==='notes'||v==='noteForm'||v==='noteDetail');
-  var isSettings = (v==='settings'||v==='manageTags');
   return '' +
   '<div class="bottom-nav">'+
     '<button class="nav-item '+(isHome&&v==='home'?'active':'')+'" onclick="navBottomHome()">'+ic('box',22)+'<span>'+t('navHome')+'</span></button>'+
     '<button class="nav-item '+(v==='recipes'?'active':'')+'" onclick="navBottomRecipes()">'+ic('book',22)+'<span>'+t('navRecipes')+'</span></button>'+
     '<button class="nav-scan" onclick="navigate(\'scan\')" aria-label="'+t('navScan')+'">'+ic('barcode',26)+'</button>'+
     '<button class="nav-item '+(isNotes?'active':'')+'" onclick="navBottomNotes()">'+ic('note',22)+'<span>'+t('navNotes')+'</span></button>'+
-    '<button class="nav-item '+(isSettings?'active':'')+'" onclick="navigate(\'settings\')">'+ic('gear',22)+'<span>'+t('navSettings')+'</span></button>'+
   '</div>';
 }
 // Bottom-nav taps always jump straight to that section's unfiltered main list, even from a
@@ -3407,8 +3405,25 @@ function refreshSidebarContent(){
   var drawer = document.getElementById('sidebar-drawer');
   if(drawer) drawer.innerHTML = sidebarContentFor(state.sidebarOpen);
 }
-function menuButtonHtml(page){
-  return '<div class="topbar-actions"><button class="icon-btn" onclick="toggleSidebar('+aj(page)+')" aria-label="'+t('navSettings')+'">'+ic('menu',20)+'</button></div>';
+// README 9.94: the standalone "设置" bottom-nav tab was folded into a gear icon in the topbar
+// instead, on 库存/食谱 only (not 笔记 - see this function's callers below). Kept as a parameter
+// here (rather than checking `page` inline) so the notes page's call site doesn't need to change.
+function menuButtonHtml(page, showSettingsGear){
+  var gearBtn = showSettingsGear
+    ? '<button class="icon-btn" onclick="openSettings('+aj(page)+')" aria-label="'+t('navSettings')+'">'+ic('gear',20)+'</button>'
+    : '';
+  return '<div class="topbar-actions">'+gearBtn+'<button class="icon-btn" onclick="toggleSidebar('+aj(page)+')" aria-label="'+t('navMenu')+'">'+ic('menu',20)+'</button></div>';
+}
+// Settings is no longer a bottom-nav tab (README 9.94) - it's reached via the gear icon (see
+// menuButtonHtml above) or the odd inline "go configure this" link (e.g. the scan page's
+// AI-proxy-not-set hint). Since it can now be entered from more than one place, its own back
+// button needs to know which one to return to - state.settingsBackTo records that, set right
+// here at the moment of entry, defaulting to 'home' for any caller that doesn't bother passing
+// one (there isn't one currently, but this keeps a future call site from being able to strand
+// the back button with no destination).
+function openSettings(fromView){
+  state.settingsBackTo = fromView || 'home';
+  navigate('settings');
 }
 // Edge-swipe gesture: swipe right starting within ~24px of the left screen edge opens
 // the current page's sidebar (mirrors the standard iOS/Android edge-drawer gesture, and
@@ -3475,6 +3490,7 @@ function menuButtonHtml(page){
     if(state.view==='statFilteredList') return {view:'home'};
     if(state.view==='manageTags') return {view:'settings'};
     if(state.view==='manageRecipeCategories') return {view:'settings'};
+    if(state.view==='settings') return {view: state.settingsBackTo || 'home'};
     if(state.view==='noteForm') return {view:'notes'};
     if(state.view==='noteDetail') return {view:'notes'};
     return null;
@@ -3953,7 +3969,7 @@ function renderHome(){
   return '' +
   '<div class="topbar">'+
     '<div><h1>📦 '+t('navHome')+'</h1></div>'+
-    menuButtonHtml('home')+
+    menuButtonHtml('home', true)+
   '</div>'+
   '<div class="content">'+
     '<div class="home-sticky-controls" id="home-sticky-controls">'+
@@ -6572,7 +6588,7 @@ function renderScan(){
         '<div id="photo-recognize-status" style="margin-top:10px;font-size:13.5px;color:var(--deep-caramel);"></div>'
       ) : (
         '<p class="hint">'+t('photoStandaloneDisabledHint')+'</p>'+
-        '<button class="btn btn-outline btn-sm" style="margin-top:10px;" onclick="navigate(\'settings\')">'+t('goToSettings')+'</button>'
+        '<button class="btn btn-outline btn-sm" style="margin-top:10px;" onclick="openSettings(\'scan\')">'+t('goToSettings')+'</button>'
       ))+
     '</div>'+
     '<button class="btn btn-outline" style="margin-top:4px;" onclick="openItemForm(null)">'+t('manualAdd')+'</button>'+
@@ -7048,7 +7064,7 @@ function renderRecipesList(){
   var activeFilterHtml = filterLabel ?
     '<div class="active-filter-bar"><span onclick="toggleSidebar(\'recipes\')">'+ic('menu',14)+' '+esc(filterLabel)+'</span><button class="active-filter-clear" onclick="clearRecipeFilters()">'+ic('x',13)+'</button></div>' : '';
   return '' +
-  '<div class="topbar"><div><h1>📖 '+t('recipesTitle')+'</h1></div>'+menuButtonHtml('recipes')+'</div>'+
+  '<div class="topbar"><div><h1>📖 '+t('recipesTitle')+'</h1></div>'+menuButtonHtml('recipes', true)+'</div>'+
   '<div class="content" style="padding-bottom:90px;">'+
     activeFilterHtml +
     listHtml+
@@ -8468,7 +8484,7 @@ function renderNoteDetail(){
 /* ======================= SETTINGS ======================= */
 function renderSettings(){
   return '' +
-  '<div class="topbar"><div><h1>⚙️ '+t('settingsTitle')+'</h1></div></div>'+
+  '<div class="page-header"><button class="back-btn" onclick="navigate('+aj(state.settingsBackTo||'home')+')">'+ic('back',22)+'</button><h1>⚙️ '+t('settingsTitle')+'</h1></div>'+
   '<div class="content">'+
     '<div class="section-title" style="margin-top:0;">'+t('language')+'</div>'+
     '<div class="lang-toggle" style="margin-bottom:8px;">'+
