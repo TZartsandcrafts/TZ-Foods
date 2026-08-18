@@ -720,7 +720,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.96';
+var BUILD_VERSION = '9.97';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2001,7 +2001,7 @@ function formatPrice(it){
 var I18N = {
   zh:{
     appName:'食法典', appSub:'库存 · 食谱 · 营养',
-    navHome:'库存', navRecipes:'食谱', navScan:'扫码', navNotes:'笔记', navSettings:'设置', navMenu:'菜单', navMeals:'三餐', navHealth:'健康',
+    navHome:'库存', navRecipes:'食谱', navScan:'扫码', navSettings:'设置', navMenu:'菜单', navMeals:'三餐', navHealth:'健康',
     mealsTitle:'三餐', healthTitle:'健康',
     remainingQtyLabel:'剩余',
     searchPlaceholder:'搜索食品名称 / 品牌',
@@ -2154,22 +2154,7 @@ var I18N = {
     fieldPhotoHint:'图片会自动压缩后单独存入本机的 IndexedDB，不占用食材数据的存储空间；设置页导出备份时会自动把图片一起打包进去，恢复时也会自动带回来。',
     photoProcessing:'正在处理图片…', photoTooLarge:'图片仍然偏大，请换一张更简单/更小的图片试试',
     photoProcessFailed:'图片处理失败，请换一张试试',
-    // notes
-    navNotesTitle:'笔记',
-    notesTitle:'笔记', newNote:'新建笔记',
-    emptyNotes:'还没有笔记', emptyNotesHint:'点击下方按钮记录你的第一条心得吧',
-    searchNotesPlaceholder:'搜索笔记标题 / 内容',
-    noteFormTitleAdd:'新建笔记', noteFormTitleEdit:'编辑笔记',
-    fieldNoteTitle:'标题', fieldNoteTitlePh:'例如：这个牌子的酱油偏咸',
-    fieldNoteContent:'内容', fieldNoteContentPh:'记录你的心得、经验、改良建议…',
-    fieldNoteCategory:'笔记分类',
-    linkedItems:'关联食材', linkedRecipes:'关联食谱',
-    noLinkedItems:'库存中还没有食材可关联', noLinkedRecipes:'还没有食谱可关联',
-    noteUpdatedAt:'更新于',
-    manageNoteCategories:'管理笔记分类', manageNoteCategoriesTitle:'管理笔记分类', addNoteCategoryPh:'新分类名称',
     manageRecipeCategories:'管理食谱分类', manageRecipeCategoriesTitle:'管理食谱分类', addRecipeGroupPh:'新分类名称', addRecipeSubPh:'新子分类名称',
-    exportNotesBtn:'导出笔记数据', importNotesBtn:'恢复笔记数据',
-    importNotesConfirmMsg:'检测到备份文件包含 {n} 条笔记。"合并"会保留当前设备和备份文件中的所有数据，同一条笔记以最近修改时间为准；"替换"会完全清空当前数据后用备份覆盖，无法撤销。',
     // sidebars
     statTotal:'总数', statExpired:'过期', statSoon:'临期', statUsedUp:'用完',
     fieldRecipeCategory:'分类', fieldRecipeSubCategory:'子分类',
@@ -2202,7 +2187,7 @@ var I18N = {
   },
   en:{
     appName:'Shi Fa Dian', appSub:'Inventory · Recipes · Nutrition',
-    navHome:'Inventory', navRecipes:'Recipes', navScan:'Scan', navNotes:'Notes', navSettings:'Settings', navMenu:'Menu', navMeals:'Meals', navHealth:'Health',
+    navHome:'Inventory', navRecipes:'Recipes', navScan:'Scan', navSettings:'Settings', navMenu:'Menu', navMeals:'Meals', navHealth:'Health',
     mealsTitle:'Meals', healthTitle:'Health',
     remainingQtyLabel:'Remaining',
     searchPlaceholder:'Search name / brand',
@@ -2349,21 +2334,7 @@ var I18N = {
     fieldPhotoHint:'Photos are compressed and stored separately in this device\'s IndexedDB, so they don\'t take up space in your item data. Exporting a backup from Settings automatically bundles photos in, and restoring brings them back too.',
     photoProcessing:'Processing image…', photoTooLarge:'Image is still too large, please try a smaller/simpler photo',
     photoProcessFailed:'Failed to process image, please try another one',
-    // notes
-    notesTitle:'Notes', newNote:'New Note',
-    emptyNotes:'No notes yet', emptyNotesHint:'Tap the button below to add your first note',
-    searchNotesPlaceholder:'Search note title / content',
-    noteFormTitleAdd:'New Note', noteFormTitleEdit:'Edit Note',
-    fieldNoteTitle:'Title', fieldNoteTitlePh:'e.g. This soy sauce brand is quite salty',
-    fieldNoteContent:'Content', fieldNoteContentPh:'Write down your notes, tips, or adjustments…',
-    fieldNoteCategory:'Note Category',
-    linkedItems:'Linked Items', linkedRecipes:'Linked Recipes',
-    noLinkedItems:'No inventory items to link yet', noLinkedRecipes:'No recipes to link yet',
-    noteUpdatedAt:'Updated',
-    manageNoteCategories:'Manage Note Categories', manageNoteCategoriesTitle:'Manage Note Categories', addNoteCategoryPh:'New category name',
     manageRecipeCategories:'Manage Recipe Categories', manageRecipeCategoriesTitle:'Manage Recipe Categories', addRecipeGroupPh:'New category name', addRecipeSubPh:'New subcategory name',
-    exportNotesBtn:'Export notes data', importNotesBtn:'Restore notes data',
-    importNotesConfirmMsg:'The backup file contains {n} notes. "Merge" keeps all data from both this device and the backup, using the most recently modified version of each note. "Replace" wipes current data and overwrites it with the backup - this cannot be undone.',
     // sidebars
     statTotal:'Total items', statExpired:'Expired', statSoon:'Expiring soon', statUsedUp:'Used up',
     fieldRecipeCategory:'Category', fieldRecipeSubCategory:'Sub-category',
@@ -2406,11 +2377,6 @@ var state = {
   locations: DEFAULT_LOCATIONS.slice(),
   ingredients: [],
   recipes: [],
-  notes: [],
-  noteCategories: DEFAULT_NOTE_CATEGORIES.slice(),
-  noteDraft: null,
-  noteFormUI: {},
-  notesUI: { search:'', category:null },
   // README 9.96: data model for 三餐/健康 (batch 1 - skeleton pages only, these arrays/object
   // are wired into storage load/save now so later batches don't need to touch this plumbing
   // again, but nothing populates them yet).
@@ -2488,8 +2454,12 @@ async function loadAll(){
   state.lang = results[5].lang || 'zh';
   state.reminderDays = results[5].reminderDays != null ? results[5].reminderDays : 3;
   state.aiProxyUrl = results[5].aiProxyUrl || DEFAULT_AI_PROXY_URL;
-  state.notes = results[6];
-  state.noteCategories = (results[7] && results[7].length) ? results[7] : DEFAULT_NOTE_CATEGORIES.slice();
+  // README 9.97: 笔记 feature removed (see changelog) - results[6]/[7] (notes/noteCategories)
+  // are still fetched above on purpose, just no longer assigned into state. Confirmed with Lynn
+  // there was no actual note data saved, but leaving the storage read itself in place (instead
+  // of also removing it from the Promise.all, which would shift every later results[N] index)
+  // means a stray old save would still be read harmlessly rather than silently dropped by
+  // something that assumed a fixed index - it just doesn't go anywhere anymore.
   state.recipeCategoryGroups = (results[8] && results[8].length) ? results[8] : JSON.parse(JSON.stringify(DEFAULT_RECIPE_CATEGORY_GROUPS));
   // "个"/"件" used to be plain custom-unit entries that could get remembered here and then leak
   // into every other unit picker (规格单位/营养每份单位). They're now dedicated base options on
@@ -2589,11 +2559,9 @@ function saveRecipes(){
   return p;
 }
 function saveSettings(){ return storageSet('settings', {lang:state.lang, reminderDays:state.reminderDays, aiProxyUrl:state.aiProxyUrl}); }
-function saveNotes(){ return storageSet('notes', state.notes); }
 function saveMealLogs(){ return storageSet('mealLogs', state.mealLogs); }
 function saveWeightLogs(){ return storageSet('weightLogs', state.weightLogs); }
 function saveWeightPlan(){ return storageSet('weightPlan', state.weightPlan); }
-function saveNoteCategories(){ return storageSet('noteCategories', state.noteCategories); }
 function saveRecipeCategoryGroups(){
   state.recipeCategoryGroupsUpdatedAt = nowLocalIso();
   var p = storageSet('recipeCategoryGroups', state.recipeCategoryGroups);
@@ -2628,7 +2596,7 @@ function saveUnits(){ return storageSet('units', state.units); }
    changing out from under an active session would be more surprising than helpful). Rendering
    is skipped while an edit form is open (reusing cloudSyncSafeRender's existing guard) so this
    can't blow away an in-progress keystroke the same way a stray cloud-sync render used to. */
-var SYNCABLE_STORAGE_KEYS = ['items','categories','locations','ingredients','recipes','notes','noteCategories','recipeCategoryGroups','units'];
+var SYNCABLE_STORAGE_KEYS = ['items','categories','locations','ingredients','recipes','recipeCategoryGroups','units'];
 async function resyncFromStorage(){
   if(!state.loaded) return;
   var changed = false;
@@ -3296,9 +3264,6 @@ function render(){
     case 'manageRecipeCategories': html = renderManageRecipeCategories(); break;
     case 'pickInventory': html = renderPickInventory(); break;
     case 'pickExternal': html = renderPickExternal(); break;
-    case 'notes': html = renderNotesList(); break;
-    case 'noteForm': html = renderNoteForm(); break;
-    case 'noteDetail': html = renderNoteDetail(); break;
     case 'archive': html = renderArchiveList(); break;
     case 'itemViewOnly': html = renderItemViewOnly(); break;
     case 'stats': html = renderStats(); break;
@@ -3350,17 +3315,7 @@ function navBottomRecipes(){
   window.scrollTo(0, 0);
   requestAnimationFrame(function(){ window.scrollTo(0, 0); });
 }
-function navBottomNotes(){
-  state.notesUI.category = null;
-  navigate('notes');
-}
-// README 9.96: 笔记 dropped off the bottom nav (its two use cases - recipe notes, and item
-// notes - already had homes: the item edit form's own 备注 field, and recipe's own new 笔记
-// field added this same batch). The notes feature/data itself hasn't been touched or removed -
-// existing notes are still fully intact in state.notes and readable/editable at
-// navigate('notes') if something ever needs to reach them directly - only its bottom-nav tab
-// slot changed hands, to 三餐, which is a new feature area of its own (see renderMeals below),
-// not a continuation of notes.
+// README 9.97: 笔记 feature removed entirely (see changelog).
 function navBottomMeals(){
   navigate('meals');
 }
@@ -3376,7 +3331,6 @@ function navBottomHealth(){
 function sidebarPageForCurrentView(){
   if(state.view==='home' || state.view==='archive' || state.view==='stats' || state.view==='priceHistory' || state.view==='statFilteredList') return 'home';
   if(state.view==='recipes') return 'recipes';
-  if(state.view==='notes') return 'notes';
   if(state.view==='meals') return 'meals';
   if(state.view==='health') return 'health';
   return null;
@@ -3384,7 +3338,6 @@ function sidebarPageForCurrentView(){
 function sidebarContentFor(page){
   if(page==='home') return renderHomeSidebarContent();
   if(page==='recipes') return renderRecipeSidebarContent();
-  if(page==='notes') return renderNotesSidebarContent();
   if(page==='meals') return renderMealsSidebarContent();
   if(page==='health') return renderHealthSidebarContent();
   return '';
@@ -3531,8 +3484,6 @@ function openSettings(fromView){
     if(state.view==='manageTags') return {view:'settings'};
     if(state.view==='manageRecipeCategories') return {view:'settings'};
     if(state.view==='settings') return {view: state.settingsBackTo || 'home'};
-    if(state.view==='noteForm') return {view:'notes'};
-    if(state.view==='noteDetail') return {view:'notes'};
     return null;
   }
   document.addEventListener('touchstart', function(e){
@@ -3551,7 +3502,6 @@ function openSettings(fromView){
     if(dx > 60 && Math.abs(dy) < 60){
       if(state.view==='itemForm') cancelItemForm();
       else if(state.view==='recipeForm') cancelRecipeForm();
-      else if(state.view==='noteForm') cancelNoteForm();
       else navigate(target.view, target.params);
     }
   }, {passive:true});
@@ -3806,7 +3756,6 @@ function deleteRecipeFromSwipe(id){
 function sidebarReorderArrayFor(kind, groupId){
   if(kind==='category') return state.categories;
   if(kind==='location') return state.locations;
-  if(kind==='noteCategory') return state.noteCategories;
   if(kind==='recipeGroup') return state.recipeCategoryGroups;
   if(kind==='recipeSub'){ var g=recipeGroupById(groupId); return g ? g.subs : null; }
   return null;
@@ -3814,7 +3763,6 @@ function sidebarReorderArrayFor(kind, groupId){
 function sidebarReorderCommit(kind, groupId, order){
   if(kind==='category'){ state.categories = order; saveCategories(); }
   else if(kind==='location'){ state.locations = order; saveLocations(); }
-  else if(kind==='noteCategory'){ state.noteCategories = order; saveNoteCategories(); }
   else if(kind==='recipeGroup'){ state.recipeCategoryGroups = order; saveRecipeCategoryGroups(); }
   else if(kind==='recipeSub'){ var g=recipeGroupById(groupId); if(g){ g.subs = order; saveRecipeCategoryGroups(); } }
 }
@@ -8297,266 +8245,6 @@ function confirmCook(recipeId){
   render();
 }
 
-/* ======================= NOTES ======================= */
-function blankNoteDraft(){
-  return {
-    id: uid(), title:'', content:'', category:'',
-    linkedItemIds:[], linkedRecipeIds:[],
-    created_at: todayStr(), updated_at: nowLocalIso()
-  };
-}
-function openNoteForm(id){
-  if(id){
-    var existing = state.notes.find(function(n){ return n.id===id; });
-    state.noteDraft = JSON.parse(JSON.stringify(existing));
-    state.noteDraft.linkedItemIds = state.noteDraft.linkedItemIds || [];
-    state.noteDraft.linkedRecipeIds = state.noteDraft.linkedRecipeIds || [];
-  } else {
-    state.noteDraft = blankNoteDraft();
-  }
-  state.noteDraft._isNew = !id;
-  state.noteFormUI = { addingCategory:false };
-  navigate('noteForm', {id:id});
-}
-function nd_str(field, val){ state.noteDraft[field]=val; }
-function setNoteDraftCategory(c){ state.noteDraft.category=c; render(); }
-function toggleAddingNoteCategory(){
-  state.noteFormUI.addingCategory = true;
-  render();
-  var el = document.getElementById('new-noteCategory-input');
-  if(el) el.focus();
-}
-function confirmNewNoteCategory(){
-  var el = document.getElementById('new-noteCategory-input');
-  var val = el ? el.value.trim() : '';
-  if(!val) return;
-  if(state.noteCategories.indexOf(val)===-1){
-    state.noteCategories.push(val);
-    saveNoteCategories();
-  }
-  state.noteDraft.category = val;
-  state.noteFormUI.addingCategory = false;
-  render();
-}
-function noteCategorySelectHtml(){
-  var opts = state.noteCategories.map(function(c){
-    return '<div class="tag-option '+(state.noteDraft.category===c?'active':'')+'" onclick="setNoteDraftCategory('+aj(c)+')">'+esc(c)+'</div>';
-  }).join('');
-  var addUi = state.noteFormUI.addingCategory ?
-    '<div class="field" style="margin-top:10px;margin-bottom:0;"><div class="field-row">'+
-      '<input type="text" autocapitalize="words" id="new-noteCategory-input" placeholder="'+t('newTagPrompt')+'" style="flex:1;font-size:16px;padding:11px 12px;border-radius:10px;border:1px solid var(--line);">'+
-      '<button class="btn btn-primary btn-sm" onclick="confirmNewNoteCategory()">'+t('add')+'</button>'+
-    '</div></div>' : '';
-  return '<div class="tag-select">'+opts+'<div class="tag-option add-new" onclick="toggleAddingNoteCategory()">'+t('addNewTag')+'</div></div>'+addUi;
-}
-function toggleLinkItem(id){
-  var arr = state.noteDraft.linkedItemIds;
-  var i = arr.indexOf(id);
-  if(i===-1) arr.push(id); else arr.splice(i,1);
-  render();
-}
-function toggleLinkRecipe(id){
-  var arr = state.noteDraft.linkedRecipeIds;
-  var i = arr.indexOf(id);
-  if(i===-1) arr.push(id); else arr.splice(i,1);
-  render();
-}
-function noteLinkPickerHtml(){
-  var itemChips = state.items.map(function(it){
-    var active = state.noteDraft.linkedItemIds.indexOf(it.id)>-1;
-    return '<div class="tag-option '+(active?'active':'')+'" onclick="toggleLinkItem('+aj(it.id)+')">'+esc(it.name)+'</div>';
-  }).join('') || '<p class="hint">'+t('noLinkedItems')+'</p>';
-  var recipeChips = state.recipes.map(function(r){
-    var active = state.noteDraft.linkedRecipeIds.indexOf(r.id)>-1;
-    return '<div class="tag-option '+(active?'active':'')+'" onclick="toggleLinkRecipe('+aj(r.id)+')">'+esc(r.name)+'</div>';
-  }).join('') || '<p class="hint">'+t('noLinkedRecipes')+'</p>';
-  return '<div class="section-title">'+t('linkedItems')+'</div><div class="tag-select">'+itemChips+'</div>'+
-    '<div class="section-title">'+t('linkedRecipes')+'</div><div class="tag-select">'+recipeChips+'</div>';
-}
-function renderNoteForm(){
-  var d = state.noteDraft;
-  if(!d) return renderNotesList();
-  return '' +
-  '<div class="page-header">'+
-    '<button class="back-btn" onclick="cancelNoteForm()">'+ic('back',22)+'</button>'+
-    '<h1>'+(d._isNew?t('noteFormTitleAdd'):t('noteFormTitleEdit'))+'</h1>'+
-  '</div>'+
-  '<div class="content">'+
-    '<div class="form-group">'+
-      '<div class="field"><label>'+t('fieldNoteTitle')+' *</label><input type="text" autocapitalize="words" value="'+esc(d.title)+'" placeholder="'+t('fieldNoteTitlePh')+'" oninput="nd_str(\'title\',this.value)"></div>'+
-      '<div class="field" style="margin-bottom:0;"><label>'+t('fieldNoteContent')+'</label><textarea style="min-height:140px;" placeholder="'+t('fieldNoteContentPh')+'" oninput="nd_str(\'content\',this.value)">'+esc(d.content)+'</textarea></div>'+
-    '</div>'+
-    '<div class="section-title">'+t('fieldNoteCategory')+'</div>'+
-    noteCategorySelectHtml()+
-    noteLinkPickerHtml()+
-    '<div class="btn-row" style="margin-top:8px;">'+
-      '<button class="btn btn-outline" onclick="cancelNoteForm()">'+t('cancel')+'</button>'+
-      '<button class="btn btn-primary" onclick="saveNoteForm()">'+t('save')+'</button>'+
-    '</div>'+
-    (!d._isNew ? '<button class="btn btn-danger" style="margin-top:10px;" onclick="deleteNoteFromForm()">'+ic('trash',16)+' '+t('delete')+'</button>' : '')+
-  '</div>';
-}
-function cancelNoteForm(){ state.noteDraft=null; navigate('notes'); }
-function saveNoteForm(){
-  var d = state.noteDraft;
-  if(!d.title || !d.title.trim()){ showToast(state.lang==='zh'?'请填写标题':'Please enter a title'); return; }
-  d.updated_at = nowLocalIso();
-  var idx = state.notes.findIndex(function(n){ return n.id===d.id; });
-  if(idx===-1) state.notes.push(d); else state.notes[idx]=d;
-  saveNotes();
-  state.noteDraft=null;
-  showToast(state.lang==='zh'?'已保存':'Saved');
-  navigate('noteDetail',{id:d.id});
-}
-function deleteNoteFromForm(){
-  showConfirmModal(t('deleteConfirm'), function(){
-    state.notes = state.notes.filter(function(n){ return n.id!==state.noteDraft.id; });
-    saveNotes();
-    state.noteDraft=null;
-    navigate('notes');
-  }, {title:t('delete')});
-}
-function deleteNoteDetail(id){
-  showConfirmModal(t('deleteConfirm'), function(){
-    state.notes = state.notes.filter(function(n){ return n.id!==id; });
-    saveNotes();
-    navigate('notes');
-  }, {title:t('delete')});
-}
-function getFilteredNotes(){
-  var q = (state.notesUI.search||'').trim().toLowerCase();
-  return state.notes.filter(function(n){
-    if(state.notesUI.category && n.category !== state.notesUI.category) return false;
-    if(q){
-      var hay = ((n.title||'')+' '+(n.content||'')).toLowerCase();
-      if(hay.indexOf(q)===-1) return false;
-    }
-    return true;
-  }).slice().sort(function(a,b){ return (b.updated_at||'').localeCompare(a.updated_at||''); });
-}
-function renderNotesListHtml(list){
-  if(list.length===0){
-    if(state.notes.length===0){
-      return '<div class="empty-state">'+ic('note',40)+'<p><strong>'+t('emptyNotes')+'</strong><br>'+t('emptyNotesHint')+'</p></div>';
-    }
-    return '<div class="empty-state">'+ic('search',40)+'<p>'+(state.lang==='zh'?'没有符合条件的笔记':'No notes match your filters')+'</p></div>';
-  }
-  return list.map(function(n){
-    var preview = (n.content||'').replace(/\s+/g,' ').trim().slice(0,60);
-    var linkCount = (n.linkedItemIds||[]).length + (n.linkedRecipeIds||[]).length;
-    var meta = (n.category?esc(n.category)+' · ':'')+esc(preview);
-    return '<div class="item-card" onclick="navigate(\'noteDetail\',{id:'+aj(n.id)+'})">'+
-      '<div class="item-icon">'+ic('note',20)+'</div>'+
-      '<div class="item-info">'+
-        '<div class="item-name">'+esc(n.title)+'</div>'+
-        '<div class="item-meta">'+meta+'</div>'+
-      '</div>'+
-      (linkCount ? '<div class="status-badge status-fresh">'+ic('link',13)+' '+linkCount+'</div>' : '')+
-    '</div>';
-  }).join('');
-}
-function renderNotesList(){
-  var list = getFilteredNotes();
-  var activeFilterHtml = state.notesUI.category ?
-    '<div class="active-filter-bar"><span onclick="toggleSidebar(\'notes\')">'+ic('menu',14)+' '+esc(state.notesUI.category)+'</span><button class="active-filter-clear" onclick="clearNotesFilter()">'+ic('x',13)+'</button></div>' : '';
-  return '' +
-  '<div class="topbar"><div><h1>📝 '+t('notesTitle')+'</h1></div>'+menuButtonHtml('notes')+'</div>'+
-  '<div class="content">'+
-    '<div class="search-bar">'+ic('search',19)+
-      '<input type="text" placeholder="'+t('searchNotesPlaceholder')+'" value="'+esc(state.notesUI.search)+'" oninput="onNotesSearch(this.value)">'+
-    '</div>'+
-    activeFilterHtml +
-    '<div id="notes-list-container">'+renderNotesListHtml(list)+'</div>'+
-    '<button class="btn btn-primary" style="margin-top:16px;" onclick="openNoteForm(null)">'+ic('plus',18)+' '+t('newNote')+'</button>'+
-  '</div>'+
-  bottomNav();
-}
-function setNotesFilter(c){ state.notesUI.category=c; render(); }
-function clearNotesFilter(){ state.notesUI.category=null; render(); }
-function sidebarSetNotesCategory(c){
-  state.notesUI.category = c;
-  closeSidebar();
-  render();
-}
-function renderNotesSidebarContent(){
-  var catHtml = state.noteCategories.map(function(c){
-    return '<div class="sidebar-item-row"><span class="sidebar-drag-handle">'+ic('grip',16)+'</span>'+
-      '<div class="sidebar-item '+(state.notesUI.category===c?'active':'')+'" onclick="sidebarSetNotesCategory('+aj(c)+')">'+esc(c)+'</div>'+
-      '<div class="sidebar-item-actions">'+
-      '<button class="sidebar-item-action-btn" onclick="event.stopPropagation();openRenameTagModal(\'noteCategory\','+aj(c)+')">'+ic('edit',15)+'</button>'+
-      '</div></div>';
-  }).join('');
-  return '<div class="sidebar-header"><h2>📝 '+t('notesTitle')+'</h2><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div>'+
-    '<div class="sidebar-section-title">'+t('fieldNoteCategory')+'</div>'+
-    '<div class="sidebar-item '+(!state.notesUI.category?'active':'')+'" onclick="sidebarSetNotesCategory(null)">'+t('filterAll')+'</div>'+
-    '<div class="sidebar-reorder-list" data-reorder-kind="noteCategory">'+catHtml+'</div>'+
-    sidebarInlineAddRowHtml('noteCategory');
-}
-function onNotesSearch(v){
-  state.notesUI.search = v;
-  clearTimeout(onNotesSearch._t);
-  onNotesSearch._t = setTimeout(function(){
-    var c = document.getElementById('notes-list-container');
-    if(c) c.innerHTML = renderNotesListHtml(getFilteredNotes());
-  }, 200);
-}
-
-/* ======================= MEALS (三餐) - README 9.96, skeleton only =======================
-   Real content (today's diary, add-food search, history chart, macro widget, fasting timer)
-   lands in later batches - this is just the page shell: topbar, sidebar plumbing, bottom nav
-   highlighting, so the bottom-nav restructure in this batch has somewhere real to point at. */
-function renderMeals(){
-  return '' +
-  '<div class="topbar"><div><h1>🍽️ '+t('mealsTitle')+'</h1></div>'+menuButtonHtml('meals', false)+'</div>'+
-  '<div class="content">'+
-    '<div class="empty-state">'+ic('spoon',36)+'<p>'+(state.lang==='zh'?'三餐记录正在建设中，敬请期待':'Meal tracking is under construction - stay tuned')+'</p></div>'+
-  '</div>'+
-  bottomNav();
-}
-function renderMealsSidebarContent(){
-  return '<div class="sidebar-header"><h2>🍽️ '+t('mealsTitle')+'</h2><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div>'+
-    '<p class="hint" style="padding:0 4px;">'+(state.lang==='zh'?'更多功能陆续加入':'More coming soon')+'</p>';
-}
-
-/* ======================= HEALTH (健康) - README 9.96, skeleton only ======================= */
-function renderHealth(){
-  return '' +
-  '<div class="topbar"><div><h1>⚖️ '+t('healthTitle')+'</h1></div>'+menuButtonHtml('health', false)+'</div>'+
-  '<div class="content">'+
-    '<div class="empty-state">'+ic('scale',36)+'<p>'+(state.lang==='zh'?'健康记录正在建设中，敬请期待':'Health tracking is under construction - stay tuned')+'</p></div>'+
-  '</div>'+
-  bottomNav();
-}
-function renderHealthSidebarContent(){
-  return '<div class="sidebar-header"><h2>⚖️ '+t('healthTitle')+'</h2><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div>'+
-    '<p class="hint" style="padding:0 4px;">'+(state.lang==='zh'?'更多功能陆续加入':'More coming soon')+'</p>';
-}
-function renderNoteDetail(){
-  var id = state.params.id;
-  var n = state.notes.find(function(x){ return x.id===id; });
-  if(!n) return renderNotesList();
-  var linkedItems = (n.linkedItemIds||[]).map(function(iid){ return state.items.find(function(it){ return it.id===iid; }); }).filter(Boolean);
-  var linkedRecipes = (n.linkedRecipeIds||[]).map(function(rid){ return state.recipes.find(function(r){ return r.id===rid; }); }).filter(Boolean);
-  return '' +
-  '<div class="page-header">'+
-    '<button class="back-btn" onclick="navigate(\'notes\')">'+ic('back',22)+'</button>'+
-    '<h1>'+esc(n.title)+'</h1>'+
-    '<button class="icon-btn" onclick="openNoteForm('+aj(n.id)+')">'+ic('edit',18)+'</button>'+
-  '</div>'+
-  '<div class="content">'+
-    (n.category ? '<div class="chip active" style="display:inline-block;margin-bottom:12px;">'+esc(n.category)+'</div>' : '')+
-    '<div class="form-group"><p style="font-size:15px;line-height:1.7;white-space:pre-wrap;">'+esc(n.content||'')+'</p></div>'+
-    (linkedItems.length ? '<div class="section-title">'+t('linkedItems')+'</div><div class="tag-select">'+linkedItems.map(function(it){
-      var target = it.archived ? ('navigate(\'itemViewOnly\',{id:'+aj(it.id)+',from:\'notes\'})') : ('navigate(\'itemDetail\',{id:'+aj(it.id)+',from:{view:\'noteDetail\',params:{id:'+aj(n.id)+'}}})');
-      return '<div class="tag-option active" onclick="'+target+'">'+esc(it.name)+'</div>';
-    }).join('')+'</div>' : '')+
-    (linkedRecipes.length ? '<div class="section-title">'+t('linkedRecipes')+'</div><div class="tag-select">'+linkedRecipes.map(function(r){ return '<div class="tag-option active" onclick="navigate(\'recipeDetail\',{id:'+aj(r.id)+',from:{view:\'noteDetail\',params:{id:'+aj(n.id)+'}}})">'+esc(r.name)+'</div>'; }).join('')+'</div>' : '')+
-    '<div class="hint" style="margin-top:16px;">'+t('noteUpdatedAt')+' '+esc((n.updated_at||'').slice(0,10))+'</div>'+
-    '<button class="btn btn-danger" style="margin-top:22px;" onclick="deleteNoteDetail('+aj(n.id)+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
-  '</div>'+
-  bottomNav();
-}
-
 /* ======================= SETTINGS ======================= */
 function renderSettings(){
   return '' +
@@ -8605,9 +8293,6 @@ function renderSettings(){
     '<div class="list-row" onclick="navigate(\'manageTags\',{kind:\'location\'})" style="cursor:pointer;">'+
       '<div class="row-label">'+t('manageLocations')+'</div>'+ic('chevronRight',18)+
     '</div>'+
-    '<div class="list-row" onclick="navigate(\'manageTags\',{kind:\'noteCategory\'})" style="cursor:pointer;">'+
-      '<div class="row-label">'+t('manageNoteCategories')+'</div>'+ic('chevronRight',18)+
-    '</div>'+
     '<div class="list-row" onclick="navigate(\'manageRecipeCategories\')" style="cursor:pointer;">'+
       '<div class="row-label">'+t('manageRecipeCategories')+'</div>'+ic('chevronRight',18)+
     '</div>'+
@@ -8626,12 +8311,6 @@ function renderSettings(){
         '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="triggerImportRecipes()">'+t('importRecipesBtn')+'</button>'+
       '</div>'+
       '<input type="file" accept="application/json,.json" id="import-recipes-input" style="display:none" onchange="onImportRecipesFile(this)">'+
-      '<div style="font-size:13px;font-weight:600;color:var(--almond);margin-bottom:8px;">'+t('navNotes')+'</div>'+
-      '<div class="btn-row">'+
-        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="exportNotesData()">'+ic('note',16)+' '+t('exportNotesBtn')+'</button>'+
-        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="triggerImportNotes()">'+t('importNotesBtn')+'</button>'+
-      '</div>'+
-      '<input type="file" accept="application/json,.json" id="import-notes-input" style="display:none" onchange="onImportNotesFile(this)">'+
     '</div>'+
     '<div class="section-title">'+t('aboutTitle')+'</div>'+
     '<div class="form-group">'+
@@ -8715,20 +8394,8 @@ async function exportRecipesData(){
   downloadJSON('foodcode-recipes-backup-'+todayStr()+'.json', payload);
   showToast(state.lang==='zh' ? '食谱数据已导出（含图片）' : 'Recipes data exported (with photos)');
 }
-function exportNotesData(){
-  var payload = {
-    type: 'foodcode_notes_backup',
-    version: 1,
-    exported_at: nowLocalIso(),
-    notes: state.notes,
-    noteCategories: state.noteCategories
-  };
-  downloadJSON('foodcode-notes-backup-'+todayStr()+'.json', payload);
-  showToast(state.lang==='zh' ? '笔记数据已导出' : 'Notes data exported');
-}
 function triggerImportInventory(){ var el=document.getElementById('import-inventory-input'); if(el) el.click(); }
 function triggerImportRecipes(){ var el=document.getElementById('import-recipes-input'); if(el) el.click(); }
-function triggerImportNotes(){ var el=document.getElementById('import-notes-input'); if(el) el.click(); }
 var _pendingImport = null;
 
 // Union-merge by id: records only on one side are kept as-is; records on both sides keep
@@ -8760,7 +8427,7 @@ function mergeStringArrays(existing, incoming){
 }
 function openImportConfirmModal(kind, data, count){
   _pendingImport = {kind:kind, data:data};
-  var msgKey = kind==='inventory' ? 'importInventoryConfirmMsg' : (kind==='recipes' ? 'importRecipesConfirmMsg' : 'importNotesConfirmMsg');
+  var msgKey = kind==='inventory' ? 'importInventoryConfirmMsg' : 'importRecipesConfirmMsg';
   var msg = t(msgKey).replace('{n}', count);
   var meta = data.exported_at ? ('<p class="hint" style="margin-bottom:10px;">'+t('exportedOn')+': '+esc(new Date(data.exported_at).toLocaleString())+'</p>') : '';
   var body = meta +
@@ -8797,21 +8464,6 @@ function onImportRecipesFile(input){
       showToast(t('importWrongFile')); return;
     }
     openImportConfirmModal('recipes', data, data.recipes.length);
-  };
-  reader.readAsText(file);
-}
-function onImportNotesFile(input){
-  var file = input.files && input.files[0];
-  if(!file) return;
-  var reader = new FileReader();
-  reader.onload = function(){
-    input.value = '';
-    var data;
-    try{ data = JSON.parse(reader.result); }catch(e){ showToast(t('importParseError')); return; }
-    if(!data || data.type !== 'foodcode_notes_backup' || !Array.isArray(data.notes)){
-      showToast(t('importWrongFile')); return;
-    }
-    openImportConfirmModal('notes', data, data.notes.length);
   };
   reader.readAsText(file);
 }
@@ -8855,15 +8507,6 @@ async function confirmImport(mode){
       state.ingredients = data.ingredients || [];
     }
     saveRecipes(); saveIngredients();
-  } else if(_pendingImport.kind === 'notes'){
-    if(mode === 'merge'){
-      state.notes = mergeById(state.notes, data.notes||[]);
-      state.noteCategories = mergeStringArrays(state.noteCategories, data.noteCategories||[]);
-    } else {
-      state.notes = data.notes || [];
-      state.noteCategories = (data.noteCategories && data.noteCategories.length) ? data.noteCategories : DEFAULT_NOTE_CATEGORIES.slice();
-    }
-    saveNotes(); saveNoteCategories();
   }
   _pendingImport = null;
   closeModal();
@@ -8873,20 +8516,18 @@ async function confirmImport(mode){
 
 /* ======================= MANAGE TAGS ======================= */
 function tagListForKind(kind){
-  if(kind==='category') return state.categories;
   if(kind==='location') return state.locations;
-  return state.noteCategories;
+  return state.categories;
 }
 function saveTagListForKind(kind){
-  if(kind==='category') return saveCategories();
   if(kind==='location') return saveLocations();
-  return saveNoteCategories();
+  return saveCategories();
 }
 function renderManageTags(){
   var kind = state.params.kind || 'category';
   var list = tagListForKind(kind);
-  var title = kind==='category' ? t('manageCategoriesTitle') : (kind==='location' ? t('manageLocationsTitle') : t('manageNoteCategoriesTitle'));
-  var ph = kind==='category' ? t('addCategoryPh') : (kind==='location' ? t('addLocationPh') : t('addNoteCategoryPh'));
+  var title = kind==='location' ? t('manageLocationsTitle') : t('manageCategoriesTitle');
+  var ph = kind==='location' ? t('addLocationPh') : t('addCategoryPh');
   var rows = list.map(function(name){
     return '<div class="list-row"><div class="row-label">'+esc(name)+'</div>'+
       '<div style="display:flex;gap:4px;">'+
@@ -8956,24 +8597,18 @@ function renderManageRecipeCategories(){
 function deleteTagItem(kind, name){
   var inUse;
   if(kind==='category') inUse = state.items.some(function(i){ return i.category===name; });
-  else if(kind==='location') inUse = state.items.some(function(i){ return i.location===name; });
-  else inUse = state.notes.some(function(n){ return n.category===name; });
+  else inUse = state.items.some(function(i){ return i.location===name; });
   function doDelete(){
     if(kind==='category'){
       state.categories = state.categories.filter(function(c){ return c!==name; });
       state.items.forEach(function(i){ if(i.category===name) i.category=''; });
       if(state.home.category===name) state.home.category=null;
       saveCategories(); saveItems();
-    } else if(kind==='location'){
+    } else {
       state.locations = state.locations.filter(function(l){ return l!==name; });
       state.items.forEach(function(i){ if(i.location===name) i.location=''; });
       if(state.home.location===name) state.home.location=null;
       saveLocations(); saveItems();
-    } else {
-      state.noteCategories = state.noteCategories.filter(function(c){ return c!==name; });
-      state.notes.forEach(function(n){ if(n.category===name) n.category=''; });
-      if(state.notesUI.category===name) state.notesUI.category=null;
-      saveNoteCategories(); saveNotes();
     }
     render();
     refreshSidebarContent();
@@ -8982,8 +8617,8 @@ function deleteTagItem(kind, name){
   else doDelete();
 }
 // Sidebar-driven rename dialog (reuses the app's modal sheet rather than a native prompt()
-// so it matches the rest of the UI). Used for categories, locations, and note categories —
-// all three are plain string arrays keyed by tagListForKind/saveTagListForKind.
+// so it matches the rest of the UI). Used for categories and locations - both are plain string
+// arrays keyed by tagListForKind/saveTagListForKind.
 function openRenameTagModal(kind, oldName){
   var body = '<div class="field" style="margin-bottom:14px;">'+
       '<input type="text" autocapitalize="words" id="rename-tag-input" value="'+esc(oldName)+'" style="width:100%;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);background:var(--card-bg);color:var(--cocoa);">'+
@@ -9007,14 +8642,10 @@ function confirmRenameTag(kind, oldName){
     state.items.forEach(function(i){ if(i.category===oldName) i.category=val; });
     if(state.home.category===oldName) state.home.category=val;
     saveCategories(); saveItems();
-  } else if(kind==='location'){
+  } else {
     state.items.forEach(function(i){ if(i.location===oldName) i.location=val; });
     if(state.home.location===oldName) state.home.location=val;
     saveLocations(); saveItems();
-  } else {
-    state.notes.forEach(function(n){ if(n.category===oldName) n.category=val; });
-    if(state.notesUI.category===oldName) state.notesUI.category=val;
-    saveNoteCategories(); saveNotes();
   }
   closeModal();
   render();
