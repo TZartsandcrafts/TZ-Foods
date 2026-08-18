@@ -453,6 +453,12 @@
   }
   .tag-option.active{ background:var(--deep-caramel); border-color:var(--deep-caramel); color:#fff; }
   .tag-option.add-new{ border-style:dashed; color:var(--almond); }
+  .switch{ position:relative; display:inline-block; width:46px; height:27px; flex-shrink:0; }
+  .switch input{ opacity:0; width:0; height:0; }
+  .switch-slider{ position:absolute; inset:0; background:var(--line); border-radius:27px; cursor:pointer; transition:background .15s ease; }
+  .switch-slider:before{ content:''; position:absolute; width:21px; height:21px; left:3px; top:3px; background:#fff; border-radius:50%; transition:transform .15s ease; box-shadow:0 1px 3px rgba(0,0,0,0.25); }
+  .switch input:checked + .switch-slider{ background:var(--almond); }
+  .switch input:checked + .switch-slider:before{ transform:translateX(19px); }
   .section-title{ font-size:15px; font-weight:600; color:var(--cocoa); margin:26px 0 14px; padding-top:16px; border-top:1px solid var(--line); }
   .section-title:first-child{ margin-top:0; padding-top:0; border-top:none; }
   .form-group{ background:var(--card-bg); border-radius:12px; padding:16px; margin-bottom:14px; border:1px solid var(--line); }
@@ -720,7 +726,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.97';
+var BUILD_VERSION = '9.98';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2003,6 +2009,21 @@ var I18N = {
     appName:'食法典', appSub:'库存 · 食谱 · 营养',
     navHome:'库存', navRecipes:'食谱', navScan:'扫码', navSettings:'设置', navMenu:'菜单', navMeals:'三餐', navHealth:'健康',
     mealsTitle:'三餐', healthTitle:'健康',
+    healthWeightSection:'体重', healthPlanSection:'饮食计划', weightChartEmptyHint:'记录至少两次体重后这里会显示趋势图',
+    healthNoWeightYet:'还没有体重记录', logWeightBtn:'记录体重', viewWeightHistory:'体重历史',
+    dailyCalorieBudgetLabel:'每日热量预算', macroDistLabel:'宏量营养素分布', targetDateLabel:'预计达成日期',
+    healthPlanIncompleteHint:'填写个人信息和目标体重后，这里会自动算出每日热量预算', planSettingsBtn:'计划设置', personalInfoBtn:'个人信息',
+    editWeightEntryTitle:'编辑体重记录', fieldWeight:'体重', fieldDate:'日期',
+    weightEntryInvalid:'请填写日期和体重', weightSavedToast:'已保存', deleteWeightConfirm:'删除这条体重记录？',
+    fieldSex:'性别', sex_female:'女', sex_male:'男', fieldHeight:'身高', fieldBirthDate:'出生日期', fieldActivityLevel:'活动量',
+    activity_sedentary:'久坐', activity_light:'轻度活动', activity_moderate:'中度活动', activity_active:'高强度活动', activity_very_active:'极高强度',
+    weightUnitLabel:'体重单位',
+    bmrResultSection:'基础代谢', ageLabel:'年龄', bmrLabel:'基础代谢率(BMR)', maintenanceCalLabel:'维持热量',
+    bmrIncompleteHint:'请先在个人信息里填写性别/身高/出生日期，并至少记录一次体重',
+    goalSection:'目标', fieldGoalWeight:'目标体重', fieldWeeklyRate:'每周速率', perWeekShort:'周', fieldTargetDate:'目标日期',
+    planPriorityHint:'目标体重、每周速率、目标日期三者，改其中任意一个，另一个会自动重新计算',
+    macroCarbs:'碳水', macroProtein:'蛋白质', macroFat:'脂肪',
+    exerciseSection:'运动', exerciseAffectsBudgetLabel:'运动消耗计入当日热量预算',
     remainingQtyLabel:'剩余',
     searchPlaceholder:'搜索食品名称 / 品牌',
     filterAll:'全部',
@@ -2189,6 +2210,21 @@ var I18N = {
     appName:'Shi Fa Dian', appSub:'Inventory · Recipes · Nutrition',
     navHome:'Inventory', navRecipes:'Recipes', navScan:'Scan', navSettings:'Settings', navMenu:'Menu', navMeals:'Meals', navHealth:'Health',
     mealsTitle:'Meals', healthTitle:'Health',
+    healthWeightSection:'Weight', healthPlanSection:'Diet Plan', weightChartEmptyHint:'Log at least two entries to see a trend chart',
+    healthNoWeightYet:'No weight logged yet', logWeightBtn:'Log Weight', viewWeightHistory:'Weight History',
+    dailyCalorieBudgetLabel:'Daily Calorie Budget', macroDistLabel:'Macronutrient Distribution', targetDateLabel:'Projected Target Date',
+    healthPlanIncompleteHint:'Fill in your personal info and goal weight to see your daily calorie budget here', planSettingsBtn:'Plan Settings', personalInfoBtn:'Personal Info',
+    editWeightEntryTitle:'Edit Weight Entry', fieldWeight:'Weight', fieldDate:'Date',
+    weightEntryInvalid:'Please fill in a date and weight', weightSavedToast:'Saved', deleteWeightConfirm:'Delete this weight entry?',
+    fieldSex:'Sex', sex_female:'Female', sex_male:'Male', fieldHeight:'Height', fieldBirthDate:'Date of Birth', fieldActivityLevel:'Activity Level',
+    activity_sedentary:'Sedentary', activity_light:'Light', activity_moderate:'Moderate', activity_active:'Active', activity_very_active:'Very Active',
+    weightUnitLabel:'Weight Unit',
+    bmrResultSection:'Basal Metabolic Rate', ageLabel:'Age', bmrLabel:'BMR', maintenanceCalLabel:'Maintenance Calories',
+    bmrIncompleteHint:'Fill in your sex/height/date of birth in Personal Info, and log at least one weight entry',
+    goalSection:'Goal', fieldGoalWeight:'Target Weight', fieldWeeklyRate:'Weekly Rate', perWeekShort:'week', fieldTargetDate:'Target Date',
+    planPriorityHint:'Target weight, weekly rate, and target date - editing any one recalculates the other',
+    macroCarbs:'Carbs', macroProtein:'Protein', macroFat:'Fat',
+    exerciseSection:'Exercise', exerciseAffectsBudgetLabel:'Exercise counts toward daily calorie budget',
     remainingQtyLabel:'Remaining',
     searchPlaceholder:'Search name / brand',
     filterAll:'All',
@@ -2383,6 +2419,7 @@ var state = {
   mealLogs: [],
   weightLogs: [],
   weightPlan: {},
+  weightLogUI: null,
   mealsUI: {},
   healthUI: {},
   recipeCategoryGroups: JSON.parse(JSON.stringify(DEFAULT_RECIPE_CATEGORY_GROUPS)),
@@ -3271,6 +3308,10 @@ function render(){
     case 'statFilteredList': html = renderStatFilteredList(); break;
     case 'meals': html = renderMeals(); break;
     case 'health': html = renderHealth(); break;
+    case 'weightHistory': html = renderWeightHistory(); break;
+    case 'personalInfo': html = renderPersonalInfo(); break;
+    case 'planSettings': html = renderPlanSettings(); break;
+    case 'macroPresetPicker': html = renderMacroPresetPicker(); break;
     default: html = renderHome();
   }
   app.innerHTML = html;
@@ -3332,7 +3373,7 @@ function sidebarPageForCurrentView(){
   if(state.view==='home' || state.view==='archive' || state.view==='stats' || state.view==='priceHistory' || state.view==='statFilteredList') return 'home';
   if(state.view==='recipes') return 'recipes';
   if(state.view==='meals') return 'meals';
-  if(state.view==='health') return 'health';
+  if(state.view==='health' || state.view==='weightHistory' || state.view==='personalInfo' || state.view==='planSettings' || state.view==='macroPresetPicker') return 'health';
   return null;
 }
 function sidebarContentFor(page){
@@ -3484,6 +3525,10 @@ function openSettings(fromView){
     if(state.view==='manageTags') return {view:'settings'};
     if(state.view==='manageRecipeCategories') return {view:'settings'};
     if(state.view==='settings') return {view: state.settingsBackTo || 'home'};
+    if(state.view==='weightHistory') return {view:'health'};
+    if(state.view==='personalInfo') return {view:'planSettings'};
+    if(state.view==='planSettings') return {view:'health'};
+    if(state.view==='macroPresetPicker') return {view:'planSettings'};
     return null;
   }
   document.addEventListener('touchstart', function(e){
@@ -8244,6 +8289,424 @@ function confirmCook(recipeId){
   showToast(anyInsufficient ? t('cookSuccessInsufficient') : t('cookSuccess'));
   render();
 }
+
+/* ======================= MEALS (三餐) - README 9.96/9.98, skeleton only =======================
+   Real content (today's diary, add-food search, history chart, macro widget, fasting timer)
+   lands in a later batch - this is just the page shell: topbar, sidebar plumbing, bottom nav
+   highlighting, so the nav restructure has somewhere real to point at.
+   README 9.98 note: this function (and renderHealth's skeleton) briefly went missing in 9.97 -
+   they'd been written inside the old NOTES section by mistake back in 9.96, and 9.97's notes
+   cleanup deleted that whole section wholesale without noticing they were living inside it.
+   Re-added here, outside the (now fully removed) notes code, so this can't happen again. */
+function renderMeals(){
+  return '' +
+  '<div class="topbar"><div><h1>🍽️ '+t('mealsTitle')+'</h1></div>'+menuButtonHtml('meals', true)+'</div>'+
+  '<div class="content">'+
+    '<div class="empty-state">'+ic('spoon',36)+'<p>'+(state.lang==='zh'?'三餐记录正在建设中，敬请期待':'Meal tracking is under construction - stay tuned')+'</p></div>'+
+  '</div>'+
+  bottomNav();
+}
+function renderMealsSidebarContent(){
+  return '<div class="sidebar-header"><h2>🍽️ '+t('mealsTitle')+'</h2><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div>'+
+    '<p class="hint" style="padding:0 4px;">'+(state.lang==='zh'?'更多功能陆续加入':'More coming soon')+'</p>';
+}
+
+/* ======================= HEALTH (健康) - README 9.98 =======================
+   Batch 2 of the 三餐/健康 build-out: weight logging + trend chart + the weight goal/plan
+   (personal info -> BMR -> maintenance calories -> daily calorie budget, target weight <->
+   target date <-> weekly rate as a three-way mutual calc, and the 13-preset macro split).
+   Batch 3 (三餐 itself) will read state.weightPlan.dailyCalorieBudget/macro grams computed here.
+   Batch 4 adds blood pressure/waist/exercise on top of this same page. */
+
+// ---- constants ----
+var KG_PER_LB = 0.45359237;
+var KCAL_PER_KG_FAT = 7700; // standard rule-of-thumb energy density of body fat, used by most
+  // consumer diet apps (MyNetDiary included, going by their weight-plan math) for converting a
+  // target weekly rate of change into a daily calorie deficit/surplus - not exact for any one
+  // person (real energy balance is more complicated) but a reasonable, widely-used approximation.
+var ACTIVITY_LEVELS = ['sedentary','light','moderate','active','very_active'];
+var ACTIVITY_MULTIPLIERS = { sedentary:1.2, light:1.375, moderate:1.55, active:1.725, very_active:1.9 };
+// carbs:protein:fat as % of calories. Full list per Lynn's request, mirrors MyNetDiary's own
+// "Macronutrient Distribution" preset list.
+var MACRO_PRESETS = [
+  {id:'balanced', zh:'均衡/默认', en:'Balanced/Default', c:45, p:20, f:35},
+  {id:'mediterranean', zh:'地中海', en:'Mediterranean', c:50, p:15, f:35},
+  {id:'low_carb', zh:'低碳水', en:'Low-Carb', c:20, p:40, f:40},
+  {id:'keto', zh:'生酮/极低碳水', en:'Keto/Very Low-Carb', c:5, p:20, f:75},
+  {id:'dash', zh:'DASH', en:'DASH', c:55, p:18, f:27},
+  {id:'low_fat', zh:'低脂', en:'Low-Fat', c:50, p:20, f:30},
+  {id:'atkins', zh:'阿特金斯', en:'Atkins', c:10, p:30, f:60},
+  {id:'omniheart', zh:'OmniHeart', en:'OmniHeart', c:48, p:25, f:27},
+  {id:'tlc', zh:'TLC 治疗性生活方式', en:'TLC', c:55, p:15, f:30},
+  {id:'very_low_fat', zh:'极低脂', en:'Very Low-Fat', c:70, p:20, f:10},
+  {id:'zone', zh:'Zone', en:'Zone', c:40, p:30, f:30},
+  {id:'moderate_low_carb', zh:'中度低碳水', en:'Moderate Low-Carb', c:30, p:30, f:40},
+  {id:'no_carb', zh:'零碳水/纯肉食', en:'No Carb/Carnivore', c:1, p:29, f:70}
+];
+function macroPresetById(id){ return MACRO_PRESETS.find(function(m){ return m.id===id; }) || MACRO_PRESETS[0]; }
+
+// ---- unit conversion + formatting ----
+function kgToLb(kg){ return kg / KG_PER_LB; }
+function lbToKg(lb){ return lb * KG_PER_LB; }
+function healthWeightUnit(){ return (state.weightPlan && state.weightPlan.unit) || 'kg'; }
+// Weight is always stored canonically in kg (state.weightLogs[].weightKg, state.weightPlan.
+// goalWeightKg) regardless of display unit, same reasoning as storing everything in one
+// canonical unit elsewhere in this app - only the display layer converts.
+function displayWeight(kg){
+  if(kg==null) return null;
+  return healthWeightUnit()==='lb' ? kgToLb(kg) : kg;
+}
+function parseWeightInputToKg(val){
+  var n = parseFloat(val);
+  if(isNaN(n)) return null;
+  return healthWeightUnit()==='lb' ? lbToKg(n) : n;
+}
+function fmtWeight(kg){
+  if(kg==null) return '-';
+  return fmtNum(displayWeight(kg), 1)+' '+healthWeightUnit();
+}
+
+// ---- weight log helpers ----
+function sortedWeightLogs(){
+  return state.weightLogs.slice().sort(function(a,b){ return a.date.localeCompare(b.date); });
+}
+function latestWeightEntry(){
+  var sorted = sortedWeightLogs();
+  return sorted.length ? sorted[sorted.length-1] : null;
+}
+function latestWeightKg(){
+  var e = latestWeightEntry();
+  return e ? e.weightKg : null;
+}
+
+// ---- BMR / calorie budget calc engine ----
+function calcAge(birthDate){
+  if(!birthDate) return null;
+  var b = new Date(birthDate+'T00:00:00'), today = new Date();
+  var age = today.getFullYear() - b.getFullYear();
+  var m = today.getMonth() - b.getMonth();
+  if(m < 0 || (m===0 && today.getDate() < b.getDate())) age--;
+  return age;
+}
+// Mifflin-St Jeor - the current standard modern BMR formula (more accurate than the older
+// Harris-Benedict equation it superseded), used here as-is with no adjustment factor.
+function calcBMR(){
+  var p = state.weightPlan;
+  var weightKg = latestWeightKg() || p.goalWeightKg;
+  var age = calcAge(p.birthDate);
+  if(!p.sex || !p.heightCm || age==null || !weightKg) return null;
+  var base = 10*weightKg + 6.25*p.heightCm - 5*age;
+  return Math.round(p.sex==='male' ? base+5 : base-161);
+}
+function calcMaintenanceCalories(){
+  var bmr = calcBMR();
+  if(bmr==null) return null;
+  var mult = ACTIVITY_MULTIPLIERS[state.weightPlan.activityLevel||'sedentary'];
+  return Math.round(bmr*mult);
+}
+// The three-way mutual calc (target weight is fixed, given) - weeklyRateKg and targetDate each
+// determine the other; state.weightPlan.priority records which one the person last edited, so
+// editing it recomputes the OTHER, not itself (same "which field is the source of truth" idea as
+// MyNetDiary's own "My Priority" selector, see README 9.98).
+function recomputePlanFromPriority(){
+  var p = state.weightPlan;
+  var current = latestWeightKg();
+  if(current==null || p.goalWeightKg==null) return;
+  var deltaKg = p.goalWeightKg - current; // negative if losing
+  if(p.priority==='date'){
+    if(!p.targetDate) return;
+    var days = (new Date(p.targetDate+'T00:00:00') - new Date(todayStr()+'T00:00:00')) / 86400000;
+    if(days <= 0){ p.weeklyRateKg = 0; return; }
+    p.weeklyRateKg = deltaKg / (days/7);
+  } else {
+    if(!p.weeklyRateKg){ p.targetDate = null; return; }
+    var weeks = deltaKg / p.weeklyRateKg;
+    if(weeks <= 0){ p.targetDate = null; return; }
+    p.targetDate = addDaysStr(todayStr(), Math.round(weeks*7));
+  }
+}
+function calcDailyCalorieBudget(){
+  var maint = calcMaintenanceCalories();
+  if(maint==null) return null;
+  var p = state.weightPlan;
+  var deficitPerDay = ((p.weeklyRateKg||0) * KCAL_PER_KG_FAT) / 7;
+  return Math.round(maint + deficitPerDay);
+}
+function macroGramsForBudget(budget, presetId){
+  var preset = macroPresetById(presetId);
+  return {
+    carbs: Math.round(budget*preset.c/100/4),
+    protein: Math.round(budget*preset.p/100/4),
+    fat: Math.round(budget*preset.f/100/9)
+  };
+}
+function ensureWeightPlanDefaults(){
+  var p = state.weightPlan;
+  if(p.unit==null) p.unit = 'kg';
+  if(p.activityLevel==null) p.activityLevel = 'sedentary';
+  if(p.priority==null) p.priority = 'rate';
+  if(p.weeklyRateKg==null) p.weeklyRateKg = 0;
+  if(p.macroPreset==null) p.macroPreset = 'balanced';
+  if(p.exerciseAffectsBudget==null) p.exerciseAffectsBudget = false;
+}
+
+// ---- weight log CRUD ----
+function openWeightLogModal(id){
+  var existing = id ? state.weightLogs.find(function(e){ return e.id===id; }) : null;
+  state.weightLogUI = existing ?
+    {id:id, date:existing.date, weightText: fmtNum(displayWeight(existing.weightKg),1), note:existing.note||''} :
+    {id:null, date:todayStr(), weightText:'', note:''};
+  renderWeightLogModal();
+}
+function renderWeightLogModal(){
+  var ui = state.weightLogUI;
+  showModal(ui.id ? t('editWeightEntryTitle') : t('logWeightBtn'),
+    '<div class="field"><label>'+t('fieldDate')+'</label><input type="date" value="'+esc(ui.date)+'" oninput="wl_str(\'date\',this.value)"></div>'+
+    '<div class="field"><label>'+t('fieldWeight')+' ('+healthWeightUnit()+')</label><input id="weight-input-focus" type="number" inputmode="decimal" placeholder="-" value="'+esc(ui.weightText)+'" oninput="wl_str(\'weightText\',this.value)"></div>'+
+    '<div class="field" style="margin-bottom:0;"><label>'+t('fieldNotes')+'</label><textarea placeholder="'+t('fieldNotesPh')+'" oninput="wl_str(\'note\',this.value)">'+esc(ui.note)+'</textarea></div>'+
+    '<button class="btn btn-primary" style="margin-top:14px;" onclick="saveWeightLogEntry()">'+t('save')+'</button>'+
+    (ui.id ? '<button class="btn btn-danger" style="margin-top:10px;width:100%;" onclick="deleteWeightLogEntry('+aj(ui.id)+')">'+t('delete')+'</button>' : '')
+  );
+  var el = document.getElementById('weight-input-focus');
+  if(el) el.focus();
+}
+function wl_str(field, val){ state.weightLogUI[field]=val; }
+function saveWeightLogEntry(){
+  var ui = state.weightLogUI;
+  var kg = parseWeightInputToKg(ui.weightText);
+  if(!ui.date || kg==null){ showToast(t('weightEntryInvalid')); return; }
+  if(ui.id){
+    var e = state.weightLogs.find(function(x){ return x.id===ui.id; });
+    e.date = ui.date; e.weightKg = kg; e.note = ui.note;
+  } else {
+    state.weightLogs.push({id:uid(), date:ui.date, weightKg:kg, note:ui.note});
+  }
+  saveWeightLogs();
+  recomputePlanFromPriority(); saveWeightPlan();
+  closeModal();
+  showToast(t('weightSavedToast'));
+  render();
+}
+function deleteWeightLogEntry(id){
+  showConfirmModal(t('deleteWeightConfirm'), function(){
+    state.weightLogs = state.weightLogs.filter(function(x){ return x.id!==id; });
+    saveWeightLogs();
+    recomputePlanFromPriority(); saveWeightPlan();
+    closeModal();
+    render();
+  }, {title:t('delete')});
+}
+
+// ---- chart (mirrors priceHistorySvg's approach, see its own comment - dedicated per-feature
+// chart functions rather than one shared generic one is the existing convention in this file) ----
+function weightChartSvg(points){
+  var w=340, h=190, padL=44, padR=16, padT=18, padB=30;
+  var vals = points.map(function(p){ return displayWeight(p.weightKg); });
+  var minV = Math.min.apply(null, vals), maxV = Math.max.apply(null, vals);
+  if(minV===maxV){ minV -= 1; maxV += 1; }
+  var innerW=w-padL-padR, innerH=h-padT-padB;
+  var minDate = new Date(points[0].date+'T00:00:00');
+  var maxDate = new Date(points[points.length-1].date+'T00:00:00');
+  var totalMs = (maxDate-minDate)||1;
+  function x(i){ if(points.length===1) return padL+innerW/2; var tt=(new Date(points[i].date+'T00:00:00'))-minDate; return padL+innerW*(tt/totalMs); }
+  function y(v){ return padT+innerH-innerH*(v-minV)/(maxV-minV); }
+  var pathD = points.map(function(p,i){ return (i===0?'M':'L')+x(i).toFixed(1)+','+y(displayWeight(p.weightKg)).toFixed(1); }).join(' ');
+  var dots = points.map(function(p,i){ return '<circle cx="'+x(i).toFixed(1)+'" cy="'+y(displayWeight(p.weightKg)).toFixed(1)+'" r="4" fill="var(--almond)" stroke="var(--card-bg)" stroke-width="1.5"/>'; }).join('');
+  var startLabel = '<text x="'+padL+'" y="'+(h-8)+'" font-size="10" fill="var(--deep-caramel)">'+esc(fmtDateDots(points[0].date))+'</text>';
+  var endLabel = points.length>1 ? '<text x="'+(w-padR)+'" y="'+(h-8)+'" font-size="10" fill="var(--deep-caramel)" text-anchor="end">'+esc(fmtDateDots(points[points.length-1].date))+'</text>' : '';
+  var maxLabel = '<text x="4" y="'+(padT+4)+'" font-size="10" fill="var(--deep-caramel)">'+fmtNum(maxV,1)+'</text>';
+  var minLabel = '<text x="4" y="'+(h-padB)+'" font-size="10" fill="var(--deep-caramel)">'+fmtNum(minV,1)+'</text>';
+  return '<svg viewBox="0 0 '+w+' '+h+'" style="width:100%;height:auto;display:block;">'+
+    '<line x1="'+padL+'" y1="'+padT+'" x2="'+padL+'" y2="'+(h-padB)+'" stroke="var(--line)" stroke-width="1"/>'+
+    '<line x1="'+padL+'" y1="'+(h-padB)+'" x2="'+(w-padR)+'" y2="'+(h-padB)+'" stroke="var(--line)" stroke-width="1"/>'+
+    '<path d="'+pathD+'" fill="none" stroke="var(--almond)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>'+
+    dots + startLabel + endLabel + maxLabel + minLabel +
+  '</svg>';
+}
+
+// ---- dashboard ----
+function renderHealth(){
+  ensureWeightPlanDefaults();
+  var logs = sortedWeightLogs();
+  var latest = latestWeightEntry();
+  var chartHtml = logs.length>=2 ? ('<div style="padding:14px 4px 6px;">'+weightChartSvg(logs)+'</div>') :
+    '<p class="hint" style="padding:6px 4px;">'+t('weightChartEmptyHint')+'</p>';
+  var weightCard = '' +
+    '<div class="section-title" style="margin-top:0;">'+t('healthWeightSection')+'</div>'+
+    '<div class="form-group">'+
+      '<div class="sidebar-stat-row">'+
+        '<div class="sidebar-stat-card"><div class="sidebar-stat-num">'+(latest? fmtWeight(latest.weightKg): '-')+'</div><div class="sidebar-stat-label">'+(latest? fmtDateDots(latest.date) : t('healthNoWeightYet'))+'</div></div>'+
+      '</div>'+
+      chartHtml +
+      '<button class="btn btn-primary" style="width:100%;margin-top:8px;" onclick="openWeightLogModal(null)">'+t('logWeightBtn')+'</button>'+
+      '<div class="list-row" onclick="navigate(\'weightHistory\')" style="cursor:pointer;margin-top:4px;"><div class="row-label">'+t('viewWeightHistory')+'</div>'+ic('chevronRight',18)+'</div>'+
+    '</div>';
+  var budget = calcDailyCalorieBudget();
+  var preset = macroPresetById(state.weightPlan.macroPreset);
+  var planCard = '' +
+    '<div class="section-title">'+t('healthPlanSection')+'</div>'+
+    '<div class="form-group">'+
+      (budget!=null ?
+        ('<div class="sidebar-stat-row">'+
+          '<div class="sidebar-stat-card"><div class="sidebar-stat-num">'+budget+'</div><div class="sidebar-stat-label">'+t('dailyCalorieBudgetLabel')+'</div></div>'+
+        '</div>'+
+        '<p class="hint" style="margin-top:6px;">'+t('macroDistLabel')+'：'+preset.c+':'+preset.p+':'+preset.f+'（'+(state.lang==='zh'?preset.zh:preset.en)+'）</p>'+
+        (state.weightPlan.targetDate ? ('<p class="hint">'+t('targetDateLabel')+'：'+fmtDateDots(state.weightPlan.targetDate)+'</p>') : ''))
+      : ('<p class="hint">'+t('healthPlanIncompleteHint')+'</p>')) +
+      '<div class="list-row" onclick="navigate(\'planSettings\')" style="cursor:pointer;margin-top:8px;"><div class="row-label">'+t('planSettingsBtn')+'</div>'+ic('chevronRight',18)+'</div>'+
+    '</div>';
+  return '' +
+  '<div class="topbar"><div><h1>⚖️ '+t('healthTitle')+'</h1></div>'+menuButtonHtml('health', true)+'</div>'+
+  '<div class="content">'+
+    weightCard + planCard +
+  '</div>'+
+  bottomNav();
+}
+function renderHealthSidebarContent(){
+  return '<div class="sidebar-header"><h2>⚖️ '+t('healthTitle')+'</h2><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div>'+
+    '<div class="sidebar-item" onclick="navigate(\'weightHistory\')">'+t('viewWeightHistory')+'</div>'+
+    '<div class="sidebar-item" onclick="navigate(\'planSettings\')">'+t('planSettingsBtn')+'</div>'+
+    '<div class="sidebar-item" onclick="navigate(\'personalInfo\')">'+t('personalInfoBtn')+'</div>';
+}
+
+// ---- weight history list page ----
+function renderWeightHistory(){
+  var logs = sortedWeightLogs().slice().reverse();
+  var rows = logs.map(function(e, idx){
+    var prev = logs[idx+1]; // reversed list, so "prev" chronologically is the NEXT array item
+    var delta = prev ? (displayWeight(e.weightKg) - displayWeight(prev.weightKg)) : null;
+    var deltaHtml = delta==null ? '' : (
+      '<span style="font-size:12.5px;margin-left:8px;color:'+(delta>0?'var(--danger)':(delta<0?'var(--fresh)':'var(--deep-caramel)'))+';">'+
+      (delta>0?'▲':(delta<0?'▼':'—'))+' '+fmtNum(Math.abs(delta),1)+'</span>'
+    );
+    return '<div class="list-row" onclick="openWeightLogModal('+aj(e.id)+')" style="cursor:pointer;">'+
+      '<div class="row-label">'+esc(fmtDateDots(e.date))+(e.note?('<div class="hint" style="margin-top:2px;">'+esc(e.note)+'</div>'):'')+'</div>'+
+      '<div style="display:flex;align-items:center;">'+fmtWeight(e.weightKg)+deltaHtml+'</div>'+
+    '</div>';
+  }).join('') || '<div class="empty-state">'+ic('scale',36)+'<p>'+t('healthNoWeightYet')+'</p></div>';
+  return '' +
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'health\')">'+ic('back',22)+'</button><h1>'+t('viewWeightHistory')+'</h1>'+
+    '<button class="icon-btn" onclick="openWeightLogModal(null)">'+ic('plus',20)+'</button>'+
+  '</div>'+
+  '<div class="content">'+rows+'</div>';
+}
+
+// ---- personal info page (feeds BMR) ----
+function renderPersonalInfo(){
+  var p = state.weightPlan;
+  var age = calcAge(p.birthDate);
+  var bmr = calcBMR();
+  return '' +
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'planSettings\')">'+ic('back',22)+'</button><h1>'+t('personalInfoBtn')+'</h1></div>'+
+  '<div class="content">'+
+    '<div class="field"><label>'+t('fieldSex')+'</label><div class="tag-select">'+
+      ['female','male'].map(function(s){ return '<div class="tag-option '+(p.sex===s?'active':'')+'" onclick="setPlanField(\'sex\','+aj(s)+')">'+t('sex_'+s)+'</div>'; }).join('')+
+    '</div></div>'+
+    '<div class="field"><label>'+t('fieldHeight')+' (cm)</label><input type="number" inputmode="decimal" placeholder="-" value="'+(p.heightCm==null?'':p.heightCm)+'" oninput="setPlanField(\'heightCm\', this.value===\'\'?null:parseFloat(this.value))"></div>'+
+    '<div class="field"><label>'+t('fieldBirthDate')+'</label><input type="date" value="'+esc(p.birthDate||'')+'" oninput="setPlanField(\'birthDate\', this.value)"></div>'+
+    '<div class="field"><label>'+t('fieldActivityLevel')+'</label><div class="tag-select">'+
+      ACTIVITY_LEVELS.map(function(a){ return '<div class="tag-option '+(p.activityLevel===a?'active':'')+'" onclick="setPlanField(\'activityLevel\','+aj(a)+')">'+t('activity_'+a)+'</div>'; }).join('')+
+    '</div></div>'+
+    '<div class="field"><label>'+t('weightUnitLabel')+'</label><div class="tag-select">'+
+      ['kg','lb'].map(function(u){ return '<div class="tag-option '+(p.unit===u?'active':'')+'" onclick="setPlanField(\'unit\','+aj(u)+')">'+u+'</div>'; }).join('')+
+    '</div></div>'+
+    '<div class="section-title">'+t('bmrResultSection')+'</div>'+
+    '<div class="form-group">'+
+      (bmr!=null ?
+        ('<div class="list-row"><div class="row-label">'+t('ageLabel')+'</div><div>'+age+'</div></div>'+
+        '<div class="list-row"><div class="row-label">'+t('bmrLabel')+'</div><div>'+bmr+' kcal</div></div>'+
+        '<div class="list-row"><div class="row-label">'+t('maintenanceCalLabel')+'</div><div>'+calcMaintenanceCalories()+' kcal</div></div>')
+      : ('<p class="hint">'+t('bmrIncompleteHint')+'</p>')) +
+    '</div>'+
+  '</div>';
+}
+function setPlanField(field, val){
+  ensureWeightPlanDefaults();
+  state.weightPlan[field] = val;
+  saveWeightPlan();
+  render();
+}
+
+// ---- plan settings page ----
+function renderPlanSettings(){
+  ensureWeightPlanDefaults();
+  var p = state.weightPlan;
+  var budget = calcDailyCalorieBudget();
+  var preset = macroPresetById(p.macroPreset);
+  var macroHtml = budget!=null ? (function(){
+    var g = macroGramsForBudget(budget, p.macroPreset);
+    return '<p class="hint" style="margin-top:4px;">'+g.carbs+'g '+t('macroCarbs')+' · '+g.protein+'g '+t('macroProtein')+' · '+g.fat+'g '+t('macroFat')+'</p>';
+  })() : '';
+  return '' +
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'health\')">'+ic('back',22)+'</button><h1>'+t('planSettingsBtn')+'</h1></div>'+
+  '<div class="content">'+
+    '<div class="list-row" onclick="navigate(\'personalInfo\')" style="cursor:pointer;"><div class="row-label">'+t('personalInfoBtn')+'</div>'+ic('chevronRight',18)+'</div>'+
+    '<div class="section-title">'+t('goalSection')+'</div>'+
+    '<div class="field"><label>'+t('fieldGoalWeight')+' ('+healthWeightUnit()+')</label><input type="number" inputmode="decimal" placeholder="-" value="'+(p.goalWeightKg==null?'':fmtNum(displayWeight(p.goalWeightKg),1))+'" oninput="onGoalWeightInput(this.value)"></div>'+
+    '<div class="field"><label>'+t('fieldWeeklyRate')+' ('+healthWeightUnit()+'/'+t('perWeekShort')+')</label><input type="number" inputmode="decimal" step="0.1" placeholder="-" value="'+(p.weeklyRateKg==null?'':fmtNum(displayWeight(p.weeklyRateKg),2))+'" oninput="onWeeklyRateInput(this.value)"></div>'+
+    '<div class="field"><label>'+t('fieldTargetDate')+'</label><input type="date" value="'+esc(p.targetDate||'')+'" oninput="onTargetDateInput(this.value)"></div>'+
+    '<p class="hint">'+t('planPriorityHint')+'</p>'+
+    '<div class="section-title">'+t('macroDistLabel')+'</div>'+
+    '<div class="list-row" onclick="navigate(\'macroPresetPicker\')" style="cursor:pointer;">'+
+      '<div class="row-label">'+(state.lang==='zh'?preset.zh:preset.en)+'<div class="hint" style="margin-top:2px;">'+preset.c+':'+preset.p+':'+preset.f+'</div></div>'+ic('chevronRight',18)+
+    '</div>'+
+    '<div class="section-title">'+t('dailyCalorieBudgetLabel')+'</div>'+
+    '<div class="form-group">'+
+      (budget!=null ? ('<div class="sidebar-stat-row"><div class="sidebar-stat-card"><div class="sidebar-stat-num">'+budget+'</div><div class="sidebar-stat-label">kcal</div></div></div>'+macroHtml)
+        : ('<p class="hint">'+t('bmrIncompleteHint')+'</p>')) +
+    '</div>'+
+    '<div class="section-title">'+t('exerciseSection')+'</div>'+
+    '<div class="list-row"><div class="row-label">'+t('exerciseAffectsBudgetLabel')+'</div>'+
+      '<label class="switch"><input type="checkbox" '+(p.exerciseAffectsBudget?'checked':'')+' onchange="setPlanField(\'exerciseAffectsBudget\', this.checked)"><span class="switch-slider"></span></label>'+
+    '</div>'+
+  '</div>';
+}
+function onGoalWeightInput(val){
+  ensureWeightPlanDefaults();
+  var kg = val===''? null : parseWeightInputToKg(val);
+  state.weightPlan.goalWeightKg = kg;
+  recomputePlanFromPriority();
+  saveWeightPlan();
+}
+function onWeeklyRateInput(val){
+  ensureWeightPlanDefaults();
+  state.weightPlan.priority = 'rate';
+  state.weightPlan.weeklyRateKg = val===''? 0 : parseWeightInputToKg(val);
+  recomputePlanFromPriority();
+  saveWeightPlan();
+  render();
+}
+function onTargetDateInput(val){
+  ensureWeightPlanDefaults();
+  state.weightPlan.priority = 'date';
+  state.weightPlan.targetDate = val || null;
+  recomputePlanFromPriority();
+  saveWeightPlan();
+  render();
+}
+
+// ---- macro preset picker (simple list, not a table - matches the app's stated style preference) ----
+function renderMacroPresetPicker(){
+  ensureWeightPlanDefaults();
+  var rows = MACRO_PRESETS.map(function(m){
+    var active = state.weightPlan.macroPreset===m.id;
+    return '<div class="list-row" onclick="pickMacroPreset('+aj(m.id)+')" style="cursor:pointer;'+(active?'background:var(--cream);':'')+'">'+
+      '<div class="row-label">'+(state.lang==='zh'?m.zh:m.en)+'<div class="hint" style="margin-top:2px;">'+m.c+':'+m.p+':'+m.f+'</div></div>'+
+      (active ? ic('check',18) : '')+
+    '</div>';
+  }).join('');
+  return '' +
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'planSettings\')">'+ic('back',22)+'</button><h1>'+t('macroDistLabel')+'</h1></div>'+
+  '<div class="content">'+rows+'</div>';
+}
+function pickMacroPreset(id){
+  ensureWeightPlanDefaults();
+  state.weightPlan.macroPreset = id;
+  saveWeightPlan();
+  navigate('planSettings');
+}
+
+
 
 /* ======================= SETTINGS ======================= */
 function renderSettings(){
