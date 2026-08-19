@@ -726,7 +726,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.98';
+var BUILD_VERSION = '9.99';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2016,10 +2016,11 @@ var I18N = {
     editWeightEntryTitle:'编辑体重记录', fieldWeight:'体重', fieldDate:'日期',
     weightEntryInvalid:'请填写日期和体重', weightSavedToast:'已保存', deleteWeightConfirm:'删除这条体重记录？',
     fieldSex:'性别', sex_female:'女', sex_male:'男', fieldHeight:'身高', fieldBirthDate:'出生日期', fieldActivityLevel:'活动量',
-    activity_sedentary:'久坐', activity_light:'轻度活动', activity_moderate:'中度活动', activity_active:'高强度活动', activity_very_active:'极高强度',
+    activity_inactive:'久坐', activity_low_active:'轻度活动', activity_active:'活跃', activity_very_active:'非常活跃',
     weightUnitLabel:'体重单位',
-    bmrResultSection:'基础代谢', ageLabel:'年龄', bmrLabel:'基础代谢率(BMR)', maintenanceCalLabel:'维持热量',
-    bmrIncompleteHint:'请先在个人信息里填写性别/身高/出生日期，并至少记录一次体重',
+    bmrResultSection:'每日热量需求', ageLabel:'年龄', maintenanceCalLabel:'维持热量',
+    bmrIncompleteHint:'请先填写性别/身高/出生日期，并至少记录一次体重',
+    eerSourceHint:'采用美国国家科学院医学部(NASEM) 2023年更新的膳食能量参考摄入量(DRI)公式，跟 MyNetDiary 目前使用的算法一致',
     goalSection:'目标', fieldGoalWeight:'目标体重', fieldWeeklyRate:'每周速率', perWeekShort:'周', fieldTargetDate:'目标日期',
     planPriorityHint:'目标体重、每周速率、目标日期三者，改其中任意一个，另一个会自动重新计算',
     macroCarbs:'碳水', macroProtein:'蛋白质', macroFat:'脂肪',
@@ -2217,10 +2218,11 @@ var I18N = {
     editWeightEntryTitle:'Edit Weight Entry', fieldWeight:'Weight', fieldDate:'Date',
     weightEntryInvalid:'Please fill in a date and weight', weightSavedToast:'Saved', deleteWeightConfirm:'Delete this weight entry?',
     fieldSex:'Sex', sex_female:'Female', sex_male:'Male', fieldHeight:'Height', fieldBirthDate:'Date of Birth', fieldActivityLevel:'Activity Level',
-    activity_sedentary:'Sedentary', activity_light:'Light', activity_moderate:'Moderate', activity_active:'Active', activity_very_active:'Very Active',
+    activity_inactive:'Inactive', activity_low_active:'Low Active', activity_active:'Active', activity_very_active:'Very Active',
     weightUnitLabel:'Weight Unit',
-    bmrResultSection:'Basal Metabolic Rate', ageLabel:'Age', bmrLabel:'BMR', maintenanceCalLabel:'Maintenance Calories',
-    bmrIncompleteHint:'Fill in your sex/height/date of birth in Personal Info, and log at least one weight entry',
+    bmrResultSection:'Daily Energy Requirement', ageLabel:'Age', maintenanceCalLabel:'Maintenance Calories',
+    bmrIncompleteHint:'Fill in your sex/height/date of birth, and log at least one weight entry',
+    eerSourceHint:'Uses the National Academies (NASEM) 2023 Dietary Reference Intake for Energy formula - the same one MyNetDiary currently uses',
     goalSection:'Goal', fieldGoalWeight:'Target Weight', fieldWeeklyRate:'Weekly Rate', perWeekShort:'week', fieldTargetDate:'Target Date',
     planPriorityHint:'Target weight, weekly rate, and target date - editing any one recalculates the other',
     macroCarbs:'Carbs', macroProtein:'Protein', macroFat:'Fat',
@@ -8324,8 +8326,33 @@ var KCAL_PER_KG_FAT = 7700; // standard rule-of-thumb energy density of body fat
   // consumer diet apps (MyNetDiary included, going by their weight-plan math) for converting a
   // target weekly rate of change into a daily calorie deficit/surplus - not exact for any one
   // person (real energy balance is more complicated) but a reasonable, widely-used approximation.
-var ACTIVITY_LEVELS = ['sedentary','light','moderate','active','very_active'];
-var ACTIVITY_MULTIPLIERS = { sedentary:1.2, light:1.375, moderate:1.55, active:1.725, very_active:1.9 };
+var ACTIVITY_LEVELS = ['inactive','low_active','active','very_active'];
+// Estimated Energy Requirement (EER) equations, from the National Academies of Sciences,
+// Engineering, and Medicine's 2023 Dietary Reference Intakes for Energy report (Table 5-16) -
+// the official U.S./Canadian government energy-requirement standard, and (per README 9.99)
+// confirmed to be what MyNetDiary switched to in January 2025: verified against Lynn's own
+// real profile (female/inactive/49.5kg/158cm/1981-07-10) this gives 1752.86 -> 1753, matching
+// MyNetDiary's displayed 1752 almost exactly (older Mifflin-St Jeor + activity-multiplier
+// approach this app used before README 9.99 gave 1316 for the same profile - not close).
+// This replaces the old two-step "BMR x activity multiplier" approach entirely - EER is a
+// single regression equation per sex/activity category, not built from a separate BMR figure,
+// so there's no BMR shown anywhere in this app's health pages anymore either.
+// Coefficients are {c: intercept, a: age coefficient, h: height(cm) coefficient, w: weight(kg)
+// coefficient}; EER = c - a*age + h*height + w*weight.
+var EER_EQUATIONS = {
+  male: {
+    inactive:    {c:753.07,  a:10.83, h:6.50,  w:14.10},
+    low_active:  {c:581.47,  a:10.83, h:8.30,  w:14.94},
+    active:      {c:1004.82, a:10.83, h:6.52,  w:15.91},
+    very_active: {c:-517.88, a:10.83, h:15.61, w:19.11}
+  },
+  female: {
+    inactive:    {c:584.90, a:7.01, h:5.72, w:11.71},
+    low_active:  {c:575.77, a:7.01, h:6.60, w:12.14},
+    active:      {c:710.25, a:7.01, h:6.54, w:12.34},
+    very_active: {c:511.83, a:7.01, h:9.07, w:12.56}
+  }
+};
 // carbs:protein:fat as % of calories. Full list per Lynn's request, mirrors MyNetDiary's own
 // "Macronutrient Distribution" preset list.
 var MACRO_PRESETS = [
@@ -8379,7 +8406,8 @@ function latestWeightKg(){
   return e ? e.weightKg : null;
 }
 
-// ---- BMR / calorie budget calc engine ----
+// Mifflin-St Jeor BMR is no longer used anywhere in this app (see EER_EQUATIONS' own comment
+// above for why) - calcAge is still needed on its own since EER needs age directly.
 function calcAge(birthDate){
   if(!birthDate) return null;
   var b = new Date(birthDate+'T00:00:00'), today = new Date();
@@ -8388,21 +8416,14 @@ function calcAge(birthDate){
   if(m < 0 || (m===0 && today.getDate() < b.getDate())) age--;
   return age;
 }
-// Mifflin-St Jeor - the current standard modern BMR formula (more accurate than the older
-// Harris-Benedict equation it superseded), used here as-is with no adjustment factor.
-function calcBMR(){
+function calcMaintenanceCalories(){
   var p = state.weightPlan;
   var weightKg = latestWeightKg() || p.goalWeightKg;
   var age = calcAge(p.birthDate);
   if(!p.sex || !p.heightCm || age==null || !weightKg) return null;
-  var base = 10*weightKg + 6.25*p.heightCm - 5*age;
-  return Math.round(p.sex==='male' ? base+5 : base-161);
-}
-function calcMaintenanceCalories(){
-  var bmr = calcBMR();
-  if(bmr==null) return null;
-  var mult = ACTIVITY_MULTIPLIERS[state.weightPlan.activityLevel||'sedentary'];
-  return Math.round(bmr*mult);
+  var eq = EER_EQUATIONS[p.sex][p.activityLevel||'inactive'];
+  if(!eq) return null;
+  return Math.round(eq.c - eq.a*age + eq.h*p.heightCm + eq.w*weightKg);
 }
 // The three-way mutual calc (target weight is fixed, given) - weeklyRateKg and targetDate each
 // determine the other; state.weightPlan.priority records which one the person last edited, so
@@ -8595,7 +8616,7 @@ function renderWeightHistory(){
 function renderPersonalInfo(){
   var p = state.weightPlan;
   var age = calcAge(p.birthDate);
-  var bmr = calcBMR();
+  var maint = calcMaintenanceCalories();
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'planSettings\')">'+ic('back',22)+'</button><h1>'+t('personalInfoBtn')+'</h1></div>'+
   '<div class="content">'+
@@ -8612,10 +8633,10 @@ function renderPersonalInfo(){
     '</div></div>'+
     '<div class="section-title">'+t('bmrResultSection')+'</div>'+
     '<div class="form-group">'+
-      (bmr!=null ?
+      (maint!=null ?
         ('<div class="list-row"><div class="row-label">'+t('ageLabel')+'</div><div>'+age+'</div></div>'+
-        '<div class="list-row"><div class="row-label">'+t('bmrLabel')+'</div><div>'+bmr+' kcal</div></div>'+
-        '<div class="list-row"><div class="row-label">'+t('maintenanceCalLabel')+'</div><div>'+calcMaintenanceCalories()+' kcal</div></div>')
+        '<div class="list-row"><div class="row-label">'+t('maintenanceCalLabel')+'</div><div>'+maint+' kcal</div></div>'+
+        '<p class="hint" style="margin-top:8px;">'+t('eerSourceHint')+'</p>')
       : ('<p class="hint">'+t('bmrIncompleteHint')+'</p>')) +
     '</div>'+
   '</div>';
