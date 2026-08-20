@@ -120,6 +120,12 @@
   }
   .search-bar input::placeholder{ color:#B79B78; }
   .search-bar i{ font-size:19px; color:var(--deep-caramel); }
+  .search-clear-btn{
+    display:none; align-items:center; justify-content:center; flex-shrink:0;
+    width:22px; height:22px; padding:0; border:none; border-radius:50%;
+    background:var(--line); color:var(--deep-caramel); cursor:pointer;
+  }
+  .search-clear-btn:active{ background:var(--cream-2); }
 
   .chip-row{ display:flex; gap:8px; overflow-x:auto; padding-bottom:4px; margin-bottom:6px; scrollbar-width:none; }
   .chip-row::-webkit-scrollbar{ display:none; }
@@ -726,7 +732,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.99';
+var BUILD_VERSION = '9.100';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2026,7 +2032,7 @@ var I18N = {
     macroCarbs:'碳水', macroProtein:'蛋白质', macroFat:'脂肪',
     exerciseSection:'运动', exerciseAffectsBudgetLabel:'运动消耗计入当日热量预算',
     remainingQtyLabel:'剩余',
-    searchPlaceholder:'搜索食品名称 / 品牌',
+    searchPlaceholder:'搜索食品名称 / 品牌', clearSearchBtn:'清空',
     filterAll:'全部',
     sortLabel:'排序', sortExpiry:'过期', sortName:'名称', sortPurchase:'购买', sortCreated:'录入',
     emptyInventory:'库存还是空的', emptyInventoryHint:'点击下方按钮扫码或手动添加第一件食材吧',
@@ -2184,9 +2190,10 @@ var I18N = {
     // archive
     navArchive:'存档', archiveTitle:'存档', searchArchivePlaceholder:'搜索已存档食材',
     emptyArchive:'还没有存档的食材', emptyArchiveHint:'在食材详情页点击"存档"，可以把已用完或不再需要跟踪的食材归档保存',
-    archivedAt:'存档于', archiveConfirmMsg:'确定要存档这条记录吗？存档后会从库存列表移出，可以在"存档"页面查看，但不能再编辑。',
-    archiveBtn:'存档', archivedToast:'已存档',
-    deleteArchivedConfirmMsg:'确定要永久删除这条存档记录吗？此操作无法撤销。', deleteArchivedBtn:'永久删除',
+    archivedAt:'存档于', archiveConfirmMsg:'确定要存档这条记录吗？存档后会从库存列表移出，可以在"存档"页面查看、编辑或恢复。',
+    archiveBtn:'存档', archivedToast:'已存档', restoreBtn:'恢复', restoredToast:'已恢复到库存',
+    restoreArchivedConfirmMsg:'恢复这条记录到库存？恢复后会重新出现在库存列表中。',
+    deleteArchivedConfirmMsg:'确定要永久删除这条存档记录吗？此操作无法撤销。',
     sidebarToolsLabel:'更多',
     bulkEditEntry:'批量设置分类/位置',
     bulkSelectedCount:'已选 {n} 项',
@@ -2228,7 +2235,7 @@ var I18N = {
     macroCarbs:'Carbs', macroProtein:'Protein', macroFat:'Fat',
     exerciseSection:'Exercise', exerciseAffectsBudgetLabel:'Exercise counts toward daily calorie budget',
     remainingQtyLabel:'Remaining',
-    searchPlaceholder:'Search name / brand',
+    searchPlaceholder:'Search name / brand', clearSearchBtn:'Clear',
     filterAll:'All',
     sortLabel:'Sort', sortExpiry:'Expiry', sortName:'Name', sortPurchase:'Purchase date', sortCreated:'Date added',
     emptyInventory:'Your pantry is empty', emptyInventoryHint:'Tap below to scan or manually add your first item',
@@ -2380,9 +2387,10 @@ var I18N = {
     // archive
     navArchive:'Archive', archiveTitle:'Archive', searchArchivePlaceholder:'Search archived items',
     emptyArchive:'No archived items yet', emptyArchiveHint:'Tap "Archive" on an item\'s detail page to file it away once it\'s used up or no longer needs tracking',
-    archivedAt:'Archived on', archiveConfirmMsg:'Archive this item? It will move out of your active inventory list into Archive, and can no longer be edited.',
-    archiveBtn:'Archive', archivedToast:'Archived',
-    deleteArchivedConfirmMsg:'Permanently delete this archived record? This cannot be undone.', deleteArchivedBtn:'Delete permanently',
+    archivedAt:'Archived on', archiveConfirmMsg:'Archive this item? It will move out of your active inventory list into Archive, where you can view, edit, or restore it.',
+    archiveBtn:'Archive', archivedToast:'Archived', restoreBtn:'Restore', restoredToast:'Restored to inventory',
+    restoreArchivedConfirmMsg:'Restore this record to your active inventory? It will reappear in your inventory list.',
+    deleteArchivedConfirmMsg:'Permanently delete this archived record? This cannot be undone.',
     sidebarToolsLabel:'More',
     bulkEditEntry:'Bulk set category/location',
     bulkSelectedCount:'{n} selected',
@@ -2428,7 +2436,7 @@ var state = {
   recipesUI: { groupId:null, sub:null, expandedGroup:null },
   recipeFormUI: {},
   recipeDetailUI: { nutriExpanded:false },
-  archiveUI: { search:'' },
+  archiveUI: { search:'', expandedGroups:{} },
   statsUI: { search:'', rangeMode:'year', startDate:'', endDate:'', ran:false },
   historyUI: { search:'' },
   sidebarOpen: null,
@@ -3032,12 +3040,21 @@ function itemDisplayName(it){
 function archiveItem(id){
   var it = state.items.find(function(i){ return i.id===id; });
   if(!it) return;
+  // README 9.100: this used to always navigate('home') after archiving, which was correct for
+  // the item-detail page's own archive button (the detail page for a now-archived item
+  // shouldn't stay open) but wrong for the swipe-to-archive action on any *list* page other
+  // than home (地home) - e.g. a filtered "已用完" list, or eventually other filtered views -
+  // it yanked the person out of whatever list/filter they were looking at back to the plain
+  // unfiltered home view. Only navigate away when archiving was actually initiated from the
+  // item's own detail page; everywhere else, just re-render in place so the archived item
+  // simply drops out of the current list/filter, same as delete already does elsewhere.
+  var cameFromDetail = (state.view === 'itemDetail');
   showConfirmModal(t('archiveConfirmMsg'), function(){
     it.archived = true;
     it.archived_at = nowLocalIso();
     it.updated_at = nowLocalIso();
     saveItems();
-    navigate('home');
+    if(cameFromDetail) navigate('home'); else render();
     showToast(t('archivedToast'));
   }, {title:t('archiveBtn'), confirmLabel:t('archiveBtn'), danger:false});
 }
@@ -3049,6 +3066,23 @@ function deleteArchivedItem(id){
     saveItems();
     navigate('archive');
   }, {title:t('delete')});
+}
+// README 9.100: restore an archived item back to active inventory. Reuses the same
+// "only navigate away if this came from the item's own (read-only) detail page" rule as
+// archiveItem/deleteItemDetail above - swipe-restore from the archive list itself should just
+// re-render that list in place (the item drops out of it), not force a navigation.
+function restoreArchivedItem(id){
+  var it = state.items.find(function(i){ return i.id===id; });
+  if(!it) return;
+  var cameFromDetail = (state.view === 'itemViewOnly');
+  showConfirmModal(t('restoreArchivedConfirmMsg'), function(){
+    it.archived = false;
+    it.archived_at = null;
+    it.updated_at = nowLocalIso();
+    saveItems();
+    if(cameFromDetail) navigate('archive'); else render();
+    showToast(t('restoredToast'));
+  }, {title:t('restoreBtn'), confirmLabel:t('restoreBtn'), danger:false});
 }
 
 /* ======================= NUTRITION CALC ======================= */
@@ -3970,6 +4004,31 @@ function getFilteredSortedItems(){
   usedUp.sort(function(a,b){ return (b.updated_at||'').localeCompare(a.updated_at||''); });
   return inStock.concat(usedUp);
 }
+// README 9.100: shared search-bar markup with a right-aligned clear ("x") button, used by every
+// text search box in the app (was previously each hand-rolled per page, none of them had a
+// clear button). The clear button's visibility is toggled directly via DOM (toggleSearchClearBtn,
+// called on every keystroke) rather than only being decided at render time - several of these
+// search boxes update their results via a debounced targeted DOM patch rather than a full
+// render() (see e.g. onArchiveSearch), so the button itself needs to work independently of
+// whichever update strategy the page it's on happens to use.
+function searchBarHtml(value, placeholder, onInputFnName, inputId){
+  var idAttr = inputId ? (' id="'+esc(inputId)+'"') : '';
+  return '<div class="search-bar">'+ic('search',19)+
+    '<input type="text"'+idAttr+' placeholder="'+esc(placeholder)+'" value="'+esc(value)+'" oninput="'+onInputFnName+'(this.value);toggleSearchClearBtn(this)">'+
+    '<button type="button" class="search-clear-btn" style="display:'+(value?'flex':'none')+';" onclick="clearSearchInput(this,'+aj(onInputFnName)+')" aria-label="'+t('clearSearchBtn')+'">'+ic('x',14)+'</button>'+
+  '</div>';
+}
+function toggleSearchClearBtn(inputEl){
+  var btn = inputEl.parentElement.querySelector('.search-clear-btn');
+  if(btn) btn.style.display = inputEl.value ? 'flex' : 'none';
+}
+function clearSearchInput(btn, onInputFnName){
+  var wrap = btn.closest('.search-bar');
+  var input = wrap ? wrap.querySelector('input') : null;
+  if(input){ input.value=''; input.focus(); }
+  btn.style.display = 'none';
+  window[onInputFnName]('');
+}
 function renderHome(){
   var items = getFilteredSortedItems();
   var listHtml = '<div id="item-list-container">'+renderItemListHtml(items)+'</div>';
@@ -3990,7 +4049,8 @@ function renderHome(){
     '<div class="content">'+
       '<div class="home-sticky-controls" id="home-sticky-controls">'+
         '<div class="search-bar">'+ic('search',19)+
-          '<input type="text" placeholder="'+t('searchPlaceholder')+'" value="'+esc(state.home.search)+'" oninput="onHomeSearch(this.value)">'+
+          '<input type="text" placeholder="'+t('searchPlaceholder')+'" value="'+esc(state.home.search)+'" oninput="onHomeSearch(this.value);toggleSearchClearBtn(this)">'+
+          '<button type="button" class="search-clear-btn" style="display:'+(state.home.search?'flex':'none')+';" onclick="clearSearchInput(this,\'onHomeSearch\')" aria-label="'+t('clearSearchBtn')+'">'+ic('x',14)+'</button>'+
         '</div>'+
         '<div class="sort-row"><div class="sort-pill" onclick="bulkSelectAllVisible()">'+(allSelected?t('bulkSelectNone'):t('bulkSelectAll'))+'</div></div>'+
       '</div>'+
@@ -4009,7 +4069,8 @@ function renderHome(){
   '<div class="content">'+
     '<div class="home-sticky-controls" id="home-sticky-controls">'+
       '<div class="search-bar">'+ic('search',19)+
-        '<input type="text" placeholder="'+t('searchPlaceholder')+'" value="'+esc(state.home.search)+'" oninput="onHomeSearch(this.value)">'+
+        '<input type="text" placeholder="'+t('searchPlaceholder')+'" value="'+esc(state.home.search)+'" oninput="onHomeSearch(this.value);toggleSearchClearBtn(this)">'+
+        '<button type="button" class="search-clear-btn" style="display:'+(state.home.search?'flex':'none')+';" onclick="clearSearchInput(this,\'onHomeSearch\')" aria-label="'+t('clearSearchBtn')+'">'+ic('x',14)+'</button>'+
       '</div>'+
       activeFilterHtml +
       '<div class="sort-row">'+
@@ -4491,6 +4552,12 @@ function openItemForm(id, prefill){
   var returnTo = {view:'home'};
   if(id && state.view==='itemDetail' && state.params && state.params.id===id){
     returnTo = {view:'itemDetail', params:{id:id}};
+  }
+  // README 9.100: editing an archived item from either its read-only detail page or the
+  // archive list's own swipe-edit button should return to somewhere archive-appropriate on
+  // cancel, not the active-inventory home list an archived item won't even appear in.
+  if(id && (state.view==='archive' || state.view==='itemViewOnly')){
+    returnTo = {view:'archive'};
   }
   if(id){
     var existing = state.items.find(function(i){ return i.id===id; });
@@ -5691,7 +5758,11 @@ function saveItemForm(){
   (state.itemFormUI.pendingPhotoDeleteRefs||[]).forEach(function(ref){ deletePhotoRef(ref); });
   state.itemDraft=null;
   showToast(state.lang==='zh'?'已保存':'Saved');
-  navigate('itemDetail',{id:d.id});
+  // README 9.100: archived items don't have an "itemDetail" page (that page's action buttons -
+  // cook, deduct usage, archive - don't apply to something already archived) - land back on
+  // its own read-only detail view instead, same one reachable from the archive list.
+  if(d.archived) navigate('itemViewOnly', {id:d.id, from:'archive'});
+  else navigate('itemDetail',{id:d.id});
 }
 function deleteItemFromForm(){
   showConfirmModal(t('deleteConfirm'), function(){
@@ -5809,12 +5880,16 @@ function nutriExtraRowsFlatHtml(it){
   }).join('');
 }
 function deleteItemDetail(id){
+  // Same reasoning as archiveItem's own comment above (README 9.100): only navigate away when
+  // this was triggered from the item's own detail page - swipe-delete from any list page
+  // should just re-render that list in place, not jump to home.
+  var cameFromDetail = (state.view === 'itemDetail');
   showConfirmModal(t('deleteConfirm'), function(){
     var it = state.items.find(function(i){ return i.id===id; });
     if(it) deletePhotoRef(it.photo_url);
     state.items = state.items.filter(function(i){ return i.id!==id; });
     saveItems();
-    navigate('home');
+    if(cameFromDetail) navigate('home'); else render();
   }, {title:t('delete')});
 }
 
@@ -6319,14 +6394,84 @@ function renderArchiveListHtml(list){
     }
     return '<div class="empty-state">'+ic('search',40)+'<p>'+(state.lang==='zh'?'没有符合条件的存档':'No archived items match')+'</p></div>';
   }
-  return list.map(function(it){ return readOnlyListItemHtml(it, 'archive'); }).join('');
+  // README 9.100: grouped the same way the main inventory list groups repeat batches of the
+  // same product (see itemGroupKey/renderItemListHtml's own comment) - multiple archived
+  // batches of the same product now collapse into one row instead of listing every batch
+  // separately. Deliberately a separate function from renderItemListHtml/renderSingleItemCard
+  // rather than a shared one: archived cards need different swipe actions (restore, not
+  // archive) and a different "which batch represents the group" rule (most recently archived,
+  // not most urgently expiring - expiry no longer matters once something's archived).
+  var groupOrder = [], groupMap = {};
+  list.forEach(function(it){
+    var k = itemGroupKey(it);
+    if(!groupMap[k]){ groupMap[k] = []; groupOrder.push(k); }
+    groupMap[k].push(it);
+  });
+  return groupOrder.map(function(k){
+    var group = groupMap[k];
+    return group.length===1 ? archivedItemCardHtml(group[0]) : archivedGroupHtml(k, group);
+  }).join('');
 }
+function archivedRepresentative(group){
+  var best = group[0];
+  group.forEach(function(it){ if((it.archived_at||'') > (best.archived_at||'')) best = it; });
+  return best;
+}
+function archivedItemCardHtml(it){
+  var dateLabel = it.archived_at ? fmtDateDots((it.archived_at||'').slice(0,10)) : '';
+  var thumb = it.photo_url ? photoImgHtml(it.photo_url, 'width:100%;height:100%;object-fit:cover;filter:grayscale(0.35);') : ic('box',22);
+  return '<div class="item-card-swipe" data-item-id="'+esc(it.id)+'">'+
+    '<div class="item-swipe-actions">'+
+      '<button class="swipe-action-btn action-delete" onclick="event.stopPropagation();deleteArchivedItemFromSwipe('+aj(it.id)+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button>'+
+      '<button class="swipe-action-btn action-restore" onclick="event.stopPropagation();restoreArchivedItemFromSwipe('+aj(it.id)+')">'+ic('undo',20)+'<span>'+esc(t('restoreBtn'))+'</span></button>'+
+      '<button class="swipe-action-btn action-edit" onclick="event.stopPropagation();closeItemSwipeRow('+aj(it.id)+');openItemForm('+aj(it.id)+')">'+ic('edit',20)+'<span>'+esc(t('edit'))+'</span></button>'+
+    '</div>'+
+    '<div class="item-card archived-card" onclick="navigate(\'itemViewOnly\',{id:'+aj(it.id)+',from:\'archive\'})">'+
+      '<div class="item-card-main">'+
+        '<div class="item-icon">'+thumb+'</div>'+
+        '<div class="item-info">'+
+          '<div class="item-name">'+itemDisplayName(it)+'</div>'+
+          '<div class="item-meta">'+esc(t('archivedAt'))+' '+esc(dateLabel)+'</div>'+
+        '</div>'+
+      '</div>'+
+    '</div>'+
+  '</div>';
+}
+function archivedGroupHtml(key, group){
+  var rep = archivedRepresentative(group);
+  var thumb = rep.photo_url ? photoImgHtml(rep.photo_url, 'width:100%;height:100%;object-fit:cover;filter:grayscale(0.35);') : ic('box',22);
+  var dateLabel = rep.archived_at ? fmtDateDots((rep.archived_at||'').slice(0,10)) : '';
+  var expanded = !!(state.archiveUI.expandedGroups||{})[key];
+  var batchMeta = (state.lang==='zh' ? ('共'+group.length+'批 · ') : (group.length+' batches · ')) + t('archivedAt')+' '+dateLabel;
+  var childrenHtml = expanded ? group.map(archivedItemCardHtml).join('') : '';
+  return '<div class="item-group">'+
+    '<div class="item-card archived-card item-group-header" data-item-id="'+esc(rep.id)+'" onclick="toggleArchiveGroup('+aj(key)+')">'+
+      '<div class="item-card-main">'+
+        '<div class="item-icon">'+thumb+'</div>'+
+        '<div class="item-info">'+
+          '<div class="item-name">'+itemDisplayName(rep)+'<span class="dup-badge">'+group.length+'</span>'+
+            ic('chevronRight',15,'style="transform:rotate('+(expanded?'90':'0')+'deg);transition:transform .15s;vertical-align:-2px;margin-left:2px;"')+
+          '</div>'+
+          '<div class="item-meta">'+esc(batchMeta)+'</div>'+
+        '</div>'+
+      '</div>'+
+    '</div>'+
+    (expanded ? '<div class="item-group-children">'+childrenHtml+'</div>' : '') +
+  '</div>';
+}
+function toggleArchiveGroup(key){
+  state.archiveUI.expandedGroups = state.archiveUI.expandedGroups || {};
+  state.archiveUI.expandedGroups[key] = !state.archiveUI.expandedGroups[key];
+  render();
+}
+function deleteArchivedItemFromSwipe(id){ closeItemSwipeRow(id); deleteArchivedItem(id); }
+function restoreArchivedItemFromSwipe(id){ closeItemSwipeRow(id); restoreArchivedItem(id); }
 function renderArchiveList(){
   var list = getFilteredArchivedItems();
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'home\')">'+ic('back',22)+'</button><h1>'+t('archiveTitle')+'</h1><button class="icon-btn" onclick="toggleSidebar(\'home\')">'+ic('menu',20)+'</button></div>'+
   '<div class="content">'+
-    '<div class="search-bar">'+ic('search',19)+'<input type="text" placeholder="'+t('searchArchivePlaceholder')+'" value="'+esc(state.archiveUI.search)+'" oninput="onArchiveSearch(this.value)"></div>'+
+    searchBarHtml(state.archiveUI.search, t('searchArchivePlaceholder'), 'onArchiveSearch')+
     '<div id="archive-list-container">'+renderArchiveListHtml(list)+'</div>'+
   '</div>'+
   bottomNav();
@@ -6381,7 +6526,6 @@ function renderItemViewOnly(){
     '<div class="nf-section-title">'+t('sectionNutrition')+'</div>'+
     nutritionFactsBoxHtml(it)+
     (it.notes ? '<div class="section-title">'+t('fieldNotes')+'</div><div class="form-group"><p style="font-size:14.5px;line-height:1.6;">'+esc(it.notes)+'</p></div>' : '')+
-    (it.archived ? '<button class="btn btn-danger" style="margin-top:22px;" onclick="deleteArchivedItem('+aj(it.id)+')">'+ic('trash',16)+' '+t('deleteArchivedBtn')+'</button>' : '')+
   '</div>'+
   bottomNav();
 }
@@ -6470,7 +6614,7 @@ function renderStats(){
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'home\')">'+ic('back',22)+'</button><h1>'+t('statsTitle')+'</h1><button class="icon-btn" onclick="toggleSidebar(\'home\')">'+ic('menu',20)+'</button></div>'+
   '<div class="content">'+
-    '<div class="search-bar">'+ic('search',19)+'<input type="text" id="stats-search-input" placeholder="'+t('searchStatsPlaceholder')+'" value="'+esc(state.statsUI.search)+'" oninput="onStatsSearchInput(this.value)"></div>'+
+    searchBarHtml(state.statsUI.search, t('searchStatsPlaceholder'), 'onStatsSearchInput', 'stats-search-input')+
     '<div class="sidebar-section-title" style="font-size:14px;margin-top:14px;">'+t('statsRangeLabel')+'</div>'+
     '<div class="sort-pills" style="flex-wrap:wrap;">'+rangePills+'</div>'+
     customDatesHtml+
@@ -6542,7 +6686,7 @@ function renderPriceHistory(){
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'home\')">'+ic('back',22)+'</button><h1>'+t('priceHistoryTitle')+'</h1><button class="icon-btn" onclick="toggleSidebar(\'home\')">'+ic('menu',20)+'</button></div>'+
   '<div class="content">'+
-    '<div class="search-bar">'+ic('search',19)+'<input type="text" placeholder="'+t('searchHistoryPlaceholder')+'" value="'+esc(state.historyUI.search)+'" oninput="onHistorySearch(this.value)"></div>'+
+    searchBarHtml(state.historyUI.search, t('searchHistoryPlaceholder'), 'onHistorySearch')+
     '<div id="history-results-container">'+renderHistoryResultsHtml()+'</div>'+
   '</div>'+
   bottomNav();
@@ -7279,7 +7423,7 @@ function renderPickInventory(){
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'recipeForm\')">'+ic('back',22)+'</button><h1>'+t('pickFromInventory')+'</h1></div>'+
   '<div class="content">'+
     '<div class="pick-sticky-search" id="pick-inventory-sticky">'+
-      '<div class="search-bar">'+ic('search',19)+'<input type="text" placeholder="'+t('searchPlaceholder')+'" value="'+esc(state.pickSearch||'')+'" oninput="onPickSearch(this.value)"></div>'+
+      searchBarHtml(state.pickSearch||'', t('searchPlaceholder'), 'onPickSearch')+
     '</div>'+
     '<div id="pick-list">'+renderPickInventoryListOnly()+'</div>'+
   '</div>';
@@ -7419,7 +7563,7 @@ function renderPickExternal(){
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'recipeForm\')">'+ic('back',22)+'</button><h1>'+t('pickExternal')+'</h1></div>'+
   '<div class="content" style="padding-bottom:90px;">'+
     '<div class="pick-sticky-search" id="pick-external-sticky">'+
-      '<div class="search-bar">'+ic('search',19)+'<input type="text" placeholder="'+t('searchPlaceholder')+'" value="'+esc(state.pickSearch||'')+'" oninput="onPickSearch(this.value)"></div>'+
+      searchBarHtml(state.pickSearch||'', t('searchPlaceholder'), 'onPickSearch')+
     '</div>'+
     '<div id="pick-list">'+itemsHtml+'</div>'+
   '</div>'+
