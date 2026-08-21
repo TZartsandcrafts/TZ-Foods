@@ -2036,6 +2036,29 @@ var I18N = {
     planPriorityHint:'目标体重、每周速率、目标日期三者，改其中任意一个，另一个会自动重新计算',
     macroCarbs:'碳水', macroProtein:'蛋白质', macroFat:'脂肪',
     exerciseSection:'运动', exerciseAffectsBudgetLabel:'运动消耗计入当日热量预算',
+    // fasting (轻断食)
+    fastingSection:'轻断食', startFastBtn:'开始轻断食', endFastBtn:'结束断食', cancelFastBtn:'取消',
+    cancelFastConfirm:'放弃这次断食？本次不会计入历史记录。',
+    fastingRemainingLabel:'还剩', fastingOvertimeLabel:'已超出目标',
+    fastingHistoryBtn:'断食历史', fastingEndedToast:'断食已结束',
+    fastingCustomLabel:'自定义', fieldTargetHours:'目标时长（小时）',
+    fastingNoneYet:'还没有断食记录',
+    editFastEntryTitle:'编辑断食记录', fastFieldStart:'开始时间', fastFieldEnd:'结束时间',
+    fastEntryInvalid:'请填写开始和结束时间，且结束要晚于开始', fastSavedToast:'已保存',
+    deleteFastConfirm:'删除这条断食记录？',
+    // blood pressure (血压)
+    healthBpSection:'血压', logBpBtn:'记录血压', viewBpHistory:'血压历史', healthNoBpYet:'还没有血压记录',
+    editBpEntryTitle:'编辑血压记录', fieldSystolic:'收缩压', fieldDiastolic:'舒张压', fieldPulse:'脉搏（选填）',
+    bpEntryInvalid:'请填写日期、收缩压和舒张压', bpSavedToast:'已保存', deleteBpConfirm:'删除这条血压记录？',
+    // waist (腰围)
+    healthWaistSection:'腰围', logWaistBtn:'记录腰围', viewWaistHistory:'腰围历史', healthNoWaistYet:'还没有腰围记录',
+    editWaistEntryTitle:'编辑腰围记录', fieldWaist:'腰围 (cm)',
+    waistEntryInvalid:'请填写日期和腰围', waistSavedToast:'已保存', deleteWaistConfirm:'删除这条腰围记录？',
+    // exercise (锻炼)
+    healthExerciseSection:'锻炼', logExerciseBtn:'记录锻炼', viewExerciseHistory:'锻炼历史', healthNoExerciseYet:'还没有锻炼记录',
+    editExerciseEntryTitle:'编辑锻炼记录', fieldExerciseType:'运动类型', fieldExerciseTypePh:'例如：跑步、力量训练',
+    fieldDurationMin:'时长（分钟）', fieldCaloriesBurned:'消耗热量 (kcal)',
+    exerciseEntryInvalid:'请填写日期和运动类型', exerciseSavedToast:'已保存', deleteExerciseConfirm:'删除这条锻炼记录？',
     back:'返回', prevDay:'前一天', nextDay:'后一天', todayLabel:'今天',
     caloriesRemainingLabel:'还可以吃', caloriesOverLabel:'超出',
     mealSlot_breakfast:'早餐', mealSlot_lunch:'午餐', mealSlot_dinner:'晚餐', mealSlot_snack:'零食',
@@ -2247,6 +2270,29 @@ var I18N = {
     planPriorityHint:'Target weight, weekly rate, and target date - editing any one recalculates the other',
     macroCarbs:'Carbs', macroProtein:'Protein', macroFat:'Fat',
     exerciseSection:'Exercise', exerciseAffectsBudgetLabel:'Exercise counts toward daily calorie budget',
+    // fasting
+    fastingSection:'Fasting', startFastBtn:'Start Fast', endFastBtn:'End Fast', cancelFastBtn:'Cancel',
+    cancelFastConfirm:'Discard this fast? It will not be saved to history.',
+    fastingRemainingLabel:'Remaining', fastingOvertimeLabel:'Past target',
+    fastingHistoryBtn:'Fasting History', fastingEndedToast:'Fast ended',
+    fastingCustomLabel:'Custom', fieldTargetHours:'Target duration (hours)',
+    fastingNoneYet:'No fasting records yet',
+    editFastEntryTitle:'Edit Fast', fastFieldStart:'Start time', fastFieldEnd:'End time',
+    fastEntryInvalid:'Please fill in start and end times, with end after start', fastSavedToast:'Saved',
+    deleteFastConfirm:'Delete this fasting record?',
+    // blood pressure
+    healthBpSection:'Blood Pressure', logBpBtn:'Log Blood Pressure', viewBpHistory:'BP History', healthNoBpYet:'No blood pressure records yet',
+    editBpEntryTitle:'Edit Blood Pressure', fieldSystolic:'Systolic', fieldDiastolic:'Diastolic', fieldPulse:'Pulse (optional)',
+    bpEntryInvalid:'Please fill in date, systolic and diastolic', bpSavedToast:'Saved', deleteBpConfirm:'Delete this blood pressure record?',
+    // waist
+    healthWaistSection:'Waist', logWaistBtn:'Log Waist', viewWaistHistory:'Waist History', healthNoWaistYet:'No waist records yet',
+    editWaistEntryTitle:'Edit Waist Entry', fieldWaist:'Waist (cm)',
+    waistEntryInvalid:'Please fill in date and waist', waistSavedToast:'Saved', deleteWaistConfirm:'Delete this waist record?',
+    // exercise
+    healthExerciseSection:'Exercise Log', logExerciseBtn:'Log Exercise', viewExerciseHistory:'Exercise History', healthNoExerciseYet:'No exercise records yet',
+    editExerciseEntryTitle:'Edit Exercise', fieldExerciseType:'Type', fieldExerciseTypePh:'e.g. Running, Strength training',
+    fieldDurationMin:'Duration (min)', fieldCaloriesBurned:'Calories burned (kcal)',
+    exerciseEntryInvalid:'Please fill in date and type', exerciseSavedToast:'Saved', deleteExerciseConfirm:'Delete this exercise record?',
     back:'Back', prevDay:'Previous day', nextDay:'Next day', todayLabel:'Today',
     caloriesRemainingLabel:'Remaining', caloriesOverLabel:'Over',
     mealSlot_breakfast:'Breakfast', mealSlot_lunch:'Lunch', mealSlot_dinner:'Dinner', mealSlot_snack:'Snacks',
@@ -2453,6 +2499,16 @@ var state = {
   weightLogUI: null,
   mealsUI: {},
   healthUI: {},
+  // README 9.102: 轻断食计时器 + 血压/腰围/锻炼记录 (batch 4)
+  fastingLogs: [],
+  activeFast: null,
+  fastingUI: {},
+  bpLogs: [],
+  bpLogUI: null,
+  waistLogs: [],
+  waistLogUI: null,
+  exerciseLogs: [],
+  exerciseLogUI: null,
   recipeCategoryGroups: JSON.parse(JSON.stringify(DEFAULT_RECIPE_CATEGORY_GROUPS)),
   recipesUI: { groupId:null, sub:null, expandedGroup:null },
   recipeFormUI: {},
@@ -2512,7 +2568,12 @@ async function loadAll(){
     storageGet('cloudSyncIngredientPushMap', {}),
     storageGet('mealLogs', []),
     storageGet('weightLogs', []),
-    storageGet('weightPlan', {})
+    storageGet('weightPlan', {}),
+    storageGet('fastingLogs', []),
+    storageGet('activeFast', null),
+    storageGet('bpLogs', []),
+    storageGet('waistLogs', []),
+    storageGet('exerciseLogs', [])
   ]);
   state.items = results[0].map(migrateItem);
   state.categories = results[1];
@@ -2548,6 +2609,11 @@ async function loadAll(){
   state.mealLogs = results[16] || [];
   state.weightLogs = results[17] || [];
   state.weightPlan = results[18] || {};
+  state.fastingLogs = results[19] || [];
+  state.activeFast = results[20] || null;
+  state.bpLogs = results[21] || [];
+  state.waistLogs = results[22] || [];
+  state.exerciseLogs = results[23] || [];
   state.loaded = true;
 }
 // Old data shape had a single secondary_qty/secondary_unit/unit_ratio triplet per item. The
@@ -2629,6 +2695,11 @@ function saveRecipes(){
 function saveSettings(){ return storageSet('settings', {lang:state.lang, reminderDays:state.reminderDays, aiProxyUrl:state.aiProxyUrl}); }
 function saveMealLogs(){ return storageSet('mealLogs', state.mealLogs); }
 function saveWeightLogs(){ return storageSet('weightLogs', state.weightLogs); }
+function saveFastingLogs(){ return storageSet('fastingLogs', state.fastingLogs); }
+function saveActiveFast(){ return storageSet('activeFast', state.activeFast); }
+function saveBpLogs(){ return storageSet('bpLogs', state.bpLogs); }
+function saveWaistLogs(){ return storageSet('waistLogs', state.waistLogs); }
+function saveExerciseLogs(){ return storageSet('exerciseLogs', state.exerciseLogs); }
 function saveWeightPlan(){ return storageSet('weightPlan', state.weightPlan); }
 function saveRecipeCategoryGroups(){
   state.recipeCategoryGroupsUpdatedAt = nowLocalIso();
@@ -3298,7 +3369,10 @@ var ICONS = {
   history:'<path d="M4 12a8 8 0 1 1 2.5 5.8"/><polyline points="4 17 4 21 8 21"/><polyline points="12 7 12 12 16 14"/>',
   undo:'<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-2"/>',
   spoon:'<ellipse cx="12" cy="6" rx="4" ry="5"/><line x1="12" y1="11" x2="12" y2="21"/>',
-  copy:'<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>'
+  copy:'<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>',
+  ruler:'<rect x="3" y="8" width="18" height="8" rx="1"/><line x1="7" y1="8" x2="7" y2="11"/><line x1="11" y1="8" x2="11" y2="11"/><line x1="15" y1="8" x2="15" y2="11"/>',
+  activity:'<polyline points="3 12 8 12 10 6 14 18 16 12 21 12"/>'
 };
 function ic(name, size, extra){
   size = size||20;
@@ -3370,6 +3444,10 @@ function render(){
     case 'planSettings': html = renderPlanSettings(); break;
     case 'macroPresetPicker': html = renderMacroPresetPicker(); break;
     case 'mealsHistory': html = renderMealsHistory(); break;
+    case 'fastingHistory': html = renderFastingHistory(); break;
+    case 'bpHistory': html = renderBpHistory(); break;
+    case 'waistHistory': html = renderWaistHistory(); break;
+    case 'exerciseHistory': html = renderExerciseHistory(); break;
     default: html = renderHome();
   }
   app.innerHTML = html;
@@ -3379,8 +3457,8 @@ function bottomNav(){
   var v = state.view;
   var isHome = (v==='home'||v==='itemForm'||v==='itemDetail'||v==='archive'||v==='stats'||v==='priceHistory'||v==='itemViewOnly'||v==='statFilteredList'||v==='usageLog'||v==='usageLogAdd');
   var isRecipes = (v==='recipes'||v==='recipeForm'||v==='recipeDetail'||v==='pickInventory'||v==='pickExternal');
-  var isMeals = (v==='meals');
-  var isHealth = (v==='health');
+  var isMeals = (v==='meals'||v==='fastingHistory');
+  var isHealth = (v==='health'||v==='bpHistory'||v==='waistHistory'||v==='exerciseHistory');
   return '' +
   '<div class="bottom-nav">'+
     '<button class="nav-item '+(isHome&&v==='home'?'active':'')+'" onclick="navBottomHome()">'+ic('box',22)+'<span>'+t('navHome')+'</span></button>'+
@@ -8507,12 +8585,98 @@ function shiftMealsDate(delta){
 function setMealsDate(d){ mealsUIDefaults(); state.mealsUI.date = d; }
 function setMacroView(v){ state.mealsUI.macroView = v; render(); }
 
+/* ---- 轻断食 (intermittent fasting timer) - README 9.102 ----
+   state.activeFast holds the in-progress fast (or null): {startedAt, targetHours}, both stored
+   canonically as a nowLocalIso()-format string / plain number so it survives a page reload the
+   same way everything else here does. Completed fasts move into state.fastingLogs
+   ({id, startedAt, endedAt, targetHours, note}) only once ended - a discarded/cancelled fast
+   never touches history, same "don't half-save" idea as elsewhere in the app. */
+var FASTING_PRESETS = [16, 18, 20, 23];
+function fastingUIDefaults(){
+  if(!state.fastingUI || state.fastingUI.presetHours==null){
+    state.fastingUI = {presetHours:16, customMode:false, customText:''};
+  }
+}
+function setFastingPreset(h){ fastingUIDefaults(); state.fastingUI.presetHours=h; state.fastingUI.customMode=false; render(); }
+function setFastingCustomMode(){ fastingUIDefaults(); state.fastingUI.customMode=true; render(); }
+function fastingCustomInput(val){ fastingUIDefaults(); state.fastingUI.customText=val; }
+function currentFastingTargetHours(){
+  fastingUIDefaults();
+  var ui = state.fastingUI;
+  if(ui.customMode){ var n = parseFloat(ui.customText); return (n>0) ? n : null; }
+  return ui.presetHours;
+}
+function elapsedHoursSince(iso){ return (Date.now() - new Date(iso).getTime()) / 3600000; }
+// mm can go over 60 on purpose (e.g. "26:15" for a fast well past 24h) - this is an
+// elapsed-duration readout, not a clock-face time, so it doesn't wrap at 24h.
+function fmtFastHM(hoursFloat){
+  var totalMin = Math.max(0, Math.round(hoursFloat*60));
+  var h = Math.floor(totalMin/60), m = totalMin%60;
+  return h+':'+(m<10?'0':'')+m;
+}
+function startFast(){
+  var hours = currentFastingTargetHours();
+  if(!hours) return;
+  state.activeFast = {startedAt: nowLocalIso(), targetHours: hours};
+  saveActiveFast();
+  render();
+}
+function endFast(){
+  if(!state.activeFast) return;
+  var f = state.activeFast;
+  state.fastingLogs.push({id:uid(), startedAt:f.startedAt, endedAt: nowLocalIso(), targetHours:f.targetHours, note:''});
+  state.activeFast = null;
+  saveFastingLogs(); saveActiveFast();
+  showToast(t('fastingEndedToast'));
+  render();
+}
+function cancelFast(){
+  showConfirmModal(t('cancelFastConfirm'), function(){
+    state.activeFast = null;
+    saveActiveFast();
+    render();
+  }, {title:t('cancelFastBtn')});
+}
+function fastingCardHtml(){
+  fastingUIDefaults();
+  var ui = state.fastingUI;
+  var body;
+  if(state.activeFast){
+    var elapsed = elapsedHoursSince(state.activeFast.startedAt);
+    var target = state.activeFast.targetHours;
+    var pct = Math.max(0, Math.min(100, (elapsed/target)*100));
+    var remaining = target - elapsed;
+    body = '' +
+      '<div class="meals-calorie-num">'+fmtFastHM(elapsed)+' <span class="hint" style="font-size:15px;">/ '+fmtNum(target,target%1===0?0:1)+'h</span></div>'+
+      '<div style="height:8px;border-radius:4px;background:var(--line);overflow:hidden;margin-top:10px;"><div style="height:100%;border-radius:4px;background:var(--almond);width:'+pct.toFixed(1)+'%;"></div></div>'+
+      '<div class="hint" style="margin-top:6px;">'+(remaining>0 ? (t('fastingRemainingLabel')+' '+fmtFastHM(remaining)) : t('fastingOvertimeLabel'))+'</div>'+
+      '<div style="display:flex;gap:8px;margin-top:12px;">'+
+        '<button class="btn btn-primary" style="flex:1;" onclick="endFast()">'+t('endFastBtn')+'</button>'+
+        '<button class="btn btn-outline" style="flex:1;" onclick="cancelFast()">'+t('cancelFastBtn')+'</button>'+
+      '</div>';
+  } else {
+    body = '' +
+      '<div class="tag-select" style="justify-content:center;flex-wrap:wrap;">'+
+        FASTING_PRESETS.map(function(h){ return '<div class="tag-option '+((!ui.customMode && ui.presetHours===h)?'active':'')+'" onclick="setFastingPreset('+h+')">'+h+':'+(24-h)+'</div>'; }).join('')+
+        '<div class="tag-option '+(ui.customMode?'active':'')+'" onclick="setFastingCustomMode()">'+t('fastingCustomLabel')+'</div>'+
+      '</div>'+
+      (ui.customMode ? ('<div class="field" style="margin-top:10px;margin-bottom:0;"><input type="number" inputmode="decimal" placeholder="'+t('fieldTargetHours')+'" value="'+esc(ui.customText)+'" oninput="fastingCustomInput(this.value)"></div>') : '')+
+      '<button class="btn btn-primary" style="width:100%;margin-top:12px;" onclick="startFast()">'+t('startFastBtn')+'</button>';
+  }
+  return '' +
+    '<div class="section-title" style="margin-top:0;">'+t('fastingSection')+'</div>'+
+    '<div class="form-group" style="text-align:center;">'+
+      body +
+      '<div class="list-row" onclick="navigate(\'fastingHistory\')" style="cursor:pointer;margin-top:10px;text-align:left;"><div class="row-label">'+t('fastingHistoryBtn')+'</div>'+ic('chevronRight',18)+'</div>'+
+    '</div>';
+}
+
 function renderMeals(){
   mealsUIDefaults();
   var date = state.mealsUI.date;
   var logs = mealLogsForDate(date);
   var totals = sumMealNutrition(logs);
-  var budget = calcDailyCalorieBudget();
+  var budget = calcDailyCalorieBudget(date);
   var consumed = Math.round(totals.calories||0);
 
   var dateNav = '<div class="date-nav-bar">'+
@@ -8535,13 +8699,14 @@ function renderMeals(){
   return '' +
   '<div class="topbar"><div><h1>🍽️ '+t('mealsTitle')+'</h1></div>'+menuButtonHtml('meals', true)+'</div>'+
   '<div class="content">'+
-    dateNav + calorieCard + macroWidget + slotsHtml +
+    fastingCardHtml() + dateNav + calorieCard + macroWidget + slotsHtml +
   '</div>'+
   bottomNav();
 }
 function renderMealsSidebarContent(){
   return '<div class="sidebar-header"><h2>🍽️ '+t('mealsTitle')+'</h2><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div>'+
-    '<div class="sidebar-item" onclick="navigate(\'mealsHistory\')">'+t('mealsHistoryBtn')+'</div>';
+    '<div class="sidebar-item" onclick="navigate(\'mealsHistory\')">'+t('mealsHistoryBtn')+'</div>'+
+    '<div class="sidebar-item" onclick="navigate(\'fastingHistory\')">'+t('fastingHistoryBtn')+'</div>';
 }
 
 function mealSlotSectionHtml(date, slot){
@@ -8837,6 +9002,65 @@ function mealsCalorieChartSvg(dates, byDate){
   '</svg>';
 }
 
+// ---- fasting history list + edit modal (README 9.102) ----
+function sortedFastingLogs(){
+  return state.fastingLogs.slice().sort(function(a,b){ return a.startedAt.localeCompare(b.startedAt); });
+}
+function fastDurationHours(f){ return (new Date(f.endedAt) - new Date(f.startedAt)) / 3600000; }
+function renderFastingHistory(){
+  var logs = sortedFastingLogs().slice().reverse();
+  var rows = logs.map(function(f){
+    var dur = fastDurationHours(f);
+    var met = dur >= f.targetHours;
+    return '<div class="list-row" onclick="openFastLogModal('+aj(f.id)+')" style="cursor:pointer;">'+
+      '<div class="row-label">'+esc(fmtDateDots(f.startedAt.slice(0,10)))+
+        '<div class="hint" style="margin-top:2px;">'+f.startedAt.slice(11,16)+' → '+f.endedAt.slice(11,16)+' · '+t('fieldTargetHours')+' '+fmtNum(f.targetHours,f.targetHours%1===0?0:1)+'h</div>'+
+      '</div>'+
+      '<div style="color:'+(met?'var(--fresh)':'var(--deep-caramel)')+';">'+fmtFastHM(dur)+'</div>'+
+    '</div>';
+  }).join('') || '<div class="empty-state">'+ic('clock',36)+'<p>'+t('fastingNoneYet')+'</p></div>';
+  return '' +
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'meals\')">'+ic('back',22)+'</button><h1>'+t('fastingHistoryBtn')+'</h1></div>'+
+  '<div class="content">'+rows+'</div>';
+}
+function openFastLogModal(id){
+  var existing = state.fastingLogs.find(function(x){ return x.id===id; });
+  if(!existing) return;
+  state.fastLogUI = {id:id, startedAt:existing.startedAt, endedAt:existing.endedAt, targetHours:existing.targetHours};
+  renderFastLogModal();
+}
+function renderFastLogModal(){
+  var ui = state.fastLogUI;
+  showModal(t('editFastEntryTitle'),
+    '<div class="field"><label>'+t('fastFieldStart')+'</label><input type="datetime-local" value="'+esc(ui.startedAt)+'" oninput="fl_str(\'startedAt\',this.value)"></div>'+
+    '<div class="field"><label>'+t('fastFieldEnd')+'</label><input type="datetime-local" value="'+esc(ui.endedAt)+'" oninput="fl_str(\'endedAt\',this.value)"></div>'+
+    '<div class="field" style="margin-bottom:0;"><label>'+t('fieldTargetHours')+'</label><input type="number" inputmode="decimal" value="'+esc(ui.targetHours)+'" oninput="fl_str(\'targetHours\',this.value===\'\'?null:parseFloat(this.value))"></div>'+
+    '<button class="btn btn-primary" style="margin-top:14px;" onclick="saveFastLogEntry()">'+t('save')+'</button>'+
+    '<button class="btn btn-danger" style="margin-top:10px;width:100%;" onclick="deleteFastLogEntry('+aj(ui.id)+')">'+t('delete')+'</button>'
+  );
+}
+function fl_str(field, val){ state.fastLogUI[field]=val; }
+function saveFastLogEntry(){
+  var ui = state.fastLogUI;
+  if(!ui.startedAt || !ui.endedAt || !(ui.targetHours>0) || new Date(ui.endedAt)<=new Date(ui.startedAt)){
+    showToast(t('fastEntryInvalid')); return;
+  }
+  var e = state.fastingLogs.find(function(x){ return x.id===ui.id; });
+  e.startedAt = ui.startedAt; e.endedAt = ui.endedAt; e.targetHours = ui.targetHours;
+  saveFastingLogs();
+  closeModal();
+  showToast(t('fastSavedToast'));
+  render();
+}
+function deleteFastLogEntry(id){
+  showConfirmModal(t('deleteFastConfirm'), function(){
+    state.fastingLogs = state.fastingLogs.filter(function(x){ return x.id!==id; });
+    saveFastingLogs();
+    closeModal();
+    render();
+  }, {title:t('delete')});
+}
+
 /* ======================= HEALTH (健康) - README 9.98 =======================
    Batch 2 of the 三餐/健康 build-out: weight logging + trend chart + the weight goal/plan
    (personal info -> BMR -> maintenance calories -> daily calorie budget, target weight <->
@@ -8970,12 +9194,23 @@ function recomputePlanFromPriority(){
     p.targetDate = addDaysStr(todayStr(), Math.round(weeks*7));
   }
 }
-function calcDailyCalorieBudget(){
+// dateStr is optional (defaults to today) - meals page passes in whichever day it's currently
+// showing so "运动消耗计入当日热量预算" adds THAT day's exercise calories, not always today's;
+// health/plan-settings pages (not date-scoped) just call this with no argument.
+function calcDailyCalorieBudget(dateStr){
   var maint = calcMaintenanceCalories();
   if(maint==null) return null;
   var p = state.weightPlan;
   var deficitPerDay = ((p.weeklyRateKg||0) * KCAL_PER_KG_FAT) / 7;
-  return Math.round(maint + deficitPerDay);
+  var budget = maint + deficitPerDay;
+  if(p.exerciseAffectsBudget){
+    budget += sumExerciseCaloriesForDate(dateStr || todayStr());
+  }
+  return Math.round(budget);
+}
+function sumExerciseCaloriesForDate(date){
+  return (state.exerciseLogs||[]).filter(function(e){ return e.date===date; })
+    .reduce(function(sum,e){ return sum + (e.caloriesBurned||0); }, 0);
 }
 function macroGramsForBudget(budget, presetId){
   var preset = macroPresetById(presetId);
@@ -9042,6 +9277,209 @@ function deleteWeightLogEntry(id){
   }, {title:t('delete')});
 }
 
+// ---- blood pressure log CRUD (README 9.102) ----
+function sortedBpLogs(){ return state.bpLogs.slice().sort(function(a,b){ return a.date.localeCompare(b.date); }); }
+function latestBpEntry(){ var s = sortedBpLogs(); return s.length ? s[s.length-1] : null; }
+function fmtBp(e){ return e.systolic+'/'+e.diastolic+' mmHg'+(e.pulse?(' · '+e.pulse+' bpm'):''); }
+function openBpLogModal(id){
+  var existing = id ? state.bpLogs.find(function(e){ return e.id===id; }) : null;
+  state.bpLogUI = existing ?
+    {id:id, date:existing.date, systolic:existing.systolic, diastolic:existing.diastolic, pulse:existing.pulse||'', note:existing.note||''} :
+    {id:null, date:todayStr(), systolic:'', diastolic:'', pulse:'', note:''};
+  renderBpLogModal();
+}
+function renderBpLogModal(){
+  var ui = state.bpLogUI;
+  showModal(ui.id ? t('editBpEntryTitle') : t('logBpBtn'),
+    '<div class="field"><label>'+t('fieldDate')+'</label><input type="date" value="'+esc(ui.date)+'" oninput="bp_str(\'date\',this.value)"></div>'+
+    '<div class="field"><label>'+t('fieldSystolic')+'</label><input id="bp-input-focus" type="number" inputmode="numeric" placeholder="-" value="'+esc(ui.systolic)+'" oninput="bp_str(\'systolic\',this.value===\'\'?\'\':parseInt(this.value,10))"></div>'+
+    '<div class="field"><label>'+t('fieldDiastolic')+'</label><input type="number" inputmode="numeric" placeholder="-" value="'+esc(ui.diastolic)+'" oninput="bp_str(\'diastolic\',this.value===\'\'?\'\':parseInt(this.value,10))"></div>'+
+    '<div class="field"><label>'+t('fieldPulse')+'</label><input type="number" inputmode="numeric" placeholder="-" value="'+esc(ui.pulse)+'" oninput="bp_str(\'pulse\',this.value===\'\'?\'\':parseInt(this.value,10))"></div>'+
+    '<div class="field" style="margin-bottom:0;"><label>'+t('fieldNotes')+'</label><textarea placeholder="'+t('fieldNotesPh')+'" oninput="bp_str(\'note\',this.value)">'+esc(ui.note)+'</textarea></div>'+
+    '<button class="btn btn-primary" style="margin-top:14px;" onclick="saveBpLogEntry()">'+t('save')+'</button>'+
+    (ui.id ? '<button class="btn btn-danger" style="margin-top:10px;width:100%;" onclick="deleteBpLogEntry('+aj(ui.id)+')">'+t('delete')+'</button>' : '')
+  );
+  var el = document.getElementById('bp-input-focus');
+  if(el) el.focus();
+}
+function bp_str(field, val){ state.bpLogUI[field]=val; }
+function saveBpLogEntry(){
+  var ui = state.bpLogUI;
+  if(!ui.date || !(ui.systolic>0) || !(ui.diastolic>0)){ showToast(t('bpEntryInvalid')); return; }
+  var pulse = (ui.pulse===''||ui.pulse==null) ? null : ui.pulse;
+  if(ui.id){
+    var e = state.bpLogs.find(function(x){ return x.id===ui.id; });
+    e.date = ui.date; e.systolic = ui.systolic; e.diastolic = ui.diastolic; e.pulse = pulse; e.note = ui.note;
+  } else {
+    state.bpLogs.push({id:uid(), date:ui.date, systolic:ui.systolic, diastolic:ui.diastolic, pulse:pulse, note:ui.note});
+  }
+  saveBpLogs();
+  closeModal();
+  showToast(t('bpSavedToast'));
+  render();
+}
+function deleteBpLogEntry(id){
+  showConfirmModal(t('deleteBpConfirm'), function(){
+    state.bpLogs = state.bpLogs.filter(function(x){ return x.id!==id; });
+    saveBpLogs();
+    closeModal();
+    render();
+  }, {title:t('delete')});
+}
+function renderBpHistory(){
+  var logs = sortedBpLogs().slice().reverse();
+  var rows = logs.map(function(e){
+    return '<div class="list-row" onclick="openBpLogModal('+aj(e.id)+')" style="cursor:pointer;">'+
+      '<div class="row-label">'+esc(fmtDateDots(e.date))+(e.note?('<div class="hint" style="margin-top:2px;">'+esc(e.note)+'</div>'):'')+'</div>'+
+      '<div>'+fmtBp(e)+'</div>'+
+    '</div>';
+  }).join('') || '<div class="empty-state">'+ic('droplet',36)+'<p>'+t('healthNoBpYet')+'</p></div>';
+  return '' +
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'health\')">'+ic('back',22)+'</button><h1>'+t('viewBpHistory')+'</h1>'+
+    '<button class="icon-btn" onclick="openBpLogModal(null)">'+ic('plus',20)+'</button>'+
+  '</div>'+
+  '<div class="content">'+rows+'</div>';
+}
+
+// ---- waist log CRUD (README 9.102) ----
+function sortedWaistLogs(){ return state.waistLogs.slice().sort(function(a,b){ return a.date.localeCompare(b.date); }); }
+function latestWaistEntry(){ var s = sortedWaistLogs(); return s.length ? s[s.length-1] : null; }
+function fmtWaist(e){ return fmtNum(e.waistCm,1)+' cm'; }
+function openWaistLogModal(id){
+  var existing = id ? state.waistLogs.find(function(e){ return e.id===id; }) : null;
+  state.waistLogUI = existing ?
+    {id:id, date:existing.date, waistText: fmtNum(existing.waistCm,1), note:existing.note||''} :
+    {id:null, date:todayStr(), waistText:'', note:''};
+  renderWaistLogModal();
+}
+function renderWaistLogModal(){
+  var ui = state.waistLogUI;
+  showModal(ui.id ? t('editWaistEntryTitle') : t('logWaistBtn'),
+    '<div class="field"><label>'+t('fieldDate')+'</label><input type="date" value="'+esc(ui.date)+'" oninput="ws_str(\'date\',this.value)"></div>'+
+    '<div class="field"><label>'+t('fieldWaist')+'</label><input id="waist-input-focus" type="number" inputmode="decimal" placeholder="-" value="'+esc(ui.waistText)+'" oninput="ws_str(\'waistText\',this.value)"></div>'+
+    '<div class="field" style="margin-bottom:0;"><label>'+t('fieldNotes')+'</label><textarea placeholder="'+t('fieldNotesPh')+'" oninput="ws_str(\'note\',this.value)">'+esc(ui.note)+'</textarea></div>'+
+    '<button class="btn btn-primary" style="margin-top:14px;" onclick="saveWaistLogEntry()">'+t('save')+'</button>'+
+    (ui.id ? '<button class="btn btn-danger" style="margin-top:10px;width:100%;" onclick="deleteWaistLogEntry('+aj(ui.id)+')">'+t('delete')+'</button>' : '')
+  );
+  var el = document.getElementById('waist-input-focus');
+  if(el) el.focus();
+}
+function ws_str(field, val){ state.waistLogUI[field]=val; }
+function saveWaistLogEntry(){
+  var ui = state.waistLogUI;
+  var cm = parseFloat(ui.waistText);
+  if(!ui.date || isNaN(cm)){ showToast(t('waistEntryInvalid')); return; }
+  if(ui.id){
+    var e = state.waistLogs.find(function(x){ return x.id===ui.id; });
+    e.date = ui.date; e.waistCm = cm; e.note = ui.note;
+  } else {
+    state.waistLogs.push({id:uid(), date:ui.date, waistCm:cm, note:ui.note});
+  }
+  saveWaistLogs();
+  closeModal();
+  showToast(t('waistSavedToast'));
+  render();
+}
+function deleteWaistLogEntry(id){
+  showConfirmModal(t('deleteWaistConfirm'), function(){
+    state.waistLogs = state.waistLogs.filter(function(x){ return x.id!==id; });
+    saveWaistLogs();
+    closeModal();
+    render();
+  }, {title:t('delete')});
+}
+function renderWaistHistory(){
+  var logs = sortedWaistLogs().slice().reverse();
+  var rows = logs.map(function(e, idx){
+    var prev = logs[idx+1];
+    var delta = prev ? (e.waistCm - prev.waistCm) : null;
+    var deltaHtml = delta==null ? '' : (
+      '<span style="font-size:12.5px;margin-left:8px;color:'+(delta>0?'var(--danger)':(delta<0?'var(--fresh)':'var(--deep-caramel)'))+';">'+
+      (delta>0?'▲':(delta<0?'▼':'—'))+' '+fmtNum(Math.abs(delta),1)+'</span>'
+    );
+    return '<div class="list-row" onclick="openWaistLogModal('+aj(e.id)+')" style="cursor:pointer;">'+
+      '<div class="row-label">'+esc(fmtDateDots(e.date))+(e.note?('<div class="hint" style="margin-top:2px;">'+esc(e.note)+'</div>'):'')+'</div>'+
+      '<div style="display:flex;align-items:center;">'+fmtWaist(e)+deltaHtml+'</div>'+
+    '</div>';
+  }).join('') || '<div class="empty-state">'+ic('ruler',36)+'<p>'+t('healthNoWaistYet')+'</p></div>';
+  return '' +
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'health\')">'+ic('back',22)+'</button><h1>'+t('viewWaistHistory')+'</h1>'+
+    '<button class="icon-btn" onclick="openWaistLogModal(null)">'+ic('plus',20)+'</button>'+
+  '</div>'+
+  '<div class="content">'+rows+'</div>';
+}
+
+// ---- exercise log CRUD (README 9.102) - also feeds calcDailyCalorieBudget when
+// state.weightPlan.exerciseAffectsBudget is on (see sumExerciseCaloriesForDate) ----
+function sortedExerciseLogs(){ return state.exerciseLogs.slice().sort(function(a,b){ return a.date.localeCompare(b.date); }); }
+function latestExerciseEntry(){ var s = sortedExerciseLogs(); return s.length ? s[s.length-1] : null; }
+function fmtExercise(e){
+  var parts = [e.type];
+  if(e.durationMin) parts.push(e.durationMin+' '+(state.lang==='zh'?'分钟':'min'));
+  if(e.caloriesBurned) parts.push(e.caloriesBurned+' kcal');
+  return parts.join(' · ');
+}
+function openExerciseLogModal(id){
+  var existing = id ? state.exerciseLogs.find(function(e){ return e.id===id; }) : null;
+  state.exerciseLogUI = existing ?
+    {id:id, date:existing.date, type:existing.type||'', durationMin:existing.durationMin||'', caloriesBurned:existing.caloriesBurned||'', note:existing.note||''} :
+    {id:null, date:todayStr(), type:'', durationMin:'', caloriesBurned:'', note:''};
+  renderExerciseLogModal();
+}
+function renderExerciseLogModal(){
+  var ui = state.exerciseLogUI;
+  showModal(ui.id ? t('editExerciseEntryTitle') : t('logExerciseBtn'),
+    '<div class="field"><label>'+t('fieldDate')+'</label><input type="date" value="'+esc(ui.date)+'" oninput="exl_str(\'date\',this.value)"></div>'+
+    '<div class="field"><label>'+t('fieldExerciseType')+'</label><input id="exercise-input-focus" type="text" placeholder="'+t('fieldExerciseTypePh')+'" value="'+esc(ui.type)+'" oninput="exl_str(\'type\',this.value)"></div>'+
+    '<div class="field"><label>'+t('fieldDurationMin')+'</label><input type="number" inputmode="numeric" placeholder="-" value="'+esc(ui.durationMin)+'" oninput="exl_str(\'durationMin\',this.value===\'\'?\'\':parseInt(this.value,10))"></div>'+
+    '<div class="field"><label>'+t('fieldCaloriesBurned')+'</label><input type="number" inputmode="numeric" placeholder="-" value="'+esc(ui.caloriesBurned)+'" oninput="exl_str(\'caloriesBurned\',this.value===\'\'?\'\':parseInt(this.value,10))"></div>'+
+    '<div class="field" style="margin-bottom:0;"><label>'+t('fieldNotes')+'</label><textarea placeholder="'+t('fieldNotesPh')+'" oninput="exl_str(\'note\',this.value)">'+esc(ui.note)+'</textarea></div>'+
+    '<button class="btn btn-primary" style="margin-top:14px;" onclick="saveExerciseLogEntry()">'+t('save')+'</button>'+
+    (ui.id ? '<button class="btn btn-danger" style="margin-top:10px;width:100%;" onclick="deleteExerciseLogEntry('+aj(ui.id)+')">'+t('delete')+'</button>' : '')
+  );
+  var el = document.getElementById('exercise-input-focus');
+  if(el) el.focus();
+}
+function exl_str(field, val){ state.exerciseLogUI[field]=val; }
+function saveExerciseLogEntry(){
+  var ui = state.exerciseLogUI;
+  if(!ui.date || !ui.type){ showToast(t('exerciseEntryInvalid')); return; }
+  var durationMin = (ui.durationMin===''||ui.durationMin==null) ? null : ui.durationMin;
+  var caloriesBurned = (ui.caloriesBurned===''||ui.caloriesBurned==null) ? null : ui.caloriesBurned;
+  if(ui.id){
+    var e = state.exerciseLogs.find(function(x){ return x.id===ui.id; });
+    e.date = ui.date; e.type = ui.type; e.durationMin = durationMin; e.caloriesBurned = caloriesBurned; e.note = ui.note;
+  } else {
+    state.exerciseLogs.push({id:uid(), date:ui.date, type:ui.type, durationMin:durationMin, caloriesBurned:caloriesBurned, note:ui.note});
+  }
+  saveExerciseLogs();
+  closeModal();
+  showToast(t('exerciseSavedToast'));
+  render();
+}
+function deleteExerciseLogEntry(id){
+  showConfirmModal(t('deleteExerciseConfirm'), function(){
+    state.exerciseLogs = state.exerciseLogs.filter(function(x){ return x.id!==id; });
+    saveExerciseLogs();
+    closeModal();
+    render();
+  }, {title:t('delete')});
+}
+function renderExerciseHistory(){
+  var logs = sortedExerciseLogs().slice().reverse();
+  var rows = logs.map(function(e){
+    return '<div class="list-row" onclick="openExerciseLogModal('+aj(e.id)+')" style="cursor:pointer;">'+
+      '<div class="row-label">'+esc(fmtDateDots(e.date))+(e.note?('<div class="hint" style="margin-top:2px;">'+esc(e.note)+'</div>'):'')+'</div>'+
+      '<div>'+fmtExercise(e)+'</div>'+
+    '</div>';
+  }).join('') || '<div class="empty-state">'+ic('activity',36)+'<p>'+t('healthNoExerciseYet')+'</p></div>';
+  return '' +
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'health\')">'+ic('back',22)+'</button><h1>'+t('viewExerciseHistory')+'</h1>'+
+    '<button class="icon-btn" onclick="openExerciseLogModal(null)">'+ic('plus',20)+'</button>'+
+  '</div>'+
+  '<div class="content">'+rows+'</div>';
+}
+
 // ---- chart (mirrors priceHistorySvg's approach, see its own comment - dedicated per-feature
 // chart functions rather than one shared generic one is the existing convention in this file) ----
 function weightChartSvg(points){
@@ -9086,6 +9524,36 @@ function renderHealth(){
       '<button class="btn btn-primary" style="width:100%;margin-top:8px;" onclick="openWeightLogModal(null)">'+t('logWeightBtn')+'</button>'+
       '<div class="list-row" onclick="navigate(\'weightHistory\')" style="cursor:pointer;margin-top:4px;"><div class="row-label">'+t('viewWeightHistory')+'</div>'+ic('chevronRight',18)+'</div>'+
     '</div>';
+  var latestBp = latestBpEntry();
+  var bpCard = '' +
+    '<div class="section-title">'+t('healthBpSection')+'</div>'+
+    '<div class="form-group">'+
+      '<div class="sidebar-stat-row">'+
+        '<div class="sidebar-stat-card"><div class="sidebar-stat-num">'+(latestBp? fmtBp(latestBp): '-')+'</div><div class="sidebar-stat-label">'+(latestBp? fmtDateDots(latestBp.date) : t('healthNoBpYet'))+'</div></div>'+
+      '</div>'+
+      '<button class="btn btn-primary" style="width:100%;margin-top:8px;" onclick="openBpLogModal(null)">'+t('logBpBtn')+'</button>'+
+      '<div class="list-row" onclick="navigate(\'bpHistory\')" style="cursor:pointer;margin-top:4px;"><div class="row-label">'+t('viewBpHistory')+'</div>'+ic('chevronRight',18)+'</div>'+
+    '</div>';
+  var latestWaist = latestWaistEntry();
+  var waistCard = '' +
+    '<div class="section-title">'+t('healthWaistSection')+'</div>'+
+    '<div class="form-group">'+
+      '<div class="sidebar-stat-row">'+
+        '<div class="sidebar-stat-card"><div class="sidebar-stat-num">'+(latestWaist? fmtWaist(latestWaist): '-')+'</div><div class="sidebar-stat-label">'+(latestWaist? fmtDateDots(latestWaist.date) : t('healthNoWaistYet'))+'</div></div>'+
+      '</div>'+
+      '<button class="btn btn-primary" style="width:100%;margin-top:8px;" onclick="openWaistLogModal(null)">'+t('logWaistBtn')+'</button>'+
+      '<div class="list-row" onclick="navigate(\'waistHistory\')" style="cursor:pointer;margin-top:4px;"><div class="row-label">'+t('viewWaistHistory')+'</div>'+ic('chevronRight',18)+'</div>'+
+    '</div>';
+  var latestExercise = latestExerciseEntry();
+  var exerciseCard = '' +
+    '<div class="section-title">'+t('healthExerciseSection')+'</div>'+
+    '<div class="form-group">'+
+      '<div class="sidebar-stat-row">'+
+        '<div class="sidebar-stat-card"><div class="sidebar-stat-num">'+(latestExercise? fmtExercise(latestExercise): '-')+'</div><div class="sidebar-stat-label">'+(latestExercise? fmtDateDots(latestExercise.date) : t('healthNoExerciseYet'))+'</div></div>'+
+      '</div>'+
+      '<button class="btn btn-primary" style="width:100%;margin-top:8px;" onclick="openExerciseLogModal(null)">'+t('logExerciseBtn')+'</button>'+
+      '<div class="list-row" onclick="navigate(\'exerciseHistory\')" style="cursor:pointer;margin-top:4px;"><div class="row-label">'+t('viewExerciseHistory')+'</div>'+ic('chevronRight',18)+'</div>'+
+    '</div>';
   var budget = calcDailyCalorieBudget();
   var preset = macroPresetById(state.weightPlan.macroPreset);
   var planCard = '' +
@@ -9103,13 +9571,16 @@ function renderHealth(){
   return '' +
   '<div class="topbar"><div><h1>⚖️ '+t('healthTitle')+'</h1></div>'+menuButtonHtml('health', true)+'</div>'+
   '<div class="content">'+
-    weightCard + planCard +
+    weightCard + bpCard + waistCard + exerciseCard + planCard +
   '</div>'+
   bottomNav();
 }
 function renderHealthSidebarContent(){
   return '<div class="sidebar-header"><h2>⚖️ '+t('healthTitle')+'</h2><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div>'+
     '<div class="sidebar-item" onclick="navigate(\'weightHistory\')">'+t('viewWeightHistory')+'</div>'+
+    '<div class="sidebar-item" onclick="navigate(\'bpHistory\')">'+t('viewBpHistory')+'</div>'+
+    '<div class="sidebar-item" onclick="navigate(\'waistHistory\')">'+t('viewWaistHistory')+'</div>'+
+    '<div class="sidebar-item" onclick="navigate(\'exerciseHistory\')">'+t('viewExerciseHistory')+'</div>'+
     '<div class="sidebar-item" onclick="navigate(\'planSettings\')">'+t('planSettingsBtn')+'</div>'+
     '<div class="sidebar-item" onclick="navigate(\'personalInfo\')">'+t('personalInfoBtn')+'</div>';
 }
@@ -10450,6 +10921,14 @@ async function initApp(){
   }
   render();
   if(state.cloudSyncEnabled) startCloudSync();
+  // Keep the active-fast elapsed-time readout ticking while the 三餐 page is open - full
+  // render() is the same mechanism every other state change in this app already uses, so this
+  // just re-triggers it on a timer instead of a user action; gated on both state.view and
+  // state.activeFast so it's a no-op (skips the render call entirely) once the fast ends or the
+  // person navigates away, rather than ticking silently in the background.
+  setInterval(function(){
+    if(state.loaded && state.view==='meals' && state.activeFast) render();
+  }, 30000);
 }
 if(document.readyState === 'loading'){
   document.addEventListener('DOMContentLoaded', initApp);
