@@ -465,6 +465,11 @@
   .switch-slider:before{ content:''; position:absolute; width:21px; height:21px; left:3px; top:3px; background:#fff; border-radius:50%; transition:transform .15s ease; box-shadow:0 1px 3px rgba(0,0,0,0.25); }
   .switch input:checked + .switch-slider{ background:var(--almond); }
   .switch input:checked + .switch-slider:before{ transform:translateX(19px); }
+  .date-nav-bar{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+  .date-nav-label{ font-size:16px; font-weight:600; color:var(--cocoa); }
+  .meals-calorie-num{ font-size:32px; font-weight:700; color:var(--almond); }
+  .macro-view-dot{ width:7px; height:7px; border-radius:50%; background:var(--line); cursor:pointer; }
+  .macro-view-dot.active{ background:var(--almond); }
   .section-title{ font-size:15px; font-weight:600; color:var(--cocoa); margin:26px 0 14px; padding-top:16px; border-top:1px solid var(--line); }
   .section-title:first-child{ margin-top:0; padding-top:0; border-top:none; }
   .form-group{ background:var(--card-bg); border-radius:12px; padding:16px; margin-bottom:14px; border:1px solid var(--line); }
@@ -732,7 +737,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.100';
+var BUILD_VERSION = '9.101';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2031,6 +2036,14 @@ var I18N = {
     planPriorityHint:'目标体重、每周速率、目标日期三者，改其中任意一个，另一个会自动重新计算',
     macroCarbs:'碳水', macroProtein:'蛋白质', macroFat:'脂肪',
     exerciseSection:'运动', exerciseAffectsBudgetLabel:'运动消耗计入当日热量预算',
+    back:'返回', prevDay:'前一天', nextDay:'后一天', todayLabel:'今天',
+    caloriesRemainingLabel:'还可以吃', caloriesOverLabel:'超出',
+    mealSlot_breakfast:'早餐', mealSlot_lunch:'午餐', mealSlot_dinner:'晚餐', mealSlot_snack:'零食',
+    noMealLoggedHint:'还没有记录', addFoodBtn:'添加食物', deleteMealLogConfirm:'删除这条记录？',
+    macroOverLabel:'超标', addFoodSearchPh:'搜索库存/食谱/食材，或输入英文查USDA',
+    sourceInventory:'库存', sourceRecipe:'食谱', sourceExternal:'外部食材库',
+    servingsEatenLabel:'份数', deductFromInventoryLabel:'同时从库存扣减', servingsUnit:'份',
+    mealLoggedToast:'已记录', mealsHistoryBtn:'历史',
     remainingQtyLabel:'剩余',
     searchPlaceholder:'搜索食品名称 / 品牌', clearSearchBtn:'清空',
     filterAll:'全部',
@@ -2234,6 +2247,14 @@ var I18N = {
     planPriorityHint:'Target weight, weekly rate, and target date - editing any one recalculates the other',
     macroCarbs:'Carbs', macroProtein:'Protein', macroFat:'Fat',
     exerciseSection:'Exercise', exerciseAffectsBudgetLabel:'Exercise counts toward daily calorie budget',
+    back:'Back', prevDay:'Previous day', nextDay:'Next day', todayLabel:'Today',
+    caloriesRemainingLabel:'Remaining', caloriesOverLabel:'Over',
+    mealSlot_breakfast:'Breakfast', mealSlot_lunch:'Lunch', mealSlot_dinner:'Dinner', mealSlot_snack:'Snacks',
+    noMealLoggedHint:'Nothing logged yet', addFoodBtn:'Add Food', deleteMealLogConfirm:'Delete this entry?',
+    macroOverLabel:'over', addFoodSearchPh:'Search inventory/recipes/ingredients, or an English term for USDA',
+    sourceInventory:'Inventory', sourceRecipe:'Recipe', sourceExternal:'External Ingredients',
+    servingsEatenLabel:'Servings', deductFromInventoryLabel:'Also deduct from inventory', servingsUnit:'serving(s)',
+    mealLoggedToast:'Logged', mealsHistoryBtn:'History',
     remainingQtyLabel:'Remaining',
     searchPlaceholder:'Search name / brand', clearSearchBtn:'Clear',
     filterAll:'All',
@@ -3348,6 +3369,7 @@ function render(){
     case 'personalInfo': html = renderPersonalInfo(); break;
     case 'planSettings': html = renderPlanSettings(); break;
     case 'macroPresetPicker': html = renderMacroPresetPicker(); break;
+    case 'mealsHistory': html = renderMealsHistory(); break;
     default: html = renderHome();
   }
   app.innerHTML = html;
@@ -3408,7 +3430,7 @@ function navBottomHealth(){
 function sidebarPageForCurrentView(){
   if(state.view==='home' || state.view==='archive' || state.view==='stats' || state.view==='priceHistory' || state.view==='statFilteredList') return 'home';
   if(state.view==='recipes') return 'recipes';
-  if(state.view==='meals') return 'meals';
+  if(state.view==='meals' || state.view==='mealsHistory') return 'meals';
   if(state.view==='health' || state.view==='weightHistory' || state.view==='personalInfo' || state.view==='planSettings' || state.view==='macroPresetPicker') return 'health';
   return null;
 }
@@ -3565,6 +3587,7 @@ function openSettings(fromView){
     if(state.view==='personalInfo') return {view:'planSettings'};
     if(state.view==='planSettings') return {view:'health'};
     if(state.view==='macroPresetPicker') return {view:'planSettings'};
+    if(state.view==='mealsHistory') return {view:'meals'};
     return null;
   }
   document.addEventListener('touchstart', function(e){
@@ -3693,6 +3716,28 @@ function deleteItemFromSwipe(id){ closeItemSwipeRow(id); deleteItemDetail(id); }
 document.addEventListener('selectstart', function(e){
   if(e.target.closest && e.target.closest('.item-card-swipe, .item-group-header')) e.preventDefault();
 }, false);
+
+// README 9.101: left/right swipe on the meals-page macro widget toggles between pie and bar
+// view (same thing the two dots underneath it do) - event-delegated at the document level like
+// every other gesture in this file, so it keeps working across re-renders (every toggle, and
+// every date change, re-renders #app and therefore this element) without needing to be
+// re-attached manually each time.
+(function initMacroWidgetSwipe(){
+  var startX=null, startY=null;
+  document.addEventListener('touchstart', function(e){
+    var wrap = e.target.closest ? e.target.closest('.macro-widget-swipe-area') : null;
+    if(!wrap){ startX=null; return; }
+    startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+  }, {passive:true});
+  document.addEventListener('touchend', function(e){
+    if(startX==null) return;
+    var dx = e.changedTouches[0].clientX-startX, dy = e.changedTouches[0].clientY-startY;
+    startX = null;
+    if(Math.abs(dx)>40 && Math.abs(dx)>Math.abs(dy)*1.5){
+      setMacroView(state.mealsUI.macroView==='bar' ? 'pie' : 'bar');
+    }
+  }, {passive:true});
+})();
 
 /* ---------- Long-press an inventory item to duplicate it ----------
    Holding down on any item card (single or inside an expanded group) for ~550ms without
@@ -8437,24 +8482,359 @@ function confirmCook(recipeId){
 }
 
 /* ======================= MEALS (三餐) - README 9.96/9.98, skeleton only =======================
-   Real content (today's diary, add-food search, history chart, macro widget, fasting timer)
-   lands in a later batch - this is just the page shell: topbar, sidebar plumbing, bottom nav
-   highlighting, so the nav restructure has somewhere real to point at.
-   README 9.98 note: this function (and renderHealth's skeleton) briefly went missing in 9.97 -
-   they'd been written inside the old NOTES section by mistake back in 9.96, and 9.97's notes
-   cleanup deleted that whole section wholesale without noticing they were living inside it.
-   Re-added here, outside the (now fully removed) notes code, so this can't happen again. */
+   Real content lands here in README 9.101 (batch 3) - today's diary with four meal slots,
+   add-food search (combining local inventory/recipes/external ingredients with the same USDA
+   search infrastructure the item form's name-autocomplete already uses), a history page with a
+   calorie trend chart, and a macro widget (pie/bar, tap the dots or swipe to switch) comparing
+   today's actual intake against state.weightPlan's target - which is exactly why batch 2
+   (health page: BMR/EER, weight plan, macro presets) had to come before this one. */
+var MEAL_SLOTS = ['breakfast','lunch','dinner','snack'];
+function mealsUIDefaults(){
+  if(!state.mealsUI || !state.mealsUI.date) state.mealsUI = {date: todayStr(), macroView:'pie', addFood:null};
+}
+function mealLogsForDate(date){ return state.mealLogs.filter(function(m){ return m.date===date; }); }
+function mealLogsForSlot(date, slot){ return mealLogsForDate(date).filter(function(m){ return m.slot===slot; }); }
+function sumMealNutrition(list){
+  var out = emptyNutrition();
+  list.forEach(function(m){ out = addNutrition(out, m.nutrition||{}); });
+  return out;
+}
+function shiftMealsDate(delta){
+  mealsUIDefaults();
+  state.mealsUI.date = addDaysStr(state.mealsUI.date, delta);
+  render();
+}
+function setMealsDate(d){ mealsUIDefaults(); state.mealsUI.date = d; }
+function setMacroView(v){ state.mealsUI.macroView = v; render(); }
+
 function renderMeals(){
+  mealsUIDefaults();
+  var date = state.mealsUI.date;
+  var logs = mealLogsForDate(date);
+  var totals = sumMealNutrition(logs);
+  var budget = calcDailyCalorieBudget();
+  var consumed = Math.round(totals.calories||0);
+
+  var dateNav = '<div class="date-nav-bar">'+
+    '<button class="icon-btn" onclick="shiftMealsDate(-1)" aria-label="'+t('prevDay')+'">'+ic('back',18)+'</button>'+
+    '<div class="date-nav-label">'+(date===todayStr() ? t('todayLabel') : esc(fmtDateDots(date)))+'</div>'+
+    (date<todayStr() ? '<button class="icon-btn" onclick="shiftMealsDate(1)" aria-label="'+t('nextDay')+'">'+ic('chevronRight',18)+'</button>' : '<span style="width:36px;"></span>')+
+  '</div>';
+
+  var calorieCard = '<div class="form-group" style="text-align:center;">'+
+    (budget!=null ?
+      ('<div class="meals-calorie-num">'+consumed+' <span class="hint" style="font-size:15px;">/ '+budget+' kcal</span></div>'+
+       '<div class="hint" style="margin-top:4px;">'+(consumed<=budget ? (t('caloriesRemainingLabel')+' '+(budget-consumed)) : (t('caloriesOverLabel')+' '+(consumed-budget)))+'</div>')
+      : ('<div class="meals-calorie-num">'+consumed+' <span class="hint" style="font-size:15px;">kcal</span></div>'+
+         '<p class="hint" style="margin-top:6px;">'+t('healthPlanIncompleteHint')+'</p>')) +
+  '</div>';
+
+  var macroWidget = budget!=null ? macroWidgetHtml(totals, budget) : '';
+  var slotsHtml = MEAL_SLOTS.map(function(slot){ return mealSlotSectionHtml(date, slot); }).join('');
+
   return '' +
   '<div class="topbar"><div><h1>🍽️ '+t('mealsTitle')+'</h1></div>'+menuButtonHtml('meals', true)+'</div>'+
   '<div class="content">'+
-    '<div class="empty-state">'+ic('spoon',36)+'<p>'+(state.lang==='zh'?'三餐记录正在建设中，敬请期待':'Meal tracking is under construction - stay tuned')+'</p></div>'+
+    dateNav + calorieCard + macroWidget + slotsHtml +
   '</div>'+
   bottomNav();
 }
 function renderMealsSidebarContent(){
   return '<div class="sidebar-header"><h2>🍽️ '+t('mealsTitle')+'</h2><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div>'+
-    '<p class="hint" style="padding:0 4px;">'+(state.lang==='zh'?'更多功能陆续加入':'More coming soon')+'</p>';
+    '<div class="sidebar-item" onclick="navigate(\'mealsHistory\')">'+t('mealsHistoryBtn')+'</div>';
+}
+
+function mealSlotSectionHtml(date, slot){
+  var logs = mealLogsForSlot(date, slot);
+  var slotCal = Math.round(sumMealNutrition(logs).calories||0);
+  var rows = logs.map(function(m){
+    return '<div class="list-row">'+
+      '<div class="row-label">'+esc(m.name)+'<div class="hint" style="margin-top:2px;">'+fmtNum(m.amount,1)+m.unit+'</div></div>'+
+      '<div style="display:flex;align-items:center;gap:8px;flex-shrink:0;"><span>'+Math.round(m.nutrition.calories||0)+' kcal</span>'+
+      '<button class="icon-btn" onclick="deleteMealLog('+aj(m.id)+')" aria-label="'+t('delete')+'">'+ic('x',15)+'</button></div>'+
+    '</div>';
+  }).join('');
+  return '<div class="section-title">'+t('mealSlot_'+slot)+(slotCal ? (' · '+slotCal+' kcal') : '')+'</div>'+
+    '<div class="form-group">'+
+      (rows || '<p class="hint" style="margin:0 0 10px;">'+t('noMealLoggedHint')+'</p>')+
+      '<button class="btn btn-outline btn-sm" style="width:100%;'+(rows?'margin-top:10px;':'')+'" onclick="openAddFoodModal('+aj(date)+','+aj(slot)+')">'+ic('plus',15)+' '+t('addFoodBtn')+'</button>'+
+    '</div>';
+}
+function deleteMealLog(id){
+  showConfirmModal(t('deleteMealLogConfirm'), function(){
+    var m = state.mealLogs.find(function(x){ return x.id===id; });
+    if(m && m.deductItemId){
+      var item = state.items.find(function(i){ return i.id===m.deductItemId; });
+      if(item){ addBackToItem(item, m.deductAmount, m.deductUnit); saveItems(); }
+    }
+    state.mealLogs = state.mealLogs.filter(function(x){ return x.id!==id; });
+    saveMealLogs();
+    closeModal();
+    render();
+  }, {title:t('delete')});
+}
+
+/* ---- macro widget: pie/bar, target (from weightPlan) vs actual (today's logged intake) ----
+   Swipe left/right on the widget toggles view, same as tapping the two dots underneath - the
+   swipe listener is event-delegated at the document level (matching every other swipe gesture
+   in this file, e.g. initItemLongPress) rather than attached per-render, so it keeps working
+   across re-renders without needing to be re-initialized. */
+function macroWidgetHtml(totals, budget){
+  var targetG = macroGramsForBudget(budget, state.weightPlan.macroPreset);
+  var actualG = { carbs: Math.round(totals.carbs||0), protein: Math.round(totals.protein||0), fat: Math.round(totals.fat||0) };
+  var view = state.mealsUI.macroView || 'pie';
+  var inner = view==='bar' ? macroBarHtml(actualG, targetG) : macroPieHtml(actualG, targetG);
+  return '<div class="section-title">'+t('macroDistLabel')+'</div>'+
+    '<div class="form-group macro-widget-swipe-area" id="macro-widget-container">'+
+      inner +
+      '<div style="display:flex;justify-content:center;gap:7px;margin-top:12px;">'+
+        '<span class="macro-view-dot '+(view==='pie'?'active':'')+'" onclick="setMacroView(\'pie\')"></span>'+
+        '<span class="macro-view-dot '+(view==='bar'?'active':'')+'" onclick="setMacroView(\'bar\')"></span>'+
+      '</div>'+
+    '</div>';
+}
+function macroPieHtml(actualG, targetG){
+  var totalCal = actualG.carbs*4+actualG.protein*4+actualG.fat*9;
+  if(totalCal<=0.5) return '<p class="hint" style="text-align:center;margin:6px 0;">'+t('noMealLoggedHint')+'</p>';
+  var slices = [
+    {label:t('macroCarbs'), grams:actualG.carbs, val:actualG.carbs*4, color:'#5FAE72'},
+    {label:t('macroProtein'), grams:actualG.protein, val:actualG.protein*4, color:'#8B7FD1'},
+    {label:t('macroFat'), grams:actualG.fat, val:actualG.fat*9, color:'#E0A94E'}
+  ];
+  var cx=70, cy=70, r=62, startAngle=-90, paths='';
+  slices.forEach(function(s){
+    var frac = s.val/totalCal;
+    var endAngle = startAngle + frac*360;
+    var large = (endAngle-startAngle)>180 ? 1 : 0;
+    var x1 = cx+r*Math.cos(startAngle*Math.PI/180), y1 = cy+r*Math.sin(startAngle*Math.PI/180);
+    var x2 = cx+r*Math.cos(endAngle*Math.PI/180), y2 = cy+r*Math.sin(endAngle*Math.PI/180);
+    if(frac>0.002) paths += '<path d="M'+cx+','+cy+' L'+x1.toFixed(1)+','+y1.toFixed(1)+' A'+r+','+r+' 0 '+large+' 1 '+x2.toFixed(1)+','+y2.toFixed(1)+' Z" fill="'+s.color+'"/>';
+    startAngle = endAngle;
+  });
+  var legend = slices.map(function(s){
+    return '<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">'+
+      '<span style="width:10px;height:10px;border-radius:50%;background:'+s.color+';display:inline-block;flex-shrink:0;"></span>'+
+      '<span style="font-size:13px;color:var(--cocoa);">'+s.label+' '+Math.round(s.val/totalCal*100)+'% · '+s.grams+'g</span>'+
+    '</div>';
+  }).join('');
+  return '<div style="display:flex;align-items:center;gap:18px;">'+
+    '<svg viewBox="0 0 140 140" style="width:108px;height:108px;flex-shrink:0;">'+paths+'</svg>'+
+    '<div>'+legend+'</div>'+
+  '</div>';
+}
+function macroBarHtml(actualG, targetG){
+  var rows = [
+    {label:t('macroCarbs'), actual:actualG.carbs, target:targetG.carbs, color:'#5FAE72'},
+    {label:t('macroProtein'), actual:actualG.protein, target:targetG.protein, color:'#8B7FD1'},
+    {label:t('macroFat'), actual:actualG.fat, target:targetG.fat, color:'#E0A94E'}
+  ];
+  return rows.map(function(r){
+    var pct = r.target>0 ? Math.round(r.actual/r.target*100) : 0;
+    var over = r.actual>r.target;
+    var barPct = Math.min(pct,100);
+    return '<div style="margin-bottom:11px;">'+
+      '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span>'+r.label+'</span><span class="hint">'+r.actual+'g / '+r.target+'g ('+pct+'%'+(over?(' '+t('macroOverLabel')):'')+')</span></div>'+
+      '<div style="height:8px;background:var(--line);border-radius:4px;overflow:hidden;"><div style="height:100%;width:'+barPct+'%;background:'+(over?'var(--danger)':r.color)+';"></div></div>'+
+    '</div>';
+  }).join('');
+}
+
+/* ---- add-food modal: local search (items/recipes/external ingredients, instant, in-memory)
+   stacked above a debounced USDA search (reusing usdaSearchFoods/usdaFetchFoodDetail - the
+   fetch functions only, not the inline-autocomplete-under-a-name-field UI those are normally
+   wrapped in, which doesn't fit a modal's own step-based flow) - then an amount-entry step. ---- */
+function openAddFoodModal(date, slot){
+  state.mealsUI.addFood = {date:date, slot:slot, step:'search', query:'', picked:null, amountText:'', deduct:false};
+  renderAddFoodModal();
+}
+function renderAddFoodModal(){
+  var af = state.mealsUI.addFood;
+  if(af.step==='amount') showModal(t('addFoodBtn'), addFoodAmountBodyHtml(af));
+  else if(af.step==='loading') showModal(t('addFoodBtn'), '<p class="hint">'+t('usdaSearchLoading')+'</p>');
+  else showModal(t('addFoodBtn'), addFoodSearchBodyHtml(af));
+}
+function addFoodSearchBodyHtml(af){
+  var local = searchLocalFoods(af.query);
+  return '<div class="field"><input id="add-food-search-input" type="text" autocapitalize="none" placeholder="'+t('addFoodSearchPh')+'" value="'+esc(af.query)+'" oninput="onAddFoodQueryInput(this.value)"></div>'+
+    '<div id="add-food-local-results">'+addFoodLocalResultsHtml(local)+'</div>'+
+    '<div id="add-food-usda-results"></div>';
+}
+function addFoodLocalResultsHtml(local){
+  return local.map(function(r){
+    return '<div class="list-row" style="cursor:pointer;" onclick="pickLocalFoodForMeal('+aj(r.type)+','+aj(r.id)+')"><div class="row-label">'+esc(r.label)+'<div class="hint" style="margin-top:2px;">'+esc(r.sub)+'</div></div>'+ic('chevronRight',16)+'</div>';
+  }).join('');
+}
+function searchLocalFoods(q){
+  q = (q||'').trim().toLowerCase();
+  if(!q) return [];
+  var out = [];
+  state.items.filter(function(it){ return !it.archived; }).forEach(function(it){
+    if(itemDisplayNameRaw(it).toLowerCase().indexOf(q)!==-1) out.push({type:'item', id:it.id, label:itemDisplayNameRaw(it), sub:t('sourceInventory')});
+  });
+  state.recipes.forEach(function(r){
+    if((r.name||'').toLowerCase().indexOf(q)!==-1) out.push({type:'recipe', id:r.id, label:r.name, sub:t('sourceRecipe')});
+  });
+  state.ingredients.forEach(function(ing){
+    if((ing.name||'').toLowerCase().indexOf(q)!==-1) out.push({type:'external', id:ing.id, label:ing.name, sub:t('sourceExternal')});
+  });
+  return out.slice(0,10);
+}
+var addFoodUsdaTimer = null;
+function onAddFoodQueryInput(val){
+  var af = state.mealsUI.addFood;
+  af.query = val;
+  var localEl = document.getElementById('add-food-local-results');
+  if(localEl) localEl.innerHTML = addFoodLocalResultsHtml(searchLocalFoods(val));
+  clearTimeout(addFoodUsdaTimer);
+  var usdaEl = document.getElementById('add-food-usda-results');
+  if(usdaEl) usdaEl.innerHTML = '';
+  if(!usdaWorkerBase() || val.trim().length<2) return;
+  addFoodUsdaTimer = setTimeout(function(){ runAddFoodUsdaSearch(val.trim()); }, 450);
+}
+async function runAddFoodUsdaSearch(q){
+  var el = document.getElementById('add-food-usda-results');
+  if(el) el.innerHTML = '<p class="hint" style="padding:8px 0 0;">'+t('usdaSearchLoading')+'</p>';
+  try{
+    var results = await usdaSearchFoods(q);
+    var el2 = document.getElementById('add-food-usda-results');
+    if(!el2) return;
+    if(!results.length){ el2.innerHTML=''; return; }
+    el2.innerHTML = '<div class="hint" style="margin:10px 0 4px;">USDA</div>'+results.slice(0,8).map(function(f){
+      var sub = usdaDataTypeLabel(f.dataType)+(f.brandName?(' · '+esc(f.brandName)):'');
+      return '<div class="list-row" style="cursor:pointer;" onclick="pickUsdaFoodForMeal('+aj(f.fdcId)+')"><div class="row-label">'+esc(f.description)+'<div class="hint" style="margin-top:2px;">'+sub+'</div></div>'+ic('chevronRight',16)+'</div>';
+    }).join('');
+  }catch(e){
+    var el3 = document.getElementById('add-food-usda-results');
+    if(el3) el3.innerHTML = '';
+  }
+}
+function pickLocalFoodForMeal(type, id){
+  var af = state.mealsUI.addFood;
+  if(type==='item'){
+    var it = state.items.find(function(x){ return x.id===id; });
+    af.picked = {type:'item', id:id, name:itemDisplayNameRaw(it)};
+  } else if(type==='recipe'){
+    var r = state.recipes.find(function(x){ return x.id===id; });
+    af.picked = {type:'recipe', id:id, name:r.name};
+    af.amountText = '1';
+  } else {
+    var ing = state.ingredients.find(function(x){ return x.id===id; });
+    af.picked = {type:'external', id:id, name:ing.name};
+  }
+  af.step = 'amount';
+  renderAddFoodModal();
+}
+async function pickUsdaFoodForMeal(fdcId){
+  var af = state.mealsUI.addFood;
+  af.step = 'loading';
+  renderAddFoodModal();
+  try{
+    var detail = await usdaFetchFoodDetail(fdcId);
+    af.picked = {type:'usda', name:detail.description, nutrition:detail.nutrition};
+    af.amountText = '100';
+    af.step = 'amount';
+  }catch(e){
+    af.step = 'search';
+    showToast(t('usdaSearchError'));
+  }
+  renderAddFoodModal();
+}
+function backToAddFoodSearch(){
+  var af = state.mealsUI.addFood;
+  af.step = 'search'; af.picked = null;
+  renderAddFoodModal();
+}
+function af_str(field, val){ state.mealsUI.addFood[field] = val; }
+function af_bool(field, val){ state.mealsUI.addFood[field] = val; }
+function addFoodAmountBodyHtml(af){
+  var p = af.picked;
+  var isRecipe = p.type==='recipe';
+  var isItem = p.type==='item';
+  return '' +
+    '<p style="font-weight:600;margin-bottom:14px;">'+esc(p.name)+'</p>'+
+    (isRecipe ?
+      '<div class="field"><label>'+t('servingsEatenLabel')+'</label><input type="number" inputmode="decimal" placeholder="1" value="'+esc(af.amountText)+'" oninput="af_str(\'amountText\',this.value)"></div>'
+      :
+      '<div class="field"><label>'+t('fieldWeight')+' (g)</label><input type="number" inputmode="decimal" placeholder="-" value="'+esc(af.amountText)+'" oninput="af_str(\'amountText\',this.value)"></div>'+
+      (isItem ? ('<div class="list-row"><div class="row-label">'+t('deductFromInventoryLabel')+'</div><label class="switch"><input type="checkbox" '+(af.deduct?'checked':'')+' onchange="af_bool(\'deduct\',this.checked)"><span class="switch-slider"></span></label></div>') : '')
+    )+
+    '<button class="btn btn-outline" style="margin-top:14px;width:100%;" onclick="backToAddFoodSearch()">'+t('back')+'</button>'+
+    '<button class="btn btn-primary" style="margin-top:10px;width:100%;" onclick="saveMealLogEntry()">'+t('save')+'</button>';
+}
+function saveMealLogEntry(){
+  var af = state.mealsUI.addFood;
+  var p = af.picked;
+  var nutrition, name, amount, unit, deductItemId=null, deductAmount=null, deductUnit=null;
+  if(p.type==='recipe'){
+    var r = state.recipes.find(function(x){ return x.id===p.id; });
+    var servings = parseFloat(af.amountText);
+    if(!servings || servings<=0){ showToast(t('weightEntryInvalid')); return; }
+    var totalN = calcRecipeNutrition(r);
+    var factor = servings/(r.servings||1);
+    nutrition = {}; NUTRI_KEYS.forEach(function(k){ nutrition[k]=(totalN[k]||0)*factor; });
+    name = r.name; amount = servings; unit = t('servingsUnit');
+  } else if(p.type==='usda'){
+    var amt = parseFloat(af.amountText);
+    if(!amt || amt<=0){ showToast(t('weightEntryInvalid')); return; }
+    var factor2 = amt/100;
+    nutrition = {}; NUTRI_KEYS.forEach(function(k){ nutrition[k]=(p.nutrition[k]||0)*factor2; });
+    name = p.name; amount = amt; unit = 'g';
+  } else {
+    var amt2 = parseFloat(af.amountText);
+    if(!amt2 || amt2<=0){ showToast(t('weightEntryInvalid')); return; }
+    var src = p.type==='item' ? state.items.find(function(x){ return x.id===p.id; }) : state.ingredients.find(function(x){ return x.id===p.id; });
+    var basisInfo = ingredientBasisInfo(src);
+    var used = amountToBasisUnits(amt2, 'g', p.type==='item' ? src : null);
+    nutrition = scaleNutrition(src.nutrition, basisInfo, used);
+    name = p.type==='item' ? itemDisplayNameRaw(src) : src.name;
+    amount = amt2; unit = 'g';
+    if(p.type==='item' && af.deduct){
+      var res = deductFromItem(src, amt2, 'g');
+      if(res.ok){ deductItemId=src.id; deductAmount=amt2; deductUnit='g'; saveItems(); }
+    }
+  }
+  var entry = {
+    id: uid(), date: af.date, slot: af.slot, name: name, amount: amount, unit: unit,
+    nutrition: nutrition, created_at: nowLocalIso()
+  };
+  if(deductItemId){ entry.deductItemId=deductItemId; entry.deductAmount=deductAmount; entry.deductUnit=deductUnit; }
+  state.mealLogs.push(entry);
+  saveMealLogs();
+  closeModal();
+  showToast(t('mealLoggedToast'));
+  render();
+}
+
+/* ---- history ---- */
+function renderMealsHistory(){
+  var byDate = {};
+  state.mealLogs.forEach(function(m){ byDate[m.date] = (byDate[m.date]||0) + (m.nutrition.calories||0); });
+  var dates = Object.keys(byDate).sort();
+  var chartHtml = dates.length>=2 ? mealsCalorieChartSvg(dates, byDate) : '<p class="hint">'+t('weightChartEmptyHint')+'</p>';
+  var rows = dates.slice().reverse().map(function(d){
+    return '<div class="list-row" onclick="navigate(\'meals\');setMealsDate('+aj(d)+')" style="cursor:pointer;"><div class="row-label">'+esc(fmtDateDots(d))+'</div><div>'+Math.round(byDate[d])+' kcal</div></div>';
+  }).join('') || '<div class="empty-state">'+ic('spoon',36)+'<p>'+t('noMealLoggedHint')+'</p></div>';
+  return '' +
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'meals\')">'+ic('back',22)+'</button><h1>'+t('mealsHistoryBtn')+'</h1></div>'+
+  '<div class="content">'+(dates.length ? ('<div class="form-group">'+chartHtml+'</div>') : '')+rows+'</div>';
+}
+function mealsCalorieChartSvg(dates, byDate){
+  var w=340, h=190, padL=44, padR=16, padT=18, padB=30;
+  var vals = dates.map(function(d){ return byDate[d]; });
+  var maxV = Math.max.apply(null, vals)*1.1 || 100;
+  var innerW=w-padL-padR, innerH=h-padT-padB;
+  function x(i){ return dates.length===1 ? padL+innerW/2 : padL+innerW*(i/(dates.length-1)); }
+  function y(v){ return padT+innerH-innerH*(v/maxV); }
+  var pathD = dates.map(function(d,i){ return (i===0?'M':'L')+x(i).toFixed(1)+','+y(byDate[d]).toFixed(1); }).join(' ');
+  var dots = dates.map(function(d,i){ return '<circle cx="'+x(i).toFixed(1)+'" cy="'+y(byDate[d]).toFixed(1)+'" r="3.5" fill="var(--almond)"/>'; }).join('');
+  return '<svg viewBox="0 0 '+w+' '+h+'" style="width:100%;height:auto;display:block;">'+
+    '<line x1="'+padL+'" y1="'+padT+'" x2="'+padL+'" y2="'+(h-padB)+'" stroke="var(--line)" stroke-width="1"/>'+
+    '<line x1="'+padL+'" y1="'+(h-padB)+'" x2="'+(w-padR)+'" y2="'+(h-padB)+'" stroke="var(--line)" stroke-width="1"/>'+
+    '<path d="'+pathD+'" fill="none" stroke="var(--almond)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>'+
+    dots+
+    '<text x="'+padL+'" y="'+(h-8)+'" font-size="10" fill="var(--deep-caramel)">'+esc(fmtDateDots(dates[0]))+'</text>'+
+    '<text x="'+(w-padR)+'" y="'+(h-8)+'" font-size="10" fill="var(--deep-caramel)" text-anchor="end">'+esc(fmtDateDots(dates[dates.length-1]))+'</text>'+
+  '</svg>';
 }
 
 /* ======================= HEALTH (健康) - README 9.98 =======================
