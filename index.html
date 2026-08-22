@@ -740,7 +740,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.101';
+var BUILD_VERSION = '9.104';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2077,6 +2077,8 @@ var I18N = {
     sortLabel:'排序', sortExpiry:'过期', sortName:'名称', sortPurchase:'购买', sortCreated:'录入',
     emptyInventory:'库存还是空的', emptyInventoryHint:'点击下方按钮扫码或手动添加第一件食材吧',
     scanAdd:'扫码添加', manualAdd:'手动添加',
+    addItemPickerTitle:'添加食材', addItemPickerScan:'扫码', addItemPickerSearch:'搜索', addItemPickerManual:'手动',
+    searchAddTitle:'搜索添加', searchAddPh:'搜索品牌或名称',
     statusExpired:'已过期', statusSoonPrefix:'', statusSoonDays:'天内', statusFresh:'新鲜', statusToday:'今天到期', statusUsedUp:'已用完',
     // item form
     itemFormTitleAdd:'添加食材', itemFormTitleEdit:'编辑食材',
@@ -2312,6 +2314,8 @@ var I18N = {
     sortLabel:'Sort', sortExpiry:'Expiry', sortName:'Name', sortPurchase:'Purchase date', sortCreated:'Date added',
     emptyInventory:'Your pantry is empty', emptyInventoryHint:'Tap below to scan or manually add your first item',
     scanAdd:'Scan to add', manualAdd:'Add manually',
+    addItemPickerTitle:'Add Item', addItemPickerScan:'Scan', addItemPickerSearch:'Search', addItemPickerManual:'Manual',
+    searchAddTitle:'Search & Add', searchAddPh:'Search brand or name',
     statusExpired:'Expired', statusSoonPrefix:'', statusSoonDays:'d left', statusFresh:'Fresh', statusToday:'Due today', statusUsedUp:'Used up',
     itemFormTitleAdd:'Add item', itemFormTitleEdit:'Edit item',
     fieldName:'Name', fieldNamePh:'e.g. Eggs', fieldBrand:'Brand', fieldBrandPh:'e.g. Farm Co.',
@@ -2504,6 +2508,7 @@ var state = {
   weightLogUI: null,
   mealsUI: {},
   healthUI: {},
+  searchAddUI: {query:'', results:[], loading:false},
   // README 9.102: 轻断食计时器 + 血压/腰围/锻炼记录 (batch 4)
   fastingLogs: [],
   activeFast: null,
@@ -3429,6 +3434,7 @@ function render(){
     case 'usageLog': html = renderUsageLog(); break;
     case 'usageLogAdd': html = renderUsageLogAdd(); break;
     case 'scan': html = renderScan(); break;
+    case 'searchAddItem': html = renderSearchAddItem(); break;
     case 'recipes': html = renderRecipesList(); break;
     case 'recipeForm': html = renderRecipeForm(); break;
     case 'recipeDetail': html = renderRecipeDetail(); break;
@@ -3468,7 +3474,7 @@ function bottomNav(){
   '<div class="bottom-nav">'+
     '<button class="nav-item '+(isHome&&v==='home'?'active':'')+'" onclick="navBottomHome()">'+ic('box',22)+'<span>'+t('navHome')+'</span></button>'+
     '<button class="nav-item '+(v==='recipes'?'active':'')+'" onclick="navBottomRecipes()">'+ic('book',22)+'<span>'+t('navRecipes')+'</span></button>'+
-    '<button class="nav-scan" onclick="navigate(\'scan\')" aria-label="'+t('navScan')+'">'+ic('barcode',26)+'</button>'+
+    '<button class="nav-scan" onclick="openAddItemPicker()" aria-label="'+t('navScan')+'">'+ic('plus',28)+'</button>'+
     '<button class="nav-item '+(isMeals?'active':'')+'" onclick="navBottomMeals()">'+ic('spoon',22)+'<span>'+t('navMeals')+'</span></button>'+
     '<button class="nav-item '+(isHealth?'active':'')+'" onclick="navBottomHealth()">'+ic('scale',22)+'<span>'+t('navHealth')+'</span></button>'+
   '</div>';
@@ -3659,6 +3665,7 @@ function openSettings(fromView){
     if(state.view==='recipeForm') return {view:'recipes'};
     if(state.view==='recipeDetail') return (state.params && state.params.from) || {view:'recipes'};
     if(state.view==='scan') return {view:'home'};
+    if(state.view==='searchAddItem') return {view:'home'};
     if(state.view==='archive') return {view:'home'};
     if(state.view==='stats') return {view:'home'};
     if(state.view==='priceHistory') return {view:'home'};
@@ -3667,10 +3674,14 @@ function openSettings(fromView){
     if(state.view==='manageRecipeCategories') return {view:'settings'};
     if(state.view==='settings') return {view: state.settingsBackTo || 'home'};
     if(state.view==='weightHistory') return {view:'health'};
+    if(state.view==='bpHistory') return {view:'health'};
+    if(state.view==='waistHistory') return {view:'health'};
+    if(state.view==='exerciseHistory') return {view:'health'};
     if(state.view==='personalInfo') return {view:'planSettings'};
     if(state.view==='planSettings') return {view:'health'};
     if(state.view==='macroPresetPicker') return {view:'planSettings'};
     if(state.view==='mealsHistory') return {view:'meals'};
+    if(state.view==='fastingHistory') return {view:'meals'};
     return null;
   }
   document.addEventListener('touchstart', function(e){
@@ -6869,6 +6880,110 @@ function runPendingConfirmAction(){
 
 /* ======================= SCAN ======================= */
 var scanCtx = { stream:null, detecting:false, raf:null };
+// README: bottom-nav center button used to always jump straight into camera-scan mode. Now it
+// opens a small picker first - 扫码 (camera scan) / 搜索 (USDA name/brand search) / 手动 (blank
+// form) - since scanning a barcode isn't the only, or even always the fastest, way to start
+// adding something (a lot of fresh produce and homemade items have no barcode at all).
+function openAddItemPicker(){
+  showModal(t('addItemPickerTitle'),
+    '<div style="display:flex;gap:10px;">'+
+      addItemPickerOptionHtml('scan', 'barcode', t('addItemPickerScan'))+
+      addItemPickerOptionHtml('search', 'search', t('addItemPickerSearch'))+
+      addItemPickerOptionHtml('manual', 'edit', t('addItemPickerManual'))+
+    '</div>'
+  );
+}
+function addItemPickerOptionHtml(method, icon, label){
+  return '<div onclick="pickAddItemMethod(\''+method+'\')" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;padding:22px 6px;border:1px solid var(--line);border-radius:var(--radius-sm);cursor:pointer;background:var(--cream);min-height:96px;">'+
+    ic(icon,26)+'<span style="font-size:13.5px;font-weight:600;color:var(--cocoa);text-align:center;">'+label+'</span>'+
+  '</div>';
+}
+function pickAddItemMethod(method){
+  closeModal();
+  if(method==='scan') navigate('scan');
+  else if(method==='search'){
+    state.searchAddUI = {query:'', results:[], loading:false};
+    navigate('searchAddItem');
+  }
+  else openItemForm(null);
+}
+
+/* ---- 搜索添加 (search USDA by brand/name, no camera) ---- */
+function renderSearchAddItem(){
+  var ui = state.searchAddUI;
+  return '' +
+  '<div class="page-header">'+
+    '<button class="back-btn" onclick="navigate(\'home\')">'+ic('back',22)+'</button>'+
+    '<h1>'+t('searchAddTitle')+'</h1>'+
+  '</div>'+
+  '<div class="content">'+
+    '<div class="field"><input id="search-add-input" type="text" autocapitalize="words" placeholder="'+t('searchAddPh')+'" value="'+esc(ui.query)+'" oninput="onSearchAddInput(this.value)"></div>'+
+    '<div id="search-add-results">'+searchAddResultsHtml(ui)+'</div>'+
+    '<button class="btn btn-outline" style="margin-top:6px;width:100%;" onclick="openItemForm(null)">'+t('manualAdd')+'</button>'+
+  '</div>'+
+  bottomNav();
+}
+function searchAddResultsHtml(ui){
+  if(ui.loading) return '<p class="hint" style="padding:8px 0;">'+t('usdaSearchLoading')+'</p>';
+  if(!ui.query.trim()) return '';
+  if(!ui.results.length) return '<p class="hint" style="padding:8px 0;">'+t('usdaSearchNoResults')+'</p>';
+  return ui.results.map(function(f){
+    var sub = usdaDataTypeLabel(f.dataType)+(f.brandName?(' · '+esc(f.brandName)):'');
+    return '<div class="list-row" style="cursor:pointer;" onclick="pickSearchAddResult('+aj(f.fdcId)+')"><div class="row-label">'+esc(f.description)+'<div class="hint" style="margin-top:2px;">'+sub+'</div></div>'+ic('chevronRight',16)+'</div>';
+  }).join('');
+}
+var searchAddUsdaTimer = null;
+function onSearchAddInput(val){
+  var ui = state.searchAddUI;
+  ui.query = val;
+  clearTimeout(searchAddUsdaTimer);
+  if(!val.trim() || !usdaWorkerBase()){
+    ui.results = []; ui.loading = false;
+    var el0 = document.getElementById('search-add-results');
+    if(el0) el0.innerHTML = searchAddResultsHtml(ui);
+    return;
+  }
+  ui.loading = true;
+  var el = document.getElementById('search-add-results');
+  if(el) el.innerHTML = searchAddResultsHtml(ui);
+  searchAddUsdaTimer = setTimeout(function(){ runSearchAddUsdaSearch(val.trim()); }, 450);
+}
+async function runSearchAddUsdaSearch(q){
+  var ui = state.searchAddUI;
+  try{
+    var results = await usdaSearchFoods(q);
+    if(ui.query.trim()!==q) return; // stale - person kept typing
+    ui.results = results.slice(0,20);
+  }catch(e){
+    ui.results = [];
+  }
+  ui.loading = false;
+  var el = document.getElementById('search-add-results');
+  if(el) el.innerHTML = searchAddResultsHtml(ui);
+}
+// Picking a USDA result here reuses the exact same "full overwrite" prefill shape the barcode
+// scan path builds in lookupAndPrefill (name/brand/barcode/nutrition, basis defaulted to
+// 100g since that's what USDA data is always normalized to) - lands in the same item form,
+// which already has its own USDA-autocomplete-on-name-field and AI-photo-recapture for the
+// nutrition section, so nothing further to wire up once we're there.
+async function pickSearchAddResult(fdcId){
+  try{
+    var detail = await usdaFetchFoodDetail(fdcId);
+    var prefill = {
+      name: detail.description || '',
+      brand: detail.brandOwner || '',
+      barcode: detail.gtinUpc || '',
+      nutrition: detail.nutrition || emptyNutrition(),
+      nutrition_extra: detail.nutrition_extra || emptyNutritionExtra(),
+      nutrition_basis_weight_amount: 100,
+      nutrition_basis_weight_unit: 'g'
+    };
+    openItemForm(null, prefill);
+  }catch(e){
+    showToast(t('usdaSearchError'));
+  }
+}
+
 function renderScan(){
   return '' +
   '<div class="page-header">'+
@@ -8597,6 +8712,13 @@ function setMacroView(v){
   state.mealsUI.macroView = v;
   render();
 }
+// README: clicking anywhere within the macro card's border toggles pie<->bar - the main way
+// to switch views now (the dots and the swipe gesture both still work too, just no longer the
+// only way). Dots call event.stopPropagation() so tapping one doesn't also trigger this and
+// immediately toggle back.
+function toggleMacroView(){
+  setMacroView(state.mealsUI.macroView==='bar' ? 'pie' : 'bar');
+}
 
 /* ---- 轻断食 (intermittent fasting timer) - README 9.102 ----
    state.activeFast holds the in-progress fast (or null): {startedAt, targetHours}, both stored
@@ -8770,36 +8892,51 @@ function macroWidgetHtml(totals, budget){
   // every time the view actually changes but does nothing on unrelated re-renders of this page.
   var slideAnim = state.mealsUI.macroSlideDir==='left' ? 'macroSlideInLeft' : 'macroSlideInRight';
   return '<div class="section-title">'+t('macroDistLabel')+'</div>'+
-    '<div class="form-group macro-widget-swipe-area" id="macro-widget-container">'+
+    '<div class="form-group macro-widget-swipe-area" id="macro-widget-container" onclick="toggleMacroView()" style="cursor:pointer;">'+
       '<div class="macro-view-slide" style="animation-name:'+slideAnim+';">'+inner+'</div>'+
       '<div style="display:flex;justify-content:center;gap:7px;margin-top:12px;">'+
-        '<span class="macro-view-dot '+(view==='pie'?'active':'')+'" onclick="setMacroView(\'pie\')"></span>'+
-        '<span class="macro-view-dot '+(view==='bar'?'active':'')+'" onclick="setMacroView(\'bar\')"></span>'+
+        '<span class="macro-view-dot '+(view==='pie'?'active':'')+'" onclick="event.stopPropagation();setMacroView(\'pie\')"></span>'+
+        '<span class="macro-view-dot '+(view==='bar'?'active':'')+'" onclick="event.stopPropagation();setMacroView(\'bar\')"></span>'+
       '</div>'+
     '</div>';
 }
 function macroPieHtml(actualG, targetG){
   var totalCal = actualG.carbs*4+actualG.protein*4+actualG.fat*9;
   if(totalCal<=0.5) return '<p class="hint" style="text-align:center;margin:6px 0;">'+t('noMealLoggedHint')+'</p>';
+  // Colors reuse the exact same badge colors already used elsewhere in the app for a visual
+  // vocabulary the person already knows: carbs = the "未过期" fresh-status badge (--fresh-bg,
+  // see .status-fresh), protein = the "已过期" expired-status badge (--danger-bg, see
+  // .status-expired), fat = the app's own page background (--cream). Those three are all pale
+  // by design (they're badge backgrounds, not accent colors), so each slice/dot also gets a
+  // matching darker "accent" outline+text color (their existing badge border/text color, or
+  // --almond for fat which has no natural badge partner) - keeps the slice itself period-
+  // accurate to what was asked for while keeping the dot and legend text legible.
   var slices = [
-    {label:t('macroCarbs'), grams:actualG.carbs, val:actualG.carbs*4, color:'var(--caramel-light)'},
-    {label:t('macroProtein'), grams:actualG.protein, val:actualG.protein*4, color:'var(--deep-caramel)'},
-    {label:t('macroFat'), grams:actualG.fat, val:actualG.fat*9, color:'var(--fresh)'}
+    {label:t('macroCarbs'), grams:actualG.carbs, val:actualG.carbs*4, fill:'var(--fresh-bg)', accent:'var(--fresh)'},
+    {label:t('macroProtein'), grams:actualG.protein, val:actualG.protein*4, fill:'var(--danger-bg)', accent:'var(--danger)'},
+    {label:t('macroFat'), grams:actualG.fat, val:actualG.fat*9, fill:'var(--cream)', accent:'var(--almond)'}
   ];
   var cx=70, cy=70, r=62, startAngle=-90, paths='';
   slices.forEach(function(s){
     var frac = s.val/totalCal;
     var endAngle = startAngle + frac*360;
-    var large = (endAngle-startAngle)>180 ? 1 : 0;
-    var x1 = cx+r*Math.cos(startAngle*Math.PI/180), y1 = cy+r*Math.sin(startAngle*Math.PI/180);
-    var x2 = cx+r*Math.cos(endAngle*Math.PI/180), y2 = cy+r*Math.sin(endAngle*Math.PI/180);
-    if(frac>0.002) paths += '<path d="M'+cx+','+cy+' L'+x1.toFixed(1)+','+y1.toFixed(1)+' A'+r+','+r+' 0 '+large+' 1 '+x2.toFixed(1)+','+y2.toFixed(1)+' Z" fill="'+s.color+'"/>';
+    // Leave a visible gap between slices ("留白缝隙不要贴紧") instead of drawing them edge to
+    // edge - inset each slice's arc by a small angular margin on both sides. Scaled down for
+    // very thin slices (nearly-zero macro) so the inset never flips the arc backwards.
+    var gap = Math.min(3, (endAngle-startAngle)*0.25);
+    var a1 = startAngle+gap, a2 = endAngle-gap;
+    var large = (a2-a1)>180 ? 1 : 0;
+    if(a2>a1){
+      var x1 = cx+r*Math.cos(a1*Math.PI/180), y1 = cy+r*Math.sin(a1*Math.PI/180);
+      var x2 = cx+r*Math.cos(a2*Math.PI/180), y2 = cy+r*Math.sin(a2*Math.PI/180);
+      paths += '<path d="M'+cx+','+cy+' L'+x1.toFixed(1)+','+y1.toFixed(1)+' A'+r+','+r+' 0 '+large+' 1 '+x2.toFixed(1)+','+y2.toFixed(1)+' Z" fill="'+s.fill+'" stroke="var(--card-bg)" stroke-width="1"/>';
+    }
     startAngle = endAngle;
   });
   var legend = slices.map(function(s){
-    return '<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">'+
-      '<span style="width:10px;height:10px;border-radius:50%;background:'+s.color+';display:inline-block;flex-shrink:0;"></span>'+
-      '<span style="font-size:13px;color:var(--cocoa);">'+s.label+' '+Math.round(s.val/totalCal*100)+'% · '+s.grams+'g</span>'+
+    return '<div style="display:flex;align-items:center;gap:7px;margin-bottom:7px;">'+
+      '<span style="width:11px;height:11px;border-radius:50%;background:'+s.fill+';border:1.5px solid '+s.accent+';display:inline-block;flex-shrink:0;"></span>'+
+      '<span style="font-size:14.5px;font-weight:700;color:'+s.accent+';">'+s.label+' '+Math.round(s.val/totalCal*100)+'% · '+s.grams+'g</span>'+
     '</div>';
   }).join('');
   return '<div style="display:flex;align-items:center;gap:18px;">'+
@@ -8808,10 +8945,13 @@ function macroPieHtml(actualG, targetG){
   '</div>';
 }
 function macroBarHtml(actualG, targetG){
+  // Same badge-derived color family as the pie (see its own comment) - bars use the darker
+  // "accent" tone directly as the fill since a bar filled with the pale badge background
+  // wouldn't read against the track color.
   var rows = [
-    {label:t('macroCarbs'), actual:actualG.carbs, target:targetG.carbs, color:'var(--caramel-light)'},
-    {label:t('macroProtein'), actual:actualG.protein, target:targetG.protein, color:'var(--deep-caramel)'},
-    {label:t('macroFat'), actual:actualG.fat, target:targetG.fat, color:'var(--fresh)'}
+    {label:t('macroCarbs'), actual:actualG.carbs, target:targetG.carbs, color:'var(--fresh)'},
+    {label:t('macroProtein'), actual:actualG.protein, target:targetG.protein, color:'var(--danger)'},
+    {label:t('macroFat'), actual:actualG.fat, target:targetG.fat, color:'var(--almond)'}
   ];
   return rows.map(function(r){
     var pct = r.target>0 ? Math.round(r.actual/r.target*100) : 0;
