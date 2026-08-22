@@ -224,6 +224,21 @@
     border:4px solid var(--card-bg);
   }
   .nav-scan i{ font-size:27px; }
+  .nav-scan svg{ transition:transform .22s ease; }
+  .nav-scan.open svg{ transform:rotate(45deg); }
+  .add-menu-backdrop{ position:fixed; inset:0; z-index:29; background:transparent; }
+  /* Each option is its own free-floating pill - no shared card/background behind the group -
+     stacked in a column centered above the nav-scan button and staggered slightly so they fan
+     in rather than all popping in at once. */
+  .add-menu-options{ position:fixed; left:50%; bottom:calc(96px + var(--safe-bottom)); transform:translateX(-50%); z-index:31; display:flex; flex-direction:column; align-items:center; gap:10px; }
+  .add-menu-pill{
+    display:flex; align-items:center; gap:8px; padding:11px 20px; border-radius:999px;
+    background:var(--card-bg); color:var(--cocoa); border:1px solid var(--line); box-shadow:var(--shadow);
+    font-size:14px; font-weight:600; white-space:nowrap; cursor:pointer;
+    animation:addMenuPillIn .18s ease both;
+    animation-delay:calc((var(--add-menu-count) - 1 - var(--add-menu-i)) * .03s);
+  }
+  @keyframes addMenuPillIn{ from{ opacity:0; transform:translateY(8px) scale(.92); } to{ opacity:1; transform:translateY(0) scale(1); } }
   .dup-badge{
     font-size:11px; font-weight:500; color:var(--deep-caramel); background:var(--cream);
     border-radius:8px; padding:1px 6px; margin-left:6px; vertical-align:1px; white-space:nowrap;
@@ -747,7 +762,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.105';
+var BUILD_VERSION = '9.106';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2522,6 +2537,7 @@ var state = {
   mealsUI: {},
   healthUI: {},
   searchAddUI: {query:'', results:[], loading:false},
+  addMenuOpen: false,
   // README 9.102: 轻断食计时器 + 血压/腰围/锻炼记录 (batch 4)
   fastingLogs: [],
   activeFast: null,
@@ -3416,6 +3432,7 @@ var _scrollMemory = {};
 function navigate(view, params){
   stopScan();
   closeSidebar();
+  state.addMenuOpen = false;
   if(SCROLL_MEMORY_VIEWS.indexOf(state.view)!==-1){
     _scrollMemory[state.view] = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
   }
@@ -3484,12 +3501,76 @@ function bottomNav(){
   var isMeals = (v==='meals'||v==='fastingHistory');
   var isHealth = (v==='health'||v==='bpHistory'||v==='waistHistory'||v==='exerciseHistory');
   return '' +
+  (state.addMenuOpen ? ('<div class="add-menu-backdrop" onclick="closeAddMenu()"></div>'+addMenuFloatingOptionsHtml()) : '')+
   '<div class="bottom-nav">'+
     '<button class="nav-item '+(isHome&&v==='home'?'active':'')+'" onclick="navBottomHome()">'+ic('box',22)+'<span>'+t('navHome')+'</span></button>'+
     '<button class="nav-item '+(v==='recipes'?'active':'')+'" onclick="navBottomRecipes()">'+ic('book',22)+'<span>'+t('navRecipes')+'</span></button>'+
-    '<button class="nav-scan" onclick="openAddItemPicker()" aria-label="'+t('navScan')+'">'+ic('plus',28)+'</button>'+
+    '<button class="nav-scan '+(state.addMenuOpen?'open':'')+'" onclick="onNavScanTap()" aria-label="'+t('navScan')+'">'+ic('plus',28)+'</button>'+
     '<button class="nav-item '+(isMeals?'active':'')+'" onclick="navBottomMeals()">'+ic('spoon',22)+'<span>'+t('navMeals')+'</span></button>'+
     '<button class="nav-item '+(isHealth?'active':'')+'" onclick="navBottomHealth()">'+ic('scale',22)+'<span>'+t('navHealth')+'</span></button>'+
+  '</div>';
+}
+// README 9.106: the center nav button's job now depends on which section is open.
+// - 库存 (and any of its sub-pages): opens the scan/search/manual picker, same as before.
+// - 食谱: there's nothing to pick between - it's always "start a new recipe" - so this is the
+//   one section where the button just performs a direct action and never shows a menu at all.
+// - 三餐 / 健康: shows a menu whose 3-4 options are page-specific shortcuts (the four meal
+//   slots; weight/waist/blood-pressure/exercise logging) rather than the scan/search/manual
+//   choice, which wouldn't make sense there.
+function addMenuOptionsForCurrentSection(){
+  var v = state.view;
+  var isRecipes = (v==='recipes'||v==='recipeForm'||v==='recipeDetail'||v==='pickInventory'||v==='pickExternal');
+  var isMeals = (v==='meals'||v==='fastingHistory'||v==='mealsHistory');
+  var isHealth = (v==='health'||v==='bpHistory'||v==='waistHistory'||v==='exerciseHistory'||v==='weightHistory'||v==='planSettings'||v==='personalInfo'||v==='macroPresetPicker');
+  if(isRecipes) return null; // signals "no menu - do the direct action instead"
+  if(isMeals) return [
+    {icon:'spoon', label:t('mealSlot_breakfast'), action:"openAddFoodModal(state.mealsUI.date,'breakfast')"},
+    {icon:'spoon', label:t('mealSlot_lunch'), action:"openAddFoodModal(state.mealsUI.date,'lunch')"},
+    {icon:'spoon', label:t('mealSlot_dinner'), action:"openAddFoodModal(state.mealsUI.date,'dinner')"},
+    {icon:'spoon', label:t('mealSlot_snack'), action:"openAddFoodModal(state.mealsUI.date,'snack')"}
+  ];
+  if(isHealth) return [
+    {icon:'scale', label:t('logWeightBtn'), action:"openWeightLogModal(null)"},
+    {icon:'ruler', label:t('logWaistBtn'), action:"openWaistLogModal(null)"},
+    {icon:'droplet', label:t('logBpBtn'), action:"openBpLogModal(null)"},
+    {icon:'activity', label:t('logExerciseBtn'), action:"openExerciseLogModal(null)"}
+  ];
+  return [
+    {icon:'barcode', label:t('addItemPickerScan'), action:"navigate('scan')"},
+    {icon:'search', label:t('addItemPickerSearch'), action:"state.searchAddUI={query:'',results:[],loading:false};navigate('searchAddItem')"},
+    {icon:'edit', label:t('addItemPickerManual'), action:"openItemForm(null)"}
+  ];
+}
+function onNavScanTap(){
+  if(state.addMenuOpen){ closeAddMenu(); return; }
+  var opts = addMenuOptionsForCurrentSection();
+  if(opts===null){ openRecipeForm(null); return; }
+  state.addMenuOpen = true;
+  render();
+}
+function closeAddMenu(){
+  if(!state.addMenuOpen) return;
+  state.addMenuOpen = false;
+  render();
+}
+function pickAddMenuOption(action){
+  state.addMenuOpen = false;
+  render();
+  // Runs the option's action after the closing render() so it navigates/opens its modal on a
+  // clean page (rather than on top of the still-expanding menu) - Function() instead of a
+  // literal call because each option's action string references different functions/args.
+  new Function(action)();
+}
+// One independent floating pill per option (no shared card/background wrapping them, per
+// Lynn's reference screenshot of another app's FAB menu) stacked above the center nav button,
+// each far enough apart to stay comfortably tappable.
+function addMenuFloatingOptionsHtml(){
+  var opts = addMenuOptionsForCurrentSection() || [];
+  var n = opts.length;
+  return '<div class="add-menu-options" style="--add-menu-count:'+n+';">'+
+    opts.map(function(o, i){
+      return '<button class="add-menu-pill" style="--add-menu-i:'+i+';" onclick="event.stopPropagation();pickAddMenuOption('+aj(o.action)+')">'+ic(o.icon,20)+'<span>'+esc(o.label)+'</span></button>';
+    }).join('')+
   '</div>';
 }
 // Bottom-nav taps always jump straight to that section's unfiltered main list, even from a
@@ -6893,33 +6974,6 @@ function runPendingConfirmAction(){
 
 /* ======================= SCAN ======================= */
 var scanCtx = { stream:null, detecting:false, raf:null };
-// README: bottom-nav center button used to always jump straight into camera-scan mode. Now it
-// opens a small picker first - 扫码 (camera scan) / 搜索 (USDA name/brand search) / 手动 (blank
-// form) - since scanning a barcode isn't the only, or even always the fastest, way to start
-// adding something (a lot of fresh produce and homemade items have no barcode at all).
-function openAddItemPicker(){
-  showModal(t('addItemPickerTitle'),
-    '<div style="display:flex;gap:10px;">'+
-      addItemPickerOptionHtml('scan', 'barcode', t('addItemPickerScan'))+
-      addItemPickerOptionHtml('search', 'search', t('addItemPickerSearch'))+
-      addItemPickerOptionHtml('manual', 'edit', t('addItemPickerManual'))+
-    '</div>'
-  );
-}
-function addItemPickerOptionHtml(method, icon, label){
-  return '<div onclick="pickAddItemMethod(\''+method+'\')" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;padding:22px 6px;border:1px solid var(--line);border-radius:var(--radius-sm);cursor:pointer;background:var(--cream);min-height:96px;">'+
-    ic(icon,26)+'<span style="font-size:13.5px;font-weight:600;color:var(--cocoa);text-align:center;">'+label+'</span>'+
-  '</div>';
-}
-function pickAddItemMethod(method){
-  closeModal();
-  if(method==='scan') navigate('scan');
-  else if(method==='search'){
-    state.searchAddUI = {query:'', results:[], loading:false};
-    navigate('searchAddItem');
-  }
-  else openItemForm(null);
-}
 
 /* ---- 搜索添加 (search USDA by brand/name, no camera) ---- */
 function renderSearchAddItem(){
@@ -9058,40 +9112,36 @@ function macroWidgetHtml(totals, budget){
 function macroPieHtml(actualG, targetG){
   var totalCal = actualG.carbs*4+actualG.protein*4+actualG.fat*9;
   if(totalCal<=0.5) return '<p class="hint" style="text-align:center;margin:6px 0;">'+t('noMealLoggedHint')+'</p>';
-  // Colors reuse the exact same badge colors already used elsewhere in the app for a visual
-  // vocabulary the person already knows: carbs = the "未过期" fresh-status badge (--fresh-bg,
-  // see .status-fresh), protein = the "已过期" expired-status badge (--danger-bg, see
-  // .status-expired), fat = the app's own page background (--cream). Those three are all pale
-  // by design (they're badge backgrounds, not accent colors), so each slice/dot also gets a
-  // matching darker "accent" outline+text color (their existing badge border/text color, or
-  // --almond for fat which has no natural badge partner) - keeps the slice itself period-
-  // accurate to what was asked for while keeping the dot and legend text legible.
+  // Same three colors the bar view uses (see its own comment) so pie and bar always agree:
+  // carbs = fresh green, protein = expired brick red, fat = almond (the app's general accent
+  // color, since fat has no natural badge partner the way the other two do).
   var slices = [
-    {label:t('macroCarbs'), grams:actualG.carbs, val:actualG.carbs*4, fill:'var(--fresh-bg)', accent:'var(--fresh)'},
-    {label:t('macroProtein'), grams:actualG.protein, val:actualG.protein*4, fill:'var(--danger-bg)', accent:'var(--danger)'},
-    {label:t('macroFat'), grams:actualG.fat, val:actualG.fat*9, fill:'var(--cream)', accent:'var(--almond)'}
+    {label:t('macroCarbs'), grams:actualG.carbs, val:actualG.carbs*4, fill:'var(--fresh)'},
+    {label:t('macroProtein'), grams:actualG.protein, val:actualG.protein*4, fill:'var(--danger)'},
+    {label:t('macroFat'), grams:actualG.fat, val:actualG.fat*9, fill:'var(--almond)'}
   ];
   var cx=70, cy=70, r=62, startAngle=-90, paths='';
   slices.forEach(function(s){
     var frac = s.val/totalCal;
     var endAngle = startAngle + frac*360;
-    // Leave a visible gap between slices ("留白缝隙不要贴紧") instead of drawing them edge to
-    // edge - inset each slice's arc by a small angular margin on both sides. Scaled down for
-    // very thin slices (nearly-zero macro) so the inset never flips the arc backwards.
-    var gap = Math.min(3, (endAngle-startAngle)*0.25);
-    var a1 = startAngle+gap, a2 = endAngle-gap;
-    var large = (a2-a1)>180 ? 1 : 0;
-    if(a2>a1){
-      var x1 = cx+r*Math.cos(a1*Math.PI/180), y1 = cy+r*Math.sin(a1*Math.PI/180);
-      var x2 = cx+r*Math.cos(a2*Math.PI/180), y2 = cy+r*Math.sin(a2*Math.PI/180);
-      paths += '<path d="M'+cx+','+cy+' L'+x1.toFixed(1)+','+y1.toFixed(1)+' A'+r+','+r+' 0 '+large+' 1 '+x2.toFixed(1)+','+y2.toFixed(1)+' Z" fill="'+s.fill+'" stroke="var(--card-bg)" stroke-width="1"/>';
+    if(frac>0.002){
+      var large = (endAngle-startAngle)>180 ? 1 : 0;
+      var x1 = cx+r*Math.cos(startAngle*Math.PI/180), y1 = cy+r*Math.sin(startAngle*Math.PI/180);
+      var x2 = cx+r*Math.cos(endAngle*Math.PI/180), y2 = cy+r*Math.sin(endAngle*Math.PI/180);
+      // Slices are drawn edge-to-edge (no angular inset) - the gap between them comes purely
+      // from stroking each slice's outline in the card's own background color. A stroke's width
+      // is a fixed number of pixels, not a fraction of the slice's angle, so the seam it leaves
+      // between two adjacent slices is an even, constant-width line all the way from center to
+      // rim - not a wedge that fans out wider toward the edge, which is what an angular inset
+      // (the earlier version of this) draws instead.
+      paths += '<path d="M'+cx+','+cy+' L'+x1.toFixed(1)+','+y1.toFixed(1)+' A'+r+','+r+' 0 '+large+' 1 '+x2.toFixed(1)+','+y2.toFixed(1)+' Z" fill="'+s.fill+'" stroke="var(--card-bg)" stroke-width="3" stroke-linejoin="round"/>';
     }
     startAngle = endAngle;
   });
   var legend = slices.map(function(s){
     return '<div style="display:flex;align-items:center;gap:7px;margin-bottom:7px;">'+
-      '<span style="width:11px;height:11px;border-radius:50%;background:'+s.fill+';border:1.5px solid '+s.accent+';display:inline-block;flex-shrink:0;"></span>'+
-      '<span style="font-size:14.5px;font-weight:700;color:'+s.accent+';">'+s.label+' '+Math.round(s.val/totalCal*100)+'% · '+s.grams+'g</span>'+
+      '<span style="width:11px;height:11px;border-radius:50%;background:'+s.fill+';display:inline-block;flex-shrink:0;"></span>'+
+      '<span style="font-size:14.5px;font-weight:700;color:'+s.fill+';">'+s.label+' '+Math.round(s.val/totalCal*100)+'% · '+s.grams+'g</span>'+
     '</div>';
   }).join('');
   return '<div style="display:flex;align-items:center;gap:18px;">'+
@@ -9100,13 +9150,15 @@ function macroPieHtml(actualG, targetG){
   '</div>';
 }
 function macroBarHtml(actualG, targetG){
-  // Same badge-derived color family as the pie (see its own comment) - bars use the darker
-  // "accent" tone directly as the fill since a bar filled with the pale badge background
-  // wouldn't read against the track color.
+  // Each row pairs a dark fill with its own light "track" color (instead of one shared grey
+  // groove for all three rows) - carbs' track is the same pale green as the "未过期" badge,
+  // protein's is the pale brick-red of the "已过期" badge, fat's is the app's own cream page
+  // background - the same light/dark pairing the pie's colors used to use, just applied to the
+  // bar's fill/track instead of the pie's fill/legend now that the pie itself went dark.
   var rows = [
-    {label:t('macroCarbs'), actual:actualG.carbs, target:targetG.carbs, color:'var(--fresh)'},
-    {label:t('macroProtein'), actual:actualG.protein, target:targetG.protein, color:'var(--danger)'},
-    {label:t('macroFat'), actual:actualG.fat, target:targetG.fat, color:'var(--almond)'}
+    {label:t('macroCarbs'), actual:actualG.carbs, target:targetG.carbs, color:'var(--fresh)', track:'var(--fresh-bg)'},
+    {label:t('macroProtein'), actual:actualG.protein, target:targetG.protein, color:'var(--danger)', track:'var(--danger-bg)'},
+    {label:t('macroFat'), actual:actualG.fat, target:targetG.fat, color:'var(--almond)', track:'var(--cream)'}
   ];
   return rows.map(function(r){
     var pct = r.target>0 ? Math.round(r.actual/r.target*100) : 0;
@@ -9114,7 +9166,7 @@ function macroBarHtml(actualG, targetG){
     var barPct = Math.min(pct,100);
     return '<div style="margin-bottom:11px;">'+
       '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span>'+r.label+'</span><span class="hint">'+r.actual+'g / '+r.target+'g ('+pct+'%'+(over?(' '+t('macroOverLabel')):'')+')</span></div>'+
-      '<div style="height:8px;background:var(--line);border-radius:4px;overflow:hidden;"><div style="height:100%;width:'+barPct+'%;background:'+(over?'var(--danger)':r.color)+';"></div></div>'+
+      '<div style="height:8px;background:'+r.track+';border-radius:4px;overflow:hidden;"><div style="height:100%;width:'+barPct+'%;background:'+(over?'var(--danger)':r.color)+';"></div></div>'+
     '</div>';
   }).join('');
 }
