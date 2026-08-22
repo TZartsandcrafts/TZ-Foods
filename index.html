@@ -470,6 +470,9 @@
   .meals-calorie-num{ font-size:32px; font-weight:700; color:var(--almond); }
   .macro-view-dot{ width:7px; height:7px; border-radius:50%; background:var(--line); cursor:pointer; }
   .macro-view-dot.active{ background:var(--almond); }
+  .macro-view-slide{ animation-duration:.28s; animation-timing-function:cubic-bezier(.25,.7,.4,1); animation-fill-mode:both; }
+  @keyframes macroSlideInRight{ from{ transform:translateX(28px); opacity:0; } to{ transform:translateX(0); opacity:1; } }
+  @keyframes macroSlideInLeft{ from{ transform:translateX(-28px); opacity:0; } to{ transform:translateX(0); opacity:1; } }
   .section-title{ font-size:15px; font-weight:600; color:var(--cocoa); margin:26px 0 14px; padding-top:16px; border-top:1px solid var(--line); }
   .section-title:first-child{ margin-top:0; padding-top:0; border-top:none; }
   .form-group{ background:var(--card-bg); border-radius:12px; padding:16px; margin-bottom:14px; border:1px solid var(--line); }
@@ -2066,6 +2069,7 @@ var I18N = {
     macroOverLabel:'超标', addFoodSearchPh:'搜索库存/食谱/食材，或输入英文查USDA',
     sourceInventory:'库存', sourceRecipe:'食谱', sourceExternal:'外部食材库',
     servingsEatenLabel:'份数', deductFromInventoryLabel:'同时从库存扣减', servingsUnit:'份',
+    fieldMealAmount:'重量', fieldMealAmountUnit:'单位',
     mealLoggedToast:'已记录', mealsHistoryBtn:'历史',
     remainingQtyLabel:'剩余',
     searchPlaceholder:'搜索食品名称 / 品牌', clearSearchBtn:'清空',
@@ -2300,6 +2304,7 @@ var I18N = {
     macroOverLabel:'over', addFoodSearchPh:'Search inventory/recipes/ingredients, or an English term for USDA',
     sourceInventory:'Inventory', sourceRecipe:'Recipe', sourceExternal:'External Ingredients',
     servingsEatenLabel:'Servings', deductFromInventoryLabel:'Also deduct from inventory', servingsUnit:'serving(s)',
+    fieldMealAmount:'Weight', fieldMealAmountUnit:'Unit',
     mealLoggedToast:'Logged', mealsHistoryBtn:'History',
     remainingQtyLabel:'Remaining',
     searchPlaceholder:'Search name / brand', clearSearchBtn:'Clear',
@@ -8583,7 +8588,15 @@ function shiftMealsDate(delta){
   render();
 }
 function setMealsDate(d){ mealsUIDefaults(); state.mealsUI.date = d; }
-function setMacroView(v){ state.mealsUI.macroView = v; render(); }
+// pie is view index 0, bar is view index 1 - direction is purely a function of which way that
+// index moves, regardless of whether it was a dot tap or a swipe that triggered the change, so
+// the two ways of switching views always animate consistently.
+function setMacroView(v){
+  var order = {pie:0, bar:1};
+  state.mealsUI.macroSlideDir = order[v] > order[state.mealsUI.macroView||'pie'] ? 'right' : 'left';
+  state.mealsUI.macroView = v;
+  render();
+}
 
 /* ---- 轻断食 (intermittent fasting timer) - README 9.102 ----
    state.activeFast holds the in-progress fast (or null): {startedAt, targetHours}, both stored
@@ -8749,9 +8762,16 @@ function macroWidgetHtml(totals, budget){
   var actualG = { carbs: Math.round(totals.carbs||0), protein: Math.round(totals.protein||0), fat: Math.round(totals.fat||0) };
   var view = state.mealsUI.macroView || 'pie';
   var inner = view==='bar' ? macroBarHtml(actualG, targetG) : macroPieHtml(actualG, targetG);
+  // slideDir is set right before this render by setMacroView (view order is pie->bar left to
+  // right, so switching to 'bar' slides the new content in from the right and switching back to
+  // 'pie' slides it in from the left) - a real CSS transition instead of the content just
+  // popping into place, which is what made the swipe/dot-tap feel like a jump rather than a
+  // slide. Keyed on `view` in the animation-name (not a persistent transform) so it replays
+  // every time the view actually changes but does nothing on unrelated re-renders of this page.
+  var slideAnim = state.mealsUI.macroSlideDir==='left' ? 'macroSlideInLeft' : 'macroSlideInRight';
   return '<div class="section-title">'+t('macroDistLabel')+'</div>'+
     '<div class="form-group macro-widget-swipe-area" id="macro-widget-container">'+
-      inner +
+      '<div class="macro-view-slide" style="animation-name:'+slideAnim+';">'+inner+'</div>'+
       '<div style="display:flex;justify-content:center;gap:7px;margin-top:12px;">'+
         '<span class="macro-view-dot '+(view==='pie'?'active':'')+'" onclick="setMacroView(\'pie\')"></span>'+
         '<span class="macro-view-dot '+(view==='bar'?'active':'')+'" onclick="setMacroView(\'bar\')"></span>'+
@@ -8762,9 +8782,9 @@ function macroPieHtml(actualG, targetG){
   var totalCal = actualG.carbs*4+actualG.protein*4+actualG.fat*9;
   if(totalCal<=0.5) return '<p class="hint" style="text-align:center;margin:6px 0;">'+t('noMealLoggedHint')+'</p>';
   var slices = [
-    {label:t('macroCarbs'), grams:actualG.carbs, val:actualG.carbs*4, color:'#5FAE72'},
-    {label:t('macroProtein'), grams:actualG.protein, val:actualG.protein*4, color:'#8B7FD1'},
-    {label:t('macroFat'), grams:actualG.fat, val:actualG.fat*9, color:'#E0A94E'}
+    {label:t('macroCarbs'), grams:actualG.carbs, val:actualG.carbs*4, color:'var(--caramel-light)'},
+    {label:t('macroProtein'), grams:actualG.protein, val:actualG.protein*4, color:'var(--deep-caramel)'},
+    {label:t('macroFat'), grams:actualG.fat, val:actualG.fat*9, color:'var(--fresh)'}
   ];
   var cx=70, cy=70, r=62, startAngle=-90, paths='';
   slices.forEach(function(s){
@@ -8789,9 +8809,9 @@ function macroPieHtml(actualG, targetG){
 }
 function macroBarHtml(actualG, targetG){
   var rows = [
-    {label:t('macroCarbs'), actual:actualG.carbs, target:targetG.carbs, color:'#5FAE72'},
-    {label:t('macroProtein'), actual:actualG.protein, target:targetG.protein, color:'#8B7FD1'},
-    {label:t('macroFat'), actual:actualG.fat, target:targetG.fat, color:'#E0A94E'}
+    {label:t('macroCarbs'), actual:actualG.carbs, target:targetG.carbs, color:'var(--caramel-light)'},
+    {label:t('macroProtein'), actual:actualG.protein, target:targetG.protein, color:'var(--deep-caramel)'},
+    {label:t('macroFat'), actual:actualG.fat, target:targetG.fat, color:'var(--fresh)'}
   ];
   return rows.map(function(r){
     var pct = r.target>0 ? Math.round(r.actual/r.target*100) : 0;
@@ -8834,7 +8854,7 @@ function searchLocalFoods(q){
   if(!q) return [];
   var out = [];
   state.items.filter(function(it){ return !it.archived; }).forEach(function(it){
-    if(itemDisplayNameRaw(it).toLowerCase().indexOf(q)!==-1) out.push({type:'item', id:it.id, label:itemDisplayNameRaw(it), sub:t('sourceInventory')});
+    if(itemDisplayNameRaw(it).toLowerCase().indexOf(q)!==-1) out.push({type:'item', id:it.id, label:itemDisplayNameRaw(it), sub:t('sourceInventory')+(it.location?(' · '+it.location):'')});
   });
   state.recipes.forEach(function(r){
     if((r.name||'').toLowerCase().indexOf(q)!==-1) out.push({type:'recipe', id:r.id, label:r.name, sub:t('sourceRecipe')});
@@ -8911,16 +8931,38 @@ function backToAddFoodSearch(){
 }
 function af_str(field, val){ state.mealsUI.addFood[field] = val; }
 function af_bool(field, val){ state.mealsUI.addFood[field] = val; }
+function setAddFoodAmountUnit(u){ state.mealsUI.addFood.amountUnit = u; state.mealsUI.addFood.amountText=''; renderAddFoodModal(); }
 function addFoodAmountBodyHtml(af){
   var p = af.picked;
   var isRecipe = p.type==='recipe';
   var isItem = p.type==='item';
+  // Recipes are recorded either by 份数 (servings, always available) or by 克数 (grams) - the
+  // latter only makes sense if the recipe has a 成品总重量 (cooked_weight) set, since that's
+  // the only thing that lets us convert grams back to a fraction of the recipe (see
+  // calcRecipeNutrition's per100g, which is null without cooked_weight).
+  var recipe = isRecipe ? state.recipes.find(function(x){ return x.id===p.id; }) : null;
+  var canUseGrams = isRecipe && recipe && recipe.cooked_weight;
+  if(isRecipe && !af.amountUnit) af.amountUnit = 'servings';
+  var recipeAmountField = '';
+  if(isRecipe){
+    recipeAmountField = canUseGrams ?
+      ('<div class="field"><label>'+t('fieldMealAmountUnit')+'</label><div class="tag-select">'+
+        '<div class="tag-option '+(af.amountUnit==='servings'?'active':'')+'" onclick="setAddFoodAmountUnit(\'servings\')">'+t('servingsUnit')+'</div>'+
+        '<div class="tag-option '+(af.amountUnit==='g'?'active':'')+'" onclick="setAddFoodAmountUnit(\'g\')">g</div>'+
+      '</div></div>'+
+      (af.amountUnit==='g' ?
+        '<div class="field"><label>'+t('fieldMealAmount')+' (g)</label><input type="number" inputmode="decimal" placeholder="-" value="'+esc(af.amountText)+'" oninput="af_str(\'amountText\',this.value)"></div>'
+        :
+        '<div class="field"><label>'+t('servingsEatenLabel')+'</label><input type="number" inputmode="decimal" placeholder="1" value="'+esc(af.amountText)+'" oninput="af_str(\'amountText\',this.value)"></div>'))
+      :
+      ('<div class="field"><label>'+t('servingsEatenLabel')+'</label><input type="number" inputmode="decimal" placeholder="1" value="'+esc(af.amountText)+'" oninput="af_str(\'amountText\',this.value)"></div>');
+  }
   return '' +
     '<p style="font-weight:600;margin-bottom:14px;">'+esc(p.name)+'</p>'+
     (isRecipe ?
-      '<div class="field"><label>'+t('servingsEatenLabel')+'</label><input type="number" inputmode="decimal" placeholder="1" value="'+esc(af.amountText)+'" oninput="af_str(\'amountText\',this.value)"></div>'
+      recipeAmountField
       :
-      '<div class="field"><label>'+t('fieldWeight')+' (g)</label><input type="number" inputmode="decimal" placeholder="-" value="'+esc(af.amountText)+'" oninput="af_str(\'amountText\',this.value)"></div>'+
+      '<div class="field"><label>'+t('fieldMealAmount')+' (g)</label><input type="number" inputmode="decimal" placeholder="-" value="'+esc(af.amountText)+'" oninput="af_str(\'amountText\',this.value)"></div>'+
       (isItem ? ('<div class="list-row"><div class="row-label">'+t('deductFromInventoryLabel')+'</div><label class="switch"><input type="checkbox" '+(af.deduct?'checked':'')+' onchange="af_bool(\'deduct\',this.checked)"><span class="switch-slider"></span></label></div>') : '')
     )+
     '<button class="btn btn-outline" style="margin-top:14px;width:100%;" onclick="backToAddFoodSearch()">'+t('back')+'</button>'+
@@ -8932,12 +8974,19 @@ function saveMealLogEntry(){
   var nutrition, name, amount, unit, deductItemId=null, deductAmount=null, deductUnit=null;
   if(p.type==='recipe'){
     var r = state.recipes.find(function(x){ return x.id===p.id; });
-    var servings = parseFloat(af.amountText);
-    if(!servings || servings<=0){ showToast(t('weightEntryInvalid')); return; }
     var totalN = calcRecipeNutrition(r);
-    var factor = servings/(r.servings||1);
-    nutrition = {}; NUTRI_KEYS.forEach(function(k){ nutrition[k]=(totalN[k]||0)*factor; });
-    name = r.name; amount = servings; unit = t('servingsUnit');
+    if(af.amountUnit==='g'){
+      var grams = parseFloat(af.amountText);
+      if(!grams || grams<=0 || !totalN.per100g){ showToast(t('weightEntryInvalid')); return; }
+      var gramsFactor = grams/100;
+      nutrition = {}; NUTRI_KEYS.forEach(function(k){ nutrition[k]=(totalN.per100g[k]||0)*gramsFactor; });
+      name = r.name; amount = grams; unit = 'g';
+    } else {
+      var servings = parseFloat(af.amountText);
+      if(!servings || servings<=0){ showToast(t('weightEntryInvalid')); return; }
+      nutrition = {}; NUTRI_KEYS.forEach(function(k){ nutrition[k]=(totalN.perServing[k]||0)*servings; });
+      name = r.name; amount = servings; unit = t('servingsUnit');
+    }
   } else if(p.type==='usda'){
     var amt = parseFloat(af.amountText);
     if(!amt || amt<=0){ showToast(t('weightEntryInvalid')); return; }
@@ -9618,7 +9667,7 @@ function renderPersonalInfo(){
     '<div class="field"><label>'+t('fieldSex')+'</label><div class="tag-select">'+
       ['female','male'].map(function(s){ return '<div class="tag-option '+(p.sex===s?'active':'')+'" onclick="setPlanField(\'sex\','+aj(s)+')">'+t('sex_'+s)+'</div>'; }).join('')+
     '</div></div>'+
-    '<div class="field"><label>'+t('fieldHeight')+' (cm)</label><input type="number" inputmode="decimal" placeholder="-" value="'+(p.heightCm==null?'':p.heightCm)+'" oninput="setPlanField(\'heightCm\', this.value===\'\'?null:parseFloat(this.value))"></div>'+
+    '<div class="field"><label>'+t('fieldHeight')+' (cm)</label><input type="number" inputmode="decimal" placeholder="-" value="'+(p.heightCm==null?'':p.heightCm)+'" oninput="setPlanFieldNoRender(\'heightCm\', this.value===\'\'?null:parseFloat(this.value))" onblur="render()"></div>'+
     '<div class="field"><label>'+t('fieldBirthDate')+'</label><input type="date" value="'+esc(p.birthDate||'')+'" oninput="setPlanField(\'birthDate\', this.value)"></div>'+
     '<div class="field"><label>'+t('fieldActivityLevel')+'</label><div class="tag-select">'+
       ACTIVITY_LEVELS.map(function(a){ return '<div class="tag-option '+(p.activityLevel===a?'active':'')+'" onclick="setPlanField(\'activityLevel\','+aj(a)+')">'+t('activity_'+a)+'</div>'; }).join('')+
@@ -9642,6 +9691,15 @@ function setPlanField(field, val){
   saveWeightPlan();
   render();
 }
+// Same as setPlanField but skips the render() - for fields edited via continuous typing
+// (see onWeeklyRateInput's own comment for why re-rendering on every keystroke is a real bug,
+// not just unnecessary work). Pair with an onblur="render()" on the input so anything derived
+// from this field still catches up once the person is done typing.
+function setPlanFieldNoRender(field, val){
+  ensureWeightPlanDefaults();
+  state.weightPlan[field] = val;
+  saveWeightPlan();
+}
 
 // ---- plan settings page ----
 function renderPlanSettings(){
@@ -9658,8 +9716,8 @@ function renderPlanSettings(){
   '<div class="content">'+
     '<div class="list-row" onclick="navigate(\'personalInfo\')" style="cursor:pointer;"><div class="row-label">'+t('personalInfoBtn')+'</div>'+ic('chevronRight',18)+'</div>'+
     '<div class="section-title">'+t('goalSection')+'</div>'+
-    '<div class="field"><label>'+t('fieldGoalWeight')+' ('+healthWeightUnit()+')</label><input type="number" inputmode="decimal" placeholder="-" value="'+(p.goalWeightKg==null?'':fmtNum(displayWeight(p.goalWeightKg),1))+'" oninput="onGoalWeightInput(this.value)"></div>'+
-    '<div class="field"><label>'+t('fieldWeeklyRate')+' ('+healthWeightUnit()+'/'+t('perWeekShort')+')</label><input type="number" inputmode="decimal" step="0.1" placeholder="-" value="'+(p.weeklyRateKg==null?'':fmtNum(displayWeight(p.weeklyRateKg),2))+'" oninput="onWeeklyRateInput(this.value)"></div>'+
+    '<div class="field"><label>'+t('fieldGoalWeight')+' ('+healthWeightUnit()+')</label><input type="number" inputmode="decimal" placeholder="-" value="'+(p.goalWeightKg==null?'':fmtNum(displayWeight(p.goalWeightKg),1))+'" oninput="onGoalWeightInput(this.value)" onblur="render()"></div>'+
+    '<div class="field"><label>'+t('fieldWeeklyRate')+' ('+healthWeightUnit()+'/'+t('perWeekShort')+')</label><input type="number" inputmode="decimal" step="0.1" placeholder="-" value="'+(p.weeklyRateKg==null?'':fmtNum(displayWeight(p.weeklyRateKg),2))+'" oninput="onWeeklyRateInput(this.value)" onblur="render()"></div>'+
     '<div class="field"><label>'+t('fieldTargetDate')+'</label><input type="date" value="'+esc(p.targetDate||'')+'" oninput="onTargetDateInput(this.value)"></div>'+
     '<p class="hint">'+t('planPriorityHint')+'</p>'+
     '<div class="section-title">'+t('macroDistLabel')+'</div>'+
@@ -9684,13 +9742,17 @@ function onGoalWeightInput(val){
   recomputePlanFromPriority();
   saveWeightPlan();
 }
+// No render() here on purpose - this fires on every keystroke (oninput), and a full innerHTML
+// re-render mid-typing was destroying/recreating the input and dismissing the keyboard after
+// each character (the "只能点击一下" bug). The onblur="render()" on this field in
+// renderPlanSettings picks up the recomputed target date once the person is done typing,
+// same pattern onGoalWeightInput already established.
 function onWeeklyRateInput(val){
   ensureWeightPlanDefaults();
   state.weightPlan.priority = 'rate';
   state.weightPlan.weeklyRateKg = val===''? 0 : parseWeightInputToKg(val);
   recomputePlanFromPriority();
   saveWeightPlan();
-  render();
 }
 function onTargetDateInput(val){
   ensureWeightPlanDefaults();
