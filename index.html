@@ -473,6 +473,13 @@
   .macro-view-slide{ animation-duration:.28s; animation-timing-function:cubic-bezier(.25,.7,.4,1); animation-fill-mode:both; }
   @keyframes macroSlideInRight{ from{ transform:translateX(28px); opacity:0; } to{ transform:translateX(0); opacity:1; } }
   @keyframes macroSlideInLeft{ from{ transform:translateX(-28px); opacity:0; } to{ transform:translateX(0); opacity:1; } }
+  .meals-cal-grid{ display:grid; grid-template-columns:repeat(7,1fr); gap:3px; text-align:center; }
+  .meals-cal-weekday{ font-size:11.5px; color:var(--deep-caramel); padding:4px 0; }
+  .meals-cal-day{ position:relative; padding:9px 0; border-radius:8px; font-size:14px; cursor:pointer; color:var(--cocoa); }
+  .meals-cal-day.today{ font-weight:700; color:var(--almond); }
+  .meals-cal-day.selected{ background:var(--almond); color:#fff; }
+  .meals-cal-dot{ position:absolute; bottom:2px; left:50%; transform:translateX(-50%); width:4px; height:4px; border-radius:50%; background:var(--fresh); }
+  .meals-cal-day.selected .meals-cal-dot{ background:#fff; }
   .section-title{ font-size:15px; font-weight:600; color:var(--cocoa); margin:26px 0 14px; padding-top:16px; border-top:1px solid var(--line); }
   .section-title:first-child{ margin-top:0; padding-top:0; border-top:none; }
   .form-group{ background:var(--card-bg); border-radius:12px; padding:16px; margin-bottom:14px; border:1px solid var(--line); }
@@ -740,7 +747,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.104';
+var BUILD_VERSION = '9.105';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2045,6 +2052,9 @@ var I18N = {
     fastingRemainingLabel:'还剩', fastingOvertimeLabel:'已超出目标',
     fastingHistoryBtn:'断食历史', fastingEndedToast:'断食已结束',
     fastingCustomLabel:'自定义', fieldTargetHours:'目标时长（小时）',
+    fastingModeDuration:'按时长', fastingModeSchedule:'按时段',
+    fastScheduleStartLabel:'开始时间', fastScheduleEndLabel:'结束时间', fastScheduleInvalid:'请填写不同的开始和结束时间',
+    mealsCalendarTitle:'选择日期',
     fastingNoneYet:'还没有断食记录',
     editFastEntryTitle:'编辑断食记录', fastFieldStart:'开始时间', fastFieldEnd:'结束时间',
     fastEntryInvalid:'请填写开始和结束时间，且结束要晚于开始', fastSavedToast:'已保存',
@@ -2282,6 +2292,9 @@ var I18N = {
     fastingRemainingLabel:'Remaining', fastingOvertimeLabel:'Past target',
     fastingHistoryBtn:'Fasting History', fastingEndedToast:'Fast ended',
     fastingCustomLabel:'Custom', fieldTargetHours:'Target duration (hours)',
+    fastingModeDuration:'By duration', fastingModeSchedule:'By schedule',
+    fastScheduleStartLabel:'Start time', fastScheduleEndLabel:'End time', fastScheduleInvalid:'Please choose different start and end times',
+    mealsCalendarTitle:'Pick a Date',
     fastingNoneYet:'No fasting records yet',
     editFastEntryTitle:'Edit Fast', fastFieldStart:'Start time', fastFieldEnd:'End time',
     fastEntryInvalid:'Please fill in start and end times, with end after start', fastSavedToast:'Saved',
@@ -8703,6 +8716,59 @@ function shiftMealsDate(delta){
   render();
 }
 function setMealsDate(d){ mealsUIDefaults(); state.mealsUI.date = d; }
+/* ---- date-nav calendar picker (README 9.105) - tap the date label above the calorie card to
+   jump to any day, past or future (no cap either direction - meal logs and the calorie budget
+   are just per-date lookups, nothing about them assumes "today or earlier"). ---- */
+function openMealsCalendar(){
+  mealsUIDefaults();
+  var d = new Date(state.mealsUI.date+'T00:00:00');
+  state.mealsUI.calendarYear = d.getFullYear();
+  state.mealsUI.calendarMonth = d.getMonth();
+  showModal(t('mealsCalendarTitle'), '<div id="meals-calendar-body">'+mealsCalendarBodyHtml()+'</div>');
+}
+function shiftMealsCalendarMonth(delta){
+  var y = state.mealsUI.calendarYear, m = state.mealsUI.calendarMonth + delta;
+  if(m<0){ m=11; y--; } else if(m>11){ m=0; y++; }
+  state.mealsUI.calendarYear = y; state.mealsUI.calendarMonth = m;
+  var el = document.getElementById('meals-calendar-body');
+  if(el) el.innerHTML = mealsCalendarBodyHtml();
+}
+function monthDisplayLabel(y, m){
+  if(state.lang==='zh') return y+'年'+(m+1)+'月';
+  var names=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  return names[m]+' '+y;
+}
+function mealsCalendarBodyHtml(){
+  var y = state.mealsUI.calendarYear, m = state.mealsUI.calendarMonth;
+  var first = new Date(y, m, 1);
+  var startWeekday = first.getDay();
+  var daysInMonth = new Date(y, m+1, 0).getDate();
+  var todayS = todayStr(), selectedS = state.mealsUI.date;
+  var loggedDates = {};
+  state.mealLogs.forEach(function(ml){ loggedDates[ml.date]=true; });
+  var weekdayLabels = state.lang==='zh' ? ['日','一','二','三','四','五','六'] : ['Su','Mo','Tu','We','Th','Fr','Sa'];
+  var cells = '';
+  for(var i=0;i<startWeekday;i++) cells += '<div></div>';
+  for(var day=1; day<=daysInMonth; day++){
+    var ds = y+'-'+String(m+1).padStart(2,'0')+'-'+String(day).padStart(2,'0');
+    var cls = 'meals-cal-day'+(ds===selectedS?' selected':'')+(ds===todayS?' today':'');
+    cells += '<div class="'+cls+'" onclick="pickMealsCalendarDate(\''+ds+'\')">'+day+(loggedDates[ds]?'<span class="meals-cal-dot"></span>':'')+'</div>';
+  }
+  return '' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">'+
+      '<button class="icon-btn" onclick="shiftMealsCalendarMonth(-1)" aria-label="'+t('prevDay')+'">'+ic('back',18)+'</button>'+
+      '<div style="font-weight:700;">'+monthDisplayLabel(y,m)+'</div>'+
+      '<button class="icon-btn" onclick="shiftMealsCalendarMonth(1)" aria-label="'+t('nextDay')+'">'+ic('chevronRight',18)+'</button>'+
+    '</div>'+
+    '<div class="meals-cal-grid meals-cal-weekdays">'+weekdayLabels.map(function(w){ return '<div class="meals-cal-weekday">'+w+'</div>'; }).join('')+'</div>'+
+    '<div class="meals-cal-grid">'+cells+'</div>'+
+    '<button class="btn btn-outline" style="width:100%;margin-top:14px;" onclick="pickMealsCalendarDate('+aj(todayStr())+')">'+t('todayLabel')+'</button>';
+}
+function pickMealsCalendarDate(d){
+  closeModal();
+  setMealsDate(d);
+  render();
+}
 // pie is view index 0, bar is view index 1 - direction is purely a function of which way that
 // index moves, regardless of whether it was a dot tap or a swipe that triggered the change, so
 // the two ways of switching views always animate consistently.
@@ -8720,39 +8786,98 @@ function toggleMacroView(){
   setMacroView(state.mealsUI.macroView==='bar' ? 'pie' : 'bar');
 }
 
-/* ---- 轻断食 (intermittent fasting timer) - README 9.102 ----
+/* ---- 轻断食 (intermittent fasting timer) - README 9.102, extended 9.105 ----
    state.activeFast holds the in-progress fast (or null): {startedAt, targetHours}, both stored
    canonically as a nowLocalIso()-format string / plain number so it survives a page reload the
    same way everything else here does. Completed fasts move into state.fastingLogs
    ({id, startedAt, endedAt, targetHours, note}) only once ended - a discarded/cancelled fast
-   never touches history, same "don't half-save" idea as elsewhere in the app. */
+   never touches history, same "don't half-save" idea as elsewhere in the app.
+   Two ways to configure a new fast (state.fastingUI.mode):
+   - 'duration': pick a 16:8-style preset (or a custom hour count) and start counting from
+     right now - unchanged from 9.102.
+   - 'schedule': pick a daily start/end clock time (e.g. 20:00 -> 12:00) instead. This doesn't
+     require any background scheduling (not reliable in an iOS home-screen PWA anyway) - it
+     just computes startedAt as the MOST RECENT past occurrence of that start time (today if
+     that time-of-day has already passed today, otherwise yesterday), so opening the app any
+     time during an already-ongoing fast and entering "I start at 20:00" gets the correct
+     elapsed time immediately, same as if they'd tapped "start" right at 20:00. Once computed,
+     it's stored in state.activeFast exactly like a duration-mode fast - everything downstream
+     (progress bar, remaining time, end/cancel, history) is agnostic to which mode created it. */
 var FASTING_PRESETS = [16, 18, 20, 23];
 function fastingUIDefaults(){
   if(!state.fastingUI || state.fastingUI.presetHours==null){
-    state.fastingUI = {presetHours:16, customMode:false, customText:''};
+    state.fastingUI = {mode:'duration', presetHours:16, customMode:false, customText:'', scheduleStart:'20:00', scheduleEnd:'12:00'};
   }
 }
+function setFastingMode(mode){ fastingUIDefaults(); state.fastingUI.mode=mode; render(); }
 function setFastingPreset(h){ fastingUIDefaults(); state.fastingUI.presetHours=h; state.fastingUI.customMode=false; render(); }
 function setFastingCustomMode(){ fastingUIDefaults(); state.fastingUI.customMode=true; render(); }
 function fastingCustomInput(val){ fastingUIDefaults(); state.fastingUI.customText=val; }
+// Time <input type="time"> is a native wheel/column picker on iOS (no soft keyboard involved),
+// so re-rendering on every change here doesn't have the keyboard-dismissal problem a text
+// input would (see README 9.103's fix for the weekly-rate field for that story) - safe to
+// render immediately so the computed duration preview below the pickers stays live.
+function fastingScheduleInput(field, val){ fastingUIDefaults(); state.fastingUI[field]=val; render(); }
 function currentFastingTargetHours(){
   fastingUIDefaults();
   var ui = state.fastingUI;
   if(ui.customMode){ var n = parseFloat(ui.customText); return (n>0) ? n : null; }
   return ui.presetHours;
 }
+function parseHHMM(s){
+  var m = /^(\d{1,2}):(\d{2})$/.exec(s||'');
+  if(!m) return null;
+  return parseInt(m[1],10)*60+parseInt(m[2],10);
+}
+// Duration of a daily start->end window, wrapping past midnight (e.g. 20:00 -> 12:00 = 16h).
+function scheduleDurationHours(startStr, endStr){
+  var sm = parseHHMM(startStr), em = parseHHMM(endStr);
+  if(sm==null || em==null || sm===em) return null;
+  var durMin = em - sm; if(durMin<=0) durMin += 1440;
+  return durMin/60;
+}
+// Same nowLocalIso()-compatible "no offset" format, but from an arbitrary Date object instead
+// of always "right now" - needed to stamp a schedule-mode fast's startedAt as a past clock time
+// today (or yesterday) rather than this instant.
+function dateToLocalIso(d){
+  var pad = function(n){ return String(n).padStart(2,'0'); };
+  return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
+}
+// The most recent point in time (today or yesterday) at which the clock showed hh:mm - always
+// <= now, so elapsed time from it is always >= 0.
+function mostRecentOccurrenceOf(hh, mm){
+  var now = new Date();
+  var candidate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0, 0);
+  if(candidate.getTime() > now.getTime()) candidate.setDate(candidate.getDate()-1);
+  return candidate;
+}
 function elapsedHoursSince(iso){ return (Date.now() - new Date(iso).getTime()) / 3600000; }
-// mm can go over 60 on purpose (e.g. "26:15" for a fast well past 24h) - this is an
-// elapsed-duration readout, not a clock-face time, so it doesn't wrap at 24h.
-function fmtFastHM(hoursFloat){
-  var totalMin = Math.max(0, Math.round(hoursFloat*60));
-  var h = Math.floor(totalMin/60), m = totalMin%60;
-  return h+':'+(m<10?'0':'')+m;
+// mm/ss can go over their usual wrap points on purpose in the hours place (e.g. "26:15:03" for
+// a fast well past 24h) - this is an elapsed-duration readout, not a clock-face time, so hours
+// don't wrap at 24. Seconds tick in real time (see the 1s interval below) so this stays in
+// sync with the phone's actual clock rather than jumping in coarse steps.
+function fmtFastHMS(hoursFloat){
+  var totalSec = Math.max(0, Math.round(hoursFloat*3600));
+  var h = Math.floor(totalSec/3600), m = Math.floor((totalSec%3600)/60), s = totalSec%60;
+  var pad = function(n){ return (n<10?'0':'')+n; };
+  return h+':'+pad(m)+':'+pad(s);
 }
 function startFast(){
-  var hours = currentFastingTargetHours();
-  if(!hours) return;
-  state.activeFast = {startedAt: nowLocalIso(), targetHours: hours};
+  fastingUIDefaults();
+  var ui = state.fastingUI;
+  var startedAt, hours;
+  if(ui.mode==='schedule'){
+    var sm = parseHHMM(ui.scheduleStart), em = parseHHMM(ui.scheduleEnd);
+    if(sm==null || em==null || sm===em){ showToast(t('fastScheduleInvalid')); return; }
+    var durMin = em - sm; if(durMin<=0) durMin += 1440;
+    hours = durMin/60;
+    startedAt = dateToLocalIso(mostRecentOccurrenceOf(Math.floor(sm/60), sm%60));
+  } else {
+    hours = currentFastingTargetHours();
+    if(!hours) return;
+    startedAt = nowLocalIso();
+  }
+  state.activeFast = {startedAt: startedAt, targetHours: hours};
   saveActiveFast();
   render();
 }
@@ -8781,21 +8906,38 @@ function fastingCardHtml(){
     var target = state.activeFast.targetHours;
     var pct = Math.max(0, Math.min(100, (elapsed/target)*100));
     var remaining = target - elapsed;
+    // ids below are updated every second by tickFastingTimer() with plain DOM writes, not a
+    // full render() - a full innerHTML re-render every second would be wasteful (and could
+    // interrupt scrolling/taps), so only these three nodes' text/width get touched on the tick;
+    // the surrounding structure only gets rebuilt on real state changes (start/end/cancel/nav).
     body = '' +
-      '<div class="meals-calorie-num">'+fmtFastHM(elapsed)+' <span class="hint" style="font-size:15px;">/ '+fmtNum(target,target%1===0?0:1)+'h</span></div>'+
-      '<div style="height:8px;border-radius:4px;background:var(--line);overflow:hidden;margin-top:10px;"><div style="height:100%;border-radius:4px;background:var(--almond);width:'+pct.toFixed(1)+'%;"></div></div>'+
-      '<div class="hint" style="margin-top:6px;">'+(remaining>0 ? (t('fastingRemainingLabel')+' '+fmtFastHM(remaining)) : t('fastingOvertimeLabel'))+'</div>'+
+      '<div class="meals-calorie-num"><span id="fasting-timer-num">'+fmtFastHMS(elapsed)+'</span> <span class="hint" style="font-size:15px;">/ '+fmtNum(target,target%1===0?0:1)+'h</span></div>'+
+      '<div style="height:8px;border-radius:4px;background:var(--line);overflow:hidden;margin-top:10px;"><div id="fasting-progress-fill" style="height:100%;border-radius:4px;background:var(--almond);width:'+pct.toFixed(1)+'%;"></div></div>'+
+      '<div class="hint" id="fasting-remaining-label" style="margin-top:6px;">'+(remaining>0 ? (t('fastingRemainingLabel')+' '+fmtFastHMS(remaining)) : t('fastingOvertimeLabel'))+'</div>'+
       '<div style="display:flex;gap:8px;margin-top:12px;">'+
         '<button class="btn btn-primary" style="flex:1;" onclick="endFast()">'+t('endFastBtn')+'</button>'+
         '<button class="btn btn-outline" style="flex:1;" onclick="cancelFast()">'+t('cancelFastBtn')+'</button>'+
       '</div>';
   } else {
+    var schedHours = ui.mode==='schedule' ? scheduleDurationHours(ui.scheduleStart, ui.scheduleEnd) : null;
     body = '' +
-      '<div class="tag-select" style="justify-content:center;flex-wrap:wrap;">'+
-        FASTING_PRESETS.map(function(h){ return '<div class="tag-option '+((!ui.customMode && ui.presetHours===h)?'active':'')+'" onclick="setFastingPreset('+h+')">'+h+':'+(24-h)+'</div>'; }).join('')+
-        '<div class="tag-option '+(ui.customMode?'active':'')+'" onclick="setFastingCustomMode()">'+t('fastingCustomLabel')+'</div>'+
+      '<div class="tag-select" style="justify-content:center;margin-bottom:10px;">'+
+        '<div class="tag-option '+(ui.mode!=='schedule'?'active':'')+'" onclick="setFastingMode(\'duration\')">'+t('fastingModeDuration')+'</div>'+
+        '<div class="tag-option '+(ui.mode==='schedule'?'active':'')+'" onclick="setFastingMode(\'schedule\')">'+t('fastingModeSchedule')+'</div>'+
       '</div>'+
-      (ui.customMode ? ('<div class="field" style="margin-top:10px;margin-bottom:0;"><input type="number" inputmode="decimal" placeholder="'+t('fieldTargetHours')+'" value="'+esc(ui.customText)+'" oninput="fastingCustomInput(this.value)"></div>') : '')+
+      (ui.mode==='schedule' ?
+        ('<div style="display:flex;gap:10px;justify-content:center;">'+
+          '<div class="field" style="margin-bottom:0;text-align:left;"><label>'+t('fastScheduleStartLabel')+'</label><input type="time" value="'+esc(ui.scheduleStart)+'" onchange="fastingScheduleInput(\'scheduleStart\',this.value)"></div>'+
+          '<div class="field" style="margin-bottom:0;text-align:left;"><label>'+t('fastScheduleEndLabel')+'</label><input type="time" value="'+esc(ui.scheduleEnd)+'" onchange="fastingScheduleInput(\'scheduleEnd\',this.value)"></div>'+
+        '</div>'+
+        (schedHours!=null ? ('<div class="hint" style="margin-top:8px;">'+t('fieldTargetHours')+' '+fmtNum(schedHours,schedHours%1===0?0:1)+'h</div>') : ''))
+        :
+        ('<div class="tag-select" style="justify-content:center;flex-wrap:wrap;">'+
+          FASTING_PRESETS.map(function(h){ return '<div class="tag-option '+((!ui.customMode && ui.presetHours===h)?'active':'')+'" onclick="setFastingPreset('+h+')">'+h+':'+(24-h)+'</div>'; }).join('')+
+          '<div class="tag-option '+(ui.customMode?'active':'')+'" onclick="setFastingCustomMode()">'+t('fastingCustomLabel')+'</div>'+
+        '</div>'+
+        (ui.customMode ? ('<div class="field" style="margin-top:10px;margin-bottom:0;"><input type="number" inputmode="decimal" placeholder="'+t('fieldTargetHours')+'" value="'+esc(ui.customText)+'" oninput="fastingCustomInput(this.value)"></div>') : ''))
+      )+
       '<button class="btn btn-primary" style="width:100%;margin-top:12px;" onclick="startFast()">'+t('startFastBtn')+'</button>';
   }
   return '' +
@@ -8804,6 +8946,19 @@ function fastingCardHtml(){
       body +
       '<div class="list-row" onclick="navigate(\'fastingHistory\')" style="cursor:pointer;margin-top:10px;text-align:left;"><div class="row-label">'+t('fastingHistoryBtn')+'</div>'+ic('chevronRight',18)+'</div>'+
     '</div>';
+}
+function tickFastingTimer(){
+  if(!(state.loaded && state.view==='meals' && state.activeFast)) return;
+  var numEl = document.getElementById('fasting-timer-num');
+  if(!numEl) return; // card not currently on screen (e.g. it's mid-render) - next tick will catch it
+  var elapsed = elapsedHoursSince(state.activeFast.startedAt);
+  var target = state.activeFast.targetHours;
+  var remaining = target - elapsed;
+  numEl.textContent = fmtFastHMS(elapsed);
+  var fillEl = document.getElementById('fasting-progress-fill');
+  if(fillEl) fillEl.style.width = Math.max(0, Math.min(100, (elapsed/target)*100)).toFixed(1)+'%';
+  var remEl = document.getElementById('fasting-remaining-label');
+  if(remEl) remEl.textContent = remaining>0 ? (t('fastingRemainingLabel')+' '+fmtFastHMS(remaining)) : t('fastingOvertimeLabel');
 }
 
 function renderMeals(){
@@ -8816,8 +8971,8 @@ function renderMeals(){
 
   var dateNav = '<div class="date-nav-bar">'+
     '<button class="icon-btn" onclick="shiftMealsDate(-1)" aria-label="'+t('prevDay')+'">'+ic('back',18)+'</button>'+
-    '<div class="date-nav-label">'+(date===todayStr() ? t('todayLabel') : esc(fmtDateDots(date)))+'</div>'+
-    (date<todayStr() ? '<button class="icon-btn" onclick="shiftMealsDate(1)" aria-label="'+t('nextDay')+'">'+ic('chevronRight',18)+'</button>' : '<span style="width:36px;"></span>')+
+    '<div class="date-nav-label" onclick="openMealsCalendar()" style="cursor:pointer;">'+(date===todayStr() ? t('todayLabel') : esc(fmtDateDots(date)))+'</div>'+
+    '<button class="icon-btn" onclick="shiftMealsDate(1)" aria-label="'+t('nextDay')+'">'+ic('chevronRight',18)+'</button>'+
   '</div>';
 
   var calorieCard = '<div class="form-group" style="text-align:center;">'+
@@ -9205,7 +9360,7 @@ function renderFastingHistory(){
       '<div class="row-label">'+esc(fmtDateDots(f.startedAt.slice(0,10)))+
         '<div class="hint" style="margin-top:2px;">'+f.startedAt.slice(11,16)+' → '+f.endedAt.slice(11,16)+' · '+t('fieldTargetHours')+' '+fmtNum(f.targetHours,f.targetHours%1===0?0:1)+'h</div>'+
       '</div>'+
-      '<div style="color:'+(met?'var(--fresh)':'var(--deep-caramel)')+';">'+fmtFastHM(dur)+'</div>'+
+      '<div style="color:'+(met?'var(--fresh)':'var(--deep-caramel)')+';">'+fmtFastHMS(dur)+'</div>'+
     '</div>';
   }).join('') || '<div class="empty-state">'+ic('clock',36)+'<p>'+t('fastingNoneYet')+'</p></div>';
   return '' +
@@ -11123,14 +11278,13 @@ async function initApp(){
   }
   render();
   if(state.cloudSyncEnabled) startCloudSync();
-  // Keep the active-fast elapsed-time readout ticking while the 三餐 page is open - full
-  // render() is the same mechanism every other state change in this app already uses, so this
-  // just re-triggers it on a timer instead of a user action; gated on both state.view and
-  // state.activeFast so it's a no-op (skips the render call entirely) once the fast ends or the
-  // person navigates away, rather than ticking silently in the background.
-  setInterval(function(){
-    if(state.loaded && state.view==='meals' && state.activeFast) render();
-  }, 30000);
+  // Tick the active-fast HH:MM:SS readout every second, in sync with the phone's real clock.
+  // This deliberately does NOT call the app's usual full render() - re-creating the entire
+  // page's innerHTML every second would be wasteful and could interrupt scrolling/taps - it
+  // just writes the three DOM nodes fastingCardHtml() tagged with ids (see its own comment).
+  // tickFastingTimer() itself is a no-op whenever those ids aren't on the page (wrong view, or
+  // no fast running), so this timer is harmless in the background the rest of the time.
+  setInterval(tickFastingTimer, 1000);
 }
 if(document.readyState === 'loading'){
   document.addEventListener('DOMContentLoaded', initApp);
