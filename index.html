@@ -762,7 +762,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.108';
+var BUILD_VERSION = '9.109';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2220,6 +2220,8 @@ var I18N = {
     cookSuccess:'已扣减库存', cookSuccessInsufficient:'已记录，但部分食材库存不够扣，已经扣到0了', cookConfirmBtn:'确认扣减', 
     // settings
     settingsTitle:'设置', language:'语言', manageCategories:'管理分类', manageLocations:'管理存放位置',
+    inventorySettingsTitle:'库存设置', recipesSettingsTitle:'食谱设置', mealsSettingsTitle:'三餐设置', healthSettingsTitle:'健康设置',
+    unitSystemLabel:'单位选择', unitSystemMetric:'公制（kg / cm）', unitSystemImperial:'英制（lb / in）',
     reminderDays:'临期预警天数', reminderDaysHint:'有效期在此天数内会显示"临期"提醒',
     manageCategoriesTitle:'管理分类', manageLocationsTitle:'管理存放位置',
     addCategoryPh:'新分类名称', addLocationPh:'新位置名称',
@@ -2457,6 +2459,8 @@ var I18N = {
     cookConfirmNoConversion:'Unit cannot be auto-converted, please adjust inventory manually later',
     cookSuccess:'Inventory updated', cookSuccessInsufficient:'Logged, but some ingredients ran out before covering this', cookConfirmBtn:'Confirm deduction',
     settingsTitle:'Settings', language:'Language', manageCategories:'Manage categories', manageLocations:'Manage locations',
+    inventorySettingsTitle:'Inventory Settings', recipesSettingsTitle:'Recipe Settings', mealsSettingsTitle:'Meals Settings', healthSettingsTitle:'Health Settings',
+    unitSystemLabel:'Units', unitSystemMetric:'Metric (kg / cm)', unitSystemImperial:'Imperial (lb / in)',
     reminderDays:'Expiry warning days', reminderDaysHint:'Items expiring within this many days show as "soon"',
     manageCategoriesTitle:'Manage categories', manageLocationsTitle:'Manage locations',
     addCategoryPh:'New category name', addLocationPh:'New location name',
@@ -3419,7 +3423,8 @@ var ICONS = {
   copy:'<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
   clock:'<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>',
   ruler:'<rect x="3" y="8" width="18" height="8" rx="1"/><line x1="7" y1="8" x2="7" y2="11"/><line x1="11" y1="8" x2="11" y2="11"/><line x1="15" y1="8" x2="15" y2="11"/>',
-  activity:'<polyline points="3 12 8 12 10 6 14 18 16 12 21 12"/>'
+  activity:'<polyline points="3 12 8 12 10 6 14 18 16 12 21 12"/>',
+  cog:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>'
 };
 function ic(name, size, extra){
   size = size||20;
@@ -3477,6 +3482,10 @@ function render(){
     case 'recipeForm': html = renderRecipeForm(); break;
     case 'recipeDetail': html = renderRecipeDetail(); break;
     case 'settings': html = renderSettings(); break;
+    case 'inventorySettings': html = renderInventorySettings(); break;
+    case 'recipesSettings': html = renderRecipesSettings(); break;
+    case 'mealsSettings': html = renderMealsSettings(); break;
+    case 'healthSettings': html = renderHealthSettings(); break;
     case 'manageTags': html = renderManageTags(); break;
     case 'manageRecipeCategories': html = renderManageRecipeCategories(); break;
     case 'pickInventory': html = renderPickInventory(); break;
@@ -3504,10 +3513,10 @@ function render(){
 }
 function bottomNav(){
   var v = state.view;
-  var isHome = (v==='home'||v==='itemForm'||v==='itemDetail'||v==='archive'||v==='stats'||v==='priceHistory'||v==='itemViewOnly'||v==='statFilteredList'||v==='usageLog'||v==='usageLogAdd');
-  var isRecipes = (v==='recipes'||v==='recipeForm'||v==='recipeDetail'||v==='pickInventory'||v==='pickExternal');
-  var isMeals = (v==='meals'||v==='fastingHistory');
-  var isHealth = (v==='health'||v==='bpHistory'||v==='waistHistory'||v==='exerciseHistory');
+  var isHome = (v==='home'||v==='itemForm'||v==='itemDetail'||v==='archive'||v==='stats'||v==='priceHistory'||v==='itemViewOnly'||v==='statFilteredList'||v==='usageLog'||v==='usageLogAdd'||v==='inventorySettings');
+  var isRecipes = (v==='recipes'||v==='recipeForm'||v==='recipeDetail'||v==='pickInventory'||v==='pickExternal'||v==='recipesSettings');
+  var isMeals = (v==='meals'||v==='fastingHistory'||v==='mealsSettings'||v==='planSettings'||v==='macroPresetPicker');
+  var isHealth = (v==='health'||v==='bpHistory'||v==='waistHistory'||v==='exerciseHistory'||v==='weightHistory'||v==='healthSettings'||v==='personalInfo');
   return '' +
   (state.addMenuOpen ? ('<div class="add-menu-backdrop" onclick="closeAddMenu()"></div>'+addMenuFloatingOptionsHtml()) : '')+
   '<div class="bottom-nav">'+
@@ -3527,9 +3536,9 @@ function bottomNav(){
 //   choice, which wouldn't make sense there.
 function addMenuOptionsForCurrentSection(){
   var v = state.view;
-  var isRecipes = (v==='recipes'||v==='recipeForm'||v==='recipeDetail'||v==='pickInventory'||v==='pickExternal');
-  var isMeals = (v==='meals'||v==='fastingHistory'||v==='mealsHistory');
-  var isHealth = (v==='health'||v==='bpHistory'||v==='waistHistory'||v==='exerciseHistory'||v==='weightHistory'||v==='planSettings'||v==='personalInfo'||v==='macroPresetPicker');
+  var isRecipes = (v==='recipes'||v==='recipeForm'||v==='recipeDetail'||v==='pickInventory'||v==='pickExternal'||v==='recipesSettings');
+  var isMeals = (v==='meals'||v==='fastingHistory'||v==='mealsHistory'||v==='mealsSettings'||v==='planSettings'||v==='macroPresetPicker');
+  var isHealth = (v==='health'||v==='bpHistory'||v==='waistHistory'||v==='exerciseHistory'||v==='weightHistory'||v==='healthSettings'||v==='personalInfo');
   if(isRecipes) return null; // signals "no menu - do the direct action instead"
   if(isMeals) return [
     {icon:'spoon', label:t('mealSlot_breakfast'), action:"openAddFoodModal(state.mealsUI.date,'breakfast')"},
@@ -3693,7 +3702,7 @@ function refreshSidebarContent(){
 // here (rather than checking `page` inline) so the notes page's call site doesn't need to change.
 function menuButtonHtml(page, showSettingsGear){
   var gearBtn = showSettingsGear
-    ? '<button class="icon-btn" onclick="openSettings('+aj(page)+')" aria-label="'+t('navSettings')+'">'+ic('gear',20)+'</button>'
+    ? '<button class="icon-btn" onclick="openSettings('+aj(page)+')" aria-label="'+t('navSettings')+'">'+ic('cog',20)+'</button>'
     : '';
   return '<div class="topbar-actions">'+gearBtn+'<button class="icon-btn" onclick="toggleSidebar('+aj(page)+')" aria-label="'+t('navMenu')+'">'+ic('menu',20)+'</button></div>';
 }
@@ -3772,18 +3781,22 @@ function openSettings(fromView){
     if(state.view==='stats') return {view:'home'};
     if(state.view==='priceHistory') return {view:'home'};
     if(state.view==='statFilteredList') return {view:'home'};
-    if(state.view==='manageTags') return {view:'settings'};
-    if(state.view==='manageRecipeCategories') return {view:'settings'};
+    if(state.view==='manageTags') return {view:'inventorySettings'};
+    if(state.view==='manageRecipeCategories') return {view:'recipesSettings'};
     if(state.view==='settings') return {view: state.settingsBackTo || 'home'};
     if(state.view==='weightHistory') return {view:'health'};
     if(state.view==='bpHistory') return {view:'health'};
     if(state.view==='waistHistory') return {view:'health'};
     if(state.view==='exerciseHistory') return {view:'health'};
-    if(state.view==='personalInfo') return {view:'planSettings'};
-    if(state.view==='planSettings') return {view:'health'};
+    if(state.view==='personalInfo') return {view:'healthSettings'};
+    if(state.view==='planSettings') return {view:'mealsSettings'};
     if(state.view==='macroPresetPicker') return {view:'planSettings'};
     if(state.view==='mealsHistory') return {view:'meals'};
     if(state.view==='fastingHistory') return {view:'meals'};
+    if(state.view==='inventorySettings') return {view:'home'};
+    if(state.view==='recipesSettings') return {view:'recipes'};
+    if(state.view==='mealsSettings') return {view:'meals'};
+    if(state.view==='healthSettings') return {view:'health'};
     return null;
   }
   document.addEventListener('touchstart', function(e){
@@ -4681,7 +4694,7 @@ function renderHomeSidebarContent(){
       '<div class="sidebar-item" onclick="closeSidebar();navigate(\'stats\')">'+t('navStats')+'</div>'+
       '<div class="sidebar-item" onclick="enterBulkSelectMode()">'+t('bulkEditEntry')+'</div>'
     ) : '');
-  return '<div class="sidebar-header"><h2>📦 '+t('navHome')+'</h2><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div>'+
+  return '<div class="sidebar-header"><h2>📦 '+t('navHome')+'</h2><div style="display:flex;gap:6px;"><button class="icon-btn" onclick="navigate(\'inventorySettings\')" aria-label="'+t('navSettings')+'">'+ic('gear',18)+'</button><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div></div>'+
     statsHtml + catHtml + locHtml + toolsHtml;
 }
 // Shared section-title markup for the two reorderable/addable lists (category, location):
@@ -7653,7 +7666,7 @@ function renderRecipeSidebarContent(){
       '</div>' : '')+
     '</div>';
   }).join('');
-  return '<div class="sidebar-header"><h2>📖 '+t('recipesTitle')+'</h2><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div>'+
+  return '<div class="sidebar-header"><h2>📖 '+t('recipesTitle')+'</h2><div style="display:flex;gap:6px;"><button class="icon-btn" onclick="navigate(\'recipesSettings\')" aria-label="'+t('navSettings')+'">'+ic('gear',18)+'</button><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div></div>'+
     '<div class="sidebar-item '+(!state.recipesUI.groupId?'active':'')+'" onclick="sidebarSetRecipeFilter(null,null)">'+t('filterAll')+'</div>'+
     '<div class="sidebar-reorder-list" data-reorder-kind="recipeGroup">'+groupsHtml+'</div>'+
     recipeCombinedAddRowHtml();
@@ -9111,7 +9124,7 @@ function renderMeals(){
   bottomNav();
 }
 function renderMealsSidebarContent(){
-  return '<div class="sidebar-header"><h2>🍽️ '+t('mealsTitle')+'</h2><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div>'+
+  return '<div class="sidebar-header"><h2>🍽️ '+t('mealsTitle')+'</h2><div style="display:flex;gap:6px;"><button class="icon-btn" onclick="navigate(\'mealsSettings\')" aria-label="'+t('navSettings')+'">'+ic('gear',18)+'</button><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div></div>'+
     '<div class="sidebar-item" onclick="navigate(\'mealsHistory\')">'+t('mealsHistoryBtn')+'</div>'+
     '<div class="sidebar-item" onclick="navigate(\'fastingHistory\')">'+t('fastingHistoryBtn')+'</div>';
 }
@@ -9128,8 +9141,7 @@ function mealSlotSectionHtml(date, slot){
   }).join('');
   return '<div class="section-title">'+t('mealSlot_'+slot)+(slotCal ? (' · '+slotCal+' kcal') : '')+'</div>'+
     '<div class="form-group">'+
-      (rows || '<p class="hint" style="margin:0 0 10px;">'+t('noMealLoggedHint')+'</p>')+
-      '<button class="btn btn-outline btn-sm" style="width:100%;'+(rows?'margin-top:10px;':'')+'" onclick="openAddFoodModal('+aj(date)+','+aj(slot)+')">'+ic('plus',15)+' '+t('addFoodBtn')+'</button>'+
+      (rows || '<p class="hint" style="margin:0;">'+t('noMealLoggedHint')+'</p>')+
     '</div>';
 }
 function deleteMealLog(id){
@@ -9622,6 +9634,25 @@ function fmtWeight(kg){
   return fmtNum(displayWeight(kg), 1)+' '+healthWeightUnit();
 }
 
+// ---- waist unit conversion (README 9.109) - shares the SAME metric/imperial toggle as weight
+// (state.weightPlan.unit) rather than a second independent setting, so choosing "imperial" once
+// in 健康设置 switches weight AND waist together, matching how Lynn described it ("单位选择
+// （比如腰围/体重等项可选英制/公制）" - one choice, multiple fields). Waist is still stored
+// canonically in cm regardless of display unit, same reasoning as weight-in-kg.
+var CM_PER_IN = 2.54;
+function cmToIn(cm){ return cm / CM_PER_IN; }
+function inToCm(inches){ return inches * CM_PER_IN; }
+function healthLengthUnit(){ return healthWeightUnit()==='lb' ? 'in' : 'cm'; }
+function displayWaist(cm){
+  if(cm==null) return null;
+  return healthLengthUnit()==='in' ? cmToIn(cm) : cm;
+}
+function parseWaistInputToCm(val){
+  var n = parseFloat(val);
+  if(isNaN(n)) return null;
+  return healthLengthUnit()==='in' ? inToCm(n) : n;
+}
+
 // ---- weight log helpers ----
 function sortedWeightLogs(){
   return state.weightLogs.slice().sort(function(a,b){ return a.date.localeCompare(b.date); });
@@ -9825,11 +9856,11 @@ function renderBpHistory(){
 // ---- waist log CRUD (README 9.102) ----
 function sortedWaistLogs(){ return state.waistLogs.slice().sort(function(a,b){ return a.date.localeCompare(b.date); }); }
 function latestWaistEntry(){ var s = sortedWaistLogs(); return s.length ? s[s.length-1] : null; }
-function fmtWaist(e){ return fmtNum(e.waistCm,1)+' cm'; }
+function fmtWaist(e){ return fmtNum(displayWaist(e.waistCm),1)+' '+healthLengthUnit(); }
 function openWaistLogModal(id){
   var existing = id ? state.waistLogs.find(function(e){ return e.id===id; }) : null;
   state.waistLogUI = existing ?
-    {id:id, date:existing.date, waistText: fmtNum(existing.waistCm,1), note:existing.note||''} :
+    {id:id, date:existing.date, waistText: fmtNum(displayWaist(existing.waistCm),1), note:existing.note||''} :
     {id:null, date:todayStr(), waistText:'', note:''};
   renderWaistLogModal();
 }
@@ -9837,7 +9868,7 @@ function renderWaistLogModal(){
   var ui = state.waistLogUI;
   showModal(ui.id ? t('editWaistEntryTitle') : t('logWaistBtn'),
     '<div class="field"><label>'+t('fieldDate')+'</label><input type="date" value="'+esc(ui.date)+'" oninput="ws_str(\'date\',this.value)"></div>'+
-    '<div class="field"><label>'+t('fieldWaist')+'</label><input id="waist-input-focus" type="number" inputmode="decimal" placeholder="-" value="'+esc(ui.waistText)+'" oninput="ws_str(\'waistText\',this.value)"></div>'+
+    '<div class="field"><label>'+t('fieldWaist')+' ('+healthLengthUnit()+')</label><input id="waist-input-focus" type="number" inputmode="decimal" placeholder="-" value="'+esc(ui.waistText)+'" oninput="ws_str(\'waistText\',this.value)"></div>'+
     '<div class="field" style="margin-bottom:0;"><label>'+t('fieldNotes')+'</label><textarea placeholder="'+t('fieldNotesPh')+'" oninput="ws_str(\'note\',this.value)">'+esc(ui.note)+'</textarea></div>'+
     '<button class="btn btn-primary" style="margin-top:14px;" onclick="saveWaistLogEntry()">'+t('save')+'</button>'+
     (ui.id ? '<button class="btn btn-danger" style="margin-top:10px;width:100%;" onclick="deleteWaistLogEntry('+aj(ui.id)+')">'+t('delete')+'</button>' : '')
@@ -9848,8 +9879,8 @@ function renderWaistLogModal(){
 function ws_str(field, val){ state.waistLogUI[field]=val; }
 function saveWaistLogEntry(){
   var ui = state.waistLogUI;
-  var cm = parseFloat(ui.waistText);
-  if(!ui.date || isNaN(cm)){ showToast(t('waistEntryInvalid')); return; }
+  var cm = parseWaistInputToCm(ui.waistText);
+  if(!ui.date || cm==null){ showToast(t('waistEntryInvalid')); return; }
   if(ui.id){
     var e = state.waistLogs.find(function(x){ return x.id===ui.id; });
     e.date = ui.date; e.waistCm = cm; e.note = ui.note;
@@ -9873,7 +9904,7 @@ function renderWaistHistory(){
   var logs = sortedWaistLogs().slice().reverse();
   var rows = logs.map(function(e, idx){
     var prev = logs[idx+1];
-    var delta = prev ? (e.waistCm - prev.waistCm) : null;
+    var delta = prev ? (displayWaist(e.waistCm) - displayWaist(prev.waistCm)) : null;
     var deltaHtml = delta==null ? '' : (
       '<span style="font-size:12.5px;margin-left:8px;color:'+(delta>0?'var(--danger)':(delta<0?'var(--fresh)':'var(--deep-caramel)'))+';">'+
       (delta>0?'▲':(delta<0?'▼':'—'))+' '+fmtNum(Math.abs(delta),1)+'</span>'
@@ -10002,7 +10033,6 @@ function renderHealth(){
         '<div class="sidebar-stat-card"><div class="sidebar-stat-num">'+(latest? fmtWeight(latest.weightKg): '-')+'</div><div class="sidebar-stat-label">'+(latest? fmtDateDots(latest.date) : t('healthNoWeightYet'))+'</div></div>'+
       '</div>'+
       chartHtml +
-      '<button class="btn btn-primary" style="width:100%;margin-top:8px;" onclick="openWeightLogModal(null)">'+t('logWeightBtn')+'</button>'+
       '<div class="list-row" onclick="navigate(\'weightHistory\')" style="cursor:pointer;margin-top:4px;"><div class="row-label">'+t('viewWeightHistory')+'</div>'+ic('chevronRight',18)+'</div>'+
     '</div>';
   var latestBp = latestBpEntry();
@@ -10012,7 +10042,6 @@ function renderHealth(){
       '<div class="sidebar-stat-row">'+
         '<div class="sidebar-stat-card"><div class="sidebar-stat-num">'+(latestBp? fmtBp(latestBp): '-')+'</div><div class="sidebar-stat-label">'+(latestBp? fmtDateDots(latestBp.date) : t('healthNoBpYet'))+'</div></div>'+
       '</div>'+
-      '<button class="btn btn-primary" style="width:100%;margin-top:8px;" onclick="openBpLogModal(null)">'+t('logBpBtn')+'</button>'+
       '<div class="list-row" onclick="navigate(\'bpHistory\')" style="cursor:pointer;margin-top:4px;"><div class="row-label">'+t('viewBpHistory')+'</div>'+ic('chevronRight',18)+'</div>'+
     '</div>';
   var latestWaist = latestWaistEntry();
@@ -10022,7 +10051,6 @@ function renderHealth(){
       '<div class="sidebar-stat-row">'+
         '<div class="sidebar-stat-card"><div class="sidebar-stat-num">'+(latestWaist? fmtWaist(latestWaist): '-')+'</div><div class="sidebar-stat-label">'+(latestWaist? fmtDateDots(latestWaist.date) : t('healthNoWaistYet'))+'</div></div>'+
       '</div>'+
-      '<button class="btn btn-primary" style="width:100%;margin-top:8px;" onclick="openWaistLogModal(null)">'+t('logWaistBtn')+'</button>'+
       '<div class="list-row" onclick="navigate(\'waistHistory\')" style="cursor:pointer;margin-top:4px;"><div class="row-label">'+t('viewWaistHistory')+'</div>'+ic('chevronRight',18)+'</div>'+
     '</div>';
   var latestExercise = latestExerciseEntry();
@@ -10032,38 +10060,21 @@ function renderHealth(){
       '<div class="sidebar-stat-row">'+
         '<div class="sidebar-stat-card"><div class="sidebar-stat-num">'+(latestExercise? fmtExercise(latestExercise): '-')+'</div><div class="sidebar-stat-label">'+(latestExercise? fmtDateDots(latestExercise.date) : t('healthNoExerciseYet'))+'</div></div>'+
       '</div>'+
-      '<button class="btn btn-primary" style="width:100%;margin-top:8px;" onclick="openExerciseLogModal(null)">'+t('logExerciseBtn')+'</button>'+
       '<div class="list-row" onclick="navigate(\'exerciseHistory\')" style="cursor:pointer;margin-top:4px;"><div class="row-label">'+t('viewExerciseHistory')+'</div>'+ic('chevronRight',18)+'</div>'+
-    '</div>';
-  var budget = calcDailyCalorieBudget();
-  var preset = macroPresetById(state.weightPlan.macroPreset);
-  var planCard = '' +
-    '<div class="section-title">'+t('healthPlanSection')+'</div>'+
-    '<div class="form-group">'+
-      (budget!=null ?
-        ('<div class="sidebar-stat-row">'+
-          '<div class="sidebar-stat-card"><div class="sidebar-stat-num">'+budget+'</div><div class="sidebar-stat-label">'+t('dailyCalorieBudgetLabel')+'</div></div>'+
-        '</div>'+
-        '<p class="hint" style="margin-top:6px;">'+t('macroDistLabel')+'：'+preset.c+':'+preset.p+':'+preset.f+'（'+(state.lang==='zh'?preset.zh:preset.en)+'）</p>'+
-        (state.weightPlan.targetDate ? ('<p class="hint">'+t('targetDateLabel')+'：'+fmtDateDots(state.weightPlan.targetDate)+'</p>') : ''))
-      : ('<p class="hint">'+t('healthPlanIncompleteHint')+'</p>')) +
-      '<div class="list-row" onclick="navigate(\'planSettings\')" style="cursor:pointer;margin-top:8px;"><div class="row-label">'+t('planSettingsBtn')+'</div>'+ic('chevronRight',18)+'</div>'+
     '</div>';
   return '' +
   '<div class="topbar"><div><h1>⚖️ '+t('healthTitle')+'</h1></div>'+menuButtonHtml('health', true)+'</div>'+
   '<div class="content">'+
-    weightCard + bpCard + waistCard + exerciseCard + planCard +
+    weightCard + bpCard + waistCard + exerciseCard +
   '</div>'+
   bottomNav();
 }
 function renderHealthSidebarContent(){
-  return '<div class="sidebar-header"><h2>⚖️ '+t('healthTitle')+'</h2><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div>'+
+  return '<div class="sidebar-header"><h2>⚖️ '+t('healthTitle')+'</h2><div style="display:flex;gap:6px;"><button class="icon-btn" onclick="navigate(\'healthSettings\')" aria-label="'+t('navSettings')+'">'+ic('gear',18)+'</button><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div></div>'+
     '<div class="sidebar-item" onclick="navigate(\'weightHistory\')">'+t('viewWeightHistory')+'</div>'+
     '<div class="sidebar-item" onclick="navigate(\'bpHistory\')">'+t('viewBpHistory')+'</div>'+
     '<div class="sidebar-item" onclick="navigate(\'waistHistory\')">'+t('viewWaistHistory')+'</div>'+
-    '<div class="sidebar-item" onclick="navigate(\'exerciseHistory\')">'+t('viewExerciseHistory')+'</div>'+
-    '<div class="sidebar-item" onclick="navigate(\'planSettings\')">'+t('planSettingsBtn')+'</div>'+
-    '<div class="sidebar-item" onclick="navigate(\'personalInfo\')">'+t('personalInfoBtn')+'</div>';
+    '<div class="sidebar-item" onclick="navigate(\'exerciseHistory\')">'+t('viewExerciseHistory')+'</div>';
 }
 
 // ---- weight history list page ----
@@ -10094,7 +10105,7 @@ function renderPersonalInfo(){
   var age = calcAge(p.birthDate);
   var maint = calcMaintenanceCalories();
   return '' +
-  '<div class="page-header"><button class="back-btn" onclick="navigate(\'planSettings\')">'+ic('back',22)+'</button><h1>'+t('personalInfoBtn')+'</h1></div>'+
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'healthSettings\')">'+ic('back',22)+'</button><h1>'+t('personalInfoBtn')+'</h1></div>'+
   '<div class="content">'+
     '<div class="field"><label>'+t('fieldSex')+'</label><div class="tag-select">'+
       ['female','male'].map(function(s){ return '<div class="tag-option '+(p.sex===s?'active':'')+'" onclick="setPlanField(\'sex\','+aj(s)+')">'+t('sex_'+s)+'</div>'; }).join('')+
@@ -10103,9 +10114,6 @@ function renderPersonalInfo(){
     '<div class="field"><label>'+t('fieldBirthDate')+'</label><input type="date" value="'+esc(p.birthDate||'')+'" oninput="setPlanField(\'birthDate\', this.value)"></div>'+
     '<div class="field"><label>'+t('fieldActivityLevel')+'</label><div class="tag-select">'+
       ACTIVITY_LEVELS.map(function(a){ return '<div class="tag-option '+(p.activityLevel===a?'active':'')+'" onclick="setPlanField(\'activityLevel\','+aj(a)+')">'+t('activity_'+a)+'</div>'; }).join('')+
-    '</div></div>'+
-    '<div class="field"><label>'+t('weightUnitLabel')+'</label><div class="tag-select">'+
-      ['kg','lb'].map(function(u){ return '<div class="tag-option '+(p.unit===u?'active':'')+'" onclick="setPlanField(\'unit\','+aj(u)+')">'+u+'</div>'; }).join('')+
     '</div></div>'+
     '<div class="section-title">'+t('bmrResultSection')+'</div>'+
     '<div class="form-group">'+
@@ -10133,7 +10141,10 @@ function setPlanFieldNoRender(field, val){
   saveWeightPlan();
 }
 
-// ---- plan settings page ----
+// ---- plan settings page (README 9.109: reached from 三餐设置's "饮食计划" card now, not
+// directly from 健康页 - 个人信息 moved out to 健康设置, and the exerciseAffectsBudget toggle
+// moved out to 健康设置 too, since "does exercise affect my budget" is a health-side decision
+// even though the budget number itself is shown on 三餐) ----
 function renderPlanSettings(){
   ensureWeightPlanDefaults();
   var p = state.weightPlan;
@@ -10144,10 +10155,9 @@ function renderPlanSettings(){
     return '<p class="hint" style="margin-top:4px;">'+g.carbs+'g '+t('macroCarbs')+' · '+g.protein+'g '+t('macroProtein')+' · '+g.fat+'g '+t('macroFat')+'</p>';
   })() : '';
   return '' +
-  '<div class="page-header"><button class="back-btn" onclick="navigate(\'health\')">'+ic('back',22)+'</button><h1>'+t('planSettingsBtn')+'</h1></div>'+
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'mealsSettings\')">'+ic('back',22)+'</button><h1>'+t('planSettingsBtn')+'</h1></div>'+
   '<div class="content">'+
-    '<div class="list-row" onclick="navigate(\'personalInfo\')" style="cursor:pointer;"><div class="row-label">'+t('personalInfoBtn')+'</div>'+ic('chevronRight',18)+'</div>'+
-    '<div class="section-title">'+t('goalSection')+'</div>'+
+    '<div class="section-title" style="margin-top:0;">'+t('goalSection')+'</div>'+
     '<div class="field"><label>'+t('fieldGoalWeight')+' ('+healthWeightUnit()+')</label><input type="number" inputmode="decimal" placeholder="-" value="'+(p.goalWeightKg==null?'':fmtNum(displayWeight(p.goalWeightKg),1))+'" oninput="onGoalWeightInput(this.value)" onblur="render()"></div>'+
     '<div class="field"><label>'+t('fieldWeeklyRate')+' ('+healthWeightUnit()+'/'+t('perWeekShort')+')</label><input type="number" inputmode="decimal" step="0.1" placeholder="-" value="'+(p.weeklyRateKg==null?'':fmtNum(displayWeight(p.weeklyRateKg),2))+'" oninput="onWeeklyRateInput(this.value)" onblur="render()"></div>'+
     '<div class="field"><label>'+t('fieldTargetDate')+'</label><input type="date" value="'+esc(p.targetDate||'')+'" oninput="onTargetDateInput(this.value)"></div>'+
@@ -10160,10 +10170,6 @@ function renderPlanSettings(){
     '<div class="form-group">'+
       (budget!=null ? ('<div class="sidebar-stat-row"><div class="sidebar-stat-card"><div class="sidebar-stat-num">'+budget+'</div><div class="sidebar-stat-label">kcal</div></div></div>'+macroHtml)
         : ('<p class="hint">'+t('bmrIncompleteHint')+'</p>')) +
-    '</div>'+
-    '<div class="section-title">'+t('exerciseSection')+'</div>'+
-    '<div class="list-row"><div class="row-label">'+t('exerciseAffectsBudgetLabel')+'</div>'+
-      '<label class="switch"><input type="checkbox" '+(p.exerciseAffectsBudget?'checked':'')+' onchange="setPlanField(\'exerciseAffectsBudget\', this.checked)"><span class="switch-slider"></span></label>'+
     '</div>'+
   '</div>';
 }
@@ -10228,16 +10234,6 @@ function renderSettings(){
       '<button class="'+(state.lang==='zh'?'active':'')+'" onclick="setLang(\'zh\')">中文</button>'+
       '<button class="'+(state.lang==='en'?'active':'')+'" onclick="setLang(\'en\')">English</button>'+
     '</div>'+
-    '<div class="section-title">'+t('fastingDisplaySettingTitle')+'</div>'+
-    '<div class="lang-toggle" style="margin-bottom:8px;">'+
-      '<button class="'+(state.fastingDisplayMode!=='countup'?'active':'')+'" onclick="setFastingDisplayMode(\'countdown\')">'+t('fastingDisplayCountDown')+'</button>'+
-      '<button class="'+(state.fastingDisplayMode==='countup'?'active':'')+'" onclick="setFastingDisplayMode(\'countup\')">'+t('fastingDisplayCountUp')+'</button>'+
-    '</div>'+
-    '<div class="section-title">'+t('reminderDays')+'</div>'+
-    '<div class="form-group">'+
-      '<input type="number" inputmode="numeric" value="'+state.reminderDays+'" oninput="setReminderDays(this.value)" style="width:100%;font-size:16px;padding:13px 14px;border-radius:11px;border:1px solid var(--line);">'+
-      '<div class="hint">'+t('reminderDaysHint')+'</div>'+
-    '</div>'+
     '<div class="section-title">'+t('aiProxySettingLabel')+'</div>'+
     '<div class="form-group">'+
       '<input type="text" inputmode="url" value="'+esc(state.aiProxyUrl)+'" placeholder="https://your-proxy.example.com/analyze" oninput="setAiProxyUrl(this.value)" style="width:100%;font-size:16px;padding:13px 14px;border-radius:11px;border:1px solid var(--line);">'+
@@ -10264,32 +10260,6 @@ function renderSettings(){
       (state.cloudSyncStatus==='error' && state.cloudSyncError ? '<div class="hint" style="color:var(--warn);margin-top:6px;">'+esc(state.cloudSyncError)+'</div>' : '')+
       '<div class="hint" style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line);">'+t('cloudSyncPhotoLimitHint')+'</div>'+
     '</div>'+
-    '<div class="section-title">'+(state.lang==='zh'?'分类与位置':'Categories & Locations')+'</div>'+
-    '<div class="list-row" onclick="navigate(\'manageTags\',{kind:\'category\'})" style="cursor:pointer;">'+
-      '<div class="row-label">'+t('manageCategories')+'</div>'+ic('chevronRight',18)+
-    '</div>'+
-    '<div class="list-row" onclick="navigate(\'manageTags\',{kind:\'location\'})" style="cursor:pointer;">'+
-      '<div class="row-label">'+t('manageLocations')+'</div>'+ic('chevronRight',18)+
-    '</div>'+
-    '<div class="list-row" onclick="navigate(\'manageRecipeCategories\')" style="cursor:pointer;">'+
-      '<div class="row-label">'+t('manageRecipeCategories')+'</div>'+ic('chevronRight',18)+
-    '</div>'+
-    '<div class="section-title">'+t('sectionBackup')+'</div>'+
-    '<div class="form-group">'+
-      '<p class="hint" style="margin-bottom:14px;">'+t('backupHint')+'</p>'+
-      '<div style="font-size:13px;font-weight:600;color:var(--almond);margin-bottom:8px;">'+t('navHome')+'</div>'+
-      '<div class="btn-row" style="margin-bottom:16px;">'+
-        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="exportInventoryData()">'+ic('box',16)+' '+t('exportInventoryBtn')+'</button>'+
-        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="triggerImportInventory()">'+t('importInventoryBtn')+'</button>'+
-      '</div>'+
-      '<input type="file" accept="application/json,.json" id="import-inventory-input" style="display:none" onchange="onImportInventoryFile(this)">'+
-      '<div style="font-size:13px;font-weight:600;color:var(--almond);margin-bottom:8px;">'+t('navRecipes')+'</div>'+
-      '<div class="btn-row" style="margin-bottom:16px;">'+
-        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="exportRecipesData()">'+ic('book',16)+' '+t('exportRecipesBtn')+'</button>'+
-        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="triggerImportRecipes()">'+t('importRecipesBtn')+'</button>'+
-      '</div>'+
-      '<input type="file" accept="application/json,.json" id="import-recipes-input" style="display:none" onchange="onImportRecipesFile(this)">'+
-    '</div>'+
     '<div class="section-title">'+t('aboutTitle')+'</div>'+
     '<div class="form-group">'+
       '<p style="font-size:13.5px;line-height:1.7;color:var(--deep-caramel);">'+t('aboutText')+'</p>'+
@@ -10301,6 +10271,124 @@ function renderSettings(){
   '</div>'+
   bottomNav();
 }
+
+/* ======================= PER-PAGE SETTINGS (README 9.109) =======================
+   Each of the 4 main pages now has its own settings page, reached via the gear icon in that
+   page's own sidebar (the concentric-circle icon, kept distinct from the real cog icon the
+   still-existing global Settings page uses - see menuButtonHtml). The dividing line: anything
+   that only affects ONE page's own behavior lives in that page's settings; anything that's
+   genuinely shared infrastructure (language, the AI proxy URL - used by inventory photo
+   recognition, recipe ingredient recognition, AND the USDA search every one of these pages can
+   reach - cloud sync, about/version) stays in the global Settings page. The main pages
+   themselves now only ever show the RESULT of a setting (e.g. 三餐's calorie budget number),
+   never an inline control for it - the control lives on exactly one settings page. */
+
+function renderInventorySettings(){
+  return '' +
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'home\')">'+ic('back',22)+'</button><h1>'+t('inventorySettingsTitle')+'</h1></div>'+
+  '<div class="content">'+
+    '<div class="section-title" style="margin-top:0;">'+t('reminderDays')+'</div>'+
+    '<div class="form-group">'+
+      '<input type="number" inputmode="numeric" value="'+state.reminderDays+'" oninput="setReminderDays(this.value)" style="width:100%;font-size:16px;padding:13px 14px;border-radius:11px;border:1px solid var(--line);">'+
+      '<div class="hint">'+t('reminderDaysHint')+'</div>'+
+    '</div>'+
+    '<div class="section-title">'+(state.lang==='zh'?'分类与位置':'Categories & Locations')+'</div>'+
+    '<div class="list-row" onclick="navigate(\'manageTags\',{kind:\'category\'})" style="cursor:pointer;">'+
+      '<div class="row-label">'+t('manageCategories')+'</div>'+ic('chevronRight',18)+
+    '</div>'+
+    '<div class="list-row" onclick="navigate(\'manageTags\',{kind:\'location\'})" style="cursor:pointer;">'+
+      '<div class="row-label">'+t('manageLocations')+'</div>'+ic('chevronRight',18)+
+    '</div>'+
+    '<div class="section-title">'+t('sectionBackup')+'</div>'+
+    '<div class="form-group">'+
+      '<p class="hint" style="margin-bottom:14px;">'+t('backupHint')+'</p>'+
+      '<div class="btn-row">'+
+        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="exportInventoryData()">'+ic('box',16)+' '+t('exportInventoryBtn')+'</button>'+
+        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="triggerImportInventory()">'+t('importInventoryBtn')+'</button>'+
+      '</div>'+
+      '<input type="file" accept="application/json,.json" id="import-inventory-input" style="display:none" onchange="onImportInventoryFile(this)">'+
+    '</div>'+
+  '</div>'+
+  bottomNav();
+}
+
+function renderRecipesSettings(){
+  return '' +
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'recipes\')">'+ic('back',22)+'</button><h1>'+t('recipesSettingsTitle')+'</h1></div>'+
+  '<div class="content">'+
+    '<div class="section-title" style="margin-top:0;">'+(state.lang==='zh'?'分类':'Categories')+'</div>'+
+    '<div class="list-row" onclick="navigate(\'manageRecipeCategories\')" style="cursor:pointer;">'+
+      '<div class="row-label">'+t('manageRecipeCategories')+'</div>'+ic('chevronRight',18)+
+    '</div>'+
+    '<div class="section-title">'+t('sectionBackup')+'</div>'+
+    '<div class="form-group">'+
+      '<p class="hint" style="margin-bottom:14px;">'+t('backupHint')+'</p>'+
+      '<div class="btn-row">'+
+        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="exportRecipesData()">'+ic('book',16)+' '+t('exportRecipesBtn')+'</button>'+
+        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="triggerImportRecipes()">'+t('importRecipesBtn')+'</button>'+
+      '</div>'+
+      '<input type="file" accept="application/json,.json" id="import-recipes-input" style="display:none" onchange="onImportRecipesFile(this)">'+
+    '</div>'+
+  '</div>'+
+  bottomNav();
+}
+
+// 三餐设置: the fasting display-mode toggle (unchanged from 9.107) plus the "饮食计划" card
+// that used to sit at the bottom of 健康页 (README 9.98-9.101) - moved here since the budget
+// it computes is what 三餐's calorie card actually consumes; the underlying data
+// (state.weightPlan) and the deeper 计划设置/宏量预设 pages it links to are untouched, only
+// where this summary card itself is shown has changed.
+function renderMealsSettings(){
+  ensureWeightPlanDefaults();
+  var budget = calcDailyCalorieBudget();
+  var preset = macroPresetById(state.weightPlan.macroPreset);
+  return '' +
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'meals\')">'+ic('back',22)+'</button><h1>'+t('mealsSettingsTitle')+'</h1></div>'+
+  '<div class="content">'+
+    '<div class="section-title" style="margin-top:0;">'+t('fastingDisplaySettingTitle')+'</div>'+
+    '<div class="lang-toggle" style="margin-bottom:8px;">'+
+      '<button class="'+(state.fastingDisplayMode!=='countup'?'active':'')+'" onclick="setFastingDisplayMode(\'countdown\')">'+t('fastingDisplayCountDown')+'</button>'+
+      '<button class="'+(state.fastingDisplayMode==='countup'?'active':'')+'" onclick="setFastingDisplayMode(\'countup\')">'+t('fastingDisplayCountUp')+'</button>'+
+    '</div>'+
+    '<div class="section-title">'+t('healthPlanSection')+'</div>'+
+    '<div class="form-group">'+
+      (budget!=null ?
+        ('<div class="sidebar-stat-row">'+
+          '<div class="sidebar-stat-card"><div class="sidebar-stat-num">'+budget+'</div><div class="sidebar-stat-label">'+t('dailyCalorieBudgetLabel')+'</div></div>'+
+        '</div>'+
+        '<p class="hint" style="margin-top:6px;">'+t('macroDistLabel')+'：'+preset.c+':'+preset.p+':'+preset.f+'（'+(state.lang==='zh'?preset.zh:preset.en)+'）</p>'+
+        (state.weightPlan.targetDate ? ('<p class="hint">'+t('targetDateLabel')+'：'+fmtDateDots(state.weightPlan.targetDate)+'</p>') : ''))
+      : ('<p class="hint">'+t('healthPlanIncompleteHint')+'</p>')) +
+      '<div class="list-row" onclick="navigate(\'planSettings\')" style="cursor:pointer;margin-top:8px;"><div class="row-label">'+t('planSettingsBtn')+'</div>'+ic('chevronRight',18)+'</div>'+
+    '</div>'+
+  '</div>'+
+  bottomNav();
+}
+
+// 健康设置: 个人信息 link + the metric/imperial unit toggle (shared by weight AND waist - see
+// displayWaist's own comment) + "运动消耗是否计入当日热量预算" (moved out of 计划设置 - whether
+// exercise affects the budget is a decision made from the health side, even though the budget
+// NUMBER itself now lives on 三餐设置's card above).
+function renderHealthSettings(){
+  ensureWeightPlanDefaults();
+  var p = state.weightPlan;
+  return '' +
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'health\')">'+ic('back',22)+'</button><h1>'+t('healthSettingsTitle')+'</h1></div>'+
+  '<div class="content">'+
+    '<div class="list-row" onclick="navigate(\'personalInfo\')" style="cursor:pointer;margin-top:0;"><div class="row-label">'+t('personalInfoBtn')+'</div>'+ic('chevronRight',18)+'</div>'+
+    '<div class="section-title">'+t('unitSystemLabel')+'</div>'+
+    '<div class="lang-toggle" style="margin-bottom:8px;">'+
+      '<button class="'+(p.unit!=='lb'?'active':'')+'" onclick="setPlanField(\'unit\',\'kg\')">'+t('unitSystemMetric')+'</button>'+
+      '<button class="'+(p.unit==='lb'?'active':'')+'" onclick="setPlanField(\'unit\',\'lb\')">'+t('unitSystemImperial')+'</button>'+
+    '</div>'+
+    '<div class="section-title">'+t('exerciseSection')+'</div>'+
+    '<div class="list-row"><div class="row-label">'+t('exerciseAffectsBudgetLabel')+'</div>'+
+      '<label class="switch"><input type="checkbox" '+(p.exerciseAffectsBudget?'checked':'')+' onchange="setPlanField(\'exerciseAffectsBudget\', this.checked)"><span class="switch-slider"></span></label>'+
+    '</div>'+
+  '</div>'+
+  bottomNav();
+}
+
 function setLang(l){ state.lang=l; saveSettings(); render(); }
 function setFastingDisplayMode(mode){ state.fastingDisplayMode=mode; saveSettings(); render(); }
 function setReminderDays(v){
@@ -10515,7 +10603,7 @@ function renderManageTags(){
       '</div></div>';
   }).join('') || '<p class="hint">'+(state.lang==='zh'?'还没有标签':'No tags yet')+'</p>';
   return '' +
-  '<div class="page-header"><button class="back-btn" onclick="navigate(\'settings\')">'+ic('back',22)+'</button><h1>'+title+'</h1></div>'+
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'inventorySettings\')">'+ic('back',22)+'</button><h1>'+title+'</h1></div>'+
   '<div class="content">'+
     rows+
     '<div class="field-row" style="margin-top:16px;">'+
@@ -10564,7 +10652,7 @@ function renderManageRecipeCategories(){
         '</div>') : '');
   }).join('') || '<p class="hint">'+(state.lang==='zh'?'还没有分类':'No categories yet')+'</p>';
   return '' +
-  '<div class="page-header"><button class="back-btn" onclick="navigate(\'settings\')">'+ic('back',22)+'</button><h1>'+t('manageRecipeCategoriesTitle')+'</h1></div>'+
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'recipesSettings\')">'+ic('back',22)+'</button><h1>'+t('manageRecipeCategoriesTitle')+'</h1></div>'+
   '<div class="content">'+
     groupsHtml+
     '<div class="field-row" style="margin-top:16px;">'+
