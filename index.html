@@ -762,7 +762,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.110';
+var BUILD_VERSION = '9.111';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2129,6 +2129,7 @@ var I18N = {
     nutriVitaminA:'维生素A', nutriVitaminC:'维生素C', nutriVitaminE:'维生素E', nutriMagnesium:'镁', nutriZinc:'锌', nutriVitaminB12:'维生素B12',
     nutriGroupVitamins:'维生素', nutriGroupMinerals:'矿物质',
     nutriBasisAmount:'每',
+    nutriBasisDensityHint:'还差另一种基准？点下面常见食材可以帮忙估算换算（仅供参考，可再手动修改）：',
     fieldProductionDate:'生产日期', fieldShelfLife:'保质期',
     dateQuickPick_today:'今天', dateQuickPick_thisMonth:'本月', dateQuickPick_nextMonth:'下月',
     dateQuickPick_thisYear:'今年', dateQuickPick_nextYear:'明年', dateQuickPick_yearAfterNext:'后年',
@@ -2373,6 +2374,7 @@ var I18N = {
     nutriVitaminA:'Vitamin A', nutriVitaminC:'Vitamin C', nutriVitaminE:'Vitamin E', nutriMagnesium:'Magnesium', nutriZinc:'Zinc', nutriVitaminB12:'Vitamin B12',
     nutriGroupVitamins:'Vitamins', nutriGroupMinerals:'Minerals',
     nutriBasisAmount:'Per',
+    nutriBasisDensityHint:"Missing the other basis? Tap a common ingredient for a rough conversion (a starting point - edit as needed):",
     fieldProductionDate:'Production date', fieldShelfLife:'Shelf life',
     dateQuickPick_today:'Today', dateQuickPick_thisMonth:'This month', dateQuickPick_nextMonth:'Next month',
     dateQuickPick_thisYear:'This year', dateQuickPick_nextYear:'Next year', dateQuickPick_yearAfterNext:'Year after next',
@@ -3027,6 +3029,23 @@ var WEIGHT_UNITS = ['g','kg'];
 var VOLUME_UNITS = ['ml','l','tsp','tbsp','cup'];
 var WEIGHT_UNIT_TO_G = {g:1, kg:1000};
 var VOLUME_UNIT_TO_ML = {ml:1, l:1000, tsp:5, tbsp:15, cup:240};
+// README 9.111: rough, well-known g-per-ml densities for a handful of very common cooking
+// ingredients, offered as an OPTIONAL one-tap starting point when a person has filled in only
+// one of the two nutrition-basis fields (weight or volume) on an item - never applied silently.
+// These are generic averages (a specific product's actual density can vary, e.g. different
+// olive oils), which is fine for "help me estimate a number I can still edit" but is exactly
+// why this never substitutes for the person's own label data automatically - see
+// nutriBasisDensityHelperHtml/applyDensityPreset, both of which only fill in the blank field
+// and always leave the result as a normal editable input afterward.
+var DENSITY_PRESETS = [
+  {id:'water', zh:'水', en:'Water', gPerMl:1.00},
+  {id:'oil', zh:'食用油', en:'Cooking oil', gPerMl:0.92},
+  {id:'honey', zh:'蜂蜜', en:'Honey', gPerMl:1.42},
+  {id:'sugar', zh:'白糖', en:'Sugar', gPerMl:0.85},
+  {id:'flour', zh:'面粉', en:'Flour', gPerMl:0.53},
+  {id:'salt', zh:'盐', en:'Salt', gPerMl:1.20},
+  {id:'milk', zh:'牛奶', en:'Milk', gPerMl:1.03}
+];
 // Converts `amount` of `fromUnit` into the equivalent amount of `toUnit`, only if both are in
 // the same family (both weight, or both volume). Returns null for anything else - different
 // families, or a unit with no fixed conversion at all (a bare count like "件"/"个", or a custom
@@ -3080,6 +3099,35 @@ function resolveDeductionTarget(item, unit){
   for(var j=0;j<candidates.length;j++){
     var conv = convertSameFamilyUnit(1, unit, candidates[j].toUnit);
     if(conv != null) return {kind:'converted', toPrimaryRatio: candidates[j].toPrimaryRatio * conv};
+  }
+  // Still no match - `unit` might be from a different family (weight vs volume) than every
+  // unit this item is actually tracked in (e.g. a bottle of oil tracked in grams, but a recipe
+  // records "1 tbsp" of it). README 9.111: if this item's OWN nutrition label happens to give
+  // BOTH a weight basis AND a volume basis (e.g. "每10g / 每2tsp"), that pair is a de facto
+  // density for this specific product - already sitting in data entered for nutrition purposes,
+  // not a new field to fill in - so it can bridge across families here too. Only used as a last
+  // resort, after every direct/same-family match above has failed.
+  var wBasis = item.nutrition_basis_weight_amount, vBasis = item.nutrition_basis_volume_amount;
+  if(wBasis != null && vBasis != null){
+    var wUnit = item.nutrition_basis_weight_unit || 'g', vUnit = item.nutrition_basis_volume_unit || 'ml';
+    var wG = WEIGHT_UNIT_TO_G[wUnit]!=null ? wBasis*WEIGHT_UNIT_TO_G[wUnit] : null;
+    var vMl = VOLUME_UNIT_TO_ML[vUnit]!=null ? vBasis*VOLUME_UNIT_TO_ML[vUnit] : null;
+    if(wG && vMl){
+      var oneUnitInG = convertSameFamilyUnit(1, unit, 'g');   // non-null only if `unit` is itself a weight unit
+      var oneUnitInMl = convertSameFamilyUnit(1, unit, 'ml'); // non-null only if `unit` is itself a volume unit
+      var bridgedG = oneUnitInMl!=null ? oneUnitInMl * (wG/vMl) : null;
+      var bridgedMl = oneUnitInG!=null ? oneUnitInG * (vMl/wG) : null;
+      for(var k=0;k<candidates.length;k++){
+        if(bridgedG!=null){
+          var conv2 = convertSameFamilyUnit(bridgedG, 'g', candidates[k].toUnit);
+          if(conv2!=null) return {kind:'converted_density', toPrimaryRatio: candidates[k].toPrimaryRatio*conv2};
+        }
+        if(bridgedMl!=null){
+          var conv3 = convertSameFamilyUnit(bridgedMl, 'ml', candidates[k].toUnit);
+          if(conv3!=null) return {kind:'converted_density', toPrimaryRatio: candidates[k].toPrimaryRatio*conv3};
+        }
+      }
+    }
   }
   return null;
 }
@@ -5585,6 +5633,7 @@ function nutriFieldsHtml(draftPath){
   var basisRowHtml = '<div class="nf-basis nf-basis-edit" style="flex-direction:column;align-items:flex-start;gap:8px;">'+
       nutriBasisEditRowHtml('weight')+
       nutriBasisEditRowHtml('volume')+
+      nutriBasisDensityHelperHtml()+
     '</div>';
   var calHtml = '<div class="nf-calories-row"><span>'+t('nutriCalories')+'</span><span class="nf-edit-value-wrap">'+
       '<input type="number" inputmode="decimal" class="nf-input nf-input-cal" placeholder="-" value="'+(draftPath.nutrition.calories==null?'':draftPath.nutrition.calories)+'" oninput="onNutriInput(\'calories\',this.value)">'+
@@ -5617,6 +5666,48 @@ function nutriBasisEditRowHtml(kind){
       '<input type="text" id="nutri-basis-amount-'+kind+'" class="nf-basis-input" placeholder="-" value="'+esc(displayValue)+'" oninput="setNutriBasisAmount('+aj(kind)+',this.value)">'+
       nutriBasisUnitFieldHtml(kind)+
     '</div>';
+}
+// README 9.111: shown only when exactly one of the two basis fields is filled in - that's the
+// one moment this is actually useful (nothing to bridge yet if both are empty; nothing left to
+// fill in if both are already set). Tapping a preset only fills the blank field - see
+// applyDensityPreset - the person still sees a normal, further-editable number afterward, never
+// a value silently locked in behind a label.
+function nutriBasisDensityHelperHtml(){
+  var ui = state.itemFormUI;
+  var hasW = ui.nutriBasisWeightAmount!=null, hasV = ui.nutriBasisVolumeAmount!=null;
+  if(hasW===hasV) return '';
+  return '<div style="width:100%;">'+
+    '<p class="hint" style="margin:2px 0 6px;">'+t('nutriBasisDensityHint')+'</p>'+
+    '<div class="tag-select" style="flex-wrap:wrap;">'+
+      DENSITY_PRESETS.map(function(p){
+        return '<div class="tag-option" onclick="applyDensityPreset('+aj(p.id)+')">'+(state.lang==='zh'?p.zh:p.en)+'</div>';
+      }).join('')+
+    '</div>'+
+  '</div>';
+}
+function applyDensityPreset(id){
+  var preset = DENSITY_PRESETS.find(function(p){ return p.id===id; });
+  if(!preset) return;
+  var ui = state.itemFormUI;
+  var hasW = ui.nutriBasisWeightAmount!=null, hasV = ui.nutriBasisVolumeAmount!=null;
+  if(hasW && !hasV){
+    var wUnit = ui.nutriBasisWeightUnit || 'g';
+    var wG = WEIGHT_UNIT_TO_G[wUnit]!=null ? ui.nutriBasisWeightAmount*WEIGHT_UNIT_TO_G[wUnit] : ui.nutriBasisWeightAmount;
+    var mlValue = wG / preset.gPerMl;
+    ui.nutriBasisVolumeAmount = mlValue;
+    ui.nutriBasisVolumeAmountText = fmtNum(mlValue,2);
+    ui.nutriBasisVolumeUnit = 'ml';
+  } else if(hasV && !hasW){
+    var vUnit = ui.nutriBasisVolumeUnit || 'ml';
+    var vMl = VOLUME_UNIT_TO_ML[vUnit]!=null ? ui.nutriBasisVolumeAmount*VOLUME_UNIT_TO_ML[vUnit] : ui.nutriBasisVolumeAmount;
+    var gValue = vMl * preset.gPerMl;
+    ui.nutriBasisWeightAmount = gValue;
+    ui.nutriBasisWeightAmountText = fmtNum(gValue,2);
+    ui.nutriBasisWeightUnit = 'g';
+  } else {
+    return; // both already filled, or both empty - nothing sensible to do
+  }
+  render();
 }
 // "1/2" style fractions (and "1 1/2" mixed numbers) are common on nutrition labels for the
 // basis amount ("per 1/2 cup" etc.) - this is only used for that one field, not general qty
