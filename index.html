@@ -762,7 +762,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.109';
+var BUILD_VERSION = '9.110';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -3306,13 +3306,31 @@ function getIngredientSource(ri){
   }
   return state.ingredients.find(function(i){ return i.id===ri.source_id; });
 }
-// Reads a source's basis into the {weightAmount, volumeAmount} shape scaleNutrition wants.
-// Inventory items already store it that way directly; external ingredients (state.ingredients)
-// predate the weight/volume split and are always simply "per 100g" (see their editor - there's
-// no basis unit picker for them), which just maps straight onto the weight slot.
+// Reads a source's basis into the {weightAmount, volumeAmount} shape scaleNutrition wants -
+// CRITICALLY, both numbers here must be canonical grams / canonical milliliters, because
+// that's what amountToBasisUnits' `used.value` is always expressed in (see its own comment).
+// Bug fixed in README 9.110: nutrition_basis_weight_amount/nutrition_basis_volume_amount are
+// stored in whatever unit the person picked on the item's nutrition label (a basis can be
+// "每2tsp" or "每0.5kg", not just "每100g"/"每100ml") - this function used to hand those raw
+// numbers straight to scaleNutrition without ever converting them by their own unit, so e.g. an
+// oil labelled "每2tsp = 80kcal" got compared directly against a recipe's usage already
+// converted to ml (15ml for 1 tbsp), producing factor=15/2=7.5 instead of the correct
+// 15/(2*5)=1.5 - a ~5x overcount on that one ingredient alone, compounding across every
+// ingredient whose basis used a non-g/non-ml unit. This was the root cause of a food's total
+// calories coming out wildly higher than hand-calculated (or MyNetDiary-calculated) totals.
 function ingredientBasisInfo(src){
   if(src.nutrition_basis_weight_amount !== undefined || src.nutrition_basis_volume_amount !== undefined){
-    return {weightAmount: src.nutrition_basis_weight_amount, volumeAmount: src.nutrition_basis_volume_amount};
+    var wAmt = src.nutrition_basis_weight_amount;
+    if(wAmt != null){
+      var wUnit = src.nutrition_basis_weight_unit || 'g';
+      if(WEIGHT_UNIT_TO_G[wUnit] != null) wAmt = wAmt * WEIGHT_UNIT_TO_G[wUnit];
+    }
+    var vAmt = src.nutrition_basis_volume_amount;
+    if(vAmt != null){
+      var vUnit = src.nutrition_basis_volume_unit || 'ml';
+      if(VOLUME_UNIT_TO_ML[vUnit] != null) vAmt = vAmt * VOLUME_UNIT_TO_ML[vUnit];
+    }
+    return {weightAmount: wAmt, volumeAmount: vAmt};
   }
   return {weightAmount: src.nutrition_basis_amount || 100, volumeAmount: null};
 }
