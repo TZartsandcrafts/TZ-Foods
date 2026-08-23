@@ -762,7 +762,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.106';
+var BUILD_VERSION = '9.108';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2051,6 +2051,7 @@ var I18N = {
     healthPlanIncompleteHint:'填写个人信息和目标体重后，这里会自动算出每日热量预算', planSettingsBtn:'计划设置', personalInfoBtn:'个人信息',
     editWeightEntryTitle:'编辑体重记录', fieldWeight:'体重', fieldDate:'日期',
     weightEntryInvalid:'请填写日期和体重', weightSavedToast:'已保存', deleteWeightConfirm:'删除这条体重记录？',
+    unitConversionUnavailable:'这个单位无法换算出营养信息，请换一个单位',
     fieldSex:'性别', sex_female:'女', sex_male:'男', fieldHeight:'身高', fieldBirthDate:'出生日期', fieldActivityLevel:'活动量',
     activity_inactive:'久坐', activity_low_active:'轻度活动', activity_active:'活跃', activity_very_active:'非常活跃',
     weightUnitLabel:'体重单位',
@@ -2069,6 +2070,8 @@ var I18N = {
     fastingCustomLabel:'自定义', fieldTargetHours:'目标时长（小时）',
     fastingModeDuration:'按时长', fastingModeSchedule:'按时段',
     fastScheduleStartLabel:'开始时间', fastScheduleEndLabel:'结束时间', fastScheduleInvalid:'请填写不同的开始和结束时间',
+    fastingDisplaySettingTitle:'轻断食计时显示', fastingDisplayCountUp:'正数（已用时长）', fastingDisplayCountDown:'倒数（剩余时长）',
+    fastingScheduleRangeLabel:'从', fastingScheduleRangeTo:'到',
     mealsCalendarTitle:'选择日期',
     fastingNoneYet:'还没有断食记录',
     editFastEntryTitle:'编辑断食记录', fastFieldStart:'开始时间', fastFieldEnd:'结束时间',
@@ -2291,6 +2294,7 @@ var I18N = {
     healthPlanIncompleteHint:'Fill in your personal info and goal weight to see your daily calorie budget here', planSettingsBtn:'Plan Settings', personalInfoBtn:'Personal Info',
     editWeightEntryTitle:'Edit Weight Entry', fieldWeight:'Weight', fieldDate:'Date',
     weightEntryInvalid:'Please fill in a date and weight', weightSavedToast:'Saved', deleteWeightConfirm:'Delete this weight entry?',
+    unitConversionUnavailable:'This unit can\'t be converted into nutrition info - try a different unit',
     fieldSex:'Sex', sex_female:'Female', sex_male:'Male', fieldHeight:'Height', fieldBirthDate:'Date of Birth', fieldActivityLevel:'Activity Level',
     activity_inactive:'Inactive', activity_low_active:'Low Active', activity_active:'Active', activity_very_active:'Very Active',
     weightUnitLabel:'Weight Unit',
@@ -2309,6 +2313,8 @@ var I18N = {
     fastingCustomLabel:'Custom', fieldTargetHours:'Target duration (hours)',
     fastingModeDuration:'By duration', fastingModeSchedule:'By schedule',
     fastScheduleStartLabel:'Start time', fastScheduleEndLabel:'End time', fastScheduleInvalid:'Please choose different start and end times',
+    fastingDisplaySettingTitle:'Fasting Timer Display', fastingDisplayCountUp:'Count up (elapsed)', fastingDisplayCountDown:'Count down (remaining)',
+    fastingScheduleRangeLabel:'From', fastingScheduleRangeTo:'to',
     mealsCalendarTitle:'Pick a Date',
     fastingNoneYet:'No fasting records yet',
     editFastEntryTitle:'Edit Fast', fastFieldStart:'Start time', fastFieldEnd:'End time',
@@ -2538,6 +2544,7 @@ var state = {
   healthUI: {},
   searchAddUI: {query:'', results:[], loading:false},
   addMenuOpen: false,
+  fastingDisplayMode: 'countdown',
   // README 9.102: 轻断食计时器 + 血压/腰围/锻炼记录 (batch 4)
   fastingLogs: [],
   activeFast: null,
@@ -2622,6 +2629,7 @@ async function loadAll(){
   state.lang = results[5].lang || 'zh';
   state.reminderDays = results[5].reminderDays != null ? results[5].reminderDays : 3;
   state.aiProxyUrl = results[5].aiProxyUrl || DEFAULT_AI_PROXY_URL;
+  state.fastingDisplayMode = results[5].fastingDisplayMode || 'countdown';
   // README 9.97: 笔记 feature removed (see changelog) - results[6]/[7] (notes/noteCategories)
   // are still fetched above on purpose, just no longer assigned into state. Confirmed with Lynn
   // there was no actual note data saved, but leaving the storage read itself in place (instead
@@ -2731,7 +2739,7 @@ function saveRecipes(){
   cloudSyncPushRecipeChanges();
   return p;
 }
-function saveSettings(){ return storageSet('settings', {lang:state.lang, reminderDays:state.reminderDays, aiProxyUrl:state.aiProxyUrl}); }
+function saveSettings(){ return storageSet('settings', {lang:state.lang, reminderDays:state.reminderDays, aiProxyUrl:state.aiProxyUrl, fastingDisplayMode:state.fastingDisplayMode}); }
 function saveMealLogs(){ return storageSet('mealLogs', state.mealLogs); }
 function saveWeightLogs(){ return storageSet('weightLogs', state.weightLogs); }
 function saveFastingLogs(){ return storageSet('fastingLogs', state.fastingLogs); }
@@ -3923,6 +3931,28 @@ document.addEventListener('selectstart', function(e){
     startX = null;
     if(Math.abs(dx)>40 && Math.abs(dx)>Math.abs(dy)*1.5){
       setMacroView(state.mealsUI.macroView==='bar' ? 'pie' : 'bar');
+    }
+  }, {passive:true});
+})();
+
+// README 9.107: same left/right swipe delegation pattern as the macro widget above, this time
+// on the 三餐 date-nav row - swipe left (finger moving toward the "next" chevron) goes forward
+// a day, swipe right goes back a day, on top of the existing prev/next buttons and the "tap the
+// date to open the calendar" gesture (tapping the label itself doesn't trigger this, since a
+// tap has ~0px of horizontal movement and never crosses the 40px threshold below).
+(function initDateNavSwipe(){
+  var startX=null, startY=null;
+  document.addEventListener('touchstart', function(e){
+    var wrap = e.target.closest ? e.target.closest('.date-nav-swipe-area') : null;
+    if(!wrap){ startX=null; return; }
+    startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+  }, {passive:true});
+  document.addEventListener('touchend', function(e){
+    if(startX==null) return;
+    var dx = e.changedTouches[0].clientX-startX, dy = e.changedTouches[0].clientY-startY;
+    startX = null;
+    if(Math.abs(dx)>40 && Math.abs(dx)>Math.abs(dy)*1.5){
+      shiftMealsDate(dx<0 ? 1 : -1);
     }
   }, {passive:true});
 })();
@@ -7554,11 +7584,10 @@ function renderRecipesList(){
     '<div class="active-filter-bar"><span onclick="toggleSidebar(\'recipes\')">'+ic('menu',14)+' '+esc(filterLabel)+'</span><button class="active-filter-clear" onclick="clearRecipeFilters()">'+ic('x',13)+'</button></div>' : '';
   return '' +
   '<div class="topbar"><div><h1>📖 '+t('recipesTitle')+'</h1></div>'+menuButtonHtml('recipes', true)+'</div>'+
-  '<div class="content" style="padding-bottom:90px;">'+
+  '<div class="content">'+
     activeFilterHtml +
     listHtml+
   '</div>'+
-  '<button class="usage-fab" onclick="openRecipeForm(null)" aria-label="'+t('newRecipe')+'">'+ic('plus',26)+'</button>'+
   bottomNav();
 }
 function clearRecipeFilters(){ state.recipesUI.groupId=null; state.recipesUI.sub=null; render(); }
@@ -8916,6 +8945,42 @@ function fmtFastHMS(hoursFloat){
   var pad = function(n){ return (n<10?'0':'')+n; };
   return h+':'+pad(m)+':'+pad(s);
 }
+function fastEndDate(startedAt, targetHours){
+  return new Date(new Date(startedAt).getTime() + targetHours*3600000);
+}
+// "从 [date] HH:MM 到 [date] HH:MM" - date in normal weight, the clock time bolded. Used in
+// place of the "还剩" line when displaying in countdown mode (see fastingDisplayValues), since
+// the big number is already the remaining time there - showing the actual start/end clock
+// times instead is new information rather than a restatement of what's already on screen.
+function fastScheduleRangeHtml(startedAt, targetHours){
+  var endIso = dateToLocalIso(fastEndDate(startedAt, targetHours));
+  var startDate = fmtDateDots(startedAt.slice(0,10)), startTime = startedAt.slice(11,16);
+  var endDate = fmtDateDots(endIso.slice(0,10)), endTime = endIso.slice(11,16);
+  return t('fastingScheduleRangeLabel')+' '+esc(startDate)+' <b>'+esc(startTime)+'</b> '+t('fastingScheduleRangeTo')+' '+esc(endDate)+' <b>'+esc(endTime)+'</b>';
+}
+// Single source of truth for what the active-fast card shows, shared by the initial render
+// (fastingCardHtml) and the once-a-second lightweight tick (tickFastingTimer) so the two can
+// never drift out of sync with each other. state.fastingDisplayMode ('countdown', the default,
+// or 'countup') is a Settings-page preference - see README 9.107.
+function fastingDisplayValues(){
+  var f = state.activeFast;
+  var elapsed = elapsedHoursSince(f.startedAt);
+  var target = f.targetHours;
+  var pct = Math.max(0, Math.min(100, (elapsed/target)*100));
+  var remaining = target - elapsed;
+  var mainText, belowHtml;
+  if(state.fastingDisplayMode==='countup'){
+    mainText = fmtFastHMS(elapsed);
+    belowHtml = remaining>0 ? (t('fastingRemainingLabel')+' '+fmtFastHMS(remaining)) : t('fastingOvertimeLabel');
+  } else {
+    // Once past the target, keep counting - as "+overtime" rather than freezing at 0:00:00 -
+    // so the number on screen is always live, matching how the count-up branch above never
+    // stops moving either.
+    mainText = remaining>0 ? fmtFastHMS(remaining) : ('+'+fmtFastHMS(-remaining));
+    belowHtml = fastScheduleRangeHtml(f.startedAt, target);
+  }
+  return {mainText:mainText, belowHtml:belowHtml, pct:pct};
+}
 function startFast(){
   fastingUIDefaults();
   var ui = state.fastingUI;
@@ -8956,18 +9021,16 @@ function fastingCardHtml(){
   var ui = state.fastingUI;
   var body;
   if(state.activeFast){
-    var elapsed = elapsedHoursSince(state.activeFast.startedAt);
+    var fd = fastingDisplayValues();
     var target = state.activeFast.targetHours;
-    var pct = Math.max(0, Math.min(100, (elapsed/target)*100));
-    var remaining = target - elapsed;
     // ids below are updated every second by tickFastingTimer() with plain DOM writes, not a
     // full render() - a full innerHTML re-render every second would be wasteful (and could
     // interrupt scrolling/taps), so only these three nodes' text/width get touched on the tick;
     // the surrounding structure only gets rebuilt on real state changes (start/end/cancel/nav).
     body = '' +
-      '<div class="meals-calorie-num"><span id="fasting-timer-num">'+fmtFastHMS(elapsed)+'</span> <span class="hint" style="font-size:15px;">/ '+fmtNum(target,target%1===0?0:1)+'h</span></div>'+
-      '<div style="height:8px;border-radius:4px;background:var(--line);overflow:hidden;margin-top:10px;"><div id="fasting-progress-fill" style="height:100%;border-radius:4px;background:var(--almond);width:'+pct.toFixed(1)+'%;"></div></div>'+
-      '<div class="hint" id="fasting-remaining-label" style="margin-top:6px;">'+(remaining>0 ? (t('fastingRemainingLabel')+' '+fmtFastHMS(remaining)) : t('fastingOvertimeLabel'))+'</div>'+
+      '<div class="meals-calorie-num"><span id="fasting-timer-num">'+fd.mainText+'</span> <span class="hint" style="font-size:15px;">/ '+fmtNum(target,target%1===0?0:1)+'h</span></div>'+
+      '<div style="height:8px;border-radius:4px;background:var(--line);overflow:hidden;margin-top:10px;"><div id="fasting-progress-fill" style="height:100%;border-radius:4px;background:var(--almond);width:'+fd.pct.toFixed(1)+'%;"></div></div>'+
+      '<div class="hint" id="fasting-remaining-label" style="margin-top:6px;">'+fd.belowHtml+'</div>'+
       '<div style="display:flex;gap:8px;margin-top:12px;">'+
         '<button class="btn btn-primary" style="flex:1;" onclick="endFast()">'+t('endFastBtn')+'</button>'+
         '<button class="btn btn-outline" style="flex:1;" onclick="cancelFast()">'+t('cancelFastBtn')+'</button>'+
@@ -9005,14 +9068,14 @@ function tickFastingTimer(){
   if(!(state.loaded && state.view==='meals' && state.activeFast)) return;
   var numEl = document.getElementById('fasting-timer-num');
   if(!numEl) return; // card not currently on screen (e.g. it's mid-render) - next tick will catch it
-  var elapsed = elapsedHoursSince(state.activeFast.startedAt);
-  var target = state.activeFast.targetHours;
-  var remaining = target - elapsed;
-  numEl.textContent = fmtFastHMS(elapsed);
+  var fd = fastingDisplayValues();
+  numEl.textContent = fd.mainText;
   var fillEl = document.getElementById('fasting-progress-fill');
-  if(fillEl) fillEl.style.width = Math.max(0, Math.min(100, (elapsed/target)*100)).toFixed(1)+'%';
+  if(fillEl) fillEl.style.width = fd.pct.toFixed(1)+'%';
   var remEl = document.getElementById('fasting-remaining-label');
-  if(remEl) remEl.textContent = remaining>0 ? (t('fastingRemainingLabel')+' '+fmtFastHMS(remaining)) : t('fastingOvertimeLabel');
+  // innerHTML (not textContent) - the countdown-mode schedule line contains a <b> tag around
+  // the clock times (see fastScheduleRangeHtml).
+  if(remEl) remEl.innerHTML = fd.belowHtml;
 }
 
 function renderMeals(){
@@ -9023,7 +9086,7 @@ function renderMeals(){
   var budget = calcDailyCalorieBudget(date);
   var consumed = Math.round(totals.calories||0);
 
-  var dateNav = '<div class="date-nav-bar">'+
+  var dateNav = '<div class="date-nav-bar date-nav-swipe-area">'+
     '<button class="icon-btn" onclick="shiftMealsDate(-1)" aria-label="'+t('prevDay')+'">'+ic('back',18)+'</button>'+
     '<div class="date-nav-label" onclick="openMealsCalendar()" style="cursor:pointer;">'+(date===todayStr() ? t('todayLabel') : esc(fmtDateDots(date)))+'</div>'+
     '<button class="icon-btn" onclick="shiftMealsDate(1)" aria-label="'+t('nextDay')+'">'+ic('chevronRight',18)+'</button>'+
@@ -9116,9 +9179,9 @@ function macroPieHtml(actualG, targetG){
   // carbs = fresh green, protein = expired brick red, fat = almond (the app's general accent
   // color, since fat has no natural badge partner the way the other two do).
   var slices = [
-    {label:t('macroCarbs'), grams:actualG.carbs, val:actualG.carbs*4, fill:'var(--fresh)'},
-    {label:t('macroProtein'), grams:actualG.protein, val:actualG.protein*4, fill:'var(--danger)'},
-    {label:t('macroFat'), grams:actualG.fat, val:actualG.fat*9, fill:'var(--almond)'}
+    {label:t('macroCarbs'), grams:actualG.carbs, target:targetG.carbs, val:actualG.carbs*4, fill:'var(--fresh)'},
+    {label:t('macroProtein'), grams:actualG.protein, target:targetG.protein, val:actualG.protein*4, fill:'var(--danger)'},
+    {label:t('macroFat'), grams:actualG.fat, target:targetG.fat, val:actualG.fat*9, fill:'var(--almond)'}
   ];
   var cx=70, cy=70, r=62, startAngle=-90, paths='';
   slices.forEach(function(s){
@@ -9134,17 +9197,17 @@ function macroPieHtml(actualG, targetG){
       // between two adjacent slices is an even, constant-width line all the way from center to
       // rim - not a wedge that fans out wider toward the edge, which is what an angular inset
       // (the earlier version of this) draws instead.
-      paths += '<path d="M'+cx+','+cy+' L'+x1.toFixed(1)+','+y1.toFixed(1)+' A'+r+','+r+' 0 '+large+' 1 '+x2.toFixed(1)+','+y2.toFixed(1)+' Z" fill="'+s.fill+'" stroke="var(--card-bg)" stroke-width="3" stroke-linejoin="round"/>';
+      paths += '<path d="M'+cx+','+cy+' L'+x1.toFixed(1)+','+y1.toFixed(1)+' A'+r+','+r+' 0 '+large+' 1 '+x2.toFixed(1)+','+y2.toFixed(1)+' Z" fill="'+s.fill+'" stroke="var(--card-bg)" stroke-width="2" stroke-linejoin="round"/>';
     }
     startAngle = endAngle;
   });
   var legend = slices.map(function(s){
     return '<div style="display:flex;align-items:center;gap:7px;margin-bottom:7px;">'+
       '<span style="width:11px;height:11px;border-radius:50%;background:'+s.fill+';display:inline-block;flex-shrink:0;"></span>'+
-      '<span style="font-size:14.5px;font-weight:700;color:'+s.fill+';">'+s.label+' '+Math.round(s.val/totalCal*100)+'% · '+s.grams+'g</span>'+
+      '<span style="font-size:14.5px;font-weight:700;color:'+s.fill+';">'+s.label+' '+Math.round(s.val/totalCal*100)+'% · '+s.grams+'g / '+s.target+'g</span>'+
     '</div>';
   }).join('');
-  return '<div style="display:flex;align-items:center;gap:18px;">'+
+  return '<div style="display:flex;align-items:center;justify-content:center;gap:24px;">'+
     '<svg viewBox="0 0 140 140" style="width:108px;height:108px;flex-shrink:0;">'+paths+'</svg>'+
     '<div>'+legend+'</div>'+
   '</div>';
@@ -9245,6 +9308,10 @@ function pickLocalFoodForMeal(type, id){
   if(type==='item'){
     var it = state.items.find(function(x){ return x.id===id; });
     af.picked = {type:'item', id:id, name:itemDisplayNameRaw(it)};
+    // Default to whatever unit this item's stock is actually counted in - README 9.108: the
+    // amount field used to always assume grams regardless of how the item itself is tracked
+    // (e.g. "件"/"包"), which meant every gram-less item silently couldn't be logged accurately.
+    af.amountUnit = it.primary_unit || 'g';
   } else if(type==='recipe'){
     var r = state.recipes.find(function(x){ return x.id===id; });
     af.picked = {type:'recipe', id:id, name:r.name};
@@ -9304,12 +9371,28 @@ function addFoodAmountBodyHtml(af){
       :
       ('<div class="field"><label>'+t('servingsEatenLabel')+'</label><input type="number" inputmode="decimal" placeholder="1" value="'+esc(af.amountText)+'" oninput="af_str(\'amountText\',this.value)"></div>');
   }
+  // README 9.108: an inventory item's amount can be entered in ANY unit that item itself
+  // tracks stock in (its own primary/secondary units and pack specs, plus same-family weight/
+  // volume siblings - see allUnitsForItem), not just grams - both the nutrition math
+  // (amountToBasisUnits) and the inventory deduction (deductFromItem) already understood
+  // arbitrary units; the amount field here was the only thing still hardcoded to "g".
+  var itemSrc = isItem ? state.items.find(function(x){ return x.id===p.id; }) : null;
+  var itemUnitField = '';
+  if(isItem && itemSrc){
+    if(!af.amountUnit) af.amountUnit = itemSrc.primary_unit || 'g';
+    var itemUnits = allUnitsForItem(itemSrc);
+    itemUnitField = itemUnits.length>1 ?
+      ('<div class="field"><label>'+t('fieldMealAmountUnit')+'</label><div class="tag-select" style="flex-wrap:wrap;">'+
+        itemUnits.map(function(u){ return '<div class="tag-option '+(af.amountUnit===u?'active':'')+'" onclick="setAddFoodAmountUnit(\''+u+'\')">'+esc(u)+'</div>'; }).join('')+
+      '</div></div>') : '';
+  }
   return '' +
     '<p style="font-weight:600;margin-bottom:14px;">'+esc(p.name)+'</p>'+
     (isRecipe ?
       recipeAmountField
       :
-      '<div class="field"><label>'+t('fieldMealAmount')+' (g)</label><input type="number" inputmode="decimal" placeholder="-" value="'+esc(af.amountText)+'" oninput="af_str(\'amountText\',this.value)"></div>'+
+      itemUnitField+
+      '<div class="field"><label>'+t('fieldMealAmount')+(isItem ? (' ('+esc(af.amountUnit||'g')+')') : ' (g)')+'</label><input type="number" inputmode="decimal" placeholder="-" value="'+esc(af.amountText)+'" oninput="af_str(\'amountText\',this.value)"></div>'+
       (isItem ? ('<div class="list-row"><div class="row-label">'+t('deductFromInventoryLabel')+'</div><label class="switch"><input type="checkbox" '+(af.deduct?'checked':'')+' onchange="af_bool(\'deduct\',this.checked)"><span class="switch-slider"></span></label></div>') : '')
     )+
     '<button class="btn btn-outline" style="margin-top:14px;width:100%;" onclick="backToAddFoodSearch()">'+t('back')+'</button>'+
@@ -9344,14 +9427,16 @@ function saveMealLogEntry(){
     var amt2 = parseFloat(af.amountText);
     if(!amt2 || amt2<=0){ showToast(t('weightEntryInvalid')); return; }
     var src = p.type==='item' ? state.items.find(function(x){ return x.id===p.id; }) : state.ingredients.find(function(x){ return x.id===p.id; });
+    var unitPicked = (p.type==='item' && af.amountUnit) ? af.amountUnit : 'g';
     var basisInfo = ingredientBasisInfo(src);
-    var used = amountToBasisUnits(amt2, 'g', p.type==='item' ? src : null);
+    var used = amountToBasisUnits(amt2, unitPicked, p.type==='item' ? src : null);
+    if(used == null){ showToast(t('unitConversionUnavailable')); return; }
     nutrition = scaleNutrition(src.nutrition, basisInfo, used);
     name = p.type==='item' ? itemDisplayNameRaw(src) : src.name;
-    amount = amt2; unit = 'g';
+    amount = amt2; unit = unitPicked;
     if(p.type==='item' && af.deduct){
-      var res = deductFromItem(src, amt2, 'g');
-      if(res.ok){ deductItemId=src.id; deductAmount=amt2; deductUnit='g'; saveItems(); }
+      var res = deductFromItem(src, amt2, unitPicked);
+      if(res.ok){ deductItemId=src.id; deductAmount=amt2; deductUnit=unitPicked; saveItems(); }
     }
   }
   var entry = {
@@ -10143,6 +10228,11 @@ function renderSettings(){
       '<button class="'+(state.lang==='zh'?'active':'')+'" onclick="setLang(\'zh\')">中文</button>'+
       '<button class="'+(state.lang==='en'?'active':'')+'" onclick="setLang(\'en\')">English</button>'+
     '</div>'+
+    '<div class="section-title">'+t('fastingDisplaySettingTitle')+'</div>'+
+    '<div class="lang-toggle" style="margin-bottom:8px;">'+
+      '<button class="'+(state.fastingDisplayMode!=='countup'?'active':'')+'" onclick="setFastingDisplayMode(\'countdown\')">'+t('fastingDisplayCountDown')+'</button>'+
+      '<button class="'+(state.fastingDisplayMode==='countup'?'active':'')+'" onclick="setFastingDisplayMode(\'countup\')">'+t('fastingDisplayCountUp')+'</button>'+
+    '</div>'+
     '<div class="section-title">'+t('reminderDays')+'</div>'+
     '<div class="form-group">'+
       '<input type="number" inputmode="numeric" value="'+state.reminderDays+'" oninput="setReminderDays(this.value)" style="width:100%;font-size:16px;padding:13px 14px;border-radius:11px;border:1px solid var(--line);">'+
@@ -10212,6 +10302,7 @@ function renderSettings(){
   bottomNav();
 }
 function setLang(l){ state.lang=l; saveSettings(); render(); }
+function setFastingDisplayMode(mode){ state.fastingDisplayMode=mode; saveSettings(); render(); }
 function setReminderDays(v){
   var n = parseInt(v,10);
   state.reminderDays = isNaN(n) ? 0 : n;
