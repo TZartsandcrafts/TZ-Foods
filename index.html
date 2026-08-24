@@ -763,7 +763,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.113';
+var BUILD_VERSION = '9.114';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -11224,13 +11224,20 @@ function metaCollectionRef(){
 }
 
 // Cloud sync can trigger a render() at any moment (a remote change arrived, or our own push
-// just completed) - completely independent of what the user happens to be doing right now.
-// Re-rendering mid-keystroke on the item add/edit form is exactly the "DOM got replaced out
-// from under an active input" bug class this app has chased down several times before (see
-// changelog), so skip the render there specifically; the state is still updated, it'll just
-// show up on the next natural render (e.g. when the form closes) instead of mid-edit.
+// just completed, or the initial connection finishing right after cold app launch) - completely
+// independent of what the person happens to be doing right now. Re-rendering while a text input
+// has focus destroys and recreates that input's DOM node, which on iOS Safari dismisses the
+// keyboard - the person then has to tap back into the field a second time before they can
+// actually type (this app has chased down this exact bug class several times before - see
+// changelog). README 9.114: checking document.activeElement covers every such field generically
+// (any search bar, any form input, on any page) instead of the single hardcoded 'itemForm' view
+// check this used to be, which was blind to e.g. the 库存 search bar on cold app launch - right
+// when the very first cloud-sync connection attempt finishes and calls this. The state is still
+// updated either way; a skipped render here just shows up on the next natural one (the field
+// losing focus, or the next real state change) instead of stealing focus mid-keystroke.
 function cloudSyncSafeRender(){
-  if(state.view === 'itemForm') return;
+  var ae = document.activeElement;
+  if(ae && (ae.tagName==='INPUT' || ae.tagName==='TEXTAREA')) return;
   render();
 }
 
@@ -11242,12 +11249,12 @@ async function startCloudSync(){
   }catch(e){
     state.cloudSyncStatus = 'error';
     state.cloudSyncError = t('cloudSyncConfigInvalid');
-    render();
+    cloudSyncSafeRender();
     return;
   }
   state.cloudSyncStatus = 'connecting';
   state.cloudSyncError = '';
-  render();
+  cloudSyncSafeRender();
   try{
     await ensureFirebaseSdkLoaded();
     CLOUD.app = firebase.apps.length ? firebase.app() : firebase.initializeApp(parsedConfig);
@@ -11271,7 +11278,7 @@ async function startCloudSync(){
     state.cloudSyncStatus = 'error';
     state.cloudSyncError = (e && e.message) || String(e);
   }
-  render();
+  cloudSyncSafeRender();
 }
 
 function stopCloudSync(){
@@ -11300,7 +11307,7 @@ function subscribeCloudItems(){
     console.error('cloud sync snapshot error', err);
     state.cloudSyncStatus = 'error';
     state.cloudSyncError = (err && err.message) || String(err);
-    render();
+    cloudSyncSafeRender();
   });
 }
 
@@ -11332,7 +11339,7 @@ function subscribeCloudMeta(){
     console.error('cloud sync meta snapshot error', err);
     state.cloudSyncStatus = 'error';
     state.cloudSyncError = (err && err.message) || String(err);
-    render();
+    cloudSyncSafeRender();
   });
 }
 // key is 'categories', 'locations', or 'recipeCategoryGroups'. Returns true if local state
@@ -11489,7 +11496,7 @@ function subscribeCloudRecipes(){
     console.error('cloud sync recipe snapshot error', err);
     state.cloudSyncStatus = 'error';
     state.cloudSyncError = (err && err.message) || String(err);
-    render();
+    cloudSyncSafeRender();
   });
 }
 function applyRemoteRecipe(data){
@@ -11587,7 +11594,7 @@ function subscribeCloudIngredients(){
     console.error('cloud sync ingredient snapshot error', err);
     state.cloudSyncStatus = 'error';
     state.cloudSyncError = (err && err.message) || String(err);
-    render();
+    cloudSyncSafeRender();
   });
 }
 function applyRemoteIngredient(data){
