@@ -15,7 +15,7 @@
 // as long as the device is online, every load fetches the current index.html straight from the
 // network (and refreshes the cache for later); the cache is only ever used as an offline
 // fallback, never as a "good enough, don't bother checking" substitute for the real thing.
-var CACHE_NAME = 'foodcode-shell-v2';
+var CACHE_NAME = 'foodcode-shell-v3';
 var APP_SHELL = [
   './',
   './index.html'
@@ -53,8 +53,19 @@ self.addEventListener('fetch', function(event){
   // Only fall back to whatever's cached if the network request actually fails (offline, or a
   // genuine network error) - that's the offline-support case this cache exists for, not a
   // freshness shortcut for the common online case.
+  //
+  // README 9.115: plain fetch(req) here was NOT actually a guarantee of freshness - fetch()
+  // still obeys ordinary HTTP caching unless told not to, so if GitHub Pages sends the served
+  // files out with any Cache-Control max-age (it does by default), the browser's own HTTP cache
+  // layer could quietly satisfy this "network" request from disk without a real round-trip to
+  // the server, especially right after resuming a backgrounded PWA - this is what was actually
+  // causing the "app randomly reverts to an old version, force-quitting and reopening fixes it"
+  // symptom, not a service-worker-cache bug (the SW-level cache logic below this fetch was
+  // already correct). {cache:'no-store'} makes this fetch bypass HTTP caching entirely, so
+  // "network-first" now really means "always get the current bytes from the server" whenever
+  // the device is online, closing that loophole at its actual source.
   event.respondWith(
-    fetch(req).then(function(res){
+    fetch(req, {cache:'no-store'}).then(function(res){
       if(res && res.status === 200){
         var copy = res.clone();
         caches.open(CACHE_NAME).then(function(cache){ cache.put(req, copy); });

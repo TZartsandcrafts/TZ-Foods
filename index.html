@@ -763,7 +763,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.114';
+var BUILD_VERSION = '9.115';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2131,7 +2131,7 @@ var I18N = {
     nutriGroupVitamins:'维生素', nutriGroupMinerals:'矿物质',
     nutriBasisAmount:'每',
     nutriBasisDensityHint:'还差另一种基准？点下面常见食材可以帮忙估算换算（仅供参考，可再手动修改）：',
-    batchSyncTitle:'同步到其它批次？', batchSyncHint:'检测到 {n} 个同款商品的其它批次，是否把这次修改的单位和营养设置同步过去？（每个批次自己的数量、位置、过期日期不受影响）',
+    batchSyncTitle:'同步到其它批次？', batchSyncHint:'检测到 {n} 个同款商品的其它批次，是否把这次修改的营养标签同步过去？（只同步营养数据，每个批次自己的数量、单位、位置、过期日期都不受影响）',
     batchSyncSkip:'仅这一批', batchSyncApply:'同步全部', batchSyncApplied:'已同步到其它批次',
     fieldProductionDate:'生产日期', fieldShelfLife:'保质期',
     dateQuickPick_today:'今天', dateQuickPick_thisMonth:'本月', dateQuickPick_nextMonth:'下月',
@@ -2378,7 +2378,7 @@ var I18N = {
     nutriGroupVitamins:'Vitamins', nutriGroupMinerals:'Minerals',
     nutriBasisAmount:'Per',
     nutriBasisDensityHint:"Missing the other basis? Tap a common ingredient for a rough conversion (a starting point - edit as needed):",
-    batchSyncTitle:'Sync to other batches?', batchSyncHint:'Found {n} other batch(es) of this same product - apply this unit/nutrition change to them too? (Each batch\u2019s own quantity, location, and expiry date are untouched.)',
+    batchSyncTitle:'Sync to other batches?', batchSyncHint:'Found {n} other batch(es) of this same product - apply this nutrition-label change to them too? (Only nutrition syncs; each batch\u2019s own quantity, unit, location, and expiry date are untouched.)',
     batchSyncSkip:'Just this batch', batchSyncApply:'Sync all', batchSyncApplied:'Synced to other batches',
     fieldProductionDate:'Production date', fieldShelfLife:'Shelf life',
     dateQuickPick_today:'Today', dateQuickPick_thisMonth:'This month', dateQuickPick_nextMonth:'Next month',
@@ -6177,21 +6177,19 @@ function saveItemForm(){
     else navigate('itemDetail',{id:savedId});
   }
 }
-// README 9.112: fields synced are deliberately the "this is the same physical product" ones -
-// unit configuration (primary/secondary units, pack sizes) and the full nutrition
-// label/basis - NOT anything batch-specific (quantity, location, expiry, purchase date/price,
-// usage log). A secondary unit's `qty` (how many of THAT unit this specific batch has left) is
-// preserved per-target rather than overwritten; only its unit/ratio/pack config is synced, same
-// reasoning as everything else here.
-function syncBatchUnitsAndNutrition(source, targets){
+// README 9.115: narrowed from 9.112's original scope after Lynn found it was also syncing
+// primary_unit/primary_pack_amount/primary_pack_unit/secondary_units - which, on reflection,
+// isn't safe to sync at all: a "pack size" like primary_pack_amount ("1件 = 3L") reads as part
+// of the batch's own quantity display ("3L x 1件"), and two batches of what's otherwise "the
+// same product" can genuinely have been bought in different container sizes (a 3L jug one time,
+// a 1L bottle the next) - syncing that config across batches was actively wrong, not just
+// unnecessary. This now touches ONLY the nutrition label (values + basis) - the one thing that
+// really is identical for the same product regardless of how much of it any given batch has -
+// and nothing at all under "数量" (quantity/unit tracking): not primary_qty, not primary_unit,
+// not the pack spec, not secondary_units. Each batch's own stock tracking stays exactly as it
+// was, whichever direction the sync runs.
+function syncBatchNutrition(source, targets){
   targets.forEach(function(t){
-    t.primary_unit = source.primary_unit;
-    t.primary_pack_amount = source.primary_pack_amount;
-    t.primary_pack_unit = source.primary_pack_unit;
-    t.secondary_units = (source.secondary_units||[]).map(function(g){
-      var existing = (t.secondary_units||[]).find(function(tg){ return tg.unit===g.unit; });
-      return {unit:g.unit, ratio:g.ratio, pack_amount:g.pack_amount, pack_unit:g.pack_unit, qty: existing ? existing.qty : null};
-    });
     t.nutrition = JSON.parse(JSON.stringify(source.nutrition||{}));
     t.nutrition_extra = JSON.parse(JSON.stringify(source.nutrition_extra||{}));
     t.nutrition_basis_weight_amount = source.nutrition_basis_weight_amount;
@@ -6218,7 +6216,7 @@ function finishItemFormNav(sourceId, doSync, siblingIds, sourceArchived){
   if(doSync){
     var source = state.items.find(function(i){ return i.id===sourceId; });
     var siblings = state.items.filter(function(i){ return siblingIds.indexOf(i.id)!==-1; });
-    if(source && siblings.length){ syncBatchUnitsAndNutrition(source, siblings); showToast(t('batchSyncApplied')); }
+    if(source && siblings.length){ syncBatchNutrition(source, siblings); showToast(t('batchSyncApplied')); }
   }
   if(sourceArchived) navigate('itemViewOnly', {id:sourceId, from:'archive'});
   else navigate('itemDetail',{id:sourceId});
