@@ -226,14 +226,21 @@
   .nav-scan i{ font-size:27px; }
   .nav-scan svg{ transition:transform .22s ease; }
   .nav-scan.open svg{ transform:rotate(45deg); }
-  .add-menu-backdrop{ position:fixed; inset:0; z-index:29; background:transparent; }
+  .add-menu-backdrop{ position:fixed; inset:0; z-index:29; background:rgba(58,34,22,0.28); animation:addMenuBackdropIn .18s ease both; }
+  @keyframes addMenuBackdropIn{ from{ opacity:0; } to{ opacity:1; } }
   /* Each option is its own free-floating pill - no shared card/background behind the group -
      stacked in a column centered above the nav-scan button and staggered slightly so they fan
      in rather than all popping in at once. */
   .add-menu-options{ position:fixed; left:50%; bottom:calc(96px + var(--safe-bottom)); transform:translateX(-50%); z-index:31; display:flex; flex-direction:column; align-items:center; gap:10px; }
   .add-menu-pill{
     display:flex; align-items:center; gap:8px; padding:11px 20px; border-radius:999px;
-    background:var(--card-bg); color:var(--cocoa); border:1px solid var(--line); box-shadow:var(--shadow);
+    background:var(--card-bg); color:var(--cocoa); border:1px solid var(--line);
+    /* README 9.120: Lynn found these pills hard to tell apart from whatever page content sat
+       behind them (backdrop used to be fully transparent, and the pills' own shadow was the
+       same subtle var(--shadow) used everywhere else in the app for plain resting cards) -
+       stronger, warmer shadow here specifically so a floating, actionable pill reads as
+       clearly "lifted above" the page, plus the dimming scrim on .add-menu-backdrop above. */
+    box-shadow:0 6px 18px rgba(58,34,22,0.22), 0 1px 3px rgba(58,34,22,0.12);
     font-size:14px; font-weight:600; white-space:nowrap; cursor:pointer;
     animation:addMenuPillIn .18s ease both;
     animation-delay:calc((var(--add-menu-count) - 1 - var(--add-menu-i)) * .03s);
@@ -763,7 +770,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.119';
+var BUILD_VERSION = '9.120';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
