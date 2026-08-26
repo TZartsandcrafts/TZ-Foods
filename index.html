@@ -676,14 +676,14 @@
   .scan-frame{ position:absolute; inset:15% 12%; border:2.5px solid #fff; border-radius:14px; box-shadow:0 0 0 999px rgba(0,0,0,0.35); }
   .scan-status{ position:absolute; bottom:16px; left:0; right:0; text-align:center; color:#fff; font-size:14px; }
 
-  .recipe-card{ background:var(--card-bg); border-radius:12px; padding:16px; margin-bottom:12px; border:1px solid var(--line); box-shadow:var(--shadow); cursor:pointer; }
+  .recipe-card{ background:var(--card-bg); border-radius:12px; padding:14px; margin-bottom:10px; border-left:4px solid var(--line); box-shadow:var(--shadow); cursor:pointer; }
   .recipe-card:active{ transform:scale(0.99); }
-  .recipe-card .rname{ font-size:17px; font-weight:600; color:var(--cocoa); }
-  .recipe-card .rmeta{ font-size:13px; color:var(--deep-caramel); margin-top:4px; }
-  .recipe-card .rcal{ font-size:14px; color:var(--almond); font-weight:500; margin-top:8px; }
-  .recipe-card-row{ display:flex; align-items:center; gap:12px; }
+  .recipe-card .rname{ font-size:16px; font-weight:500; color:var(--cocoa); white-space:normal; word-break:break-word; line-height:1.35; }
+  .recipe-card .rmeta{ font-size:13px; color:var(--deep-caramel); margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .recipe-card .rcal{ font-size:13px; color:var(--almond); font-weight:500; margin-top:6px; }
+  .recipe-card-row{ display:flex; align-items:flex-start; gap:12px; }
   .recipe-cover{
-    flex:0 0 16.6%; aspect-ratio:2/3; border-radius:10px; overflow:hidden; background:var(--cream);
+    width:46px; height:46px; border-radius:11px; overflow:hidden; background:var(--cream);
     display:flex; align-items:center; justify-content:center; color:var(--deep-caramel); flex-shrink:0;
   }
   .recipe-cover img{ width:100%; height:100%; object-fit:cover; display:block; }
@@ -763,7 +763,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.115';
+var BUILD_VERSION = '9.117';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2100,7 +2100,8 @@ var I18N = {
     servingsEatenLabel:'份数', deductFromInventoryLabel:'同时从库存扣减', servingsUnit:'份',
     fieldMealAmount:'重量', fieldMealAmountUnit:'单位',
     mealLoggedToast:'已记录', mealsHistoryBtn:'历史',
-    remainingQtyLabel:'剩余',
+    remainingQtyLabel:'剩余', remainingApproxLabel:'剩余约',
+    consumeWholeUnitLabel:'按份消耗', consumeWholeUnitHint:'开启后，取用/食谱只能整份增减这份食材（如整桶泡面），不能按克/毫升记录',
     searchPlaceholder:'搜索食品名称 / 品牌', clearSearchBtn:'清空',
     filterAll:'全部',
     sortLabel:'排序', sortExpiry:'过期', sortName:'名称', sortPurchase:'购买', sortCreated:'录入',
@@ -2209,7 +2210,7 @@ var I18N = {
     perTotal:'总计', perServing:'每份', per100g:'每100g成品',
     noIngredientsYet:'还没有添加食材',
     pickFromInventory:'从库存中选择', pickExternal:'外部食材库', createNewIngredient:'+ 新建外部食材', editIngredientTitle:'编辑食材',
-    ingAmountLabel:'用量', ingUnitLabel:'单位',
+    ingAmountLabel:'用量', ingAmountPh:'如 8 或 1/4', ingUnitLabel:'单位',
     newIngName:'食材名称', newIngNutriHint:'请填写每100g/100ml的营养信息',
     freshRefFoundPrefix:'检测到「', freshRefFoundSuffix:'」的参考营养数据，点击填入', freshRefApplyBtn:'填入', freshRefAppliedToast:'已填入参考数据，可自行调整',
     usdaSearchLoading:'搜索中…', usdaSearchNoResults:'没有找到匹配结果，换个关键词试试',
@@ -2217,6 +2218,7 @@ var I18N = {
     usdaDataTypeFoundation:'官方实测', usdaDataTypeSRLegacy:'官方数据', usdaDataTypeBranded:'品牌食品',
     // recipe detail
     cookThis:'我做了这道菜', cookConfirmTitle:'确认扣减库存',
+    recipeCookHistoryTitle:'制作记录', recipeNeverCooked:'还没有制作记录', recipeCookedTimes:'共制作 {n} 次',
     nutriToggleExpand:'展开每100g成品 / 每份', nutriToggleCollapse:'收起',
     cookConfirmHint:'以下食材将按用量从库存扣减，确认无误后点击确认。',
     cookConfirmNone:'该食材来自外部食材库，不扣减库存',
@@ -2259,6 +2261,7 @@ var I18N = {
     photoProcessing:'正在处理图片…', photoTooLarge:'图片仍然偏大，请换一张更简单/更小的图片试试',
     photoProcessFailed:'图片处理失败，请换一张试试',
     manageRecipeCategories:'管理食谱分类', manageRecipeCategoriesTitle:'管理食谱分类', addRecipeGroupPh:'新分类名称', addRecipeSubPh:'新子分类名称',
+    pickCategoryColorTitle:'选择分类色条颜色',
     // sidebars
     statTotal:'总数', statExpired:'过期', statSoon:'临期', statUsedUp:'用完',
     fieldRecipeCategory:'分类', fieldRecipeSubCategory:'子分类',
@@ -2453,13 +2456,14 @@ var I18N = {
     perTotal:'Total', perServing:'Per serving', per100g:'Per 100g cooked',
     noIngredientsYet:'No ingredients added yet',
     pickFromInventory:'Choose from inventory', pickExternal:'External ingredient library', createNewIngredient:'+ New external ingredient', editIngredientTitle:'Edit ingredient',
-    ingAmountLabel:'Amount', ingUnitLabel:'Unit',
+    ingAmountLabel:'Amount', ingAmountPh:'e.g. 8 or 1/4', ingUnitLabel:'Unit',
     newIngName:'Ingredient name', newIngNutriHint:'Enter nutrition per 100g/100ml',
     freshRefFoundPrefix:'Found reference nutrition for "', freshRefFoundSuffix:'" - tap to fill in', freshRefApplyBtn:'Fill in', freshRefAppliedToast:'Filled in - feel free to adjust',
     usdaSearchLoading:'Searching…', usdaSearchNoResults:'No matches found, try a different keyword',
     usdaSearchError:'Search failed, check your connection and try again', usdaSearchApplyToast:'Filled in USDA data - feel free to adjust',
     usdaDataTypeFoundation:'USDA Lab-Tested', usdaDataTypeSRLegacy:'USDA Data', usdaDataTypeBranded:'Branded',
     cookThis:"I made this dish", cookConfirmTitle:'Confirm inventory deduction',
+    recipeCookHistoryTitle:'Cooking History', recipeNeverCooked:'Not made yet', recipeCookedTimes:'Made {n} times',
     nutriToggleExpand:'Show per 100g cooked / per serving', nutriToggleCollapse:'Hide',
     cookConfirmHint:'These items will be deducted from inventory based on the amount used. Confirm to proceed.',
     cookConfirmNone:'External ingredient, not deducted from inventory',
@@ -2501,6 +2505,7 @@ var I18N = {
     photoProcessing:'Processing image…', photoTooLarge:'Image is still too large, please try a smaller/simpler photo',
     photoProcessFailed:'Failed to process image, please try another one',
     manageRecipeCategories:'Manage Recipe Categories', manageRecipeCategoriesTitle:'Manage Recipe Categories', addRecipeGroupPh:'New category name', addRecipeSubPh:'New subcategory name',
+    pickCategoryColorTitle:'Choose a category color',
     // sidebars
     statTotal:'Total items', statExpired:'Expired', statSoon:'Expiring soon', statUsedUp:'Used up',
     fieldRecipeCategory:'Category', fieldRecipeSubCategory:'Sub-category',
@@ -2955,6 +2960,50 @@ function fmtNum(n, digits){
   r = r.replace(/\.0+$/,'').replace(/(\.\d*?)0+$/,'$1').replace(/\.$/,'');
   return r;
 }
+// README 9.117: recipe ingredient amounts need to accept "1/4", "1 1/2" etc. the same way a
+// person would actually type a cooking measurement, not just plain decimals. Accepts a whole
+// number, a plain decimal, a bare fraction ("3/4"), or a mixed number ("1 1/2"); returns null
+// for anything unparseable so callers can fall back to their existing "empty amount" handling.
+function parseAmountInput(str){
+  if(str==null) return null;
+  str = String(str).trim();
+  if(!str) return null;
+  var m = str.match(/^(\d+)?\s*(\d+)\s*\/\s*(\d+)$/);
+  if(m){
+    var whole = m[1] ? parseFloat(m[1]) : 0;
+    var num = parseFloat(m[2]), den = parseFloat(m[3]);
+    if(!den) return null;
+    return whole + num/den;
+  }
+  var v = parseFloat(str);
+  return isNaN(v) ? null : v;
+}
+// README 9.117: the flip side of parseAmountInput - a spoon/cup amount that's very close to one
+// of the common cooking fractions (1/4 tsp, 2/3 cup, etc.) displays as that fraction instead of
+// a decimal, since fmtNum's fixed-decimal rounding was collapsing "1/4" (0.25) into "0.3" and
+// making the number look flat-out wrong rather than just less precise. Any unit that isn't a
+// spoon/cup measure, or an amount that isn't close to a common fraction, still just shows as a
+// plain number via fmtNum (now at 2 decimals instead of 1, so even an unmatched odd decimal
+// reads as "0.25" rather than "0.3").
+var FRACTION_DISPLAY_UNITS = ['tsp','tbsp','cup'];
+var COMMON_COOKING_FRACTIONS = [
+  [1/8,'1/8'], [1/4,'1/4'], [1/3,'1/3'], [3/8,'3/8'], [1/2,'1/2'],
+  [5/8,'5/8'], [2/3,'2/3'], [3/4,'3/4'], [7/8,'7/8']
+];
+function fmtAmount(amount, unit){
+  if(amount==null || isNaN(amount)) return '-';
+  if(FRACTION_DISPLAY_UNITS.indexOf(unit)!==-1){
+    var whole = Math.floor(amount + 1e-6);
+    var frac = amount - whole;
+    if(frac < 0.02) return String(whole);
+    for(var i=0;i<COMMON_COOKING_FRACTIONS.length;i++){
+      if(Math.abs(frac - COMMON_COOKING_FRACTIONS[i][0]) < 0.02){
+        return (whole>0 ? (whole+' ') : '') + COMMON_COOKING_FRACTIONS[i][1];
+      }
+    }
+  }
+  return fmtNum(amount, 2);
+}
 function todayStr(){
   var d = new Date();
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
@@ -3196,13 +3245,30 @@ function addBackToItem(item, amount, unit){
   applyPrimaryEquivalentDelta(item, amountInPrimary);
   return {ok:true};
 }
+// README 9.116: how many decimal places make sense to show for a TOTAL remaining amount,
+// keyed on the pack's own subunit - "g"/"ml"/a bare count like "罐" read naturally as whole
+// numbers, but "kg"/"l" need a couple of decimals or a half-used liter bottle would round away
+// to nothing.
+function packSubDigits(packUnit){
+  var k = (packUnit||'').trim().toLowerCase();
+  return (k==='kg' || k==='l') ? 2 : 0;
+}
 function qtyGroupDisplayText(qty, unit, packAmount, packUnit, qtyDigits){
   if(packAmount!=null && packUnit){
-    // A partially-used container reads more naturally as "about 1.5 bottles left" than
-    // "1.9137 bottles" - round the shown count to the nearest half-unit. The real, precise
-    // amount is still what's stored and used for the next deduction; this only affects display.
-    var displayQty = (qty==null) ? null : Math.round(qty*2)/2;
-    return fmtNum(packAmount,2)+packUnit+' x '+fmtNum(displayQty, qtyDigits)+(unit||'');
+    // README 9.116: replaced the old "round the container count to the nearest .5" display
+    // (which could only ever show 1件/0.5件/0件-style quantization, AND made the edit page's
+    // raw input show ugly, un-rounded floating point noise like "0.9846623...件") with the way
+    // a person actually thinks about a partially-used container: how much is left in real
+    // terms ("还有900g"、"还有12罐"), not what fraction of "one container" that happens to be.
+    // totalSub is that real remaining amount, in the pack's own subunit. containers is a
+    // DERIVED "how many containers does that amount still need" count - it only ever steps
+    // down by one once a container's worth has been fully used (ceil() does this naturally:
+    // it stays at N for any remaining total in (packAmount*(N-1), packAmount*N], and only
+    // drops to N-1 once the total actually reaches packAmount*(N-1) or below), matching how
+    // real life talks about "还有12罐 x 1箱" rather than "24罐 x 0.5箱".
+    var totalSub = (qty==null) ? null : qty*packAmount;
+    var containers = (totalSub==null) ? null : (totalSub<=1e-9 ? 0 : Math.ceil(totalSub/packAmount - 1e-6));
+    return fmtNum(totalSub, packSubDigits(packUnit))+packUnit+' x '+fmtNum(containers,0)+(unit||'');
   }
   return fmtNum(qty, qtyDigits) + (unit||'');
 }
@@ -3850,8 +3916,8 @@ function openSettings(fromView){
   function backTarget(){
     if(state.view==='itemDetail') return (state.params && state.params.from) || {view:'home'};
     if(state.view==='itemViewOnly') return {view: state.params.from || 'archive'};
-    if(state.view==='usageLog') return {view:'itemDetail', params:{id:state.params.id}};
-    if(state.view==='usageLogAdd') return {view:'usageLog', params:{id:state.params.id}};
+    if(state.view==='usageLog') return {view:'itemDetail', params:{id:state.params.id, from: state.params.from}};
+    if(state.view==='usageLogAdd') return {view:'usageLog', params:{id:state.params.id, from: state.params.from}};
     if(state.view==='itemForm') return (state.itemFormUI && state.itemFormUI.returnTo) || {view:'home'};
     if(state.view==='pickExternal') return {view:'recipeForm'};
     if(state.view==='pickInventory') return {view:'recipeForm'};
@@ -5136,20 +5202,57 @@ function packUnitFieldHtml(idx){
 }
 function qtyGroupSpecRowHtml(idx, isLast){
   var packAmt = packAmountValue(idx);
+  var packUnit = packUnitValue(idx);
   var qty = idx==null ? state.itemDraft.primary_qty : (state.itemDraft.secondary_units[idx]||{}).qty;
   var qtyOninput = idx==null ? 'setPrimaryQty(this.value)' : 'setSecondaryQty('+idx+',this.value)';
   var qtyOnblur = idx==null ? 'onPrimaryQtyBlur(this)' : 'onSecondaryQtyBlur(this,'+idx+')';
   var removeBtn = (idx!=null) ? '<button type="button" class="icon-btn qty-group-remove" onclick="removeQtyGroup('+idx+')">'+ic('x',16)+'</button>' : '';
+  // README 9.116: this used to render the raw stored qty value directly - fine for a freshly
+  // typed whole number, but after any real-world deduction (recipe cook, 取用, etc.) that value
+  // is primary_qty, a precise-but-not-round float ("0.98466231...") that reads as garbled noise
+  // rather than a usable number. Rounding it for DISPLAY only (never touches what's actually
+  // stored/used for the next deduction, which stays exactly as precise as before) keeps this
+  // box legible without losing any accuracy where it matters.
+  var qtyDisplayVal = (qty==null) ? '' : fmtNum(qty, 3);
+  // ...and directly under the row, spell out what that count actually means in real terms -
+  // "剩余约 900g" - since "0.9件" on its own doesn't tell Lynn how much is actually left the
+  // way a real weight/volume amount does (see README 9.116).
+  var remainHint = '';
+  if(packAmt!=null && packUnit && qty!=null){
+    var totalSub = qty*packAmt;
+    remainHint = '<div class="hint" style="margin-top:4px;">'+t('remainingApproxLabel')+' '+fmtNum(totalSub, packSubDigits(packUnit))+esc(packUnit)+'</div>';
+  }
   return '<div class="field" style="margin-bottom:0;"><label>'+t('fieldQty')+'</label>'+
     '<div class="qty-spec-row">'+
       '<input type="text" inputmode="decimal" class="qty-spec-amount" placeholder="'+t('fieldPackAmountPh')+'" value="'+(packAmt==null?'':packAmt)+'" oninput="setPackAmount('+aj(idx)+',this.value)">'+
       '<div class="qty-spec-unit">'+packUnitFieldHtml(idx)+'</div>'+
       '<span class="qty-spec-x">x</span>'+
-      '<input type="text" inputmode="decimal" class="qty-spec-count" placeholder="'+t('fieldQtyPh')+'" value="'+(qty==null?'':qty)+'" oninput="'+qtyOninput+'" onblur="'+qtyOnblur+'">'+
+      '<input type="text" inputmode="decimal" class="qty-spec-count" placeholder="'+t('fieldQtyPh')+'" value="'+qtyDisplayVal+'" oninput="'+qtyOninput+'" onblur="'+qtyOnblur+'">'+
       '<div class="qty-spec-countunit">'+qtyGroupUnitFieldHtml(idx)+'</div>'+
       removeBtn+
     '</div>'+
+    remainHint+
+    (idx==null ? wholeUnitOnlyToggleHtml() : '')+
   '</div>';
+}
+// README 9.116: "消耗方式" toggle - only meaningful (and only shown) once this item actually
+// has a 规格 (packAmt+packUnit) filled in, since a bare-count-only item ("3件苹果") is already
+// tracked purely by whole units with nothing to toggle. ON means "this item is only ever
+// used/cooked-with a whole 件 at a time" (a bucket of instant noodles - nobody measures out
+// 37g of one), which restricts the unit choices offered in 取用/食谱 to this item's own count
+// units only (see deductableUnitsForItem) instead of also offering gram/ml-level deduction.
+function wholeUnitOnlyToggleHtml(){
+  var d = state.itemDraft;
+  if(d.primary_pack_amount==null || !d.primary_pack_unit) return '';
+  var on = !!d.consume_whole_unit;
+  return '<div class="list-row" style="margin-top:10px;">'+
+    '<div><div class="row-label">'+t('consumeWholeUnitLabel')+'</div><div class="row-sub">'+t('consumeWholeUnitHint')+'</div></div>'+
+    '<label class="switch"><input type="checkbox" '+(on?'checked':'')+' onchange="setConsumeWholeUnit(this.checked)"><span class="switch-slider"></span></label>'+
+  '</div>';
+}
+function setConsumeWholeUnit(val){
+  state.itemDraft.consume_whole_unit = !!val;
+  render();
 }
 function qtyGroupsHtml(d){
   var rows = qtyGroupSpecRowHtml(null);
@@ -6358,7 +6461,13 @@ function deleteItemDetail(id){
 // have confirmCook auto-append an entry here too, so the two stay in sync.
 function openUsageLog(id){
   state.usageLogUI = { showAll:false };
-  navigate('usageLog', {id:id});
+  // README 9.116: thread the itemDetail's own entry point (state.params.from - e.g. "came from
+  // a recipe's ingredient list") through into usageLog's own params, so a further back-swipe
+  // from in here (or from usageLogAdd beyond it) can restore it - see backTarget()'s usageLog/
+  // usageLogAdd cases below. Without this, itemDetail's `from` only ever survived ONE hop; a
+  // second hop (usageLog -> itemDetail again) always fell back to the generic "home" default,
+  // landing back on the plain inventory list instead of wherever the person actually came from.
+  navigate('usageLog', {id:id, from: state.params.from});
 }
 function renderUsageLog(){
   var id = state.params.id;
@@ -6461,7 +6570,7 @@ function openUsageLogAdd(id){
     date: todayStr(), destination_type:'free', destination_text:'', recipe_id:'', move_location:'',
     amount:null, unit: it.primary_unit, _editingEntryId:null
   };
-  navigate('usageLogAdd', {id:id});
+  navigate('usageLogAdd', {id:id, from: state.params.from});
 }
 function openUsageLogEdit(itemId, entryId){
   var it = state.items.find(function(i){ return i.id===itemId; });
@@ -6474,7 +6583,7 @@ function openUsageLogEdit(itemId, entryId){
     destination_text: entry.destination_text||'', recipe_id: entry.recipe_id||'', move_location:'',
     amount: entry.amount, unit: entry.unit, _editingEntryId: entryId
   };
-  navigate('usageLogAdd', {id:itemId});
+  navigate('usageLogAdd', {id:itemId, from: state.params.from});
 }
 // Every unit this item can be deducted/added in - count units and pack/spec units alike -
 // used by the usage-log unit picker, recipe ingredient unit picker, and the recipe
@@ -6499,6 +6608,18 @@ function allUnitsForItem(item){
   // de-dupe while preserving order
   return units.filter(function(u,i){ return units.indexOf(u)===i; });
 }
+// README 9.116: the unit choices actually worth OFFERING when logging usage/cooking with this
+// item - same as allUnitsForItem for a normal (continuous) item, but when consume_whole_unit
+// is on, narrowed down to only this item's own count-type units (its 主单位/副单位, e.g. "桶"),
+// dropping every pack unit (g/ml/规格) and every weight/volume sibling - a bucket of instant
+// noodles is used one whole bucket at a time, never "37g of the noodles".
+function deductableUnitsForItem(item){
+  if(!item.consume_whole_unit) return allUnitsForItem(item);
+  var units = [];
+  if(item.primary_unit) units.push(item.primary_unit);
+  (item.secondary_units||[]).forEach(function(g){ if(g.unit) units.push(g.unit); });
+  return units.filter(function(u,i){ return units.indexOf(u)===i; });
+}
 // Current stock expressed in `unit` - the inverse of resolveDeductionTarget's ratio (which says
 // "how many primary-units is 1 of this unit worth"), used to preview/prefill the "调整余量"
 // destination type (README 9.83): the person types what they actually counted, not a delta they
@@ -6515,7 +6636,7 @@ function renderUsageLogAdd(){
   var d = state.usageDraft;
   var editing = !!d._editingEntryId;
   var isAdjust = d.destination_type==='adjust';
-  var unitOptions = allUnitsForItem(it);
+  var unitOptions = deductableUnitsForItem(it);
   var recipeLabel = d.recipe_id ? recipeNameForUsage(d.recipe_id) : t('usagePickRecipePlaceholder');
   // Converting an existing consumption entry into a location-move or stock-adjustment (or vice
   // versa) mid-edit would mean untangling which item(s)/how much to undo the effects on, on top
@@ -6684,7 +6805,7 @@ async function saveUsageLogEntry(itemId){
     }
     saveItems();
     showToast(moveResult.ok ? t('usageMovedToast') : t('usageNoConversionWarn'));
-    navigate('usageLog', {id:itemId});
+    navigate('usageLog', {id:itemId, from: state.params.from});
     return;
   }
   if(d.destination_type==='adjust'){
@@ -6696,7 +6817,7 @@ async function saveUsageLogEntry(itemId){
     var beforePrimary = it.primary_qty||0;
     var targetPrimary = d.amount * target.toPrimaryRatio;
     var deltaPrimary = beforePrimary - targetPrimary; // positive = stock went down, negative = went up
-    if(Math.abs(deltaPrimary) < 1e-9){ showToast(t('usageAdjustNoChangeToast')); navigate('usageLog', {id:itemId}); return; }
+    if(Math.abs(deltaPrimary) < 1e-9){ showToast(t('usageAdjustNoChangeToast')); navigate('usageLog', {id:itemId, from: state.params.from}); return; }
     applyPrimaryEquivalentDelta(it, -deltaPrimary);
     it.usage_log.push({
       id: uid(), date: d.date || todayStr(), destination_type:'adjust',
@@ -6704,7 +6825,7 @@ async function saveUsageLogEntry(itemId){
     });
     saveItems();
     showToast(deltaPrimary > 0 ? t('usageAdjustDecreaseToast') : t('usageAdjustIncreaseToast'));
-    navigate('usageLog', {id:itemId});
+    navigate('usageLog', {id:itemId, from: state.params.from});
     return;
   }
   if(d._editingEntryId){
@@ -6739,7 +6860,7 @@ async function saveUsageLogEntry(itemId){
   }
   saveItems();
   showToast(!result.ok ? t('usageNoConversionWarn') : (result.insufficient ? t('usageInsufficientWarn') : t('usageDeductedToast')));
-  navigate('usageLog', {id:itemId});
+  navigate('usageLog', {id:itemId, from: state.params.from});
 }
 function restoreUsageLogEntry(itemId, entryId){
   var it = state.items.find(function(i){ return i.id===itemId; });
@@ -7709,8 +7830,56 @@ async function onPhotoSelected(input){
 }
 
 /* ======================= RECIPES LIST ======================= */
+// README 9.117: color-bar palette for recipe categories - same warm, muted feel as the rest of
+// the app's own CSS variables (browns/caramels), plus a handful of extra hue families (olive,
+// rust, sage, plum, slate) since the existing palette by itself is almost all one hue and
+// wouldn't actually help distinguish categories at a glance. Each family gets 3 shades (light/
+// mid/dark) as the swatch picker's options - see recipeCategoryColorPickerHtml.
+var CATEGORY_COLOR_PALETTE = [
+  {name:'caramel', shades:['#E8C595','#C08552','#8B5A2B']},
+  {name:'gold',    shades:['#F0D48A','#D9A566','#B07C2C']},
+  {name:'rust',    shades:['#E3A98F','#C4512E','#8C2F1E']},
+  {name:'olive',   shades:['#C3CB9E','#8A9A5B','#5C6B34']},
+  {name:'sage',    shades:['#CFE0D6','#8FA89A','#5C7A6B']},
+  {name:'slate',   shades:['#D8D3C9','#9C8A78','#6B5B4A']},
+  {name:'plum',    shades:['#D9C2CE','#A5748A','#6E3E52']},
+  {name:'clay',    shades:['#E6C3B5','#B97A5E','#8B4A32']}
+];
+var CATEGORY_COLOR_FLAT = CATEGORY_COLOR_PALETTE.reduce(function(a,f){ return a.concat(f.shades); },[]);
+// Auto-assigned to a new category so every category gets a distinct-ish color from the start
+// (cycling the mid shade of each family before repeating) - still fully changeable afterward
+// via the swatch on its row in 管理食谱分类.
+function nextCategoryColor(){
+  var i = state.recipeCategoryGroups.length % CATEGORY_COLOR_PALETTE.length;
+  return CATEGORY_COLOR_PALETTE[i].shades[1];
+}
 function recipeGroupById(id){
   return state.recipeCategoryGroups.find(function(g){ return g.id===id; });
+}
+function recipeCategoryColor(r){
+  var g = r.category_group ? recipeGroupById(r.category_group) : null;
+  return (g && g.color) || null;
+}
+function recipeCategoryColorPickerHtml(groupId){
+  var g = recipeGroupById(groupId);
+  var current = g ? g.color : null;
+  return '<div style="display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:6px 0 4px;">'+
+    CATEGORY_COLOR_FLAT.map(function(c){
+      return '<div onclick="setRecipeCategoryColor('+aj(groupId)+','+aj(c)+')" style="width:34px;height:34px;border-radius:50%;background:'+c+';cursor:pointer;'+
+        (current===c ? 'box-shadow:0 0 0 3px var(--card-bg),0 0 0 5px var(--cocoa);' : 'box-shadow:0 0 0 1px var(--line);')+'"></div>';
+    }).join('')+
+  '</div>';
+}
+function openRecipeCategoryColorPicker(groupId){
+  showModal(t('pickCategoryColorTitle'), recipeCategoryColorPickerHtml(groupId));
+}
+function setRecipeCategoryColor(groupId, color){
+  var g = recipeGroupById(groupId);
+  if(!g) return;
+  g.color = color;
+  saveRecipeCategoryGroups();
+  closeModal();
+  render();
 }
 function recipeCategoryLabel(r){
   if(!r.category_group) return '';
@@ -7751,18 +7920,28 @@ function renderRecipesList(){
       var nutri = calcRecipeNutrition(r);
       var catLabel = recipeCategoryLabel(r);
       var coverHtml = r.photo_url ? photoImgHtml(r.photo_url, 'width:100%;height:100%;object-fit:cover;') : ic('book',20);
+      var catColor = recipeCategoryColor(r);
+      // README 9.117: per-100g reads as "how calorie-dense is this dish" the way a nutrition
+      // label does, which is more useful for browsing/comparing recipes at a glance than
+      // per-serving (which just reflects however many servings this particular recipe happens
+      // to split into) - per-serving is still shown on the recipe's own detail page. Falls back
+      // to per-serving here only for the (rarer) case where the recipe has no cooked_weight set
+      // yet, since per100g can't be computed without it.
+      var calLine = nutri.per100g
+        ? (fmtNum(nutri.per100g.calories,0)+' kcal / 100g')
+        : (fmtNum(nutri.perServing.calories,0)+' kcal / '+t('perServing').toLowerCase());
       return '<div class="recipe-card-swipe" data-recipe-id="'+esc(r.id)+'">'+
         '<div class="recipe-swipe-actions">'+
           '<button class="swipe-action-btn action-delete" onclick="event.stopPropagation();deleteRecipeFromSwipe('+aj(r.id)+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button>'+
           '<button class="swipe-action-btn action-edit" onclick="event.stopPropagation();closeRecipeSwipeRow('+aj(r.id)+');openRecipeForm('+aj(r.id)+')">'+ic('edit',20)+'<span>'+esc(t('edit'))+'</span></button>'+
         '</div>'+
-        '<div class="recipe-card" onclick="navigate(\'recipeDetail\',{id:'+aj(r.id)+'})">'+
+        '<div class="recipe-card" onclick="navigate(\'recipeDetail\',{id:'+aj(r.id)+'})"'+(catColor ? ' style="border-left-color:'+catColor+';"' : '')+'>'+
           '<div class="recipe-card-row">'+
             '<div class="recipe-cover">'+coverHtml+'</div>'+
             '<div class="recipe-card-body">'+
               '<div class="rname">'+esc(r.name)+'</div>'+
               '<div class="rmeta">'+(catLabel?esc(catLabel)+' · ':'')+(r.servings||1)+' '+t('fieldServings')+' · '+recipeIngredientCount(r)+' '+t('sectionIngredients')+'</div>'+
-              '<div class="rcal">'+fmtNum(nutri.perServing.calories,0)+' kcal / '+t('perServing').toLowerCase()+'</div>'+
+              '<div class="rcal">'+calLine+'</div>'+
             '</div>'+
           '</div>'+
         '</div>'+
@@ -7885,7 +8064,7 @@ function confirmRecipeCombinedAdd(){
   var target = state.recipesUI.addTarget || '';
   if(!target){
     if(state.recipeCategoryGroups.some(function(g){ return g.name===val; })){ showToast(t('tagDuplicate')); return; }
-    state.recipeCategoryGroups.push({id: uid(), name: val, subs: []});
+    state.recipeCategoryGroups.push({id: uid(), name: val, subs: [], color: nextCategoryColor()});
   } else {
     var g = recipeGroupById(target);
     if(!g) return;
@@ -7916,7 +8095,7 @@ function addRecipeGroupFromInput(elId){
   var val = el ? el.value.trim() : '';
   if(!val) return;
   if(state.recipeCategoryGroups.some(function(g){ return g.name===val; })){ showToast(t('tagDuplicate')); return; }
-  state.recipeCategoryGroups.push({id: uid(), name: val, subs: []});
+  state.recipeCategoryGroups.push({id: uid(), name: val, subs: [], color: nextCategoryColor()});
   saveRecipeCategoryGroups();
   if(el) el.value = '';
   render();
@@ -7925,6 +8104,10 @@ function addRecipeGroupFromInput(elId){
 
 /* ======================= INGREDIENT PICKERS ======================= */
 function recipeUnitOptionsForItem(item){
+  // README 9.116: an item marked 按份消耗 (consume_whole_unit) should never offer grams/ml as
+  // a recipe-ingredient unit either - the whole point of the toggle is "this is only ever used
+  // a whole unit at a time", and a recipe amount is just another form of deduction.
+  if(item && item.consume_whole_unit) return deductableUnitsForItem(item);
   var opts = WEIGHT_UNITS.concat(VOLUME_UNITS);
   if(item){
     allUnitsForItem(item).forEach(function(u){
@@ -8039,7 +8222,7 @@ function pickInventoryItem(id){
   if(!it) return;
   var unitOpts = recipeUnitOptionsForItem(it);
   showModal(itemDisplayNameRaw(it),
-    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="number" inputmode="decimal" id="ing-amount" placeholder="-"></div>'+
+    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" inputmode="decimal" id="ing-amount" placeholder="'+t('ingAmountPh')+'"></div>'+
     '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u,idx){ return '<div class="tag-option '+(idx===0?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+u+'</div>'; }).join('')+'</div></div>'+
     '<button class="btn btn-primary" onclick="confirmAddIngredient(\'inventory\','+aj(id)+','+aj(it.name)+')">'+t('add')+'</button>'
   );
@@ -8055,7 +8238,7 @@ function getActivePill(containerId){
   return active ? active.getAttribute('data-u') : null;
 }
 function confirmAddIngredient(sourceType, id, name){
-  var amount = parseFloat(document.getElementById('ing-amount').value);
+  var amount = parseAmountInput(document.getElementById('ing-amount').value);
   var unit = getActivePill('ing-unit-pills');
   if(!amount || amount<=0){ showToast(state.lang==='zh'?'请输入用量':'Please enter an amount'); return; }
   addIngredientToRecipe(sourceType, id, name, amount, unit);
@@ -8437,7 +8620,7 @@ function ingredientGroupsEditorHtml(){
     var rowsHtml = seg.rows.map(function(r){
       return '<div class="ing-row" onclick="editRecipeIngredient('+r.idx+')"><div class="ing-info"><span class="ing-name">'+esc(recipeIngredientDisplayName(r.ri))+
         (r.ri.source_type==='external' ? ' <span style="font-size:11px;color:var(--almond);">('+t('pickExternal')+')</span>' : '')+
-        '</span><span class="ing-amt">'+fmtNum(r.ri.amount,1)+' '+esc(r.ri.unit)+'</span></div></div>';
+        '</span><span class="ing-amt">'+fmtAmount(r.ri.amount, r.ri.unit)+' '+esc(r.ri.unit)+'</span></div></div>';
     }).join('');
     return '<div class="ing-group-block">'+
       '<div class="ing-group-title-row">'+
@@ -8494,7 +8677,7 @@ function editRecipeIngredient(idx){
   }
   if(unitOpts.indexOf(ri.unit)===-1) unitOpts.unshift(ri.unit);
   showModal(esc(recipeIngredientDisplayName(ri)),
-    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="number" inputmode="decimal" id="ing-amount" value="'+ri.amount+'"></div>'+
+    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" inputmode="decimal" id="ing-amount" placeholder="'+t('ingAmountPh')+'" value="'+fmtAmount(ri.amount, ri.unit)+'"></div>'+
     '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u){ return '<div class="tag-option '+(u===ri.unit?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+u+'</div>'; }).join('')+'</div></div>'+
     '<div class="btn-row" style="margin-top:14px;">'+
       '<button class="btn btn-danger btn-sm" style="flex:1;" onclick="deleteRecipeIngredientFromModal('+idx+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
@@ -8503,7 +8686,7 @@ function editRecipeIngredient(idx){
   );
 }
 function confirmEditIngredient(idx){
-  var amount = parseFloat(document.getElementById('ing-amount').value);
+  var amount = parseAmountInput(document.getElementById('ing-amount').value);
   var unit = getActivePill('ing-unit-pills');
   if(!amount || amount<=0){ showToast(state.lang==='zh'?'请输入用量':'Please enter an amount'); return; }
   var ri = state.recipeDraft.ingredients[idx];
@@ -8618,7 +8801,7 @@ function confirmNewRecipeGroup(){
   var val = el ? el.value.trim() : '';
   if(!val) return;
   var id = 'g'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
-  state.recipeCategoryGroups.push({id:id, name:val, subs:[]});
+  state.recipeCategoryGroups.push({id:id, name:val, subs:[], color: nextCategoryColor()});
   saveRecipeCategoryGroups();
   state.recipeDraft.category_group = id;
   state.recipeDraft.category_sub = '';
@@ -8843,6 +9026,38 @@ function toggleRecipeNutriExpanded(){
   state.recipeDetailUI.nutriExpanded = !state.recipeDetailUI.nutriExpanded;
   render();
 }
+// README 9.117: derives the recipe's "制作记录" (made-on dates) purely from the item usage_log
+// entries confirmCook() already writes (destination_type:'recipe', recipe_id) - deliberately no
+// separate "did I cook this" flag to maintain, so there's exactly one source of truth and it can
+// never drift out of sync with what actually got deducted from inventory. Groups entries down
+// to the minute so the several ingredient-deduction rows written by a single 我做了这道菜 tap
+// collapse into one record instead of listing every ingredient's timestamp separately.
+function recipeCookRecords(recipeId){
+  var seen = {};
+  var records = [];
+  state.items.forEach(function(it){
+    (it.usage_log||[]).forEach(function(e){
+      if(e.destination_type!=='recipe' || e.recipe_id!==recipeId) return;
+      var key = e.date+'|'+(e.created_at||'').slice(0,16);
+      if(seen[key]) return;
+      seen[key] = true;
+      records.push({date:e.date, created_at:e.created_at||e.date});
+    });
+  });
+  records.sort(function(a,b){ return a.created_at < b.created_at ? 1 : -1; });
+  return records;
+}
+function recipeCookHistoryHtml(recipeId){
+  var records = recipeCookRecords(recipeId);
+  if(!records.length){
+    return '<p class="hint">'+t('recipeNeverCooked')+'</p>';
+  }
+  var shown = records.slice(0,5);
+  return '<p class="hint" style="margin-bottom:8px;">'+t('recipeCookedTimes').replace('{n}', records.length)+'</p>'+
+    '<div style="display:flex;flex-wrap:wrap;gap:8px;">'+
+      shown.map(function(r){ return '<span class="tag-option active" style="cursor:default;">'+esc(r.date)+'</span>'; }).join('')+
+    '</div>';
+}
 function renderRecipeDetail(){
   var id = state.params.id;
   var r = state.recipes.find(function(x){ return x.id===id; });
@@ -8875,7 +9090,7 @@ function renderRecipeDetail(){
     return '<div class="ing-list-row"'+attrs+'>'+
         '<span class="ing-list-name">'+esc(recipeIngredientDisplayName(ri))+'</span>'+
         '<span class="ing-list-dots"></span>'+
-        '<span class="ing-list-amt">'+fmtNum(ri.amount,1)+' '+esc(ri.unit)+'</span>'+
+        '<span class="ing-list-amt">'+fmtAmount(ri.amount, ri.unit)+' '+esc(ri.unit)+'</span>'+
         (linkedItem ? ic('chevronRight',15,'class="ing-list-chevron" style="color:#B79B78;"') : '')+
       '</div>';
   }).join('');
@@ -8891,7 +9106,9 @@ function renderRecipeDetail(){
       '<p style="color:var(--deep-caramel);font-size:14px;margin:0;">'+r.servings+' '+t('fieldServings')+' · '+recipeIngredientCount(r)+' '+t('sectionIngredients')+'</p>'+
       '<button class="btn btn-primary btn-sm" style="flex-shrink:0;" onclick="openCookConfirm('+aj(r.id)+')">'+t('cookThis')+'</button>'+
     '</div>'+
-    '<div class="section-title" style="margin-top:0;">'+t('sectionIngredients')+'</div>'+
+    '<div class="section-title" style="margin-top:0;">'+t('recipeCookHistoryTitle')+'</div>'+
+    '<div class="form-group">'+recipeCookHistoryHtml(r.id)+'</div>'+
+    '<div class="section-title">'+t('sectionIngredients')+'</div>'+
     '<div class="form-group">'+(ingHtml||('<p class="hint">'+t('noIngredientsYet')+'</p>'))+'</div>'+
     (function(){
       var steps = (r.steps && r.steps.length) ? r.steps : (r.instructions ? [r.instructions] : []);
@@ -8926,17 +9143,17 @@ function openCookConfirm(recipeId){
   var r = state.recipes.find(function(x){ return x.id===recipeId; });
   var lines = r.ingredients.filter(function(ri){ return ri.type!=='group'; }).map(function(ri){
     if(ri.source_type==='external'){
-      return {text: esc(recipeIngredientDisplayName(ri))+': '+fmtNum(ri.amount,1)+' '+esc(ri.unit), note:t('cookConfirmNone')};
+      return {text: esc(recipeIngredientDisplayName(ri))+': '+fmtAmount(ri.amount, ri.unit)+' '+esc(ri.unit), note:t('cookConfirmNone')};
     }
     var item = state.items.find(function(i){ return i.id===ri.source_id; });
     if(!item){
-      return {text: esc(ri.name_snapshot)+': '+fmtNum(ri.amount,1)+' '+esc(ri.unit), note:(state.lang==='zh'?'(已从库存中移除)':'(removed from inventory)')};
+      return {text: esc(ri.name_snapshot)+': '+fmtAmount(ri.amount, ri.unit)+' '+esc(ri.unit), note:(state.lang==='zh'?'(已从库存中移除)':'(removed from inventory)')};
     }
     var primaryNeeded = primaryEquivalentAmount(item, ri.amount, ri.unit);
     var canDeduct = primaryNeeded != null;
     var note = !canDeduct ? t('cookConfirmNoConversion')
       : ((item.primary_qty||0) < primaryNeeded - 1e-9 ? t('usageInsufficientWarn') : '');
-    return {text: esc(item.name)+': '+fmtNum(ri.amount,1)+' '+esc(ri.unit), note: note};
+    return {text: esc(item.name)+': '+fmtAmount(ri.amount, ri.unit)+' '+esc(ri.unit), note: note};
   });
   var bodyHtml = '<p class="hint" style="margin-bottom:14px;">'+t('cookConfirmHint')+'</p>' +
     lines.map(function(l){
@@ -10819,7 +11036,10 @@ function renderManageRecipeCategories(){
         '</div></div>';
     }).join('') || '<p class="hint" style="padding-left:24px;">'+(state.lang==='zh'?'还没有子分类':'No subcategories yet')+'</p>';
     return '<div class="list-row" onclick="toggleRecipeSidebarGroup('+aj(g.id)+')" style="cursor:pointer;">'+
-        '<div class="row-label">'+esc(g.name)+'</div>'+
+        '<div style="display:flex;align-items:center;gap:10px;min-width:0;">'+
+          '<div onclick="event.stopPropagation();openRecipeCategoryColorPicker('+aj(g.id)+')" style="width:20px;height:20px;border-radius:50%;flex-shrink:0;background:'+(g.color||'var(--line)')+';box-shadow:0 0 0 1px var(--line);"></div>'+
+          '<div class="row-label">'+esc(g.name)+'</div>'+
+        '</div>'+
         '<div style="display:flex;align-items:center;gap:4px;">'+
         '<button class="row-del" onclick="event.stopPropagation();openRenameRecipeGroupModal('+aj(g.id)+')">'+ic('edit',17)+'</button>'+
         '<button class="row-del" onclick="event.stopPropagation();deleteRecipeGroup('+aj(g.id)+')">'+ic('trash',18)+'</button>'+
