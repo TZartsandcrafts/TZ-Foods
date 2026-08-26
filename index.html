@@ -763,7 +763,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.117';
+var BUILD_VERSION = '9.118';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -813,10 +813,13 @@ function nutriUnits(){
 // left blank); the rest are common opt-in extras the person can toggle on as needed. These are
 // intentionally NOT part of NUTRI_KEYS/recipe math yet (see README) - stored separately on the
 // item as nutrition_extra.
-var NUTRI_EXTRA_CORE_KEYS = ['vitamin_d','calcium','iron','potassium'];
+// README 9.118: mineral order within the core tier-2 group changed to potassium/calcium/iron
+// (钾钙铁) per Lynn's spec - vitamin_d stays first (unchanged), only the three minerals after
+// it got reordered.
+var NUTRI_EXTRA_CORE_KEYS = ['vitamin_d','potassium','calcium','iron'];
 var NUTRI_EXTRA_OPTIONAL_KEYS = ['vitamin_a','vitamin_c','vitamin_e','magnesium','zinc','vitamin_b12'];
 var NUTRI_VITAMIN_KEYS = ['vitamin_d','vitamin_a','vitamin_c','vitamin_e','vitamin_b12'];
-var NUTRI_MINERAL_KEYS = ['calcium','iron','potassium','magnesium','zinc'];
+var NUTRI_MINERAL_KEYS = ['potassium','calcium','iron','magnesium','zinc'];
 // Reference nutrition for common generic produce/meat/fish (see README 9.85/9.86/9.87) - per
 // 100g raw, sourced from USDA FoodData Central. The meat/poultry/seafood entries added in 9.85/
 // 9.86 came from Lynn's own downloaded USDA Foundation Foods JSON (2026-04-30 release), read
@@ -2073,6 +2076,8 @@ var I18N = {
     fastScheduleStartLabel:'开始时间', fastScheduleEndLabel:'结束时间', fastScheduleInvalid:'请填写不同的开始和结束时间',
     fastingDisplaySettingTitle:'轻断食计时显示', fastingDisplayCountUp:'正数（已用时长）', fastingDisplayCountDown:'倒数（剩余时长）',
     fastingScheduleRangeLabel:'从', fastingScheduleRangeTo:'到',
+    fastingEnableLabel:'启用轻断食', fastingNotConfigured:'尚未设置',
+    mealSlotVisibilityTitle:'餐次显示', mealSlotAtLeastOneToast:'至少要保留一个餐次',
     mealsCalendarTitle:'选择日期',
     fastingNoneYet:'还没有断食记录',
     editFastEntryTitle:'编辑断食记录', fastFieldStart:'开始时间', fastFieldEnd:'结束时间',
@@ -2324,6 +2329,8 @@ var I18N = {
     fastScheduleStartLabel:'Start time', fastScheduleEndLabel:'End time', fastScheduleInvalid:'Please choose different start and end times',
     fastingDisplaySettingTitle:'Fasting Timer Display', fastingDisplayCountUp:'Count up (elapsed)', fastingDisplayCountDown:'Count down (remaining)',
     fastingScheduleRangeLabel:'From', fastingScheduleRangeTo:'to',
+    fastingEnableLabel:'Enable Fasting', fastingNotConfigured:'Not configured yet',
+    mealSlotVisibilityTitle:'Meal Slots', mealSlotAtLeastOneToast:'Keep at least one meal slot visible',
     mealsCalendarTitle:'Pick a Date',
     fastingNoneYet:'No fasting records yet',
     editFastEntryTitle:'Edit Fast', fastFieldStart:'Start time', fastFieldEnd:'End time',
@@ -2564,7 +2571,6 @@ var state = {
   // README 9.102: 轻断食计时器 + 血压/腰围/锻炼记录 (batch 4)
   fastingLogs: [],
   activeFast: null,
-  fastingUI: {},
   bpLogs: [],
   bpLogUI: null,
   waistLogs: [],
@@ -2646,6 +2652,18 @@ async function loadAll(){
   state.reminderDays = results[5].reminderDays != null ? results[5].reminderDays : 3;
   state.aiProxyUrl = results[5].aiProxyUrl || DEFAULT_AI_PROXY_URL;
   state.fastingDisplayMode = results[5].fastingDisplayMode || 'countdown';
+  // README 9.118: 轻断食 config moves from ephemeral, never-persisted state.fastingUI (reset to
+  // defaults every cold launch - so re-picking "16:8 schedule, 20:00-12:00" every single time
+  // was never actually optional, it was the only way to use the feature at all) into this same
+  // settings blob, exactly like fastingDisplayMode right above it. `enabled` gates whether the
+  // 轻断食 section shows on the 三餐 page at all - see fastingCardHtml.
+  state.fastingSettings = results[5].fastingSettings || {enabled:false, mode:'duration', presetHours:16, customMode:false, customText:'', scheduleStart:'20:00', scheduleEnd:'12:00'};
+  // README 9.118: which of the 4 meal slots actually show on the 三餐 page - see
+  // mealsSettingsVisibleSlotsHtml. A slot left off this list doesn't render its section and
+  // isn't offered in the FAB's meal-slot menu, so nothing new ever gets logged into it -
+  // existing logged entries for it (if any, from before it was hidden) are untouched, just not
+  // shown a new "add" entry point.
+  state.visibleMealSlots = results[5].visibleMealSlots || MEAL_SLOTS.slice();
   // README 9.97: 笔记 feature removed (see changelog) - results[6]/[7] (notes/noteCategories)
   // are still fetched above on purpose, just no longer assigned into state. Confirmed with Lynn
   // there was no actual note data saved, but leaving the storage read itself in place (instead
@@ -2755,7 +2773,7 @@ function saveRecipes(){
   cloudSyncPushRecipeChanges();
   return p;
 }
-function saveSettings(){ return storageSet('settings', {lang:state.lang, reminderDays:state.reminderDays, aiProxyUrl:state.aiProxyUrl, fastingDisplayMode:state.fastingDisplayMode}); }
+function saveSettings(){ return storageSet('settings', {lang:state.lang, reminderDays:state.reminderDays, aiProxyUrl:state.aiProxyUrl, fastingDisplayMode:state.fastingDisplayMode, fastingSettings:state.fastingSettings, visibleMealSlots:state.visibleMealSlots}); }
 function saveMealLogs(){ return storageSet('mealLogs', state.mealLogs); }
 function saveWeightLogs(){ return storageSet('weightLogs', state.weightLogs); }
 function saveFastingLogs(){ return storageSet('fastingLogs', state.fastingLogs); }
@@ -3688,12 +3706,18 @@ function addMenuOptionsForCurrentSection(){
   var isMeals = (v==='meals'||v==='fastingHistory'||v==='mealsHistory'||v==='mealsSettings'||v==='planSettings'||v==='macroPresetPicker');
   var isHealth = (v==='health'||v==='bpHistory'||v==='waistHistory'||v==='exerciseHistory'||v==='weightHistory'||v==='healthSettings'||v==='personalInfo');
   if(isRecipes) return null; // signals "no menu - do the direct action instead"
-  if(isMeals) return [
-    {icon:'spoon', label:t('mealSlot_breakfast'), action:"openAddFoodModal(state.mealsUI.date,'breakfast')"},
-    {icon:'spoon', label:t('mealSlot_lunch'), action:"openAddFoodModal(state.mealsUI.date,'lunch')"},
-    {icon:'spoon', label:t('mealSlot_dinner'), action:"openAddFoodModal(state.mealsUI.date,'dinner')"},
-    {icon:'spoon', label:t('mealSlot_snack'), action:"openAddFoodModal(state.mealsUI.date,'snack')"}
-  ];
+  if(isMeals){
+    // README 9.118: only offer meal slots the person has actually chosen to show on 三餐设置 -
+    // a hidden slot has nowhere to add food into via the FAB, matching how its section is
+    // omitted from the page itself.
+    var slotOptions = {
+      breakfast: {icon:'spoon', label:t('mealSlot_breakfast'), action:"openAddFoodModal(state.mealsUI.date,'breakfast')"},
+      lunch: {icon:'spoon', label:t('mealSlot_lunch'), action:"openAddFoodModal(state.mealsUI.date,'lunch')"},
+      dinner: {icon:'spoon', label:t('mealSlot_dinner'), action:"openAddFoodModal(state.mealsUI.date,'dinner')"},
+      snack: {icon:'spoon', label:t('mealSlot_snack'), action:"openAddFoodModal(state.mealsUI.date,'snack')"}
+    };
+    return MEAL_SLOTS.filter(function(s){ return state.visibleMealSlots.indexOf(s)!==-1; }).map(function(s){ return slotOptions[s]; });
+  }
   if(isHealth) return [
     {icon:'scale', label:t('logWeightBtn'), action:"openWeightLogModal(null)"},
     {icon:'ruler', label:t('logWaistBtn'), action:"openWaistLogModal(null)"},
@@ -6387,19 +6411,22 @@ function renderItemDetail(){
 // Hierarchy for the fixed "营养标签" rows, matching a standard Nutrition Facts panel:
 // saturated/trans fat nest under Total Fat; fiber/sugars nest under Total Carbohydrate,
 // and added sugars nest one level deeper under total sugars.
+// README 9.118: reordered to match Canada's Nutrition Facts label sequence per Lynn's spec -
+// Fat, Carbs, Protein, Cholesterol, Sodium (previously Fat, Cholesterol, Sodium, Carbs, Protein -
+// this used to put cholesterol/sodium ahead of carbs/protein, which isn't the order she wants).
 var NUTRI_TIER1_ROWS = [
   {key:'fat', level:0, bold:true},
   {key:'saturated_fat', level:1},
   {key:'trans_fat', level:1},
   {key:'monounsaturated_fat', level:1, optional:true},
   {key:'polyunsaturated_fat', level:1, optional:true},
-  {key:'cholesterol', level:0, bold:true},
-  {key:'sodium', level:0, bold:true},
   {key:'carbs', level:0, bold:true},
   {key:'fiber', level:1},
   {key:'sugar', level:1},
   {key:'added_sugar', level:2},
-  {key:'protein', level:0, bold:true}
+  {key:'protein', level:0, bold:true},
+  {key:'cholesterol', level:0, bold:true},
+  {key:'sodium', level:0, bold:true}
 ];
 // Renders one continuous Nutrition Facts style box: basis line, big Calories row bracketed
 // by thick rules, the hierarchical fat/carb rows, then any filled-in tier-2 vitamins/minerals
@@ -9194,6 +9221,19 @@ function confirmCook(recipeId){
    today's actual intake against state.weightPlan's target - which is exactly why batch 2
    (health page: BMR/EER, weight plan, macro presets) had to come before this one. */
 var MEAL_SLOTS = ['breakfast','lunch','dinner','snack'];
+// README 9.118: guards against ending up with zero visible slots (nothing to toggle back on
+// from the settings page if every checkbox were off) - always keeps at least one.
+function setMealSlotVisible(slot, val){
+  var list = state.visibleMealSlots.slice();
+  if(val){ if(list.indexOf(slot)===-1) list.push(slot); }
+  else {
+    if(list.length<=1){ showToast(t('mealSlotAtLeastOneToast')); return; }
+    list = list.filter(function(s){ return s!==slot; });
+  }
+  state.visibleMealSlots = MEAL_SLOTS.filter(function(s){ return list.indexOf(s)!==-1; });
+  saveSettings();
+  render();
+}
 function mealsUIDefaults(){
   if(!state.mealsUI || !state.mealsUI.date) state.mealsUI = {date: todayStr(), macroView:'pie', addFood:null};
 }
@@ -9270,6 +9310,10 @@ function setMacroView(v){
   var order = {pie:0, bar:1};
   state.mealsUI.macroSlideDir = order[v] > order[state.mealsUI.macroView||'pie'] ? 'right' : 'left';
   state.mealsUI.macroView = v;
+  // README 9.118: one-shot flag consumed by macroWidgetHtml below - see its own comment for why
+  // this exists (fixes the chart replaying its slide-in animation on every unrelated re-render,
+  // e.g. opening/closing the FAB menu, not just an actual pie<->bar switch).
+  state.mealsUI.macroAnimPending = true;
   render();
 }
 // README: clicking anywhere within the macro card's border toggles pie<->bar - the main way
@@ -9298,25 +9342,25 @@ function toggleMacroView(){
      it's stored in state.activeFast exactly like a duration-mode fast - everything downstream
      (progress bar, remaining time, end/cancel, history) is agnostic to which mode created it. */
 var FASTING_PRESETS = [16, 18, 20, 23];
-function fastingUIDefaults(){
-  if(!state.fastingUI || state.fastingUI.presetHours==null){
-    state.fastingUI = {mode:'duration', presetHours:16, customMode:false, customText:'', scheduleStart:'20:00', scheduleEnd:'12:00'};
-  }
-}
-function setFastingMode(mode){ fastingUIDefaults(); state.fastingUI.mode=mode; render(); }
-function setFastingPreset(h){ fastingUIDefaults(); state.fastingUI.presetHours=h; state.fastingUI.customMode=false; render(); }
-function setFastingCustomMode(){ fastingUIDefaults(); state.fastingUI.customMode=true; render(); }
-function fastingCustomInput(val){ fastingUIDefaults(); state.fastingUI.customText=val; }
+// README 9.118: setFastingMode/setFastingPreset/etc. all write into state.fastingSettings now
+// (persisted - see loadAll/saveSettings) instead of the old ephemeral state.fastingUI, and each
+// one calls saveSettings() so a choice made on the 三餐设置 page actually sticks across app
+// restarts, not just until the next cold launch.
+function setFastingEnabled(val){ state.fastingSettings.enabled = !!val; saveSettings(); render(); }
+function setFastingMode(mode){ state.fastingSettings.mode=mode; saveSettings(); render(); }
+function setFastingPreset(h){ state.fastingSettings.presetHours=h; state.fastingSettings.customMode=false; saveSettings(); render(); }
+function setFastingCustomMode(){ state.fastingSettings.customMode=true; render(); }
+function fastingCustomInput(val){ state.fastingSettings.customText=val; }
+function onFastingCustomBlur(){ saveSettings(); }
 // Time <input type="time"> is a native wheel/column picker on iOS (no soft keyboard involved),
 // so re-rendering on every change here doesn't have the keyboard-dismissal problem a text
 // input would (see README 9.103's fix for the weekly-rate field for that story) - safe to
 // render immediately so the computed duration preview below the pickers stays live.
-function fastingScheduleInput(field, val){ fastingUIDefaults(); state.fastingUI[field]=val; render(); }
+function fastingScheduleInput(field, val){ state.fastingSettings[field]=val; saveSettings(); render(); }
 function currentFastingTargetHours(){
-  fastingUIDefaults();
-  var ui = state.fastingUI;
-  if(ui.customMode){ var n = parseFloat(ui.customText); return (n>0) ? n : null; }
-  return ui.presetHours;
+  var s = state.fastingSettings;
+  if(s.customMode){ var n = parseFloat(s.customText); return (n>0) ? n : null; }
+  return s.presetHours;
 }
 function parseHHMM(s){
   var m = /^(\d{1,2}):(\d{2})$/.exec(s||'');
@@ -9393,8 +9437,7 @@ function fastingDisplayValues(){
   return {mainText:mainText, belowHtml:belowHtml, pct:pct};
 }
 function startFast(){
-  fastingUIDefaults();
-  var ui = state.fastingUI;
+  var ui = state.fastingSettings;
   var startedAt, hours;
   if(ui.mode==='schedule'){
     var sm = parseHHMM(ui.scheduleStart), em = parseHHMM(ui.scheduleEnd);
@@ -9427,9 +9470,13 @@ function cancelFast(){
     render();
   }, {title:t('cancelFastBtn')});
 }
+// README 9.118: the 三餐 page's own fasting card no longer contains any configuration UI at
+// all - just the countdown/countup while a fast is active, or a single "开始轻断食" button
+// (using whatever mode/preset/schedule was configured on 三餐设置) when it isn't. If 轻断食
+// hasn't been enabled in settings, this returns '' and the whole section is omitted from the
+// page - see renderMeals.
 function fastingCardHtml(){
-  fastingUIDefaults();
-  var ui = state.fastingUI;
+  if(!state.fastingSettings.enabled) return '';
   var body;
   if(state.activeFast){
     var fd = fastingDisplayValues();
@@ -9447,9 +9494,49 @@ function fastingCardHtml(){
         '<button class="btn btn-outline" style="flex:1;" onclick="cancelFast()">'+t('cancelFastBtn')+'</button>'+
       '</div>';
   } else {
-    var schedHours = ui.mode==='schedule' ? scheduleDurationHours(ui.scheduleStart, ui.scheduleEnd) : null;
+    var ui = state.fastingSettings;
+    var summary = ui.mode==='schedule'
+      ? (esc(ui.scheduleStart)+' → '+esc(ui.scheduleEnd))
+      : (currentFastingTargetHours() ? (fmtNum(currentFastingTargetHours(),1)+'h') : t('fastingNotConfigured'));
     body = '' +
-      '<div class="tag-select" style="justify-content:center;margin-bottom:10px;">'+
+      '<div class="hint" style="margin-bottom:10px;">'+summary+'</div>'+
+      '<button class="btn btn-primary" style="width:100%;" onclick="startFast()">'+t('startFastBtn')+'</button>';
+  }
+  return '' +
+    '<div class="section-title" style="margin-top:0;">'+t('fastingSection')+'</div>'+
+    '<div class="form-group" style="text-align:center;">'+
+      body +
+      '<div class="list-row" onclick="navigate(\'fastingHistory\')" style="cursor:pointer;margin-top:10px;text-align:left;"><div class="row-label">'+t('fastingHistoryBtn')+'</div>'+ic('chevronRight',18)+'</div>'+
+    '</div>';
+}
+// README 9.118: the mode/preset/schedule picker that used to live inline on the 三餐 page's
+// fasting card, now on 三餐设置 instead - see renderMealsSettings. Structurally the same markup
+// as before, just reading/writing state.fastingSettings instead of state.fastingUI.
+// README 9.118: 三餐设置 section for which of the 4 meal slots actually show on the 三餐 page -
+// unchecking one removes its section from 三餐 and its option from the FAB menu (see renderMeals
+// / addMenuOptionsForCurrentSection), so nothing new can be logged into it; a slot's past logged
+// entries (if any, from before it was hidden) are left completely alone.
+function mealsSettingsVisibleSlotsHtml(){
+  return '' +
+    '<div class="section-title" style="margin-top:0;">'+t('mealSlotVisibilityTitle')+'</div>'+
+    '<div class="form-group">'+
+      MEAL_SLOTS.map(function(slot, i){
+        var on = state.visibleMealSlots.indexOf(slot)!==-1;
+        return '<div class="list-row"'+(i>0?' style="border-top:1px solid var(--line);"':'')+'>'+
+          '<div class="row-label">'+t('mealSlot_'+slot)+'</div>'+
+          '<label class="switch"><input type="checkbox" '+(on?'checked':'')+' onchange="setMealSlotVisible('+aj(slot)+',this.checked)"><span class="switch-slider"></span></label>'+
+        '</div>';
+      }).join('')+
+    '</div>';
+}
+function fastingSettingsSectionHtml(){
+  var ui = state.fastingSettings;
+  var enabled = !!ui.enabled;
+  var pickerHtml = '';
+  if(enabled){
+    var schedHours = ui.mode==='schedule' ? scheduleDurationHours(ui.scheduleStart, ui.scheduleEnd) : null;
+    pickerHtml = '' +
+      '<div class="tag-select" style="justify-content:center;margin:12px 0 10px;">'+
         '<div class="tag-option '+(ui.mode!=='schedule'?'active':'')+'" onclick="setFastingMode(\'duration\')">'+t('fastingModeDuration')+'</div>'+
         '<div class="tag-option '+(ui.mode==='schedule'?'active':'')+'" onclick="setFastingMode(\'schedule\')">'+t('fastingModeSchedule')+'</div>'+
       '</div>'+
@@ -9464,15 +9551,14 @@ function fastingCardHtml(){
           FASTING_PRESETS.map(function(h){ return '<div class="tag-option '+((!ui.customMode && ui.presetHours===h)?'active':'')+'" onclick="setFastingPreset('+h+')">'+h+':'+(24-h)+'</div>'; }).join('')+
           '<div class="tag-option '+(ui.customMode?'active':'')+'" onclick="setFastingCustomMode()">'+t('fastingCustomLabel')+'</div>'+
         '</div>'+
-        (ui.customMode ? ('<div class="field" style="margin-top:10px;margin-bottom:0;"><input type="number" inputmode="decimal" placeholder="'+t('fieldTargetHours')+'" value="'+esc(ui.customText)+'" oninput="fastingCustomInput(this.value)"></div>') : ''))
-      )+
-      '<button class="btn btn-primary" style="width:100%;margin-top:12px;" onclick="startFast()">'+t('startFastBtn')+'</button>';
+        (ui.customMode ? ('<div class="field" style="margin-top:10px;margin-bottom:0;"><input type="number" inputmode="decimal" placeholder="'+t('fieldTargetHours')+'" value="'+esc(ui.customText)+'" oninput="fastingCustomInput(this.value)" onblur="onFastingCustomBlur()"></div>') : ''))
+      );
   }
   return '' +
     '<div class="section-title" style="margin-top:0;">'+t('fastingSection')+'</div>'+
-    '<div class="form-group" style="text-align:center;">'+
-      body +
-      '<div class="list-row" onclick="navigate(\'fastingHistory\')" style="cursor:pointer;margin-top:10px;text-align:left;"><div class="row-label">'+t('fastingHistoryBtn')+'</div>'+ic('chevronRight',18)+'</div>'+
+    '<div class="form-group">'+
+      '<div class="list-row"><div class="row-label">'+t('fastingEnableLabel')+'</div><label class="switch"><input type="checkbox" '+(enabled?'checked':'')+' onchange="setFastingEnabled(this.checked)"><span class="switch-slider"></span></label></div>'+
+      pickerHtml+
     '</div>';
 }
 function tickFastingTimer(){
@@ -9512,7 +9598,7 @@ function renderMeals(){
   '</div>';
 
   var macroWidget = budget!=null ? macroWidgetHtml(totals, budget) : '';
-  var slotsHtml = MEAL_SLOTS.map(function(slot){ return mealSlotSectionHtml(date, slot); }).join('');
+  var slotsHtml = MEAL_SLOTS.filter(function(slot){ return state.visibleMealSlots.indexOf(slot)!==-1; }).map(function(slot){ return mealSlotSectionHtml(date, slot); }).join('');
 
   return '' +
   '<div class="topbar"><div><h1>🍽️ '+t('mealsTitle')+'</h1></div>'+menuButtonHtml('meals', true)+'</div>'+
@@ -9572,10 +9658,20 @@ function macroWidgetHtml(totals, budget){
   // popping into place, which is what made the swipe/dot-tap feel like a jump rather than a
   // slide. Keyed on `view` in the animation-name (not a persistent transform) so it replays
   // every time the view actually changes but does nothing on unrelated re-renders of this page.
+  // README 9.118: that last part wasn't actually true before this fix - render() rebuilds the
+  // WHOLE current view's HTML from scratch on every state change (tapping the FAB, closing it,
+  // anything), which recreates this div as a brand-new DOM node every time regardless of what
+  // triggered the render, and a brand-new node with animation-name set replays the keyframe
+  // animation from scratch - that's what made the chart visibly slide-and-snap-back on every
+  // +/x tap even though macroView never changed. macroAnimPending is a one-shot flag set only by
+  // setMacroView itself and consumed (read then cleared) right here, so the animation only
+  // actually plays on the one render that immediately follows a real pie<->bar switch.
+  var animPending = !!state.mealsUI.macroAnimPending;
+  state.mealsUI.macroAnimPending = false;
   var slideAnim = state.mealsUI.macroSlideDir==='left' ? 'macroSlideInLeft' : 'macroSlideInRight';
   return '<div class="section-title">'+t('macroDistLabel')+'</div>'+
     '<div class="form-group macro-widget-swipe-area" id="macro-widget-container" onclick="toggleMacroView()" style="cursor:pointer;">'+
-      '<div class="macro-view-slide" style="animation-name:'+slideAnim+';">'+inner+'</div>'+
+      '<div class="macro-view-slide" style="'+(animPending ? ('animation-name:'+slideAnim+';') : '')+'">'+inner+'</div>'+
       '<div style="display:flex;justify-content:center;gap:7px;margin-top:12px;">'+
         '<span class="macro-view-dot '+(view==='pie'?'active':'')+'" onclick="event.stopPropagation();setMacroView(\'pie\')"></span>'+
         '<span class="macro-view-dot '+(view==='bar'?'active':'')+'" onclick="event.stopPropagation();setMacroView(\'bar\')"></span>'+
@@ -10743,7 +10839,9 @@ function renderMealsSettings(){
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'meals\')">'+ic('back',22)+'</button><h1>'+t('mealsSettingsTitle')+'</h1></div>'+
   '<div class="content">'+
-    '<div class="section-title" style="margin-top:0;">'+t('fastingDisplaySettingTitle')+'</div>'+
+    mealsSettingsVisibleSlotsHtml()+
+    fastingSettingsSectionHtml()+
+    '<div class="section-title">'+t('fastingDisplaySettingTitle')+'</div>'+
     '<div class="lang-toggle" style="margin-bottom:8px;">'+
       '<button class="'+(state.fastingDisplayMode!=='countup'?'active':'')+'" onclick="setFastingDisplayMode(\'countdown\')">'+t('fastingDisplayCountDown')+'</button>'+
       '<button class="'+(state.fastingDisplayMode==='countup'?'active':'')+'" onclick="setFastingDisplayMode(\'countup\')">'+t('fastingDisplayCountUp')+'</button>'+
