@@ -763,7 +763,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.118';
+var BUILD_VERSION = '9.119';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2266,7 +2266,7 @@ var I18N = {
     photoProcessing:'正在处理图片…', photoTooLarge:'图片仍然偏大，请换一张更简单/更小的图片试试',
     photoProcessFailed:'图片处理失败，请换一张试试',
     manageRecipeCategories:'管理食谱分类', manageRecipeCategoriesTitle:'管理食谱分类', addRecipeGroupPh:'新分类名称', addRecipeSubPh:'新子分类名称',
-    pickCategoryColorTitle:'选择分类色条颜色',
+    pickCategoryColorTitle:'选择分类色条颜色', pickSubCategoryColorTitle:'选择子分类色条颜色',
     // sidebars
     statTotal:'总数', statExpired:'过期', statSoon:'临期', statUsedUp:'用完',
     fieldRecipeCategory:'分类', fieldRecipeSubCategory:'子分类',
@@ -2512,7 +2512,7 @@ var I18N = {
     photoProcessing:'Processing image…', photoTooLarge:'Image is still too large, please try a smaller/simpler photo',
     photoProcessFailed:'Failed to process image, please try another one',
     manageRecipeCategories:'Manage Recipe Categories', manageRecipeCategoriesTitle:'Manage Recipe Categories', addRecipeGroupPh:'New category name', addRecipeSubPh:'New subcategory name',
-    pickCategoryColorTitle:'Choose a category color',
+    pickCategoryColorTitle:'Choose a category color', pickSubCategoryColorTitle:'Choose a subcategory color',
     // sidebars
     statTotal:'Total items', statExpired:'Expired', statSoon:'Expiring soon', statUsedUp:'Used up',
     fieldRecipeCategory:'Category', fieldRecipeSubCategory:'Sub-category',
@@ -3284,9 +3284,16 @@ function qtyGroupDisplayText(qty, unit, packAmount, packUnit, qtyDigits){
     // it stays at N for any remaining total in (packAmount*(N-1), packAmount*N], and only
     // drops to N-1 once the total actually reaches packAmount*(N-1) or below), matching how
     // real life talks about "还有12罐 x 1箱" rather than "24罐 x 0.5箱".
+    // README 9.119: separator changed from " x " to " / " for this derived total+container
+    // display specifically (the edit page's own packAmt-times-count spec row still legitimately
+    // uses "x" - that one really is a multiplication, e.g. "355ml x 7件"). Here, though, the
+    // first number is the TOTAL across every container, not a per-container amount, so "x"
+    // reads as if it were multiplying (implying 2485ml *each*, times 7) - see the 2485ml x 7件
+    // beer example from Lynn's screenshot. "/" reads correctly as "this total, split across
+    // this many containers" instead.
     var totalSub = (qty==null) ? null : qty*packAmount;
     var containers = (totalSub==null) ? null : (totalSub<=1e-9 ? 0 : Math.ceil(totalSub/packAmount - 1e-6));
-    return fmtNum(totalSub, packSubDigits(packUnit))+packUnit+' x '+fmtNum(containers,0)+(unit||'');
+    return fmtNum(totalSub, packSubDigits(packUnit))+packUnit+' / '+fmtNum(containers,0)+(unit||'');
   }
   return fmtNum(qty, qtyDigits) + (unit||'');
 }
@@ -7883,27 +7890,41 @@ function nextCategoryColor(){
 function recipeGroupById(id){
   return state.recipeCategoryGroups.find(function(g){ return g.id===id; });
 }
+// README 9.119: recipe cards use the SUB-category's own color when the recipe is filed under
+// one and that sub has a color set, falling back to the parent group's color otherwise (either
+// because the recipe has no sub, or its sub hasn't been given its own color yet) - see
+// setRecipeCategoryColor/recipeCategoryColorPickerHtml just below for how subs get colored.
 function recipeCategoryColor(r){
   var g = r.category_group ? recipeGroupById(r.category_group) : null;
-  return (g && g.color) || null;
+  if(!g) return null;
+  if(r.category_sub && g.subColors && g.subColors[r.category_sub]) return g.subColors[r.category_sub];
+  return g.color || null;
 }
-function recipeCategoryColorPickerHtml(groupId){
+// sub is optional - omitted (or null) picks a color for the group itself; passed, picks a color
+// for that one sub-category, stored separately in g.subColors so it doesn't disturb the
+// group's own color or any other sub's.
+function recipeCategoryColorPickerHtml(groupId, sub){
   var g = recipeGroupById(groupId);
-  var current = g ? g.color : null;
+  var current = g ? (sub ? (g.subColors||{})[sub] : g.color) : null;
   return '<div style="display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:6px 0 4px;">'+
     CATEGORY_COLOR_FLAT.map(function(c){
-      return '<div onclick="setRecipeCategoryColor('+aj(groupId)+','+aj(c)+')" style="width:34px;height:34px;border-radius:50%;background:'+c+';cursor:pointer;'+
+      return '<div onclick="setRecipeCategoryColor('+aj(groupId)+','+aj(c)+','+aj(sub||null)+')" style="width:34px;height:34px;border-radius:50%;background:'+c+';cursor:pointer;'+
         (current===c ? 'box-shadow:0 0 0 3px var(--card-bg),0 0 0 5px var(--cocoa);' : 'box-shadow:0 0 0 1px var(--line);')+'"></div>';
     }).join('')+
   '</div>';
 }
-function openRecipeCategoryColorPicker(groupId){
-  showModal(t('pickCategoryColorTitle'), recipeCategoryColorPickerHtml(groupId));
+function openRecipeCategoryColorPicker(groupId, sub){
+  showModal(t(sub ? 'pickSubCategoryColorTitle' : 'pickCategoryColorTitle'), recipeCategoryColorPickerHtml(groupId, sub));
 }
-function setRecipeCategoryColor(groupId, color){
+function setRecipeCategoryColor(groupId, color, sub){
   var g = recipeGroupById(groupId);
   if(!g) return;
-  g.color = color;
+  if(sub){
+    g.subColors = g.subColors || {};
+    g.subColors[sub] = color;
+  } else {
+    g.color = color;
+  }
   saveRecipeCategoryGroups();
   closeModal();
   render();
@@ -11127,7 +11148,10 @@ function renderManageRecipeCategories(){
   var groupsHtml = state.recipeCategoryGroups.map(function(g){
     var expanded = state.recipesUI.expandedGroup === g.id;
     var subRows = (g.subs||[]).map(function(s){
-      return '<div class="list-row" style="padding-left:24px;"><div class="row-label">'+esc(s)+'</div>'+
+      var subColor = (g.subColors||{})[s];
+      return '<div class="list-row" style="padding-left:24px;"><div style="display:flex;align-items:center;gap:10px;min-width:0;">'+
+        '<div onclick="event.stopPropagation();openRecipeCategoryColorPicker('+aj(g.id)+','+aj(s)+')" style="width:16px;height:16px;border-radius:50%;flex-shrink:0;background:'+(subColor||g.color||'var(--line)')+';box-shadow:0 0 0 1px var(--line);"></div>'+
+        '<div class="row-label">'+esc(s)+'</div></div>'+
         '<div style="display:flex;gap:4px;">'+
         '<button class="row-del" onclick="openRenameRecipeSubModal('+aj(g.id)+','+aj(s)+')">'+ic('edit',17)+'</button>'+
         '<button class="row-del" onclick="deleteRecipeSub('+aj(g.id)+','+aj(s)+')">'+ic('trash',18)+'</button>'+
@@ -11277,6 +11301,13 @@ function confirmRenameRecipeSub(groupId, oldSub){
   var idx = g.subs.indexOf(oldSub);
   if(idx===-1){ closeModal(); return; }
   g.subs[idx] = val;
+  // README 9.119: subColors is keyed by the sub's own name string (subs are just free-form
+  // strings, no stable id) - rename the color entry along with the sub itself, or a renamed
+  // sub would silently lose its color and fall back to the group's.
+  if(g.subColors && g.subColors[oldSub]!=null){
+    g.subColors[val] = g.subColors[oldSub];
+    delete g.subColors[oldSub];
+  }
   state.recipes.forEach(function(r){ if(r.category_group===groupId && r.category_sub===oldSub) r.category_sub=val; });
   if(state.recipesUI.groupId===groupId && state.recipesUI.sub===oldSub) state.recipesUI.sub=val;
   saveRecipeCategoryGroups();
@@ -11290,6 +11321,7 @@ function deleteRecipeSub(groupId, sub){
   var inUse = state.recipes.some(function(r){ return r.category_group===groupId && r.category_sub===sub; });
   function doDelete(){
     g.subs = (g.subs||[]).filter(function(s){ return s!==sub; });
+    if(g.subColors) delete g.subColors[sub];
     state.recipes.forEach(function(r){ if(r.category_group===groupId && r.category_sub===sub) r.category_sub=''; });
     if(state.recipesUI.groupId===groupId && state.recipesUI.sub===sub) state.recipesUI.sub=null;
     saveRecipeCategoryGroups();
