@@ -671,6 +671,40 @@
   .item-detail-action-btn.edit{ border-color:var(--almond); color:var(--almond); }
   .item-detail-action-btn.archive{ border-color:var(--deep-caramel); color:var(--deep-caramel); }
   .item-detail-action-btn.danger{ border-color:var(--danger); color:var(--danger); }
+  /* README 9.121: small, no-fill "查看取用记录" link under the item info card - deliberately
+     NOT full width or filled, since it's a secondary "go look at more detail" action, not
+     something competing with 取用/编辑/删除 for attention. */
+  .text-link-btn{
+    display:inline-flex; align-items:center; gap:5px; padding:6px 2px; border:none; background:none;
+    color:var(--deep-caramel); font-size:13.5px; font-weight:500; cursor:pointer; width:auto;
+  }
+  .text-link-btn:active{ opacity:0.6; }
+  /* ---- 取用 type picker (README 9.121) - the 4 destination_type choices, now chosen up front
+     via this modal instead of being just another tag-select buried in the entry form. Same
+     visual family as item-detail-action-btn (rounded square, icon over label, colored border)
+     but each of the 4 gets its own accent color so the same 4 colors can double as the usage-
+     history calendar's per-day dot colors (see usageCalendarBodyHtml) - picking a type here and
+     recognizing its entries on the calendar later use the same color language. */
+  .usage-type-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .usage-type-btn{
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px;
+    padding:16px 8px; border-radius:13px; border:1.5px solid var(--line); background:var(--card-bg);
+    cursor:pointer; font-size:14px; font-weight:600; color:var(--cocoa);
+  }
+  .usage-type-btn:active{ background:var(--cream-2); transform:scale(0.97); }
+  .usage-type-btn.type-move{ border-color:var(--deep-caramel); color:var(--deep-caramel); }
+  .usage-type-btn.type-recipe{ border-color:var(--fresh); color:var(--fresh); }
+  .usage-type-btn.type-adjust{ border-color:var(--almond); color:var(--almond); }
+  .usage-type-btn.type-free{ border-color:var(--usedup); color:var(--usedup); }
+  /* ---- inline usage-log calendar (README 9.121) ---- */
+  .usage-cal-grid{ display:grid; grid-template-columns:repeat(7,1fr); gap:2px; text-align:center; }
+  .usage-cal-weekday{ font-size:12px; color:var(--deep-caramel); padding:4px 0; font-weight:600; }
+  .usage-cal-day{ position:relative; padding:9px 0 12px; border-radius:9px; cursor:pointer; font-size:14.5px; color:var(--cocoa); }
+  .usage-cal-day:active{ background:var(--cream-2); }
+  .usage-cal-day.today{ font-weight:700; }
+  .usage-cal-day.selected{ background:var(--almond); color:#fff; font-weight:700; }
+  .usage-cal-dots{ position:absolute; bottom:3px; left:50%; transform:translateX(-50%); display:flex; gap:2px; }
+  .usage-cal-dot{ width:4px; height:4px; border-radius:50%; }
 
   .toast{
     position:fixed; bottom:calc(96px + var(--safe-bottom)); left:50%; transform:translateX(-50%);
@@ -770,7 +804,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.120';
+var BUILD_VERSION = '9.121';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2184,7 +2218,10 @@ var I18N = {
     // detail
     detailQtyLabel:'当前库存',
     usageBtn:'取用', usageLogTitle:'取用记录', usageLogAddTitle:'记录使用', usageLogEmpty:'还没有取用记录',
+    viewUsageHistoryBtn:'查看取用记录',
+    usageTypePickerTitle:'选择取用类型', usageTypeMoveDesc:'移动到其它位置', usageTypeRecipeDesc:'关联到某个食谱', usageTypeAdjustDesc:'手动调整剩余量', usageTypeFreeDesc:'其它去向',
     usageDate:'日期', usageDestination:'去向', usageDestFree:'自由输入', usageDestRecipe:'关联食谱', usageDestMove:'移动位置', usageDestAdjust:'调整余量',
+    usageNotesLabel:'备注',
     usageDestPlaceholder:'比如：早餐吐司、送朋友、直接吃掉了', usageAmount:'数量', usageAdjustAmountLabel:'调整后剩余数量', usageAdjustCurrentPrefix:'当前库存约为 ',
     usageAdjustPreviewDecrease:'将扣减', usageAdjustPreviewIncrease:'将增加', usageAdjustPreviewNoChange:'跟当前库存一致，不会有变化',
     usageAdjustDecreaseToast:'已调整，库存已扣减', usageAdjustIncreaseToast:'已调整，库存已增加', usageAdjustNoChangeToast:'库存没有变化',
@@ -2434,7 +2471,10 @@ var I18N = {
     addNewTag:'+ New', newTagPrompt:'Enter new tag name',
     detailQtyLabel:'Current stock',
     usageBtn:'Use', usageLogTitle:'Usage Log', usageLogAddTitle:'Log Usage', usageLogEmpty:'No usage logged yet',
+    viewUsageHistoryBtn:'View Usage History',
+    usageTypePickerTitle:'What kind of usage?', usageTypeMoveDesc:'Move to another location', usageTypeRecipeDesc:'Used in a recipe', usageTypeAdjustDesc:'Manually correct the amount', usageTypeFreeDesc:'Something else',
     usageDate:'Date', usageDestination:'Where it went', usageDestFree:'Free text', usageDestRecipe:'Link a recipe', usageDestMove:'Move to another location', usageDestAdjust:'Adjust remaining',
+    usageNotesLabel:'Note',
     usageDestPlaceholder:'e.g. breakfast toast, gave to a friend, ate it plain', usageAmount:'Amount', usageAdjustAmountLabel:'Remaining after adjustment', usageAdjustCurrentPrefix:'Currently about ',
     usageAdjustPreviewDecrease:'Will deduct', usageAdjustPreviewIncrease:'Will add', usageAdjustPreviewNoChange:'Matches current stock, no change',
     usageAdjustDecreaseToast:'Adjusted - stock deducted', usageAdjustIncreaseToast:'Adjusted - stock increased', usageAdjustNoChangeToast:'No change to stock',
@@ -4117,6 +4157,28 @@ document.addEventListener('selectstart', function(e){
 // every other gesture in this file, so it keeps working across re-renders (every toggle, and
 // every date change, re-renders #app and therefore this element) without needing to be
 // re-attached manually each time.
+// README 9.121: same delegated swipe pattern again, this time on the 取用 entry page's inline
+// calendar (see usageCalendarBodyHtml) - swipe left/right moves to the next/previous month,
+// same threshold and same "the actual click targets inside (day cells) barely move horizontally
+// so a tap never accidentally registers as a swipe" logic as the two gestures above.
+(function initUsageCalSwipe(){
+  var startX=null, startY=null, itemId=null;
+  document.addEventListener('touchstart', function(e){
+    var wrap = e.target.closest ? e.target.closest('.usage-cal-swipe-area') : null;
+    if(!wrap){ startX=null; return; }
+    startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+    itemId = wrap.getAttribute('data-item-id');
+  }, {passive:true});
+  document.addEventListener('touchend', function(e){
+    if(startX==null) return;
+    var dx = e.changedTouches[0].clientX-startX, dy = e.changedTouches[0].clientY-startY;
+    startX = null;
+    if(Math.abs(dx)>40 && Math.abs(dx)>Math.abs(dy)*1.5){
+      shiftUsageCalMonth(itemId, dx<0 ? 1 : -1);
+    }
+  }, {passive:true});
+})();
+
 (function initMacroWidgetSwipe(){
   var startX=null, startY=null;
   document.addEventListener('touchstart', function(e){
@@ -6401,7 +6463,7 @@ function renderItemDetail(){
             '<span class="row-label">'+t('detailQtyLabel')+'</span>'+
             '<div class="row-sub">'+qtyDisplayLines(it)+'</div>'+
           '</div>'+
-          '<button class="item-detail-use-btn" onclick="openUsageLog('+aj(it.id)+')"><span class="icon">'+ic('spoon',18)+'</span><span>'+t('usageBtn')+'</span></button>'+
+          '<button class="item-detail-use-btn" onclick="openUsageTypePicker('+aj(it.id)+')"><span class="icon">'+ic('spoon',18)+'</span><span>'+t('usageBtn')+'</span></button>'+
         '</div>'+
         '<div class="item-detail-hero-actions">'+
           '<button class="item-detail-action-btn danger" onclick="event.stopPropagation();deleteItemDetail('+aj(it.id)+')"><span class="icon">'+ic('trash',20)+'</span><span>'+t('delete')+'</span></button>'+
@@ -6415,6 +6477,7 @@ function renderItemDetail(){
       '<div class="list-row" style="border:none;padding:0;margin-bottom:10px;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldLocation')+'</span><span>'+esc(it.location||t('unset'))+'</span></div>'+
       '<div class="list-row" style="border:none;padding:0;margin-bottom:10px;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldPurchaseDate')+'</span><span>'+esc(it.purchase_date||'-')+'</span></div>'+
       '<div class="list-row" style="border:none;padding:0;margin-bottom:0;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldPrice')+'</span><span>'+formatPrice(it)+'</span></div>'+
+      '<button class="text-link-btn" style="margin-top:10px;" onclick="openUsageLog('+aj(it.id)+')">'+ic('history',15)+'<span>'+t('viewUsageHistoryBtn')+'</span></button>'+
     '</div>'+
     '<div class="nf-section-title">'+t('sectionNutrition')+'</div>'+
     nutritionFactsBoxHtml(it)+
@@ -6500,6 +6563,45 @@ function deleteItemDetail(id){
 // a recipe is marked cooked. Entries here can optionally reference a recipe just as a label/
 // destination, without going through that cook workflow. Future work (see README) plans to
 // have confirmCook auto-append an entry here too, so the two stay in sync.
+// README 9.121: 取用 now opens this picker first instead of jumping straight to the usage-log
+// list - the person picks WHICH KIND of usage this is (移动/关联/调整/其他, i.e. the same 4
+// destination_type values the entry form always had, just chosen up front now instead of being
+// one more tag-select buried inside a flat form) and goes straight into a page built for that
+// one type. See startUsageQuickAdd for what happens after a pick, and renderUsageLogAdd for how
+// that page changes when the type arrives pre-chosen this way vs. mid-edit.
+function openUsageTypePicker(itemId){
+  var types = [
+    {type:'move_location', cls:'type-move', icon:'box', label:t('usageDestMove')},
+    {type:'recipe', cls:'type-recipe', icon:'book', label:t('usageDestRecipe')},
+    {type:'adjust', cls:'type-adjust', icon:'edit', label:t('usageDestAdjust')},
+    {type:'free', cls:'type-free', icon:'spoon', label:t('usageDestFree')}
+  ];
+  var body = '<div class="usage-type-grid">'+
+    types.map(function(o){
+      return '<button class="usage-type-btn '+o.cls+'" onclick="startUsageQuickAdd('+aj(itemId)+','+aj(o.type)+')">'+ic(o.icon,26)+'<span>'+esc(o.label)+'</span></button>';
+    }).join('')+
+  '</div>';
+  showModal(t('usageTypePickerTitle'), body);
+}
+function startUsageQuickAdd(itemId, type){
+  var it = state.items.find(function(i){ return i.id===itemId; });
+  if(!it) return;
+  state.usageDraft = {
+    date: todayStr(), destination_type:type, destination_text:'', recipe_id:'', move_location:'',
+    amount:null, unit: it.primary_unit, _editingEntryId:null
+  };
+  // Same "prefill the current amount as a starting point" convenience the old inline type-
+  // switcher had for 调整 (see setUsageDestType) - just done immediately here since the type is
+  // already decided by the time this page opens, instead of waiting for the person to tap a tag.
+  if(type==='adjust'){
+    var cur = currentQtyInUnit(it, state.usageDraft.unit);
+    if(cur != null) state.usageDraft.amount = Math.round(cur*100)/100;
+  }
+  closeModal();
+  var d = new Date();
+  state.usageCalUI = {year: d.getFullYear(), month: d.getMonth()};
+  navigate('usageLogAdd', {id:itemId, from: state.params.from});
+}
 function openUsageLog(id){
   state.usageLogUI = { showAll:false };
   // README 9.116: thread the itemDetail's own entry point (state.params.from - e.g. "came from
@@ -6624,6 +6726,8 @@ function openUsageLogEdit(itemId, entryId){
     destination_text: entry.destination_text||'', recipe_id: entry.recipe_id||'', move_location:'',
     amount: entry.amount, unit: entry.unit, _editingEntryId: entryId
   };
+  var ed = new Date(entry.date+'T00:00:00');
+  state.usageCalUI = {year: ed.getFullYear(), month: ed.getMonth()};
   navigate('usageLogAdd', {id:itemId, from: state.params.from});
 }
 // Every unit this item can be deducted/added in - count units and pack/spec units alike -
@@ -6670,10 +6774,79 @@ function currentQtyInUnit(item, unit){
   if(!target || !target.toPrimaryRatio) return null;
   return (item.primary_qty||0) / target.toPrimaryRatio;
 }
+// README 9.121: 4-color mapping shared between the type-picker buttons (openUsageTypePicker)
+// and this calendar's per-day dots, so the same color always means the same destination_type
+// everywhere in this flow. transfer_in (the receiving half of a location move, written to the
+// OTHER item) counts as "move" here too, same color, since it's really the same kind of event.
+function usageTypeColor(type){
+  if(type==='move_location' || type==='transfer_in') return 'var(--deep-caramel)';
+  if(type==='recipe') return 'var(--fresh)';
+  if(type==='adjust') return 'var(--almond)';
+  return 'var(--usedup)';
+}
+// README 9.121: inline month calendar for picking the usage-log entry's date - swipeable
+// left/right (see initUsageCalSwipe below) with no bound on how far back/forward, same as the
+// 三餐 date-nav calendar (openMealsCalendar) this is modeled on. Days with existing entries for
+// THIS item get a small colored dot per distinct destination_type logged that day (capped at 3
+// - a day logging 4 different types on one item would be unusual enough that losing the 4th
+// dot to a legible cap is the right tradeoff over cramming a 4th sliver in).
+function usageCalendarBodyHtml(itemId){
+  var it = state.items.find(function(i){ return i.id===itemId; });
+  var y = state.usageCalUI.year, m = state.usageCalUI.month;
+  var first = new Date(y, m, 1);
+  var startWeekday = first.getDay();
+  var daysInMonth = new Date(y, m+1, 0).getDate();
+  var todayS = todayStr(), selectedS = state.usageDraft.date;
+  var typesByDate = {};
+  ((it && it.usage_log) || []).forEach(function(e){
+    if(!typesByDate[e.date]) typesByDate[e.date] = [];
+    if(typesByDate[e.date].indexOf(e.destination_type)===-1) typesByDate[e.date].push(e.destination_type);
+  });
+  var weekdayLabels = state.lang==='zh' ? ['日','一','二','三','四','五','六'] : ['Su','Mo','Tu','We','Th','Fr','Sa'];
+  var cells = '';
+  for(var i=0;i<startWeekday;i++) cells += '<div></div>';
+  for(var day=1; day<=daysInMonth; day++){
+    var ds = y+'-'+String(m+1).padStart(2,'0')+'-'+String(day).padStart(2,'0');
+    var cls = 'usage-cal-day'+(ds===selectedS?' selected':'')+(ds===todayS?' today':'');
+    var types = typesByDate[ds]||[];
+    var dotsHtml = types.length ? ('<span class="usage-cal-dots">'+types.slice(0,3).map(function(ty){ return '<span class="usage-cal-dot" style="background:'+usageTypeColor(ty)+';"></span>'; }).join('')+'</span>') : '';
+    cells += '<div class="'+cls+'" onclick="pickUsageCalDate('+aj(itemId)+','+aj(ds)+')">'+day+dotsHtml+'</div>';
+  }
+  return '' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">'+
+      '<button class="icon-btn" onclick="shiftUsageCalMonth('+aj(itemId)+',-1)" aria-label="'+t('prevDay')+'">'+ic('back',18)+'</button>'+
+      '<div style="font-weight:700;">'+monthDisplayLabel(y,m)+'</div>'+
+      '<button class="icon-btn" onclick="shiftUsageCalMonth('+aj(itemId)+',1)" aria-label="'+t('nextDay')+'">'+ic('chevronRight',18)+'</button>'+
+    '</div>'+
+    '<div class="usage-cal-grid">'+weekdayLabels.map(function(w){ return '<div class="usage-cal-weekday">'+w+'</div>'; }).join('')+'</div>'+
+    '<div class="usage-cal-grid usage-cal-swipe-area" data-item-id="'+esc(itemId)+'">'+cells+'</div>';
+}
+function shiftUsageCalMonth(itemId, delta){
+  var y = state.usageCalUI.year, m = state.usageCalUI.month + delta;
+  if(m<0){ m=11; y--; } else if(m>11){ m=0; y++; }
+  state.usageCalUI.year = y; state.usageCalUI.month = m;
+  var el = document.getElementById('usage-cal-body');
+  if(el) el.innerHTML = usageCalendarBodyHtml(itemId);
+}
+function pickUsageCalDate(itemId, ds){
+  state.usageDraft.date = ds;
+  // Surgical DOM update (just this calendar) instead of a full render() - keeps the rest of
+  // the page (amount input, etc.) untouched and avoids re-triggering iOS's keyboard-dismissal
+  // issue if the amount field happened to be focused when the date was tapped.
+  var el = document.getElementById('usage-cal-body');
+  if(el) el.innerHTML = usageCalendarBodyHtml(itemId);
+}
 function renderUsageLogAdd(){
   var id = state.params.id;
   var it = state.items.find(function(i){ return i.id===id; });
   if(!it || !state.usageDraft) return renderHome();
+  // Defensive fallback - state.usageCalUI is normally set right before navigating here (see
+  // startUsageQuickAdd/openUsageLogEdit), but guard against ever reaching this render with it
+  // unset (e.g. a stale in-memory nav state after some edge-case reload).
+  if(!state.usageCalUI){
+    var dd = new Date((state.usageDraft.date||todayStr())+'T00:00:00');
+    state.usageCalUI = {year: dd.getFullYear(), month: dd.getMonth()};
+  }
   var d = state.usageDraft;
   var editing = !!d._editingEntryId;
   var isAdjust = d.destination_type==='adjust';
@@ -6696,7 +6869,9 @@ function renderUsageLogAdd(){
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'usageLog\',{id:'+aj(id)+'})">'+ic('back',22)+'</button><h1>'+t(editing?'usageLogEditTitle':'usageLogAddTitle')+'</h1></div>'+
   '<div class="content">'+
-    '<div class="field"><label>'+t('usageDate')+'</label><input type="date" value="'+esc(d.date)+'" oninput="setUsageField(\'date\',this.value)"></div>'+
+    '<div class="field"><label>'+t('usageDate')+'</label>'+
+      '<div class="form-group" style="padding:12px 10px;" id="usage-cal-body">'+usageCalendarBodyHtml(id)+'</div>'+
+    '</div>'+
     '<div class="field"><label>'+t(isAdjust?'usageAdjustAmountLabel':'usageAmount')+'</label>'+
       '<div style="display:flex;gap:8px;align-items:center;">'+
         '<input type="number" inputmode="decimal" value="'+(d.amount!=null?d.amount:'')+'" oninput="setUsageField(\'amount\',this.value)" style="flex:1;min-width:0;">'+
@@ -6706,20 +6881,25 @@ function renderUsageLogAdd(){
       '</div>'+
       adjustPreviewHtml+
     '</div>'+
-    '<div class="field"><label>'+t('usageDestination')+'</label>'+
-      '<div class="tag-select">'+
-        '<div class="tag-option '+(d.destination_type==='free'?'active':'')+'" onclick="setUsageDestType(\'free\')">'+t('usageDestFree')+'</div>'+
-        '<div class="tag-option '+(d.destination_type==='recipe'?'active':'')+'" onclick="setUsageDestType(\'recipe\')">'+t('usageDestRecipe')+'</div>'+
-        (editing ? '' : '<div class="tag-option '+(d.destination_type==='move_location'?'active':'')+'" onclick="setUsageDestType(\'move_location\')">'+t('usageDestMove')+'</div>')+
-        (editing ? '' : '<div class="tag-option '+(isAdjust?'active':'')+'" onclick="setUsageDestType(\'adjust\')">'+t('usageDestAdjust')+'</div>')+
-      '</div>'+
-    '</div>'+
+    // README 9.121: the destination_type picker only shows up here at all when EDITING an
+    // existing entry - for a brand-new one the type was already chosen on the previous screen
+    // (openUsageTypePicker), so re-showing it here would just be redundant. Editing keeps the
+    // old free<->recipe tag-select exactly as before (move_location/adjust entries were never
+    // editable in the first place - see the comment on moveLocationOptions below).
+    (editing ?
+      '<div class="field"><label>'+t('usageDestination')+'</label>'+
+        '<div class="tag-select">'+
+          '<div class="tag-option '+(d.destination_type==='free'?'active':'')+'" onclick="setUsageDestType(\'free\')">'+t('usageDestFree')+'</div>'+
+          '<div class="tag-option '+(d.destination_type==='recipe'?'active':'')+'" onclick="setUsageDestType(\'recipe\')">'+t('usageDestRecipe')+'</div>'+
+        '</div>'+
+      '</div>' : ''
+    )+
     (d.destination_type==='free' ?
-      '<div class="field"><input type="text" placeholder="'+t('usageDestPlaceholder')+'" value="'+esc(d.destination_text)+'" oninput="setUsageField(\'destination_text\',this.value)"></div>' :
+      '<div class="field"><label>'+t('usageNotesLabel')+'</label><input type="text" placeholder="'+t('usageDestPlaceholder')+'" value="'+esc(d.destination_text)+'" oninput="setUsageField(\'destination_text\',this.value)"></div>' :
     d.destination_type==='recipe' ?
-      '<div class="field"><div class="list-row" style="cursor:pointer;background:var(--cream);border-radius:11px;padding:12px 14px;border:none;" onclick="openRecipePickerForUsage()"><span>'+esc(recipeLabel)+'</span>'+ic('chevronRight',18)+'</div></div>' :
+      '<div class="field"><label>'+t('usageDestination')+'</label><div class="list-row" style="cursor:pointer;background:var(--cream);border-radius:11px;padding:12px 14px;border:none;" onclick="openRecipePickerForUsage()"><span>'+esc(recipeLabel)+'</span>'+ic('chevronRight',18)+'</div></div>' :
     d.destination_type==='move_location' ?
-      '<div class="field">'+
+      '<div class="field"><label>'+t('usageDestination')+'</label>'+
         (moveLocationOptions.length ?
           '<div class="tag-select">'+moveLocationOptions.map(function(l){
             return '<div class="tag-option '+(d.move_location===l?'active':'')+'" onclick="setUsageMoveLocation('+aj(l)+')">'+esc(l)+'</div>';
