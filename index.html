@@ -804,7 +804,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.121';
+var BUILD_VERSION = '9.122';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2149,6 +2149,7 @@ var I18N = {
     remainingQtyLabel:'剩余', remainingApproxLabel:'剩余约',
     consumeWholeUnitLabel:'按份消耗', consumeWholeUnitHint:'开启后，取用/食谱只能整份增减这份食材（如整桶泡面），不能按克/毫升记录',
     searchPlaceholder:'搜索食品名称 / 品牌', clearSearchBtn:'清空',
+    recipeSearchPlaceholder:'搜索食谱名称 / 分类 / 食材',
     filterAll:'全部',
     sortLabel:'排序', sortExpiry:'过期', sortName:'名称', sortPurchase:'购买', sortCreated:'录入',
     emptyInventory:'库存还是空的', emptyInventoryHint:'点击下方按钮扫码或手动添加第一件食材吧',
@@ -2404,6 +2405,7 @@ var I18N = {
     mealLoggedToast:'Logged', mealsHistoryBtn:'History',
     remainingQtyLabel:'Remaining',
     searchPlaceholder:'Search name / brand', clearSearchBtn:'Clear',
+    recipeSearchPlaceholder:'Search recipes / category / ingredients',
     filterAll:'All',
     sortLabel:'Sort', sortExpiry:'Expiry', sortName:'Name', sortPurchase:'Purchase date', sortCreated:'Date added',
     emptyInventory:'Your pantry is empty', emptyInventoryHint:'Tap below to scan or manually add your first item',
@@ -2625,7 +2627,7 @@ var state = {
   exerciseLogs: [],
   exerciseLogUI: null,
   recipeCategoryGroups: JSON.parse(JSON.stringify(DEFAULT_RECIPE_CATEGORY_GROUPS)),
-  recipesUI: { groupId:null, sub:null, expandedGroup:null },
+  recipesUI: { groupId:null, sub:null, expandedGroup:null, search:'' },
   recipeFormUI: {},
   recipeDetailUI: { nutriExpanded:false },
   archiveUI: { search:'', expandedGroups:{} },
@@ -3898,6 +3900,9 @@ function openSidebar(page){
   var drawer = document.getElementById('sidebar-drawer');
   var overlay = document.getElementById('sidebar-overlay');
   if(!drawer || !overlay) return;
+  // README 9.122: reset any leftover swipe-tracking state from a previous open/close cycle
+  // before this one starts - see closeSidebar's own comment for why this matters.
+  drawer._touchStartX = null; drawer._touchStartY = null;
   drawer.innerHTML = sidebarContentFor(page);
   overlay.classList.add('open');
   requestAnimationFrame(function(){
@@ -3912,6 +3917,14 @@ function closeSidebar(){
   if(!drawer || !overlay) return;
   drawer.classList.remove('open');
   overlay.classList.remove('open');
+  // README 9.122: leftover tracking state here (from a swipe that started but never cleanly
+  // finished - e.g. the touchend landed on a different element than expected, or a rapid
+  // second gesture interrupted the first) is exactly the kind of thing that could make the
+  // NEXT open/close cycle misbehave in a way that's hard to reproduce on demand ("有时" - Lynn's
+  // own wording). Clearing it here too, not just in openSidebar, means every path that closes
+  // the sidebar - overlay tap, drawer's own X button, swipe-left, this new touchend listener
+  // below - leaves things in a clean state for whatever happens next.
+  drawer._touchStartX = null; drawer._touchStartY = null;
 }
 function toggleSidebar(page){
   if(state.sidebarOpen === page) closeSidebar(); else openSidebar(page);
@@ -3967,6 +3980,34 @@ function openSettings(fromView){
       if(page) openSidebar(page);
     }
   }, {passive:true});
+  // README 9.122: Lynn reported the health page's sidebar sometimes getting stuck open -
+  // right-swipe opens it fine, but then nothing she taps closes it (or a tap lands on
+  // whatever's underneath instead, as if the dimmed backdrop wasn't actually there to catch
+  // it). The backdrop's onclick="closeSidebar()" (in the static HTML) is the only thing that
+  // was closing it on an outside tap, and a synthesized click from a touch can, on iOS Safari,
+  // occasionally get delayed or dropped entirely depending on what the browser decided the
+  // gesture was (this is a known iOS quirk, not something specific to this app's own code) -
+  // so relying on click alone as the ONLY way to dismiss a full-screen modal-like overlay is
+  // fragile. This adds a direct touchend listener on the backdrop as a second, more immediate
+  // path to the exact same closeSidebar() call, so dismissing it no longer depends on click
+  // synthesis firing at all. A small movement tolerance avoids misfiring if the touch turns
+  // out to be part of some other gesture that happens to end on the backdrop.
+  (function initSidebarBackdropTouchClose(){
+    var startX=null, startY=null;
+    document.addEventListener('touchstart', function(e){
+      if(!state.sidebarOpen) return;
+      if(e.target.id !== 'sidebar-overlay') return;
+      var t0 = e.touches[0];
+      startX = t0.clientX; startY = t0.clientY;
+    }, {passive:true});
+    document.addEventListener('touchend', function(e){
+      if(startX==null) return;
+      var t0 = e.changedTouches[0];
+      var dx = t0.clientX-startX, dy = t0.clientY-startY;
+      startX = null;
+      if(Math.abs(dx)<12 && Math.abs(dy)<12 && state.sidebarOpen) closeSidebar();
+    }, {passive:true});
+  })();
   // Swipe-left anywhere on the open drawer closes it (in addition to tapping the backdrop).
   document.addEventListener('touchstart', function(e){
     if(!state.sidebarOpen) return;
@@ -8135,23 +8176,54 @@ function recipeIngredientDisplayName(ri){
   return src ? src.name : (ri.name_snapshot || '?');
 }
 function getFilteredRecipes(){
-  return state.recipes.filter(function(r){
+  var list = state.recipes.filter(function(r){
     if(state.recipesUI.groupId && r.category_group !== state.recipesUI.groupId) return false;
     if(state.recipesUI.sub && r.category_sub !== state.recipesUI.sub) return false;
     return true;
   });
+  // README 9.122: search box added on the recipe list (see renderRecipesList) - matches title,
+  // category name, or any ingredient's name, all in the one box rather than needing the
+  // sidebar's category filter for that part. Title matches rank first (as a group, still
+  // newest-first within that group), non-title matches (category or ingredient) after - so a
+  // recipe that's actually ABOUT what was typed always beats one that just happens to use an
+  // ingredient with that name.
+  var q = (state.recipesUI.search||'').trim().toLowerCase();
+  if(q){
+    var scored = [];
+    list.forEach(function(r){
+      var titleHit = (r.name||'').toLowerCase().indexOf(q) !== -1;
+      var otherHit = false;
+      if(!titleHit){
+        var catLabel = (recipeCategoryLabel(r)||'').toLowerCase();
+        otherHit = catLabel.indexOf(q)!==-1;
+        if(!otherHit){
+          otherHit = (r.ingredients||[]).some(function(ri){
+            return ri.type!=='group' && (recipeIngredientDisplayName(ri)||'').toLowerCase().indexOf(q)!==-1;
+          });
+        }
+      }
+      if(titleHit || otherHit) scored.push({r:r, titleHit:titleHit});
+    });
+    scored.sort(function(a,b){
+      if(a.titleHit !== b.titleHit) return a.titleHit ? -1 : 1;
+      return a.r.id < b.r.id ? 1 : (a.r.id > b.r.id ? -1 : 0);
+    });
+    return scored.map(function(s){ return s.r; });
+  }
+  // README 9.122: newest-created first. `id` doubles as a reliable creation-time sort key even
+  // for recipes saved before created_at existed as a field - uid() always starts with
+  // Date.now().toString(36), so a plain string comparison sorts by creation time correctly
+  // without needing to backfill anything on old recipes.
+  return list.slice().sort(function(a,b){ return a.id < b.id ? 1 : (a.id > b.id ? -1 : 0); });
 }
-function renderRecipesList(){
-  var filtered = getFilteredRecipes();
-  var listHtml;
+function recipeListItemsHtml(filtered){
   if(filtered.length===0){
     if(state.recipes.length===0){
-      listHtml = '<div class="empty-state">'+ic('book',40)+'<p><strong>'+t('emptyRecipes')+'</strong><br>'+t('emptyRecipesHint')+'</p></div>';
-    } else {
-      listHtml = '<div class="empty-state">'+ic('search',40)+'<p>'+(state.lang==='zh'?'没有符合条件的食谱':'No recipes match your filters')+'</p></div>';
+      return '<div class="empty-state">'+ic('book',40)+'<p><strong>'+t('emptyRecipes')+'</strong><br>'+t('emptyRecipesHint')+'</p></div>';
     }
-  } else {
-    listHtml = filtered.map(function(r){
+    return '<div class="empty-state">'+ic('search',40)+'<p>'+(state.lang==='zh'?'没有符合条件的食谱':'No recipes match your filters')+'</p></div>';
+  }
+  return filtered.map(function(r){
       var nutri = calcRecipeNutrition(r);
       var catLabel = recipeCategoryLabel(r);
       var coverHtml = r.photo_url ? photoImgHtml(r.photo_url, 'width:100%;height:100%;object-fit:cover;') : ic('book',20);
@@ -8182,7 +8254,10 @@ function renderRecipesList(){
         '</div>'+
       '</div>';
     }).join('');
-  }
+}
+function renderRecipesList(){
+  var filtered = getFilteredRecipes();
+  var listHtml = recipeListItemsHtml(filtered);
   var filterLabel = '';
   if(state.recipesUI.groupId){
     var g = recipeGroupById(state.recipesUI.groupId);
@@ -8193,10 +8268,21 @@ function renderRecipesList(){
   return '' +
   '<div class="topbar"><div><h1>📖 '+t('recipesTitle')+'</h1></div>'+menuButtonHtml('recipes', true)+'</div>'+
   '<div class="content">'+
-    activeFilterHtml +
-    listHtml+
+    '<div class="home-sticky-controls" id="recipes-sticky-controls">'+
+      searchBarHtml(state.recipesUI.search, t('recipeSearchPlaceholder'), 'onRecipeSearch', 'recipe-search-input')+
+      activeFilterHtml+
+    '</div>'+
+    '<div id="recipe-list-container">'+listHtml+'</div>'+
   '</div>'+
   bottomNav();
+}
+function onRecipeSearch(v){
+  state.recipesUI.search = v;
+  clearTimeout(onRecipeSearch._t);
+  onRecipeSearch._t = setTimeout(function(){
+    var c = document.getElementById('recipe-list-container');
+    if(c) c.innerHTML = recipeListItemsHtml(getFilteredRecipes());
+  }, 200);
 }
 function clearRecipeFilters(){ state.recipesUI.groupId=null; state.recipesUI.sub=null; render(); }
 function sidebarSetRecipeFilter(groupId, sub){
