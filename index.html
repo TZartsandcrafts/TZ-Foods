@@ -814,7 +814,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.123';
+var BUILD_VERSION = '9.124';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2161,6 +2161,7 @@ var I18N = {
     searchPlaceholder:'搜索食品名称 / 品牌', clearSearchBtn:'清空',
     recipeSearchPlaceholder:'搜索食谱名称 / 分类 / 食材',
     filterAll:'全部',
+    filterWholeCategory:'该分类下全部',
     sortLabel:'排序', sortExpiry:'过期', sortName:'名称', sortPurchase:'购买', sortCreated:'录入',
     emptyInventory:'库存还是空的', emptyInventoryHint:'点击下方按钮扫码或手动添加第一件食材吧',
     scanAdd:'扫码添加', manualAdd:'手动添加',
@@ -2420,6 +2421,7 @@ var I18N = {
     searchPlaceholder:'Search name / brand', clearSearchBtn:'Clear',
     recipeSearchPlaceholder:'Search recipes / category / ingredients',
     filterAll:'All',
+    filterWholeCategory:'All in this category',
     sortLabel:'Sort', sortExpiry:'Expiry', sortName:'Name', sortPurchase:'Purchase date', sortCreated:'Date added',
     emptyInventory:'Your pantry is empty', emptyInventoryHint:'Tap below to scan or manually add your first item',
     scanAdd:'Scan to add', manualAdd:'Add manually',
@@ -4505,6 +4507,13 @@ function sidebarReorderCommit(kind, groupId, order){
     row.classList.add('dragging-row');
     row.style.position = 'relative';
     row.style.zIndex = 20;
+    // README 9.124: without this, elementFromPoint in the nest-detection code below always hit
+    // dragRow itself (since it's the element actually sitting under the finger, being dragged
+    // there on purpose) rather than whatever row is underneath it - which meant nestTargetRow
+    // could never resolve to anything but null, and every drop fell through to a plain reorder
+    // no matter where it was released. Making dragRow transparent to hit-testing for the
+    // duration of the drag lets elementFromPoint see straight through to the row underneath.
+    row.style.pointerEvents = 'none';
     if(navigator.vibrate) navigator.vibrate(10);
   }
 
@@ -4549,6 +4558,7 @@ function sidebarReorderCommit(kind, groupId, order){
     dragRow.style.transition = '';
     dragRow.style.transform = '';
     dragRow.style.zIndex = '';
+    dragRow.style.pointerEvents = '';
     rows.forEach(function(r){ if(r!==dragRow){ r.style.transition=''; r.style.transform=''; } });
     var drawer = document.getElementById('sidebar-drawer');
     if(drawer) drawer.classList.remove('reorder-active');
@@ -8372,6 +8382,12 @@ function renderRecipeSidebarContent(){
   var groupsHtml = state.recipeCategoryGroups.map(function(g){
     var expanded = state.recipesUI.expandedGroup === g.id;
     var groupActive = state.recipesUI.groupId===g.id && !state.recipesUI.sub;
+    var hasSubs = g.subs && g.subs.length;
+    // README 9.124: when a group has subs, tapping "整个分类" here (pinned at the top of the
+    // expanded list, once expanded) is now the only way to filter by the WHOLE group with no
+    // specific sub - tapping the group row itself just expands/collapses (see below), so this
+    // preserves that filter option rather than silently dropping it.
+    var wholeGroupItem = '<div class="sidebar-item '+(groupActive?'active':'')+'" style="font-weight:600;" onclick="sidebarSetRecipeFilter('+aj(g.id)+',null)">'+t('filterWholeCategory')+'</div>';
     var subItems = (g.subs||[]).map(function(s){
       var active = state.recipesUI.groupId===g.id && state.recipesUI.sub===s;
       var subCount = subCounts[g.id+'\u0001'+s];
@@ -8381,15 +8397,22 @@ function renderRecipeSidebarContent(){
         '</div>';
     }).join('');
     var groupCount = groupCounts[g.id];
+    // README 9.124: tapping the row itself now toggles expand/collapse when there's something
+    // to expand, instead of immediately applying the filter and closing the sidebar - Lynn
+    // found having every tap commit to a filter (and close the drawer) made it impossible to
+    // just look at what subcategories exist under something without leaving. A group with no
+    // subs has nothing to expand, so it keeps the old immediate-filter behavior since there's
+    // no other way to pick it.
+    var rowClick = hasSubs ? ('toggleRecipeSidebarGroup('+aj(g.id)+')') : ('sidebarSetRecipeFilter('+aj(g.id)+',null)');
     return '<div class="sidebar-group">'+
-      '<div class="sidebar-group-header" style="display:flex;align-items:center;">'+
-        '<span class="sidebar-item '+(groupActive?'active':'')+'" style="flex:1;padding:8px 4px;display:flex;align-items:center;justify-content:space-between;gap:6px;min-width:0;" onclick="sidebarSetRecipeFilter('+aj(g.id)+',null)">'+
+      '<div class="sidebar-group-header" style="display:flex;align-items:center;" onclick="'+rowClick+'">'+
+        '<span class="sidebar-item '+(groupActive && !hasSubs?'active':'')+'" style="flex:1;padding:8px 4px;display:flex;align-items:center;justify-content:space-between;gap:6px;min-width:0;">'+
           '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(g.name)+'</span>'+
           (groupCount ? '<span class="sidebar-item-count">'+groupCount+'</span>' : '')+
         '</span>'+
-        (g.subs && g.subs.length ? ('<span style="padding:6px;color:var(--deep-caramel);" onclick="event.stopPropagation();toggleRecipeSidebarGroup('+aj(g.id)+')">'+ic('chevronRight',16,'style="transform:rotate('+(expanded?'90':'0')+'deg);transition:transform .15s;display:block;"')+'</span>') : '')+
+        (hasSubs ? ic('chevronRight',16,'style="transform:rotate('+(expanded?'90':'0')+'deg);transition:transform .15s;display:block;padding:6px;color:var(--deep-caramel);flex-shrink:0;box-sizing:content-box;"') : '')+
       '</div>'+
-      (expanded ? '<div class="sidebar-subs">'+subItems+'</div>' : '')+
+      (expanded ? '<div class="sidebar-subs">'+wholeGroupItem+subItems+'</div>' : '')+
     '</div>';
   }).join('');
   return '<div class="sidebar-header"><h2>📖 '+t('recipesTitle')+'</h2><div style="display:flex;gap:6px;"><button class="icon-btn" onclick="navigate(\'recipesSettings\')" aria-label="'+t('navSettings')+'">'+ic('gear',18)+'</button><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div></div>'+
@@ -11502,9 +11525,18 @@ function recipeCategoryManagerHtml(){
   return '' +
     (state.recipeCategoryGroups.length ?
       ('<div class="text-link-btn" style="margin-bottom:6px;" onclick="toggleAllSettingsRecipeGroups()">'+ic(allExpanded?'minusCircle':'plus',15)+'<span>'+t(allExpanded?'collapseAllBtn':'expandAllBtn')+'</span></div>') : '')+
-    '<div class="sidebar-reorder-list" data-reorder-kind="recipeGroup">'+groupsHtml+'</div>'+
-    recipeCombinedAddRowHtml()+
-    '<p class="hint" style="margin-top:8px;">'+t('nestDragHint')+'</p>';
+    // README 9.124: wrapping the whole draggable area (+ the hint text right under it) in
+    // -webkit-user-select:none/-webkit-touch-callout:none - individual rows already had this,
+    // but the plain hint paragraph didn't, and a long-press that starts on/near a row but
+    // drifts slightly during the pre-drag detection window (see initSidebarReorder's own
+    // comment) could still let iOS's native text-selection/callout gesture win the race on
+    // whatever plain text was nearby, which is what Lynn's screenshot shows - the hint text
+    // itself getting selected mid-drag, not anything about the drag logic itself.
+    '<div style="-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;">'+
+      '<div class="sidebar-reorder-list" data-reorder-kind="recipeGroup">'+groupsHtml+'</div>'+
+      recipeCombinedAddRowHtml()+
+      '<p class="hint" style="margin-top:8px;">'+t('nestDragHint')+'</p>'+
+    '</div>';
 }
 function toggleSettingsRecipeGroup(id){
   state.recipesUI.settingsExpandedGroups[id] = !state.recipesUI.settingsExpandedGroups[id];
