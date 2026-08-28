@@ -289,6 +289,11 @@
   }
   #sidebar-drawer.open{ transform:translateX(0); }
   #sidebar-drawer.reorder-active .sidebar-subs{ display:none; }
+  /* README 9.123: recipe-group drag-reorder now also happens on 食谱设置 (not just the
+     sidebar), where subs render as extra rows inside .sidebar-group itself rather than in a
+     separate .sidebar-subs wrapper - hide those rows too during a drag so every group's row
+     height stays uniform (the reorder math assumes all rows are the same height). */
+  body.reorder-active .sidebar-group .list-row ~ .list-row{ display:none; }
   .sidebar-header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
   .sidebar-header h2{ font-size:18px; font-weight:600; color:var(--cocoa); }
   .sidebar-section-title{
@@ -356,6 +361,11 @@
   .sidebar-group.dragging-row{
     background:var(--cream); box-shadow:0 6px 16px rgba(90,60,30,0.18);
     border-radius:10px; opacity:0.92;
+  }
+  /* README 9.123: highlight shown on whichever group a dragged group is currently hovering
+     directly over, previewing "release here to nest into this category". */
+  .sidebar-group.nest-target > .list-row{
+    background:var(--cream-2); box-shadow:inset 0 0 0 2px var(--almond); border-radius:10px;
   }
   .sidebar-stat-row{ display:flex; gap:8px; margin-bottom:6px; }
   .sidebar-stat-card{ background:var(--cream); border-radius:12px; padding:10px 8px; flex:1; text-align:center; }
@@ -804,7 +814,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.122';
+var BUILD_VERSION = '9.123';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2312,6 +2322,9 @@ var I18N = {
     photoProcessFailed:'图片处理失败，请换一张试试',
     manageRecipeCategories:'管理食谱分类', manageRecipeCategoriesTitle:'管理食谱分类', addRecipeGroupPh:'新分类名称', addRecipeSubPh:'新子分类名称',
     pickCategoryColorTitle:'选择分类色条颜色', pickSubCategoryColorTitle:'选择子分类色条颜色',
+    expandAllBtn:'展开全部', collapseAllBtn:'收起全部',
+    nestDragHint:'长按抓手图标可拖拽排序；拖到另一个分类上方并停留，可将其归为该分类的子分类',
+    nestHasSubsWarn:'该分类下还有子分类，无法归入其它分类', nestedToast:'已将"{name}"归入"{target}"',
     // sidebars
     statTotal:'总数', statExpired:'过期', statSoon:'临期', statUsedUp:'用完',
     fieldRecipeCategory:'分类', fieldRecipeSubCategory:'子分类',
@@ -2562,6 +2575,9 @@ var I18N = {
     photoProcessFailed:'Failed to process image, please try another one',
     manageRecipeCategories:'Manage Recipe Categories', manageRecipeCategoriesTitle:'Manage Recipe Categories', addRecipeGroupPh:'New category name', addRecipeSubPh:'New subcategory name',
     pickCategoryColorTitle:'Choose a category color', pickSubCategoryColorTitle:'Choose a subcategory color',
+    expandAllBtn:'Expand All', collapseAllBtn:'Collapse All',
+    nestDragHint:'Long-press the grip handle to reorder; drop one category onto another to make it a subcategory.',
+    nestHasSubsWarn:"This category still has subcategories, so it can't be nested into another one", nestedToast:'Moved "{name}" into "{target}"',
     // sidebars
     statTotal:'Total items', statExpired:'Expired', statSoon:'Expiring soon', statUsedUp:'Used up',
     fieldRecipeCategory:'Category', fieldRecipeSubCategory:'Sub-category',
@@ -2627,7 +2643,7 @@ var state = {
   exerciseLogs: [],
   exerciseLogUI: null,
   recipeCategoryGroups: JSON.parse(JSON.stringify(DEFAULT_RECIPE_CATEGORY_GROUPS)),
-  recipesUI: { groupId:null, sub:null, expandedGroup:null, search:'' },
+  recipesUI: { groupId:null, sub:null, expandedGroup:null, search:'', settingsExpandedGroups:{} },
   recipeFormUI: {},
   recipeDetailUI: { nutriExpanded:false },
   archiveUI: { search:'', expandedGroups:{} },
@@ -3709,7 +3725,6 @@ function render(){
     case 'mealsSettings': html = renderMealsSettings(); break;
     case 'healthSettings': html = renderHealthSettings(); break;
     case 'manageTags': html = renderManageTags(); break;
-    case 'manageRecipeCategories': html = renderManageRecipeCategories(); break;
     case 'pickInventory': html = renderPickInventory(); break;
     case 'pickExternal': html = renderPickExternal(); break;
     case 'archive': html = renderArchiveList(); break;
@@ -4049,7 +4064,6 @@ function openSettings(fromView){
     if(state.view==='priceHistory') return {view:'home'};
     if(state.view==='statFilteredList') return {view:'home'};
     if(state.view==='manageTags') return {view:'inventorySettings'};
-    if(state.view==='manageRecipeCategories') return {view:'recipesSettings'};
     if(state.view==='settings') return {view: state.settingsBackTo || 'home'};
     if(state.view==='weightHistory') return {view:'health'};
     if(state.view==='bpHistory') return {view:'health'};
@@ -4417,6 +4431,15 @@ function sidebarReorderCommit(kind, groupId, order){
   var pressTimer = null;
   var dragging = false, dragKind = null, dragGroupId = null;
   var dragRow = null, rows = [], rowH = 0, startY = 0, startIndex = 0, curIndex = 0, order = [];
+  // README 9.123: nest-detection state, only meaningful for dragKind==='recipeGroup' (see item
+  // 5 of Lynn's request - dragging one top-level recipe category directly onto another nests
+  // it as that category's new subcategory). nestTargetRow tracks whichever OTHER row the
+  // dragged row is currently hovering directly over, using real-time hit-testing
+  // (elementFromPoint) rather than the row-count-based offset math the plain reorder uses below
+  // - hit-testing naturally accounts for wherever rows have visually shifted to, without having
+  // to duplicate that math. If nestTargetRow is set at the moment of release, the drop commits
+  // as a nest instead of a reorder.
+  var nestTargetRow = null;
 
   document.addEventListener('touchstart', function(e){
     var handle = e.target.closest ? e.target.closest('.sidebar-drag-handle') : null;
@@ -4462,6 +4485,7 @@ function sidebarReorderCommit(kind, groupId, order){
     // captured DOM references below stay valid) - the drawer keeps whatever expand state
     // it had once the drag ends and refreshSidebarContent() re-renders normally.
     if(dragKind==='recipeGroup'){
+      document.body.classList.add('reorder-active');
       var drawer = document.getElementById('sidebar-drawer');
       if(drawer) drawer.classList.add('reorder-active');
     }
@@ -4490,6 +4514,19 @@ function sidebarReorderCommit(kind, groupId, order){
     var t0 = e.touches[0];
     var dy = t0.clientY - startY;
     dragRow.style.transform = 'translateY('+dy+'px)';
+    // README 9.123: nest-detection - only for top-level recipe groups. Uses live hit-testing
+    // at the finger's current position rather than the row-count offset math below, so it
+    // naturally accounts for wherever rows have visually shifted to mid-drag.
+    if(dragKind==='recipeGroup'){
+      var hit = document.elementFromPoint(t0.clientX, t0.clientY);
+      var hitRow = hit && hit.closest ? hit.closest('.sidebar-reorder-list > [data-group-id]') : null;
+      if(hitRow===dragRow) hitRow = null;
+      if(hitRow !== nestTargetRow){
+        if(nestTargetRow) nestTargetRow.classList.remove('nest-target');
+        nestTargetRow = hitRow;
+        if(nestTargetRow) nestTargetRow.classList.add('nest-target');
+      }
+    }
     var shift = Math.round(dy / rowH);
     var newIndex = Math.max(0, Math.min(rows.length-1, startIndex + shift));
     if(newIndex !== curIndex){
@@ -4515,6 +4552,18 @@ function sidebarReorderCommit(kind, groupId, order){
     rows.forEach(function(r){ if(r!==dragRow){ r.style.transition=''; r.style.transform=''; } });
     var drawer = document.getElementById('sidebar-drawer');
     if(drawer) drawer.classList.remove('reorder-active');
+    document.body.classList.remove('reorder-active');
+    if(nestTargetRow){
+      // README 9.123: dropped directly onto another group - nest instead of reorder. Skips
+      // the position-based commit below entirely; nestRecipeGroupInto does its own render().
+      nestTargetRow.classList.remove('nest-target');
+      var draggedId = dragRow.getAttribute('data-group-id');
+      var targetId = nestTargetRow.getAttribute('data-group-id');
+      nestTargetRow = null;
+      dragRow = null; rows = [];
+      if(draggedId && targetId) nestRecipeGroupInto(draggedId, targetId);
+      return;
+    }
     if(curIndex !== startIndex){
       var moved = order.splice(startIndex,1)[0];
       order.splice(curIndex,0,moved);
@@ -8301,6 +8350,12 @@ function toggleRecipeSidebarGroup(id){
   render();
   refreshSidebarContent();
 }
+// README 9.123: sidebar is now view/filter-only (no long-press reorder, no inline rename, no
+// add-category controls here anymore - see item 3 of Lynn's request) - all of that moved to
+// 食谱设置's own embedded category manager (recipeCategoryManagerHtml), which is where a
+// person actually goes to restructure categories rather than just browse/filter by them. This
+// keeps the sidebar's own gesture surface simple (a tap picks a filter, a chevron expands a
+// group) with nothing that could be accidentally triggered by an ordinary tap-to-filter.
 function renderRecipeSidebarContent(){
   // Counts shown as a small pill next to each group/sub name - group counts include every
   // recipe in that group regardless of sub (or with no sub at all); sub counts are just that
@@ -8320,37 +8375,26 @@ function renderRecipeSidebarContent(){
     var subItems = (g.subs||[]).map(function(s){
       var active = state.recipesUI.groupId===g.id && state.recipesUI.sub===s;
       var subCount = subCounts[g.id+'\u0001'+s];
-      return '<div class="sidebar-item-row"><span class="sidebar-drag-handle">'+ic('grip',16)+'</span>'+
-        '<div class="sidebar-item '+(active?'active':'')+'" style="display:flex;align-items:center;justify-content:space-between;gap:6px;" onclick="sidebarSetRecipeFilter('+aj(g.id)+','+aj(s)+')">'+
+      return '<div class="sidebar-item '+(active?'active':'')+'" style="display:flex;align-items:center;justify-content:space-between;gap:6px;" onclick="sidebarSetRecipeFilter('+aj(g.id)+','+aj(s)+')">'+
           '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(s)+'</span>'+
           (subCount ? '<span class="sidebar-item-count">'+subCount+'</span>' : '')+
-        '</div>'+
-        '<div class="sidebar-item-actions">'+
-        '<button class="sidebar-item-action-btn" onclick="event.stopPropagation();openRenameRecipeSubModal('+aj(g.id)+','+aj(s)+')">'+ic('edit',15)+'</button>'+
-        '</div></div>';
+        '</div>';
     }).join('');
     var groupCount = groupCounts[g.id];
     return '<div class="sidebar-group">'+
-      '<div class="sidebar-group-header sidebar-item-row">'+
-        '<span class="sidebar-drag-handle">'+ic('grip',16)+'</span>'+
+      '<div class="sidebar-group-header" style="display:flex;align-items:center;">'+
         '<span class="sidebar-item '+(groupActive?'active':'')+'" style="flex:1;padding:8px 4px;display:flex;align-items:center;justify-content:space-between;gap:6px;min-width:0;" onclick="sidebarSetRecipeFilter('+aj(g.id)+',null)">'+
           '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(g.name)+'</span>'+
           (groupCount ? '<span class="sidebar-item-count">'+groupCount+'</span>' : '')+
         '</span>'+
-        '<div class="sidebar-item-actions">'+
-        '<button class="sidebar-item-action-btn" onclick="event.stopPropagation();openRenameRecipeGroupModal('+aj(g.id)+')">'+ic('edit',15)+'</button>'+
-        '</div>'+
-        '<span style="padding:6px;color:var(--deep-caramel);" onclick="event.stopPropagation();toggleRecipeSidebarGroup('+aj(g.id)+')">'+ic('chevronRight',16,'style="transform:rotate('+(expanded?'90':'0')+'deg);transition:transform .15s;display:block;"')+'</span>'+
+        (g.subs && g.subs.length ? ('<span style="padding:6px;color:var(--deep-caramel);" onclick="event.stopPropagation();toggleRecipeSidebarGroup('+aj(g.id)+')">'+ic('chevronRight',16,'style="transform:rotate('+(expanded?'90':'0')+'deg);transition:transform .15s;display:block;"')+'</span>') : '')+
       '</div>'+
-      (expanded ? '<div class="sidebar-subs">'+
-        '<div class="sidebar-reorder-list" data-reorder-kind="recipeSub" data-reorder-group="'+esc(g.id)+'">'+subItems+'</div>'+
-      '</div>' : '')+
+      (expanded ? '<div class="sidebar-subs">'+subItems+'</div>' : '')+
     '</div>';
   }).join('');
   return '<div class="sidebar-header"><h2>📖 '+t('recipesTitle')+'</h2><div style="display:flex;gap:6px;"><button class="icon-btn" onclick="navigate(\'recipesSettings\')" aria-label="'+t('navSettings')+'">'+ic('gear',18)+'</button><button class="icon-btn" onclick="closeSidebar()">'+ic('x',18)+'</button></div></div>'+
     '<div class="sidebar-item '+(!state.recipesUI.groupId?'active':'')+'" onclick="sidebarSetRecipeFilter(null,null)">'+t('filterAll')+'</div>'+
-    '<div class="sidebar-reorder-list" data-reorder-kind="recipeGroup">'+groupsHtml+'</div>'+
-    recipeCombinedAddRowHtml();
+    groupsHtml;
 }
 // Single combined "add" control for the recipe sidebar (replaces what used to be up to three
 // separate always-visible add-boxes: one per expanded group for subcategories, plus one for
@@ -11105,9 +11149,7 @@ function renderRecipesSettings(){
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'recipes\')">'+ic('back',22)+'</button><h1>'+t('recipesSettingsTitle')+'</h1></div>'+
   '<div class="content">'+
     '<div class="section-title" style="margin-top:0;">'+(state.lang==='zh'?'分类':'Categories')+'</div>'+
-    '<div class="list-row" onclick="navigate(\'manageRecipeCategories\')" style="cursor:pointer;">'+
-      '<div class="row-label">'+t('manageRecipeCategories')+'</div>'+ic('chevronRight',18)+
-    '</div>'+
+    recipeCategoryManagerHtml()+
     '<div class="section-title">'+t('sectionBackup')+'</div>'+
     '<div class="form-group">'+
       '<p class="hint" style="margin-bottom:14px;">'+t('backupHint')+'</p>'+
@@ -11417,9 +11459,19 @@ function addTagManage(kind){
 // level and the sub level). The sidebar mirrors these two arrays for browsing/filtering and
 // offers rename + add + long-press reorder there, but delete lives only here - this is the
 // one place the two-level hierarchy can be restructured.
-function renderManageRecipeCategories(){
+// README 9.123: this replaces the old standalone "管理食谱分类" page - the whole manager now
+// lives inline on 食谱设置 itself (item 4 of Lynn's request), and every group can be expanded
+// independently (settingsExpandedGroups is a set, not a single value like the sidebar's own
+// expandedGroup) with a top "展开全部/收起全部" toggle for the common case of wanting to see
+// everything at once. Drag-to-reorder (long-press a grip handle) and drag-a-group-onto-another
+// to nest it as that group's new subcategory both live here too now - see the nest-detection
+// added to initSidebarReorder and nestRecipeGroupInto below.
+function recipeCategoryManagerHtml(){
+  var allExpanded = state.recipeCategoryGroups.length>0 && state.recipeCategoryGroups.every(function(g){
+    return !(g.subs && g.subs.length) || state.recipesUI.settingsExpandedGroups[g.id];
+  });
   var groupsHtml = state.recipeCategoryGroups.map(function(g){
-    var expanded = state.recipesUI.expandedGroup === g.id;
+    var expanded = !!state.recipesUI.settingsExpandedGroups[g.id];
     var subRows = (g.subs||[]).map(function(s){
       var subColor = (g.subColors||{})[s];
       return '<div class="list-row" style="padding-left:24px;"><div style="display:flex;align-items:center;gap:10px;min-width:0;">'+
@@ -11429,33 +11481,76 @@ function renderManageRecipeCategories(){
         '<button class="row-del" onclick="openRenameRecipeSubModal('+aj(g.id)+','+aj(s)+')">'+ic('edit',17)+'</button>'+
         '<button class="row-del" onclick="deleteRecipeSub('+aj(g.id)+','+aj(s)+')">'+ic('trash',18)+'</button>'+
         '</div></div>';
-    }).join('') || '<p class="hint" style="padding-left:24px;">'+(state.lang==='zh'?'还没有子分类':'No subcategories yet')+'</p>';
-    return '<div class="list-row" onclick="toggleRecipeSidebarGroup('+aj(g.id)+')" style="cursor:pointer;">'+
-        '<div style="display:flex;align-items:center;gap:10px;min-width:0;">'+
+    }).join('') || (g.subs ? '' : '');
+    var hasSubs = g.subs && g.subs.length;
+    return '<div class="sidebar-group" data-group-id="'+esc(g.id)+'">'+
+      '<div class="list-row sidebar-item-row" style="cursor:pointer;" onclick="'+(hasSubs?('toggleSettingsRecipeGroup('+aj(g.id)+')'):'')+'">'+
+        '<span class="sidebar-drag-handle">'+ic('grip',17)+'</span>'+
+        '<div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1;">'+
           '<div onclick="event.stopPropagation();openRecipeCategoryColorPicker('+aj(g.id)+')" style="width:20px;height:20px;border-radius:50%;flex-shrink:0;background:'+(g.color||'var(--line)')+';box-shadow:0 0 0 1px var(--line);"></div>'+
           '<div class="row-label">'+esc(g.name)+'</div>'+
         '</div>'+
         '<div style="display:flex;align-items:center;gap:4px;">'+
         '<button class="row-del" onclick="event.stopPropagation();openRenameRecipeGroupModal('+aj(g.id)+')">'+ic('edit',17)+'</button>'+
         '<button class="row-del" onclick="event.stopPropagation();deleteRecipeGroup('+aj(g.id)+')">'+ic('trash',18)+'</button>'+
-        ic('chevronRight',16,'style="transform:rotate('+(expanded?'90':'0')+'deg);transition:transform .15s;"')+
+        (hasSubs ? ic('chevronRight',16,'style="transform:rotate('+(expanded?'90':'0')+'deg);transition:transform .15s;"') : '')+
         '</div>'+
       '</div>'+
-      (expanded ? (subRows+
-        '<div class="field-row" style="padding-left:24px;margin-bottom:12px;">'+
-          '<input type="text" autocapitalize="words" id="new-recipe-sub-settings-'+esc(g.id)+'" placeholder="'+t('addRecipeSubPh')+'" style="flex:1;font-size:16px;padding:11px 13px;border-radius:11px;border:1px solid var(--line);">'+
-          '<button class="btn btn-primary btn-sm" onclick="addRecipeSubFromInput('+aj('new-recipe-sub-settings-'+g.id)+','+aj(g.id)+')">'+t('add')+'</button>'+
-        '</div>') : '');
+      (expanded ? subRows : '')+
+    '</div>';
   }).join('') || '<p class="hint">'+(state.lang==='zh'?'还没有分类':'No categories yet')+'</p>';
   return '' +
-  '<div class="page-header"><button class="back-btn" onclick="navigate(\'recipesSettings\')">'+ic('back',22)+'</button><h1>'+t('manageRecipeCategoriesTitle')+'</h1></div>'+
-  '<div class="content">'+
-    groupsHtml+
-    '<div class="field-row" style="margin-top:16px;">'+
-      '<input type="text" autocapitalize="words" id="new-recipe-group-input-settings" placeholder="'+t('addRecipeGroupPh')+'" style="flex:1;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);">'+
-      '<button class="btn btn-primary btn-sm" onclick="addRecipeGroupFromInput(\'new-recipe-group-input-settings\')">'+t('add')+'</button>'+
-    '</div>'+
-  '</div>';
+    (state.recipeCategoryGroups.length ?
+      ('<div class="text-link-btn" style="margin-bottom:6px;" onclick="toggleAllSettingsRecipeGroups()">'+ic(allExpanded?'minusCircle':'plus',15)+'<span>'+t(allExpanded?'collapseAllBtn':'expandAllBtn')+'</span></div>') : '')+
+    '<div class="sidebar-reorder-list" data-reorder-kind="recipeGroup">'+groupsHtml+'</div>'+
+    recipeCombinedAddRowHtml()+
+    '<p class="hint" style="margin-top:8px;">'+t('nestDragHint')+'</p>';
+}
+function toggleSettingsRecipeGroup(id){
+  state.recipesUI.settingsExpandedGroups[id] = !state.recipesUI.settingsExpandedGroups[id];
+  render();
+}
+function toggleAllSettingsRecipeGroups(){
+  var allExpanded = state.recipeCategoryGroups.length>0 && state.recipeCategoryGroups.every(function(g){
+    return !(g.subs && g.subs.length) || state.recipesUI.settingsExpandedGroups[g.id];
+  });
+  var next = {};
+  if(!allExpanded){ state.recipeCategoryGroups.forEach(function(g){ next[g.id] = true; }); }
+  state.recipesUI.settingsExpandedGroups = next;
+  render();
+}
+// README 9.123: dragging a top-level group directly onto another one nests it as that group's
+// new subcategory (see the nest-detection in initSidebarReorder). A group that already has its
+// own subs can't be nested further - this data model is only two levels deep (group -> subs),
+// so nesting a group-with-subs would either have to silently flatten its subs or create a third
+// level the rest of the app doesn't understand; refusing with a clear toast is safer than either.
+function nestRecipeGroupInto(draggedId, targetId){
+  if(draggedId===targetId) return;
+  var dragged = recipeGroupById(draggedId);
+  var target = recipeGroupById(targetId);
+  if(!dragged || !target) return;
+  if(dragged.subs && dragged.subs.length){ showToast(t('nestHasSubsWarn')); return; }
+  var name = dragged.name;
+  if((target.subs||[]).indexOf(name)!==-1){ showToast(t('tagDuplicate')); return; }
+  target.subs = target.subs || [];
+  target.subs.push(name);
+  if(dragged.color){
+    target.subColors = target.subColors || {};
+    target.subColors[name] = dragged.color;
+  }
+  state.recipes.forEach(function(r){
+    if(r.category_group===draggedId){ r.category_group = targetId; r.category_sub = name; }
+  });
+  state.recipeCategoryGroups = state.recipeCategoryGroups.filter(function(x){ return x.id!==draggedId; });
+  if(state.recipesUI.groupId===draggedId){ state.recipesUI.groupId=targetId; state.recipesUI.sub=name; }
+  if(state.recipesUI.expandedGroup===draggedId) state.recipesUI.expandedGroup=null;
+  delete state.recipesUI.settingsExpandedGroups[draggedId];
+  state.recipesUI.settingsExpandedGroups[targetId] = true;
+  saveRecipeCategoryGroups();
+  saveRecipes();
+  showToast(t('nestedToast').replace('{name}', name).replace('{target}', target.name));
+  render();
+  refreshSidebarContent();
 }
 function deleteTagItem(kind, name){
   var inUse;
