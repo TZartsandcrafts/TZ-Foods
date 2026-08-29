@@ -802,6 +802,13 @@
 
 /* ======================= CONSTANTS ======================= */
 var DEFAULT_CATEGORIES = ['调味料','面粉/谷物','罐头','零食','蔬果','肉类','乳制品','饮品','烘焙原料'];
+// README 9.125: 库存分类改成跟食谱分类一样的两层结构（母分类+子分类），架构对齐但不需要颜色
+// 体系 - 这个函数只在从来没有 categoryGroups 存档、需要从旧版纯字符串分类列表(DEFAULT_
+// CATEGORIES 或用户自己存的 state.categories)首次生成分组结构时用一次，每个旧分类名变成一个
+// 没有子分类的母分类。见 loadAll 里的调用。
+function categoryNamesToGroups(names){
+  return (names||[]).map(function(name){ return {id: uid(), name: name, subs: []}; });
+}
 var DEFAULT_LOCATIONS = ['冰箱冷藏','冷冻柜','储藏柜','烘焙柜','厨房台面'];
 var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食谱笔记'];
 // Baked-in fallback so "拍照识别" keeps working even if localStorage ever gets wiped (browser
@@ -814,7 +821,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.124';
+var BUILD_VERSION = '9.125';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2173,7 +2180,7 @@ var I18N = {
     fieldName:'名称', fieldNamePh:'例如：鸡蛋', fieldBrand:'品牌', fieldBrandPh:'例如：某某牧场',
     fieldSource:'来源', fieldSourcePh:'例如：Costco、朋友送的、自家种的',
     fieldBarcode:'条码', fieldBarcodePh:'可手动输入或留空',
-    fieldCategory:'分类', fieldLocation:'位置',
+    fieldCategory:'分类', fieldCategorySub:'子分类', fieldLocation:'位置',
     fieldQty:'数量', fieldQtyPh:'如 8', fieldPackAmountPh:'规格，如 796', fieldUnit:'单位',
     fieldSecondaryQty:'次要计量(可选)', fieldSecondaryUnit:'次要单位',
     fieldExpiry:'保质期至', fieldPurchaseDate:'购买日期', fieldPrice:'价格',
@@ -2432,7 +2439,7 @@ var I18N = {
     fieldName:'Name', fieldNamePh:'e.g. Eggs', fieldBrand:'Brand', fieldBrandPh:'e.g. Farm Co.',
     fieldSource:'Source', fieldSourcePh:'e.g. Costco, gift, homegrown',
     fieldBarcode:'Barcode', fieldBarcodePh:'Optional, can enter manually',
-    fieldCategory:'Category', fieldLocation:'Location',
+    fieldCategory:'Category', fieldCategorySub:'Sub-category', fieldLocation:'Location',
     fieldQty:'Quantity', fieldQtyPh:'e.g. 8', fieldPackAmountPh:'Size, e.g. 796', fieldUnit:'Unit',
     fieldSecondaryQty:'Secondary count (optional)', fieldSecondaryUnit:'Secondary unit',
     fieldExpiry:'Best before', fieldPurchaseDate:'Purchase date', fieldPrice:'Price',
@@ -2655,11 +2662,11 @@ var state = {
   loaded: false,
   view: 'home',
   params: {},
-  home: { search:'', category:null, location:null, sort:'expiry', sortDir:'asc', sidebarCollapsed:{category:false, location:false, tools:false}, expandedGroups:{}, bulkMode:false, bulkSelected:{} },
+  home: { search:'', categoryGroup:null, categorySub:null, expandedCategoryGroup:null, settingsExpandedCategoryGroups:{}, categoryAddTarget:'', location:null, sort:'expiry', sortDir:'asc', sidebarCollapsed:{category:false, location:false, tools:false}, expandedGroups:{}, bulkMode:false, bulkSelected:{} },
   scan: { running:false, stream:null, detector:null, resultDraft:null, mode:'camera' },
   cloudSyncEnabled: false, cloudSyncRoomCode: DEFAULT_CLOUD_SYNC_ROOM_CODE, cloudSyncConfig: DEFAULT_CLOUD_SYNC_CONFIG,
   cloudSyncStatus: 'idle', cloudSyncError: '', cloudSyncLastSyncedAt: null,
-  categoriesUpdatedAt: null, locationsUpdatedAt: null, recipeCategoryGroupsUpdatedAt: null
+  categoryGroupsUpdatedAt: null, locationsUpdatedAt: null, recipeCategoryGroupsUpdatedAt: null
 };
 
 /* ======================= STORAGE LAYER (standalone: localStorage) ======================= */
@@ -2697,7 +2704,7 @@ async function loadAll(){
     storageGet('units', []),
     storageGet('cloudSync', {enabled:false, roomCode:'', config:''}),
     storageGet('cloudSyncPushMap', {}),
-    storageGet('tagListsMeta', {categoriesUpdatedAt:null, locationsUpdatedAt:null, recipeCategoryGroupsUpdatedAt:null}),
+    storageGet('tagListsMeta', {categoryGroupsUpdatedAt:null, locationsUpdatedAt:null, recipeCategoryGroupsUpdatedAt:null}),
     storageGet('cloudSyncMetaPushMap', {}),
     storageGet('cloudSyncRecipePushMap', {}),
     storageGet('cloudSyncIngredientPushMap', {}),
@@ -2708,9 +2715,19 @@ async function loadAll(){
     storageGet('activeFast', null),
     storageGet('bpLogs', []),
     storageGet('waistLogs', []),
-    storageGet('exerciseLogs', [])
+    storageGet('exerciseLogs', []),
+    storageGet('categoryGroups', null)
   ]);
-  state.items = results[0].map(migrateItem);
+  // README 9.125: categoryGroups is the new two-level (母分类/子分类) structure for inventory
+  // categories, architecturally matching state.recipeCategoryGroups but without any color
+  // system (not needed here - see Lynn's own note that "对齐" meant the management architecture,
+  // not the visual color coding recipes got). results[1] (the old flat 'categories' string
+  // list) is still read above for one purpose only: the one-time migration below, the first
+  // time this device loads after upgrading and has never saved a categoryGroups list yet. Once
+  // that first migration happens and categoryGroups gets saved, results[1] itself just becomes
+  // inert legacy data - nothing else in the app reads state.categories going forward.
+  state.categoryGroups = results[24] || categoryNamesToGroups(results[1] && results[1].length ? results[1] : DEFAULT_CATEGORIES);
+  state.items = results[0].map(function(it){ return migrateItem(it, state.categoryGroups); });
   state.categories = results[1];
   state.locations = results[2];
   state.ingredients = results[3];
@@ -2748,7 +2765,7 @@ async function loadAll(){
   state.cloudSyncConfig = cs.config || DEFAULT_CLOUD_SYNC_CONFIG;
   CLOUD.pushMap = results[11] || {};
   var tagMeta = results[12] || {};
-  state.categoriesUpdatedAt = tagMeta.categoriesUpdatedAt || null;
+  state.categoryGroupsUpdatedAt = tagMeta.categoryGroupsUpdatedAt || null;
   state.locationsUpdatedAt = tagMeta.locationsUpdatedAt || null;
   state.recipeCategoryGroupsUpdatedAt = tagMeta.recipeCategoryGroupsUpdatedAt || null;
   CLOUD.metaPushMap = results[13] || {};
@@ -2810,23 +2827,43 @@ function migrateNutritionBasis(it){
   delete it.nutrition_basis_unit;
   return it;
 }
-function migrateItem(it){ return migrateNutritionBasis(migrateItemQtyGroups(it)); }
+// README 9.125: one-time per-item conversion from the old flat it.category (a plain category
+// NAME string) to it.category_group (a categoryGroups id) + it.category_sub (a plain string,
+// same shape as recipes' category_group/category_sub). Finds the group with a matching name
+// (every pre-existing flat category name became its own top-level group with no subs during
+// the categoryGroups migration in loadAll, so this should always find a match on a normal
+// upgrade) - falls back to leaving the item uncategorized in the exceedingly unlikely case its
+// old category name doesn't match any group (e.g. hand-edited storage). Old it.category is left
+// in place rather than deleted - inert, unused going forward, but harmless to keep as a safety
+// net rather than actively destroying data during a migration.
+function migrateItemCategory(it, categoryGroups){
+  if(it.category_group !== undefined) return it;
+  it.category_sub = it.category_sub || '';
+  if(it.category){
+    var g = (categoryGroups||[]).find(function(x){ return x.name===it.category; });
+    it.category_group = g ? g.id : null;
+  } else {
+    it.category_group = null;
+  }
+  return it;
+}
+function migrateItem(it, categoryGroups){ return migrateItemCategory(migrateNutritionBasis(migrateItemQtyGroups(it)), categoryGroups); }
 function saveItems(){
   var p = storageSet('items', state.items);
   cloudSyncPushChanges();
   return p;
 }
-function saveCategories(){
-  state.categoriesUpdatedAt = nowLocalIso();
-  var p = storageSet('categories', state.categories);
-  storageSet('tagListsMeta', {categoriesUpdatedAt: state.categoriesUpdatedAt, locationsUpdatedAt: state.locationsUpdatedAt, recipeCategoryGroupsUpdatedAt: state.recipeCategoryGroupsUpdatedAt});
+function saveCategoryGroups(){
+  state.categoryGroupsUpdatedAt = nowLocalIso();
+  var p = storageSet('categoryGroups', state.categoryGroups);
+  storageSet('tagListsMeta', {categoryGroupsUpdatedAt: state.categoryGroupsUpdatedAt, locationsUpdatedAt: state.locationsUpdatedAt, recipeCategoryGroupsUpdatedAt: state.recipeCategoryGroupsUpdatedAt});
   cloudSyncPushMeta();
   return p;
 }
 function saveLocations(){
   state.locationsUpdatedAt = nowLocalIso();
   var p = storageSet('locations', state.locations);
-  storageSet('tagListsMeta', {categoriesUpdatedAt: state.categoriesUpdatedAt, locationsUpdatedAt: state.locationsUpdatedAt, recipeCategoryGroupsUpdatedAt: state.recipeCategoryGroupsUpdatedAt});
+  storageSet('tagListsMeta', {categoryGroupsUpdatedAt: state.categoryGroupsUpdatedAt, locationsUpdatedAt: state.locationsUpdatedAt, recipeCategoryGroupsUpdatedAt: state.recipeCategoryGroupsUpdatedAt});
   cloudSyncPushMeta();
   return p;
 }
@@ -2852,7 +2889,7 @@ function saveWeightPlan(){ return storageSet('weightPlan', state.weightPlan); }
 function saveRecipeCategoryGroups(){
   state.recipeCategoryGroupsUpdatedAt = nowLocalIso();
   var p = storageSet('recipeCategoryGroups', state.recipeCategoryGroups);
-  storageSet('tagListsMeta', {categoriesUpdatedAt: state.categoriesUpdatedAt, locationsUpdatedAt: state.locationsUpdatedAt, recipeCategoryGroupsUpdatedAt: state.recipeCategoryGroupsUpdatedAt});
+  storageSet('tagListsMeta', {categoryGroupsUpdatedAt: state.categoryGroupsUpdatedAt, locationsUpdatedAt: state.locationsUpdatedAt, recipeCategoryGroupsUpdatedAt: state.recipeCategoryGroupsUpdatedAt});
   cloudSyncPushMeta();
   return p;
 }
@@ -2883,7 +2920,7 @@ function saveUnits(){ return storageSet('units', state.units); }
    changing out from under an active session would be more surprising than helpful). Rendering
    is skipped while an edit form is open (reusing cloudSyncSafeRender's existing guard) so this
    can't blow away an in-progress keystroke the same way a stray cloud-sync render used to. */
-var SYNCABLE_STORAGE_KEYS = ['items','categories','locations','ingredients','recipes','recipeCategoryGroups','units'];
+var SYNCABLE_STORAGE_KEYS = ['items','categoryGroups','locations','ingredients','recipes','recipeCategoryGroups','units'];
 async function resyncFromStorage(){
   if(!state.loaded) return;
   var changed = false;
@@ -2892,7 +2929,7 @@ async function resyncFromStorage(){
     var val = await storageGet(key, undefined);
     if(val === undefined) continue; // nothing written for this key yet - don't clobber current defaults
     if(JSON.stringify(val) !== JSON.stringify(state[key])){
-      state[key] = (key==='items') ? val.map(migrateItem) : val;
+      state[key] = (key==='items') ? val.map(function(it){ return migrateItem(it, state.categoryGroups); }) : val;
       changed = true;
     }
   }
@@ -3156,6 +3193,17 @@ function showToast(msg){
   showToast._t = setTimeout(function(){ root.innerHTML=''; }, 2200);
 }
 function categoryLabel(catName){ return catName || (state.lang==='zh' ? '未分类' : 'Uncategorized'); }
+// README 9.125: replaces the old categoryLabel(it.category) call sites now that categories are
+// group+sub (same shape as recipeCategoryLabel for recipes).
+function categoryGroupById(id){
+  return state.categoryGroups.find(function(g){ return g.id===id; });
+}
+function itemCategoryLabel(it){
+  if(!it.category_group) return categoryLabel(null);
+  var g = categoryGroupById(it.category_group);
+  if(!g) return categoryLabel(null);
+  return it.category_sub ? (g.name+' · '+it.category_sub) : g.name;
+}
 
 /* ======================= UNIT CONVERSION (per inventory item) ======================= */
 // Fixed, unambiguous physical unit conversions (unlike the %DV/NRV situation - these are plain
@@ -3839,7 +3887,8 @@ function addMenuFloatingOptionsHtml(){
 // deep sub-page (item detail, archive, recipe form, etc.) or with filters/search active —
 // no more having to close the active-filter chip by hand first.
 function navBottomHome(){
-  state.home.category = null;
+  state.home.categoryGroup = null;
+  state.home.categorySub = null;
   state.home.location = null;
   state.home.search = '';
   navigate('home');
@@ -4416,17 +4465,17 @@ function deleteRecipeFromSwipe(id){
 // visually via translateY while dragging, and the underlying array is only reordered once,
 // on touchend.
 function sidebarReorderArrayFor(kind, groupId){
-  if(kind==='category') return state.categories;
   if(kind==='location') return state.locations;
   if(kind==='recipeGroup') return state.recipeCategoryGroups;
   if(kind==='recipeSub'){ var g=recipeGroupById(groupId); return g ? g.subs : null; }
+  if(kind==='categoryGroup') return state.categoryGroups;
   return null;
 }
 function sidebarReorderCommit(kind, groupId, order){
-  if(kind==='category'){ state.categories = order; saveCategories(); }
-  else if(kind==='location'){ state.locations = order; saveLocations(); }
+  if(kind==='location'){ state.locations = order; saveLocations(); }
   else if(kind==='recipeGroup'){ state.recipeCategoryGroups = order; saveRecipeCategoryGroups(); }
   else if(kind==='recipeSub'){ var g=recipeGroupById(groupId); if(g){ g.subs = order; saveRecipeCategoryGroups(); } }
+  else if(kind==='categoryGroup'){ state.categoryGroups = order; saveCategoryGroups(); }
 }
 (function initSidebarReorder(){
   var LONG_PRESS_MS = 420;
@@ -4486,7 +4535,7 @@ function sidebarReorderCommit(kind, groupId, order){
     // for the duration of the drag via a pure CSS class (no re-render, so our already
     // captured DOM references below stay valid) - the drawer keeps whatever expand state
     // it had once the drag ends and refreshSidebarContent() re-renders normally.
-    if(dragKind==='recipeGroup'){
+    if(dragKind==='recipeGroup' || dragKind==='categoryGroup'){
       document.body.classList.add('reorder-active');
       var drawer = document.getElementById('sidebar-drawer');
       if(drawer) drawer.classList.add('reorder-active');
@@ -4526,7 +4575,9 @@ function sidebarReorderCommit(kind, groupId, order){
     // README 9.123: nest-detection - only for top-level recipe groups. Uses live hit-testing
     // at the finger's current position rather than the row-count offset math below, so it
     // naturally accounts for wherever rows have visually shifted to mid-drag.
-    if(dragKind==='recipeGroup'){
+    // README 9.125: nest-detection now applies to both recipe AND inventory top-level groups
+    // (same two-level data model, same generic sidebarReorderArrayFor/Commit dispatch above).
+    if(dragKind==='recipeGroup' || dragKind==='categoryGroup'){
       var hit = document.elementFromPoint(t0.clientX, t0.clientY);
       var hitRow = hit && hit.closest ? hit.closest('.sidebar-reorder-list > [data-group-id]') : null;
       if(hitRow===dragRow) hitRow = null;
@@ -4571,7 +4622,10 @@ function sidebarReorderCommit(kind, groupId, order){
       var targetId = nestTargetRow.getAttribute('data-group-id');
       nestTargetRow = null;
       dragRow = null; rows = [];
-      if(draggedId && targetId) nestRecipeGroupInto(draggedId, targetId);
+      if(draggedId && targetId){
+        if(dragKind==='recipeGroup') nestRecipeGroupInto(draggedId, targetId);
+        else nestCategoryGroupInto(draggedId, targetId);
+      }
       return;
     }
     if(curIndex !== startIndex){
@@ -4588,7 +4642,8 @@ function sidebarReorderCommit(kind, groupId, order){
 function getFilteredSortedItems(){
   var q = (state.home.search||'').trim().toLowerCase();
   var list = activeItems().filter(function(it){
-    if(state.home.category && it.category !== state.home.category) return false;
+    if(state.home.categoryGroup && it.category_group !== state.home.categoryGroup) return false;
+    if(state.home.categorySub && it.category_sub !== state.home.categorySub) return false;
     if(state.home.location && it.location !== state.home.location) return false;
     if(q){
       var hay = ((it.name||'')+' '+(it.brand||'')).toLowerCase();
@@ -4658,7 +4713,10 @@ function renderHome(){
   var listHtml = '<div id="item-list-container">'+renderItemListHtml(items)+'</div>';
   function sortArrow(key){ return state.home.sort===key ? (state.home.sortDir==='desc'?' ↓':' ↑') : ''; }
   var filterParts = [];
-  if(state.home.category) filterParts.push(esc(state.home.category));
+  if(state.home.categoryGroup){
+    var fg = categoryGroupById(state.home.categoryGroup);
+    if(fg) filterParts.push(esc(state.home.categorySub ? (fg.name+' · '+state.home.categorySub) : fg.name));
+  }
   if(state.home.location) filterParts.push(esc(state.home.location));
   var activeFilterHtml = filterParts.length ?
     '<div class="active-filter-bar"><span onclick="toggleSidebar(\'home\')">'+ic('menu',14)+' '+filterParts.join(' · ')+'</span><button class="active-filter-clear" onclick="clearHomeFilters()">'+ic('x',13)+'</button></div>' : '';
@@ -4913,21 +4971,52 @@ function renderSelectableItemCard(it){
 }
 function openBulkAssignPicker(kind){
   if(bulkSelectedCount()===0){ showToast(t('bulkNoneSelected')); return; }
-  var list = kind==='category' ? state.categories : state.locations;
-  var title = kind==='category' ? t('bulkPickCategoryTitle') : t('bulkPickLocationTitle');
-  var body = list.length ? ('<div class="tag-select">'+
-    list.map(function(name){
-      return '<div class="tag-option" onclick="applyBulkAssign('+aj(kind)+','+aj(name)+')">'+esc(name)+'</div>';
+  if(kind==='location'){
+    var locList = state.locations;
+    var locBody = locList.length ? ('<div class="tag-select">'+
+      locList.map(function(name){
+        return '<div class="tag-option" onclick="applyBulkAssign(\'location\','+aj(name)+')">'+esc(name)+'</div>';
+      }).join('') +
+    '</div>') : ('<p class="hint">'+(state.lang==='zh'?'还没有位置，请先去设置页添加':'No locations yet — add some from settings first')+'</p>');
+    showModal(t('bulkPickLocationTitle'), locBody);
+    return;
+  }
+  // README 9.125: category is now group+sub, not a flat name - flattens every group and every
+  // group+sub combination into one chip list (e.g. "烘焙" AND "烘焙 · 面包吐司" as separate
+  // options) rather than a two-step group-then-sub picker, since this is a quick bulk-assign
+  // modal, not the full category management UI.
+  var options = [];
+  state.categoryGroups.forEach(function(g){
+    options.push({label: g.name, groupId: g.id, sub: ''});
+    (g.subs||[]).forEach(function(s){ options.push({label: g.name+' · '+s, groupId: g.id, sub: s}); });
+  });
+  var catBody = options.length ? ('<div class="tag-select">'+
+    options.map(function(o){
+      return '<div class="tag-option" onclick="applyBulkAssignCategory('+aj(o.groupId)+','+aj(o.sub)+')">'+esc(o.label)+'</div>';
     }).join('') +
-  '</div>') : ('<p class="hint">'+(state.lang==='zh'?'还没有分类/位置，请先去侧边栏添加':'No categories/locations yet — add some from the sidebar first')+'</p>');
-  showModal(title, body);
+  '</div>') : ('<p class="hint">'+(state.lang==='zh'?'还没有分类，请先去设置页添加':'No categories yet — add some from settings first')+'</p>');
+  showModal(t('bulkPickCategoryTitle'), catBody);
+}
+function applyBulkAssignCategory(groupId, sub){
+  var selected = state.home.bulkSelected;
+  var now = nowLocalIso();
+  state.items.forEach(function(it){
+    if(!selected[it.id]) return;
+    it.category_group = groupId; it.category_sub = sub;
+    it.updated_at = now;
+  });
+  saveItems();
+  closeModal();
+  state.home.bulkSelected = {};
+  showToast(t('bulkAssignDone'));
+  render();
 }
 function applyBulkAssign(kind, value){
   var selected = state.home.bulkSelected;
   var now = nowLocalIso();
   state.items.forEach(function(it){
     if(!selected[it.id]) return;
-    if(kind==='category') it.category = value; else it.location = value;
+    it.location = value;
     it.updated_at = now;
   });
   saveItems();
@@ -4965,7 +5054,7 @@ function renderStatFilteredList(){
   bottomNav();
 }
 function setHomeFilter(kind, val){ state.home[kind]=val; render(); }
-function clearHomeFilters(){ state.home.category=null; state.home.location=null; render(); }
+function clearHomeFilters(){ state.home.categoryGroup=null; state.home.categorySub=null; state.home.location=null; render(); }
 function sidebarSetHomeFilter(kind, val){
   state.home[kind] = val;
   // Picking a category/location while already on the main list just re-renders in place
@@ -4977,6 +5066,21 @@ function sidebarSetHomeFilter(kind, val){
   if(state.view !== 'home'){ navigate('home', {}); return; }
   closeSidebar();
   render();
+}
+// README 9.125: category filter is now group+sub (two fields) instead of one flat string - same
+// shape as sidebarSetRecipeFilter for recipes, kept as its own function rather than folded into
+// the generic sidebarSetHomeFilter above since that one only ever sets a single state.home key.
+function sidebarSetHomeCategoryFilter(groupId, sub){
+  state.home.categoryGroup = groupId;
+  state.home.categorySub = sub;
+  if(state.view !== 'home'){ navigate('home', {}); return; }
+  closeSidebar();
+  render();
+}
+function toggleHomeSidebarCategoryGroup(id){
+  state.home.expandedCategoryGroup = (state.home.expandedCategoryGroup===id) ? null : id;
+  render();
+  refreshSidebarContent();
 }
 function openHomeStatFilter(level){
   closeSidebar();
@@ -4999,26 +5103,52 @@ function renderHomeSidebarContent(){
   // Counts shown as a small pill next to each category/location name - how many active
   // (non-archived) items currently sit under it, computed once here rather than re-filtering
   // activeItems() once per row.
-  var catCounts = {}, locCounts = {};
+  var catCounts = {}, subCounts = {}, locCounts = {};
   activeItems().forEach(function(it){
-    if(it.category) catCounts[it.category] = (catCounts[it.category]||0) + 1;
+    if(it.category_group){
+      catCounts[it.category_group] = (catCounts[it.category_group]||0) + 1;
+      if(it.category_sub){
+        var k = it.category_group+'\u0001'+it.category_sub;
+        subCounts[k] = (subCounts[k]||0) + 1;
+      }
+    }
     if(it.location) locCounts[it.location] = (locCounts[it.location]||0) + 1;
   });
+  // README 9.125: view/filter-only, same architecture as the recipe sidebar (see its own
+  // comment at renderRecipeSidebarContent) - a group with subs expands/collapses on tap
+  // instead of immediately filtering+closing, with "该分类下全部" pinned at the top of its
+  // expanded list as the way to filter by the whole group; a group with no subs still filters
+  // immediately since there's nothing to expand. No drag/edit/add here - all of that lives on
+  // 库存设置's own embedded category manager now (categoryGroupManagerHtml).
+  var catGroupsHtml = state.categoryGroups.map(function(g){
+    var expanded = state.home.expandedCategoryGroup === g.id;
+    var groupActive = state.home.categoryGroup===g.id && !state.home.categorySub;
+    var hasSubs = g.subs && g.subs.length;
+    var wholeGroupItem = '<div class="sidebar-item '+(groupActive?'active':'')+'" style="font-weight:600;" onclick="sidebarSetHomeCategoryFilter('+aj(g.id)+',null)">'+t('filterWholeCategory')+'</div>';
+    var subItems = (g.subs||[]).map(function(s){
+      var active = state.home.categoryGroup===g.id && state.home.categorySub===s;
+      var subCount = subCounts[g.id+'\u0001'+s];
+      return '<div class="sidebar-item '+(active?'active':'')+'" style="display:flex;align-items:center;justify-content:space-between;gap:6px;" onclick="sidebarSetHomeCategoryFilter('+aj(g.id)+','+aj(s)+')">'+
+          '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(s)+'</span>'+
+          (subCount ? '<span class="sidebar-item-count">'+subCount+'</span>' : '')+
+        '</div>';
+    }).join('');
+    var groupCount = catCounts[g.id];
+    var rowClick = hasSubs ? ('toggleHomeSidebarCategoryGroup('+aj(g.id)+')') : ('sidebarSetHomeCategoryFilter('+aj(g.id)+',null)');
+    return '<div class="sidebar-group">'+
+      '<div class="sidebar-group-header" style="display:flex;align-items:center;" onclick="'+rowClick+'">'+
+        '<span class="sidebar-item '+(groupActive && !hasSubs?'active':'')+'" style="flex:1;padding:8px 4px;display:flex;align-items:center;justify-content:space-between;gap:6px;min-width:0;">'+
+          '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(g.name)+'</span>'+
+          (groupCount ? '<span class="sidebar-item-count">'+groupCount+'</span>' : '')+
+        '</span>'+
+        (hasSubs ? ic('chevronRight',16,'style="transform:rotate('+(expanded?'90':'0')+'deg);transition:transform .15s;display:block;padding:6px;color:var(--deep-caramel);flex-shrink:0;box-sizing:content-box;"') : '')+
+      '</div>'+
+      (expanded ? '<div class="sidebar-subs">'+wholeGroupItem+subItems+'</div>' : '')+
+    '</div>';
+  }).join('');
   var catHtml = sidebarSectionTitleHtml('fieldCategory', 'category', catOpen) +
-    (catOpen ? ('<div class="sidebar-item '+(!state.home.category?'active':'')+'" onclick="sidebarSetHomeFilter(\'category\',null)">'+t('filterAll')+'</div>'+
-    '<div class="sidebar-reorder-list" data-reorder-kind="category">'+
-    state.categories.map(function(c){
-      return '<div class="sidebar-item-row"><span class="sidebar-drag-handle">'+ic('grip',16)+'</span>'+
-        '<div class="sidebar-item '+(state.home.category===c?'active':'')+'" style="display:flex;align-items:center;justify-content:space-between;gap:6px;" onclick="sidebarSetHomeFilter(\'category\','+aj(c)+')">'+
-          '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(c)+'</span>'+
-          (catCounts[c] ? '<span class="sidebar-item-count">'+catCounts[c]+'</span>' : '')+
-        '</div>'+
-        '<div class="sidebar-item-actions">'+
-        '<button class="sidebar-item-action-btn" onclick="event.stopPropagation();openRenameTagModal(\'category\','+aj(c)+')">'+ic('edit',15)+'</button>'+
-        '</div></div>';
-    }).join('') +
-    '</div>' +
-    sidebarInlineAddRowHtml('category')) : '');
+    (catOpen ? ('<div class="sidebar-item '+(!state.home.categoryGroup?'active':'')+'" onclick="sidebarSetHomeCategoryFilter(null,null)">'+t('filterAll')+'</div>'+
+    catGroupsHtml) : '');
   var locHtml = sidebarSectionTitleHtml('fieldLocation', 'location', locOpen) +
     (locOpen ? ('<div class="sidebar-item '+(!state.home.location?'active':'')+'" onclick="sidebarSetHomeFilter(\'location\',null)">'+t('filterAll')+'</div>'+
     '<div class="sidebar-reorder-list" data-reorder-kind="location">'+
@@ -5105,7 +5235,7 @@ function toggleLang(){
 function blankItemDraft(){
   return {
     id: uid(), name:'', brand:'', source:'', barcode:'',
-    category:'', location:'',
+    category:'', category_group:null, category_sub:'', location:'',
     primary_qty:null, primary_unit:'件', primary_pack_amount:null, primary_pack_unit:'g',
     secondary_units:[], last_recount_at:null,
     expiry_date:'', purchase_date: todayStr(), price:'', price_currency:'CAD',
@@ -5200,7 +5330,7 @@ function openItemForm(id, prefill){
   // actually saved with, not silently reset to 100g every time.
   usdaDropdownCache['item-name-usda-dropdown'] = ''; // don't carry a stale dropdown in from a previous item's form session
   state.itemFormUI = {
-    addingCategory:false, addingLocation:false, customUnitEditing:{},
+    addingCategory:false, addingCategoryGroup:false, addingCategorySub:false, addingLocation:false, customUnitEditing:{},
     nutriBasisWeightAmount: state.itemDraft.nutrition_basis_weight_amount,
     nutriBasisWeightUnit: state.itemDraft.nutrition_basis_weight_unit || 'g',
     nutriBasisWeightAmountText: state.itemDraft.nutrition_basis_weight_amount_text || null,
@@ -5462,6 +5592,78 @@ function qtyGroupsHtml(d){
   rows += '<div class="tag-option qty-group-add" onclick="addQtyGroup()">+ '+t('addQtyGroup')+'</div>';
   return rows;
 }
+// README 9.125: replaces the old flat tagSelectHtml('category', ...) picker - group+sub picker
+// matching recipeCategoryPickerHtml's own shape (group chips, then sub chips once a group with
+// subs is picked). Location stays on the old flat tagSelectHtml unchanged - only categories got
+// the two-level treatment.
+function itemCategoryPickerHtml(){
+  var d = state.itemDraft;
+  var groupChips = state.categoryGroups.map(function(g){
+    return '<div class="tag-option '+(d.category_group===g.id?'active':'')+'" onclick="setItemCategoryGroup('+aj(g.id)+')">'+esc(g.name)+'</div>';
+  }).join('') + '<div class="tag-option add-new" onclick="toggleAddingItemCategoryGroup()">'+t('addNewTag')+'</div>';
+  var addGroupUi = state.itemFormUI.addingCategoryGroup ?
+    '<div class="field" style="margin-top:10px;margin-bottom:0;"><div class="field-row">'+
+      '<input type="text" autocapitalize="words" id="new-item-category-group-input" placeholder="'+t('newTagPrompt')+'" style="flex:1;font-size:16px;padding:11px 12px;border-radius:10px;border:1px solid var(--line);">'+
+      '<button class="btn btn-primary btn-sm" onclick="confirmNewItemCategoryGroup()">'+t('add')+'</button>'+
+    '</div></div>' : '';
+  var subHtml = '';
+  var group = categoryGroupById(d.category_group);
+  if(group){
+    var subChips = (group.subs||[]).map(function(s){
+      return '<div class="tag-option '+(d.category_sub===s?'active':'')+'" onclick="setItemCategorySub('+aj(s)+')">'+esc(s)+'</div>';
+    }).join('') + '<div class="tag-option add-new" onclick="toggleAddingItemCategorySub()">'+t('addNewTag')+'</div>';
+    var addSubUi = state.itemFormUI.addingCategorySub ?
+      '<div class="field" style="margin-top:10px;margin-bottom:0;"><div class="field-row">'+
+        '<input type="text" autocapitalize="words" id="new-item-category-sub-input" placeholder="'+t('newTagPrompt')+'" style="flex:1;font-size:16px;padding:11px 12px;border-radius:10px;border:1px solid var(--line);">'+
+        '<button class="btn btn-primary btn-sm" onclick="confirmNewItemCategorySub()">'+t('add')+'</button>'+
+      '</div></div>' : '';
+    subHtml = '<div class="field" style="margin-top:14px;margin-bottom:0;"><label>'+t('fieldCategorySub')+'</label><div class="tag-select">'+subChips+'</div>'+addSubUi+'</div>';
+  }
+  return '<div class="field" style="margin-bottom:0;"><div class="tag-select">'+groupChips+'</div>'+addGroupUi+'</div>'+subHtml;
+}
+function setItemCategoryGroup(id){
+  state.itemDraft.category_group = id;
+  state.itemDraft.category_sub = '';
+  render();
+}
+function setItemCategorySub(s){ state.itemDraft.category_sub = s; render(); }
+function toggleAddingItemCategoryGroup(){
+  state.itemFormUI.addingCategoryGroup = true;
+  render();
+  var el = document.getElementById('new-item-category-group-input'); if(el) el.focus();
+}
+function confirmNewItemCategoryGroup(){
+  var el = document.getElementById('new-item-category-group-input');
+  var val = el ? el.value.trim() : '';
+  if(!val) return;
+  if(state.categoryGroups.some(function(g){ return g.name===val; })){ showToast(t('tagDuplicate')); return; }
+  var g = {id: uid(), name: val, subs: []};
+  state.categoryGroups.push(g);
+  saveCategoryGroups();
+  state.itemDraft.category_group = g.id;
+  state.itemDraft.category_sub = '';
+  state.itemFormUI.addingCategoryGroup = false;
+  render();
+}
+function toggleAddingItemCategorySub(){
+  state.itemFormUI.addingCategorySub = true;
+  render();
+  var el = document.getElementById('new-item-category-sub-input'); if(el) el.focus();
+}
+function confirmNewItemCategorySub(){
+  var el = document.getElementById('new-item-category-sub-input');
+  var val = el ? el.value.trim() : '';
+  if(!val) return;
+  var g = categoryGroupById(state.itemDraft.category_group);
+  if(!g) return;
+  g.subs = g.subs || [];
+  if(g.subs.indexOf(val)!==-1){ showToast(t('tagDuplicate')); return; }
+  g.subs.push(val);
+  saveCategoryGroups();
+  state.itemDraft.category_sub = val;
+  state.itemFormUI.addingCategorySub = false;
+  render();
+}
 function tagSelectHtml(kind, list, current, addingFlag, extraClass){
   var opts = list.map(function(c){
     return '<div class="tag-option '+(current===c?'active':'')+'" onclick="setDraftTag('+aj(kind)+','+aj(c)+')">'+esc(c)+'</div>';
@@ -5478,8 +5680,11 @@ function tagSelectHtml(kind, list, current, addingFlag, extraClass){
   return '<div class="tag-select'+(extraClass?(' '+extraClass):'')+'">'+opts+'<div class="tag-option add-new" onclick="toggleAddingTag('+aj(kind)+')">'+t('addNewTag')+'</div></div>'+addUi;
 }
 function setDraftTag(kind, val){ state.itemDraft[kind]=val; render(); }
+// README 9.125: these three (toggleAddingTag/confirmNewTag/setDraftTag) now only ever get
+// called with kind='location' - 'category' moved to its own dedicated picker/add functions
+// (itemCategoryPickerHtml etc.) once categories became group+sub instead of a flat list.
 function toggleAddingTag(kind){
-  state.itemFormUI[kind==='category'?'addingCategory':'addingLocation'] = true;
+  state.itemFormUI.addingLocation = true;
   render();
   var el = document.getElementById('new-'+kind+'-input');
   if(el) el.focus();
@@ -5488,13 +5693,13 @@ function confirmNewTag(kind){
   var el = document.getElementById('new-'+kind+'-input');
   var val = el ? el.value.trim() : '';
   if(!val) return;
-  var list = kind==='category' ? state.categories : state.locations;
+  var list = state.locations;
   if(list.indexOf(val)===-1){
     list.push(val);
-    if(kind==='category') saveCategories(); else saveLocations();
+    saveLocations();
   }
   state.itemDraft[kind] = val;
-  state.itemFormUI[kind==='category'?'addingCategory':'addingLocation'] = false;
+  state.itemFormUI.addingLocation = false;
   render();
 }
 /* ---- expiry / production date / shelf life ---- */
@@ -6200,7 +6405,7 @@ function renderItemForm(){
       '<div class="hint" id="item-photo-status"></div>'+
     '</div>'+
     '<div class="section-title">'+t('fieldCategory')+'</div>'+
-    '<div class="form-group">'+tagSelectHtml('category', state.categories, d.category, ui.addingCategory, 'tag-select-grid tag-select-grid-category')+'</div>'+
+    '<div class="form-group">'+itemCategoryPickerHtml()+'</div>'+
     '<div class="section-title">'+t('fieldLocation')+'</div>'+
     '<div class="form-group">'+tagSelectHtml('location', state.locations, d.location, ui.addingLocation, 'tag-select-grid tag-select-grid-location')+'</div>'+
     '<div class="section-title">'+t('sectionQty')+'</div>'+
@@ -6573,7 +6778,7 @@ function renderItemDetail(){
       '</div>'+
     '</div>'+
     '<div class="form-group">'+
-      '<div class="list-row" style="border:none;padding:0;margin-bottom:10px;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldCategory')+'</span><span>'+esc(categoryLabel(it.category))+'</span></div>'+
+      '<div class="list-row" style="border:none;padding:0;margin-bottom:10px;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldCategory')+'</span><span>'+esc(itemCategoryLabel(it))+'</span></div>'+
       '<div class="list-row" style="border:none;padding:0;margin-bottom:10px;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldLocation')+'</span><span>'+esc(it.location||t('unset'))+'</span></div>'+
       '<div class="list-row" style="border:none;padding:0;margin-bottom:10px;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldPurchaseDate')+'</span><span>'+esc(it.purchase_date||'-')+'</span></div>'+
       '<div class="list-row" style="border:none;padding:0;margin-bottom:0;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldPrice')+'</span><span>'+formatPrice(it)+'</span></div>'+
@@ -7417,7 +7622,7 @@ function renderItemViewOnly(){
       '</div>'+
     '</div>'+
     '<div class="form-group">'+
-      '<div class="list-row" style="border:none;padding:0;margin-bottom:10px;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldCategory')+'</span><span>'+esc(categoryLabel(it.category))+'</span></div>'+
+      '<div class="list-row" style="border:none;padding:0;margin-bottom:10px;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldCategory')+'</span><span>'+esc(itemCategoryLabel(it))+'</span></div>'+
       '<div class="list-row" style="border:none;padding:0;margin-bottom:10px;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldLocation')+'</span><span>'+esc(it.location||t('unset'))+'</span></div>'+
       '<div class="list-row" style="border:none;padding:0;margin-bottom:10px;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldPurchaseDate')+'</span><span>'+esc(it.purchase_date||'-')+'</span></div>'+
       '<div class="list-row" style="border:none;padding:0;margin-bottom:0;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldPrice')+'</span><span>'+formatPrice(it)+'</span></div>'+
@@ -8458,7 +8663,12 @@ function confirmRecipeCombinedAdd(){
     if(!g) return;
     if((g.subs||[]).indexOf(val)!==-1){ showToast(t('tagDuplicate')); return; }
     g.subs.push(val);
-    state.recipesUI.expandedGroup = g.id;
+    // README 9.125 bugfix: this was setting recipesUI.expandedGroup (the SIDEBAR's own
+    // single-value expand state) - harmless but pointless since recipeCombinedAddRowHtml only
+    // renders on the settings page now (sidebar dropped all management UI in 9.123), so nothing
+    // ever showed the newly-expanded group open. settingsExpandedGroups is the state that
+    // actually matters here.
+    state.recipesUI.settingsExpandedGroups[g.id] = true;
   }
   saveRecipeCategoryGroups();
   if(el) el.value = '';
@@ -11147,10 +11357,9 @@ function renderInventorySettings(){
       '<input type="number" inputmode="numeric" value="'+state.reminderDays+'" oninput="setReminderDays(this.value)" style="width:100%;font-size:16px;padding:13px 14px;border-radius:11px;border:1px solid var(--line);">'+
       '<div class="hint">'+t('reminderDaysHint')+'</div>'+
     '</div>'+
-    '<div class="section-title">'+(state.lang==='zh'?'分类与位置':'Categories & Locations')+'</div>'+
-    '<div class="list-row" onclick="navigate(\'manageTags\',{kind:\'category\'})" style="cursor:pointer;">'+
-      '<div class="row-label">'+t('manageCategories')+'</div>'+ic('chevronRight',18)+
-    '</div>'+
+    '<div class="section-title">'+t('fieldCategory')+'</div>'+
+    categoryGroupManagerHtml()+
+    '<div class="section-title">'+t('fieldLocation')+'</div>'+
     '<div class="list-row" onclick="navigate(\'manageTags\',{kind:\'location\'})" style="cursor:pointer;">'+
       '<div class="row-label">'+t('manageLocations')+'</div>'+ic('chevronRight',18)+
     '</div>'+
@@ -11167,6 +11376,98 @@ function renderInventorySettings(){
   bottomNav();
 }
 
+// README 9.125: 库存分类管理器，架构完全对齐 recipeCategoryManagerHtml（多组独立展开+展开全部
+// /收起全部+单一合并添加入口+长按拖拽排序/归入子分类），只是没有颜色体系。
+function categoryGroupManagerHtml(){
+  var allExpanded = state.categoryGroups.length>0 && state.categoryGroups.every(function(g){
+    return !(g.subs && g.subs.length) || state.home.settingsExpandedCategoryGroups[g.id];
+  });
+  var groupsHtml = state.categoryGroups.map(function(g){
+    var expanded = !!state.home.settingsExpandedCategoryGroups[g.id];
+    var subRows = (g.subs||[]).map(function(s){
+      return '<div class="list-row" style="padding-left:24px;">'+
+        '<div class="row-label">'+esc(s)+'</div>'+
+        '<div style="display:flex;gap:4px;">'+
+        '<button class="row-del" onclick="openRenameCategorySubModal('+aj(g.id)+','+aj(s)+')">'+ic('edit',17)+'</button>'+
+        '<button class="row-del" onclick="deleteCategorySub('+aj(g.id)+','+aj(s)+')">'+ic('trash',18)+'</button>'+
+        '</div></div>';
+    }).join('');
+    var hasSubs = g.subs && g.subs.length;
+    return '<div class="sidebar-group" data-group-id="'+esc(g.id)+'">'+
+      '<div class="list-row sidebar-item-row" style="cursor:pointer;" onclick="'+(hasSubs?('toggleSettingsCategoryGroup('+aj(g.id)+')'):'')+'">'+
+        '<span class="sidebar-drag-handle">'+ic('grip',17)+'</span>'+
+        '<div class="row-label" style="flex:1;">'+esc(g.name)+'</div>'+
+        '<div style="display:flex;align-items:center;gap:4px;">'+
+        '<button class="row-del" onclick="event.stopPropagation();openRenameCategoryGroupModal('+aj(g.id)+')">'+ic('edit',17)+'</button>'+
+        '<button class="row-del" onclick="event.stopPropagation();deleteCategoryGroup('+aj(g.id)+')">'+ic('trash',18)+'</button>'+
+        (hasSubs ? ic('chevronRight',16,'style="transform:rotate('+(expanded?'90':'0')+'deg);transition:transform .15s;"') : '')+
+        '</div>'+
+      '</div>'+
+      (expanded ? subRows : '')+
+    '</div>';
+  }).join('') || '<p class="hint">'+(state.lang==='zh'?'还没有分类':'No categories yet')+'</p>';
+  return '' +
+    (state.categoryGroups.length ?
+      ('<div class="text-link-btn" style="margin-bottom:6px;" onclick="toggleAllSettingsCategoryGroups()">'+ic(allExpanded?'minusCircle':'plus',15)+'<span>'+t(allExpanded?'collapseAllBtn':'expandAllBtn')+'</span></div>') : '')+
+    '<div style="-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;">'+
+      '<div class="sidebar-reorder-list" data-reorder-kind="categoryGroup">'+groupsHtml+'</div>'+
+      categoryCombinedAddRowHtml()+
+      '<p class="hint" style="margin-top:8px;">'+t('nestDragHint')+'</p>'+
+    '</div>';
+}
+function toggleSettingsCategoryGroup(id){
+  state.home.settingsExpandedCategoryGroups[id] = !state.home.settingsExpandedCategoryGroups[id];
+  render();
+}
+function toggleAllSettingsCategoryGroups(){
+  var allExpanded = state.categoryGroups.length>0 && state.categoryGroups.every(function(g){
+    return !(g.subs && g.subs.length) || state.home.settingsExpandedCategoryGroups[g.id];
+  });
+  var next = {};
+  if(!allExpanded){ state.categoryGroups.forEach(function(g){ next[g.id] = true; }); }
+  state.home.settingsExpandedCategoryGroups = next;
+  render();
+}
+function categoryCombinedAddRowHtml(){
+  var target = state.home.categoryAddTarget || '';
+  var options = '<option value="">'+(state.lang==='zh'?'新增分类':'New category')+'</option>'+
+    state.categoryGroups.map(function(g){
+      var label = state.lang==='zh' ? ('"'+g.name+'" 的新子分类') : ('New subcategory of "'+g.name+'"');
+      return '<option value="'+esc(g.id)+'" '+(target===g.id?'selected':'')+'>'+esc(label)+'</option>';
+    }).join('');
+  return '<div class="sidebar-inline-add-combined">'+
+    '<select id="category-add-target-select" class="sidebar-add-level-select" onchange="onCategoryAddTargetChange(this)">'+options+'</select>'+
+    '<div class="sidebar-inline-add-row" style="padding:0;">'+
+      '<input type="text" autocapitalize="words" id="new-category-combined-input" placeholder="'+t('newTagPrompt')+'" onkeydown="if(event.key===\'Enter\')confirmCategoryCombinedAdd()">'+
+      '<button onclick="confirmCategoryCombinedAdd()">'+t('add')+'</button>'+
+    '</div>'+
+  '</div>';
+}
+function onCategoryAddTargetChange(sel){
+  state.home.categoryAddTarget = sel.value;
+  var el = document.getElementById('new-category-combined-input');
+  if(el) el.focus();
+}
+function confirmCategoryCombinedAdd(){
+  var el = document.getElementById('new-category-combined-input');
+  var val = el ? el.value.trim() : '';
+  if(!val) return;
+  var target = state.home.categoryAddTarget || '';
+  if(!target){
+    if(state.categoryGroups.some(function(g){ return g.name===val; })){ showToast(t('tagDuplicate')); return; }
+    state.categoryGroups.push({id: uid(), name: val, subs: []});
+  } else {
+    var g = categoryGroupById(target);
+    if(!g) return;
+    if((g.subs||[]).indexOf(val)!==-1){ showToast(t('tagDuplicate')); return; }
+    g.subs.push(val);
+    state.home.settingsExpandedCategoryGroups[g.id] = true;
+  }
+  saveCategoryGroups();
+  if(el) el.value = '';
+  render();
+  refreshSidebarContent();
+}
 function renderRecipesSettings(){
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'recipes\')">'+ic('back',22)+'</button><h1>'+t('recipesSettingsTitle')+'</h1></div>'+
@@ -11292,7 +11593,7 @@ async function exportInventoryData(){
     version: 1,
     exported_at: nowLocalIso(),
     items: itemsOut,
-    categories: state.categories,
+    categoryGroups: state.categoryGroups,
     locations: state.locations
   };
   downloadJSON('foodcode-inventory-backup-'+todayStr()+'.json', payload);
@@ -11346,6 +11647,29 @@ function mergeStringArrays(existing, incoming){
     if(s && !seen[s]){ seen[s]=true; out.push(s); }
   });
   return out;
+}
+// README 9.125: matches groups by id (not name) - an imported item's category_group field
+// points at an id from the SOURCE device, so preserving ids for anything not already present
+// locally is what keeps those references valid after the merge. A group whose id already
+// exists locally gets its subs unioned in; a group whose id doesn't exist locally is added as-
+// is (even if its name happens to match an existing local group - two same-named groups with
+// different ids is a minor cosmetic duplicate, not a broken reference, which is the safer
+// failure mode for a backup/restore tool).
+function mergeCategoryGroups(local, incoming){
+  var byId = {};
+  local.forEach(function(g){ byId[g.id] = g; });
+  (incoming||[]).forEach(function(g){
+    var existing = byId[g.id];
+    if(existing){
+      var subs = (existing.subs||[]).slice();
+      (g.subs||[]).forEach(function(s){ if(subs.indexOf(s)===-1) subs.push(s); });
+      existing.subs = subs;
+    } else {
+      local.push(g);
+      byId[g.id] = g;
+    }
+  });
+  return local;
 }
 function openImportConfirmModal(kind, data, count){
   _pendingImport = {kind:kind, data:data};
@@ -11405,17 +11729,17 @@ async function confirmImport(mode){
   if(!_pendingImport) return;
   var data = _pendingImport.data;
   if(_pendingImport.kind === 'inventory'){
-    var incomingItems = (await migrateImportedPhotos(data.items||[])).map(migrateItem);
+    var incomingItems = (await migrateImportedPhotos(data.items||[])).map(function(it){ return migrateItem(it, state.categoryGroups); });
     if(mode === 'merge'){
       state.items = mergeById(state.items, incomingItems);
-      state.categories = mergeStringArrays(state.categories, data.categories||[]);
+      state.categoryGroups = mergeCategoryGroups(state.categoryGroups, data.categoryGroups||[]);
       state.locations = mergeStringArrays(state.locations, data.locations||[]);
     } else {
       state.items = incomingItems;
-      state.categories = (data.categories && data.categories.length) ? data.categories : DEFAULT_CATEGORIES.slice();
+      state.categoryGroups = (data.categoryGroups && data.categoryGroups.length) ? data.categoryGroups : categoryNamesToGroups(DEFAULT_CATEGORIES);
       state.locations = (data.locations && data.locations.length) ? data.locations : DEFAULT_LOCATIONS.slice();
     }
-    saveItems(); saveCategories(); saveLocations();
+    saveItems(); saveCategoryGroups(); saveLocations();
   } else if(_pendingImport.kind === 'recipes'){
     // migrateImportedPhotos also just looks for a data: URL in photo_url, so it works
     // unchanged for recipe cover photos too - re-stores them into this device's IndexedDB
@@ -11436,20 +11760,18 @@ async function confirmImport(mode){
   render();
 }
 
-/* ======================= MANAGE TAGS ======================= */
+/* ======================= MANAGE TAGS (locations only - see README 9.125 for categories) ======================= */
 function tagListForKind(kind){
-  if(kind==='location') return state.locations;
-  return state.categories;
+  return state.locations;
 }
 function saveTagListForKind(kind){
-  if(kind==='location') return saveLocations();
-  return saveCategories();
+  return saveLocations();
 }
 function renderManageTags(){
-  var kind = state.params.kind || 'category';
+  var kind = 'location';
   var list = tagListForKind(kind);
-  var title = kind==='location' ? t('manageLocationsTitle') : t('manageCategoriesTitle');
-  var ph = kind==='location' ? t('addLocationPh') : t('addCategoryPh');
+  var title = t('manageLocationsTitle');
+  var ph = t('addLocationPh');
   var rows = list.map(function(name){
     return '<div class="list-row"><div class="row-label">'+esc(name)+'</div>'+
       '<div style="display:flex;gap:4px;">'+
@@ -11585,30 +11907,127 @@ function nestRecipeGroupInto(draggedId, targetId){
   refreshSidebarContent();
 }
 function deleteTagItem(kind, name){
-  var inUse;
-  if(kind==='category') inUse = state.items.some(function(i){ return i.category===name; });
-  else inUse = state.items.some(function(i){ return i.location===name; });
+  var inUse = state.items.some(function(i){ return i.location===name; });
   function doDelete(){
-    if(kind==='category'){
-      state.categories = state.categories.filter(function(c){ return c!==name; });
-      state.items.forEach(function(i){ if(i.category===name) i.category=''; });
-      if(state.home.category===name) state.home.category=null;
-      saveCategories(); saveItems();
-    } else {
-      state.locations = state.locations.filter(function(l){ return l!==name; });
-      state.items.forEach(function(i){ if(i.location===name) i.location=''; });
-      if(state.home.location===name) state.home.location=null;
-      saveLocations(); saveItems();
-    }
+    state.locations = state.locations.filter(function(l){ return l!==name; });
+    state.items.forEach(function(i){ if(i.location===name) i.location=''; });
+    if(state.home.location===name) state.home.location=null;
+    saveLocations(); saveItems();
     render();
     refreshSidebarContent();
   }
   if(inUse) showConfirmModal(t('tagInUseWarning'), doDelete, {title:t('delete')});
   else doDelete();
 }
+// README 9.125: 库存分类的增/删/改，跟 deleteRecipeGroup/openRenameRecipeGroupModal 等食谱那边
+// 的对应函数结构完全一样（架构对齐，只是没有颜色体系）- kind='category' 不再走下面
+// deleteTagItem/openRenameTagModal 这套（那套现在只处理 location，一个扁平字符串数组）。
+function openRenameCategoryGroupModal(groupId){
+  var g = categoryGroupById(groupId);
+  if(!g) return;
+  var body = '<div class="field" style="margin-bottom:14px;">'+
+      '<input type="text" autocapitalize="words" id="rename-tag-input" value="'+esc(g.name)+'" style="width:100%;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);background:var(--card-bg);color:var(--cocoa);">'+
+    '</div>'+
+    '<div class="btn-row"><button class="btn btn-outline" onclick="closeModal()">'+t('cancel')+'</button>'+
+    '<button class="btn btn-primary" onclick="confirmRenameCategoryGroup('+aj(groupId)+')">'+t('save')+'</button></div>';
+  showModal(t('editTagTitle'), body);
+  var elG = document.getElementById('rename-tag-input');
+  if(elG){ elG.focus(); elG.select(); }
+}
+function confirmRenameCategoryGroup(groupId){
+  var g = categoryGroupById(groupId);
+  var el = document.getElementById('rename-tag-input');
+  var val = el ? el.value.trim() : '';
+  if(!g || !val){ closeModal(); return; }
+  g.name = val;
+  saveCategoryGroups();
+  closeModal();
+  render();
+  refreshSidebarContent();
+}
+function deleteCategoryGroup(groupId){
+  var g = categoryGroupById(groupId);
+  if(!g) return;
+  var inUse = state.items.some(function(i){ return i.category_group===groupId; });
+  function doDelete(){
+    state.categoryGroups = state.categoryGroups.filter(function(x){ return x.id!==groupId; });
+    state.items.forEach(function(i){ if(i.category_group===groupId){ i.category_group=null; i.category_sub=''; } });
+    if(state.home.categoryGroup===groupId){ state.home.categoryGroup=null; state.home.categorySub=null; }
+    if(state.home.expandedCategoryGroup===groupId) state.home.expandedCategoryGroup=null;
+    saveCategoryGroups(); saveItems();
+    render();
+    refreshSidebarContent();
+  }
+  if(inUse) showConfirmModal(t('tagInUseWarning'), doDelete, {title:t('delete')});
+  else doDelete();
+}
+function openRenameCategorySubModal(groupId, oldSub){
+  var body = '<div class="field" style="margin-bottom:14px;">'+
+      '<input type="text" autocapitalize="words" id="rename-tag-input" value="'+esc(oldSub)+'" style="width:100%;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);background:var(--card-bg);color:var(--cocoa);">'+
+    '</div>'+
+    '<div class="btn-row"><button class="btn btn-outline" onclick="closeModal()">'+t('cancel')+'</button>'+
+    '<button class="btn btn-primary" onclick="confirmRenameCategorySub('+aj(groupId)+','+aj(oldSub)+')">'+t('save')+'</button></div>';
+  showModal(t('editTagTitle'), body);
+  var elS = document.getElementById('rename-tag-input');
+  if(elS){ elS.focus(); elS.select(); }
+}
+function confirmRenameCategorySub(groupId, oldSub){
+  var g = categoryGroupById(groupId);
+  var el = document.getElementById('rename-tag-input');
+  var val = el ? el.value.trim() : '';
+  if(!g || !val || val===oldSub){ closeModal(); return; }
+  if((g.subs||[]).indexOf(val)!==-1){ showToast(t('tagDuplicate')); return; }
+  var idx = g.subs.indexOf(oldSub);
+  if(idx===-1){ closeModal(); return; }
+  g.subs[idx] = val;
+  state.items.forEach(function(i){ if(i.category_group===groupId && i.category_sub===oldSub) i.category_sub=val; });
+  if(state.home.categoryGroup===groupId && state.home.categorySub===oldSub) state.home.categorySub=val;
+  saveCategoryGroups(); saveItems();
+  closeModal();
+  render();
+  refreshSidebarContent();
+}
+function deleteCategorySub(groupId, sub){
+  var g = categoryGroupById(groupId);
+  if(!g) return;
+  var inUse = state.items.some(function(i){ return i.category_group===groupId && i.category_sub===sub; });
+  function doDelete(){
+    g.subs = (g.subs||[]).filter(function(s){ return s!==sub; });
+    state.items.forEach(function(i){ if(i.category_group===groupId && i.category_sub===sub) i.category_sub=''; });
+    if(state.home.categoryGroup===groupId && state.home.categorySub===sub) state.home.categorySub=null;
+    saveCategoryGroups(); saveItems();
+    render();
+    refreshSidebarContent();
+  }
+  if(inUse) showConfirmModal(t('tagInUseWarning'), doDelete, {title:t('delete')});
+  else doDelete();
+}
+// README 9.125: nest-to-subcategory for 库存分类, same logic shape as nestRecipeGroupInto.
+function nestCategoryGroupInto(draggedId, targetId){
+  if(draggedId===targetId) return;
+  var dragged = categoryGroupById(draggedId);
+  var target = categoryGroupById(targetId);
+  if(!dragged || !target) return;
+  if(dragged.subs && dragged.subs.length){ showToast(t('nestHasSubsWarn')); return; }
+  var name = dragged.name;
+  if((target.subs||[]).indexOf(name)!==-1){ showToast(t('tagDuplicate')); return; }
+  target.subs = target.subs || [];
+  target.subs.push(name);
+  state.items.forEach(function(i){
+    if(i.category_group===draggedId){ i.category_group = targetId; i.category_sub = name; }
+  });
+  state.categoryGroups = state.categoryGroups.filter(function(x){ return x.id!==draggedId; });
+  if(state.home.categoryGroup===draggedId){ state.home.categoryGroup=targetId; state.home.categorySub=name; }
+  if(state.home.expandedCategoryGroup===draggedId) state.home.expandedCategoryGroup=null;
+  saveCategoryGroups();
+  saveItems();
+  showToast(t('nestedToast').replace('{name}', name).replace('{target}', target.name));
+  render();
+  refreshSidebarContent();
+}
 // Sidebar-driven rename dialog (reuses the app's modal sheet rather than a native prompt()
-// so it matches the rest of the UI). Used for categories and locations - both are plain string
-// arrays keyed by tagListForKind/saveTagListForKind.
+// so it matches the rest of the UI). Used for locations only now - categories moved to their
+// own dedicated functions above (see README 9.125).
 function openRenameTagModal(kind, oldName){
   var body = '<div class="field" style="margin-bottom:14px;">'+
       '<input type="text" autocapitalize="words" id="rename-tag-input" value="'+esc(oldName)+'" style="width:100%;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);background:var(--card-bg);color:var(--cocoa);">'+
@@ -11628,15 +12047,9 @@ function confirmRenameTag(kind, oldName){
   var idx = list.indexOf(oldName);
   if(idx===-1){ closeModal(); return; }
   list[idx] = val;
-  if(kind==='category'){
-    state.items.forEach(function(i){ if(i.category===oldName) i.category=val; });
-    if(state.home.category===oldName) state.home.category=val;
-    saveCategories(); saveItems();
-  } else {
-    state.items.forEach(function(i){ if(i.location===oldName) i.location=val; });
-    if(state.home.location===oldName) state.home.location=val;
-    saveLocations(); saveItems();
-  }
+  state.items.forEach(function(i){ if(i.location===oldName) i.location=val; });
+  if(state.home.location===oldName) state.home.location=val;
+  saveLocations(); saveItems();
   closeModal();
   render();
   refreshSidebarContent();
@@ -11924,9 +12337,9 @@ function generateCloudSyncRoomCode(){
   // Do NOT do this on every generic app load (see 9.56) - a device that's never tracked an
   // edit timestamp should stay untracked until it either receives a real one from the room
   // it's joining, or the person actually edits something themselves.
-  state.categoriesUpdatedAt = nowLocalIso();
+  state.categoryGroupsUpdatedAt = nowLocalIso();
   state.locationsUpdatedAt = nowLocalIso();
-  storageSet('tagListsMeta', {categoriesUpdatedAt: state.categoriesUpdatedAt, locationsUpdatedAt: state.locationsUpdatedAt});
+  storageSet('tagListsMeta', {categoryGroupsUpdatedAt: state.categoryGroupsUpdatedAt, locationsUpdatedAt: state.locationsUpdatedAt});
   render();
 }
 function setCloudSyncConfig(v){ state.cloudSyncConfig = v; saveCloudSyncSettings(); }
@@ -12061,7 +12474,7 @@ function subscribeCloudItems(){
 
 // Categories/locations/recipe category groups are simple whole-array values (no per-record id
 // like items/recipes have), and get renamed/reordered as a whole rather than edited field-by-
-// field, so unlike items these sync as one whole-array document each (`meta/categories`,
+// field, so unlike items these sync as one whole-array document each (`meta/categoryGroups`,
 // `meta/locations`, `meta/recipeCategoryGroups`) rather than per-entry - last-write-wins on the
 // *whole list* when both sides touched it, same timestamp rule as items just applied to the
 // array as a unit instead of to individual entries.
@@ -12076,10 +12489,10 @@ function subscribeCloudMeta(){
     });
     saveCloudSyncMetaPushMap();
     if(changed){
-      storageSet('categories', state.categories);
+      storageSet('categoryGroups', state.categoryGroups);
       storageSet('locations', state.locations);
       storageSet('recipeCategoryGroups', state.recipeCategoryGroups);
-      storageSet('tagListsMeta', {categoriesUpdatedAt: state.categoriesUpdatedAt, locationsUpdatedAt: state.locationsUpdatedAt, recipeCategoryGroupsUpdatedAt: state.recipeCategoryGroupsUpdatedAt});
+      storageSet('tagListsMeta', {categoryGroupsUpdatedAt: state.categoryGroupsUpdatedAt, locationsUpdatedAt: state.locationsUpdatedAt, recipeCategoryGroupsUpdatedAt: state.recipeCategoryGroupsUpdatedAt});
     }
     state.cloudSyncLastSyncedAt = nowLocalIso();
     cloudSyncSafeRender();
@@ -12090,7 +12503,7 @@ function subscribeCloudMeta(){
     cloudSyncSafeRender();
   });
 }
-// key is 'categories', 'locations', or 'recipeCategoryGroups'. Returns true if local state
+// key is 'categoryGroups', 'locations', or 'recipeCategoryGroups'. Returns true if local state
 // actually changed.
 function applyRemoteMeta(key, data){
   if(!data || !data.list) return false;
@@ -12106,7 +12519,7 @@ function applyRemoteMeta(key, data){
 async function cloudSyncPushMeta(){
   if(!cloudSyncActive()) return;
   var toPush = [];
-  [['categories', state.categoriesUpdatedAt], ['locations', state.locationsUpdatedAt], ['recipeCategoryGroups', state.recipeCategoryGroupsUpdatedAt]].forEach(function(pair){
+  [['categoryGroups', state.categoryGroupsUpdatedAt], ['locations', state.locationsUpdatedAt], ['recipeCategoryGroups', state.recipeCategoryGroupsUpdatedAt]].forEach(function(pair){
     var key = pair[0], ts = pair[1] || '';
     if(ts && CLOUD.metaPushMap[key] !== ts) toPush.push(key);
   });
@@ -12151,7 +12564,7 @@ function applyRemoteItem(data){
     var fresh = JSON.parse(JSON.stringify(data));
     delete fresh._deleted;
     fresh.secondary_units = fresh.secondary_units || [];
-    state.items.push(migrateItem(fresh));
+    state.items.push(migrateItem(fresh, state.categoryGroups));
     CLOUD.pushMap[data.id] = remoteTs;
     return true;
   }
@@ -12163,7 +12576,7 @@ function applyRemoteItem(data){
     if(!merged.photo_url && state.items[idx].photo_url && state.items[idx].photo_url.indexOf('photo:')===0){
       merged.photo_url = state.items[idx].photo_url;
     }
-    state.items[idx] = migrateItem(merged);
+    state.items[idx] = migrateItem(merged, state.categoryGroups);
     CLOUD.pushMap[data.id] = remoteTs;
     return true;
   }
