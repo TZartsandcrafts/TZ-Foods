@@ -315,14 +315,6 @@
     display:flex; align-items:center; gap:2px; border-radius:10px; position:relative;
     user-select:none; -webkit-user-select:none; -webkit-touch-callout:none;
   }
-  .sidebar-item-row .sidebar-item{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .sidebar-item-actions{ display:flex; gap:2px; flex-shrink:0; }
-  .sidebar-item-action-btn{
-    width:30px; height:30px; border-radius:8px; background:none; border:none;
-    display:flex; align-items:center; justify-content:center; color:#B79B78; cursor:pointer; flex-shrink:0;
-  }
-  .sidebar-item-action-btn:active{ background:var(--cream-2); color:var(--deep-caramel); }
-  .sidebar-item-action-btn.danger:active{ color:var(--danger); }
   .sidebar-item-count{
     font-size:11.5px; font-weight:600; color:var(--deep-caramel); background:var(--cream-2);
     border-radius:999px; padding:2px 7px; flex-shrink:0; min-width:9px; text-align:center;
@@ -485,7 +477,11 @@
      (4-char labels) so they get a wider minimum column than the 2-char location chips, which
      is why these are two separate classes rather than one shared with justify-content. */
   .tag-select-grid{ display:grid; gap:8px; }
-  .tag-select-grid .tag-option{ text-align:center; }
+  /* white-space:nowrap so a short label like "+ 新建" never wraps onto two lines inside its
+     narrow grid column - a wrapped label made just that one cell (and everything else sharing
+     its grid row) taller than every other row above it, since CSS grid rows size to their
+     tallest cell. See Lynn's report: 添加食材页 位置栏 last row pill size mismatch. */
+  .tag-select-grid .tag-option{ text-align:center; white-space:nowrap; }
   .tag-select-grid-category{ grid-template-columns:repeat(auto-fill, minmax(100px,1fr)); }
   .tag-select-grid-location{ grid-template-columns:repeat(auto-fill, minmax(64px,1fr)); }
   .tag-option{
@@ -833,7 +829,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.126';
+var BUILD_VERSION = '9.127';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2181,6 +2177,10 @@ var I18N = {
     recipeSearchPlaceholder:'搜索食谱名称 / 分类 / 食材',
     filterAll:'全部',
     filterWholeCategory:'该分类下全部',
+    // Recipe sidebar's own "whole category" label - kept as a separate key from
+    // filterWholeCategory (which the inventory sidebar still uses) since only the recipe
+    // sidebar's copy changes to a plain '全部' here; weight/size/background stay as-is.
+    filterWholeCategoryRecipe:'全部',
     sortLabel:'排序', sortExpiry:'过期', sortName:'名称', sortPurchase:'购买', sortCreated:'录入',
     emptyInventory:'库存还是空的', emptyInventoryHint:'点击下方按钮扫码或手动添加第一件食材吧',
     scanAdd:'扫码添加', manualAdd:'手动添加',
@@ -2344,6 +2344,7 @@ var I18N = {
     pickCategoryColorTitle:'选择分类色条颜色', pickSubCategoryColorTitle:'选择子分类色条颜色',
     expandAllBtn:'展开全部', collapseAllBtn:'收起全部',
     nestDragHint:'长按抓手图标可拖拽排序；拖到另一个分类上方并停留，可将其归为该分类的子分类',
+    plainDragHint:'长按抓手图标可拖拽排序',
     nestHasSubsWarn:'该分类下还有子分类，无法归入其它分类', nestedToast:'已将"{name}"归入"{target}"',
     // sidebars
     statTotal:'总数', statExpired:'过期', statSoon:'临期', statUsedUp:'用完',
@@ -2441,6 +2442,7 @@ var I18N = {
     recipeSearchPlaceholder:'Search recipes / category / ingredients',
     filterAll:'All',
     filterWholeCategory:'All in this category',
+    filterWholeCategoryRecipe:'All',
     sortLabel:'Sort', sortExpiry:'Expiry', sortName:'Name', sortPurchase:'Purchase date', sortCreated:'Date added',
     emptyInventory:'Your pantry is empty', emptyInventoryHint:'Tap below to scan or manually add your first item',
     scanAdd:'Scan to add', manualAdd:'Add manually',
@@ -2598,6 +2600,7 @@ var I18N = {
     pickCategoryColorTitle:'Choose a category color', pickSubCategoryColorTitle:'Choose a subcategory color',
     expandAllBtn:'Expand All', collapseAllBtn:'Collapse All',
     nestDragHint:'Long-press the grip handle to reorder; drop one category onto another to make it a subcategory.',
+    plainDragHint:'Long-press the grip handle to reorder.',
     nestHasSubsWarn:"This category still has subcategories, so it can't be nested into another one", nestedToast:'Moved "{name}" into "{target}"',
     // sidebars
     statTotal:'Total items', statExpired:'Expired', statSoon:'Expiring soon', statUsedUp:'Used up',
@@ -5164,6 +5167,21 @@ function renderHomeSidebarContent(){
     }).join('');
     var groupCount = catCounts[g.id];
     var rowClick = hasSubs ? ('toggleHomeSidebarCategoryGroup('+aj(g.id)+')') : ('sidebarSetHomeCategoryFilter('+aj(g.id)+',null)');
+    // README 9.127: a group with no subs has nothing to expand, so it no longer pays for the
+    // chevron-having group-header's extra inner padding (8px on top of the header's own 10px) -
+    // it renders as a single plain .sidebar-item row instead, same compact height as every
+    // other flat row (全部, sub-items, location rows). Lynn's inventory categories currently
+    // have no subs at all, so every inventory category row was going through the taller
+    // wrapper while food's category list mixed in food's own (shorter) sub-item rows - that
+    // mismatch, not any actual style difference between the two pages, is what made 库存's
+    // category list read as more loosely spaced than 食谱's. Groups that DO have subs still use
+    // the taller wrapper (needs room for the chevron either way), unchanged.
+    if(!hasSubs){
+      return '<div class="sidebar-item '+(groupActive?'active':'')+'" style="display:flex;align-items:center;justify-content:space-between;gap:6px;" onclick="'+rowClick+'">'+
+        '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(g.name)+'</span>'+
+        (groupCount ? '<span class="sidebar-item-count">'+groupCount+'</span>' : '')+
+      '</div>';
+    }
     return '<div class="sidebar-group">'+
       '<div class="sidebar-group-header" style="display:flex;align-items:center;" onclick="'+rowClick+'">'+
         '<span class="sidebar-item '+(groupActive && !hasSubs?'active':'')+'" style="flex:1;padding:8px 4px;display:flex;align-items:center;justify-content:space-between;gap:6px;min-width:0;">'+
@@ -5178,21 +5196,17 @@ function renderHomeSidebarContent(){
   var catHtml = sidebarSectionTitleHtml('fieldCategory', 'category', catOpen) +
     (catOpen ? ('<div class="sidebar-item '+(!state.home.categoryGroup?'active':'')+'" onclick="sidebarSetHomeCategoryFilter(null,null)">'+t('filterAll')+'</div>'+
     catGroupsHtml) : '');
+  // README 9.127: sidebar 位置区块现在也是纯浏览/筛选（跟分类区块一样，item 3 of Lynn's
+  // request）- 不再有抓手/改名按钮/新建输入框，那一整套现在只活在库存设置->管理存放位置
+  // (renderManageTags) 里。这里就是最简单的一行一个位置：名字+数量角标，点击筛选。
   var locHtml = sidebarSectionTitleHtml('fieldLocation', 'location', locOpen) +
     (locOpen ? ('<div class="sidebar-item '+(!state.home.location?'active':'')+'" onclick="sidebarSetHomeFilter(\'location\',null)">'+t('filterAll')+'</div>'+
-    '<div class="sidebar-reorder-list" data-reorder-kind="location">'+
     state.locations.map(function(l){
-      return '<div class="sidebar-item-row"><span class="sidebar-drag-handle">'+ic('grip',16)+'</span>'+
-        '<div class="sidebar-item '+(state.home.location===l?'active':'')+'" style="display:flex;align-items:center;justify-content:space-between;gap:6px;" onclick="sidebarSetHomeFilter(\'location\','+aj(l)+')">'+
-          '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(l)+'</span>'+
-          (locCounts[l] ? '<span class="sidebar-item-count">'+locCounts[l]+'</span>' : '')+
-        '</div>'+
-        '<div class="sidebar-item-actions">'+
-        '<button class="sidebar-item-action-btn" onclick="event.stopPropagation();openRenameTagModal(\'location\','+aj(l)+')">'+ic('edit',15)+'</button>'+
-        '</div></div>';
-    }).join('') +
-    '</div>' +
-    sidebarInlineAddRowHtml('location')) : '');
+      return '<div class="sidebar-item '+(state.home.location===l?'active':'')+'" style="display:flex;align-items:center;justify-content:space-between;gap:6px;" onclick="sidebarSetHomeFilter(\'location\','+aj(l)+')">'+
+        '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(l)+'</span>'+
+        (locCounts[l] ? '<span class="sidebar-item-count">'+locCounts[l]+'</span>' : '')+
+      '</div>';
+    }).join('')) : '');
   var toolsHtml = '<div class="sidebar-section-title collapsible" onclick="toggleHomeSidebarSection(\'tools\')"><span>'+t('sidebarToolsLabel')+'</span>'+
       ic('chevronRight',15,'style="transform:rotate('+(toolsOpen?'90':'0')+'deg);transition:transform .15s;"')+'</div>'+
     (toolsOpen ? (
@@ -5212,27 +5226,10 @@ function sidebarSectionTitleHtml(labelKey, kind, isOpen){
     ic('chevronRight',15,'style="transform:rotate('+(isOpen?'90':'0')+'deg);transition:transform .15s;"')+
   '</div>';
 }
-// Always-visible "add new" row pinned to the bottom of the category/location list — same
-// row height as a normal sidebar item, input and button laid out side by side (not stacked).
-function sidebarInlineAddRowHtml(kind){
-  var ph = kind==='category' ? t('addCategoryPh') : (kind==='location' ? t('addLocationPh') : t('addNoteCategoryPh'));
-  return '<div class="sidebar-inline-add-row">'+
-    '<input type="text" autocapitalize="words" id="sidebar-quick-add-input-'+kind+'" placeholder="'+ph+'" onkeydown="if(event.key===\'Enter\')addTagFromSidebar('+aj(kind)+')">'+
-    '<button onclick="addTagFromSidebar('+aj(kind)+')">'+t('add')+'</button>'+
-  '</div>';
-}
-function addTagFromSidebar(kind){
-  var el = document.getElementById('sidebar-quick-add-input-'+kind);
-  var val = el ? el.value.trim() : '';
-  if(!val) return;
-  var list = tagListForKind(kind);
-  if(list.indexOf(val)!==-1){ showToast(t('tagDuplicate')); return; }
-  list.push(val);
-  saveTagListForKind(kind);
-  if(el) el.value = '';
-  render();
-  refreshSidebarContent();
-}
+// README 9.127: sidebarInlineAddRowHtml/addTagFromSidebar removed here - the sidebar no longer
+// has an inline "add new location" row anywhere (item 3 of Lynn's request moved that to 库存
+// 设置's 管理存放位置 page, which already had its own add row via addTagManage). Left no other
+// callers behind, so this pair was safe to drop rather than leave as dead code.
 function toggleHomeSidebarSection(kind){
   state.home.sidebarCollapsed[kind] = !state.home.sidebarCollapsed[kind];
   refreshSidebarContent();
@@ -8621,7 +8618,7 @@ function renderRecipeSidebarContent(){
     // expanded list, once expanded) is now the only way to filter by the WHOLE group with no
     // specific sub - tapping the group row itself just expands/collapses (see below), so this
     // preserves that filter option rather than silently dropping it.
-    var wholeGroupItem = '<div class="sidebar-item '+(groupActive?'active':'')+'" style="font-weight:600;" onclick="sidebarSetRecipeFilter('+aj(g.id)+',null)">'+t('filterWholeCategory')+'</div>';
+    var wholeGroupItem = '<div class="sidebar-item '+(groupActive?'active':'')+'" style="font-weight:600;" onclick="sidebarSetRecipeFilter('+aj(g.id)+',null)">'+t('filterWholeCategoryRecipe')+'</div>';
     var subItems = (g.subs||[]).map(function(s){
       var active = state.recipesUI.groupId===g.id && state.recipesUI.sub===s;
       var subCount = subCounts[g.id+'\u0001'+s];
@@ -8638,6 +8635,16 @@ function renderRecipeSidebarContent(){
     // subs has nothing to expand, so it keeps the old immediate-filter behavior since there's
     // no other way to pick it.
     var rowClick = hasSubs ? ('toggleRecipeSidebarGroup('+aj(g.id)+')') : ('sidebarSetRecipeFilter('+aj(g.id)+',null)');
+    // README 9.127: mirrors the same compact-row treatment now applied to the inventory
+    // sidebar's category list (see renderHomeSidebarContent) - a group with no subs renders as
+    // a single plain .sidebar-item instead of paying for the taller chevron-having wrapper, so
+    // the two sidebars' category row spacing matches whenever their data shapes match too.
+    if(!hasSubs){
+      return '<div class="sidebar-item '+(groupActive?'active':'')+'" style="display:flex;align-items:center;justify-content:space-between;gap:6px;" onclick="'+rowClick+'">'+
+        '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(g.name)+'</span>'+
+        (groupCount ? '<span class="sidebar-item-count">'+groupCount+'</span>' : '')+
+      '</div>';
+    }
     return '<div class="sidebar-group">'+
       '<div class="sidebar-group-header" style="display:flex;align-items:center;" onclick="'+rowClick+'">'+
         '<span class="sidebar-item '+(groupActive && !hasSubs?'active':'')+'" style="flex:1;padding:8px 4px;display:flex;align-items:center;justify-content:space-between;gap:6px;min-width:0;">'+
@@ -11753,22 +11760,33 @@ function tagListForKind(kind){
 function saveTagListForKind(kind){
   return saveLocations();
 }
+// README: 位置管理的拖拽排序/改名/新建入口 - 原来位置栏在库存首页侧边栏里就能直接拖拽/改名/新建，
+// 现在跟分类管理器一样全部收进这个设置页（item 3 of Lynn's request），侧边栏"位置"区块自此
+// 只剩下浏览/筛选，见 renderHomeSidebarContent 里精简过的 locHtml。拖拽复用跟分类管理器同一套
+// initSidebarReorder/sidebarReorderArrayFor/Commit（kind==='location' 那两行本来就已经支持），
+// 这里只是把 grip 抓手 + .sidebar-reorder-list 包装搬到这个页面的行上，逻辑完全不用改。
 function renderManageTags(){
   var kind = 'location';
   var list = tagListForKind(kind);
   var title = t('manageLocationsTitle');
   var ph = t('addLocationPh');
   var rows = list.map(function(name){
-    return '<div class="list-row"><div class="row-label">'+esc(name)+'</div>'+
+    return '<div class="list-row sidebar-item-row">'+
+      '<span class="sidebar-drag-handle">'+ic('grip',17)+'</span>'+
+      '<div class="row-label" style="flex:1;">'+esc(name)+'</div>'+
       '<div style="display:flex;gap:4px;">'+
       '<button class="row-del" onclick="openRenameTagModal('+aj(kind)+','+aj(name)+')">'+ic('edit',17)+'</button>'+
       '<button class="row-del" onclick="deleteTagItem('+aj(kind)+','+aj(name)+')">'+ic('trash',18)+'</button>'+
       '</div></div>';
-  }).join('') || '<p class="hint">'+(state.lang==='zh'?'还没有标签':'No tags yet')+'</p>';
+  }).join('');
+  var rowsWrap = list.length ?
+    ('<div style="-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;"><div class="sidebar-reorder-list" data-reorder-kind="location">'+rows+'</div>'+
+      '<p class="hint" style="margin-top:8px;">'+t('plainDragHint')+'</p></div>') :
+    ('<p class="hint">'+(state.lang==='zh'?'还没有标签':'No tags yet')+'</p>');
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'inventorySettings\')">'+ic('back',22)+'</button><h1>'+title+'</h1></div>'+
   '<div class="content">'+
-    rows+
+    rowsWrap+
     '<div class="field-row" style="margin-top:16px;">'+
       '<input type="text" autocapitalize="words" id="new-tag-manage-input" placeholder="'+ph+'" style="flex:1;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);">'+
       '<button class="btn btn-primary btn-sm" onclick="addTagManage('+aj(kind)+')">'+t('add')+'</button>'+
