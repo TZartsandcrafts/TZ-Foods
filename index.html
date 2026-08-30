@@ -829,7 +829,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.127';
+var BUILD_VERSION = '9.128';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2285,6 +2285,7 @@ var I18N = {
     addIngredientGroupBtn:'分组', addIngredientGroupTitle:'添加分组', editIngredientGroupTitle:'编辑分组', ingredientGroupNameLabel:'分组名称', ingredientGroupNamePh:'例如：饺子皮',
     sectionOil:'额外用油(可选)', fieldOilAmount:'用油量(g)', fieldOilType:'油的种类',
     sectionCookedWeight:'成品重量(可选)', fieldCookedWeight:'成品总重量(g)', recipeTotalWeightLabel:'成品总重量',
+    recipeTotalWeightShortLabel:'成品总重',
     cookedWeightHint:'填写做完这道菜实际称重的重量，可显示"每100g成品热量"',
     nutritionSummary:'营养',
     perTotal:'总计', perServing:'每份', per100g:'每100g成品',
@@ -2543,6 +2544,7 @@ var I18N = {
     addIngredientGroupBtn:'Group', addIngredientGroupTitle:'Add group', editIngredientGroupTitle:'Edit group', ingredientGroupNameLabel:'Group name', ingredientGroupNamePh:'e.g. Dough',
     sectionOil:'Extra oil (optional)', fieldOilAmount:'Oil amount (g)', fieldOilType:'Oil type',
     sectionCookedWeight:'Cooked weight (optional)', fieldCookedWeight:'Total cooked weight (g)', recipeTotalWeightLabel:'Total cooked weight',
+    recipeTotalWeightShortLabel:'Total weight',
     cookedWeightHint:'Weigh the finished dish to show calories per 100g of the final product.',
     nutritionSummary:'Nutrition',
     perTotal:'Total', perServing:'Per serving', per100g:'Per 100g cooked',
@@ -4300,6 +4302,27 @@ document.addEventListener('selectstart', function(e){
   }, {passive:true});
 })();
 
+// README 9.128: same delegated swipe pattern as initUsageCalSwipe above, this time for the
+// recipe detail page's 制作记录 calendar (see recipeCookCalendarBodyHtml) - swipe left/right
+// moves to the next/previous month.
+(function initRecipeCookCalSwipe(){
+  var startX=null, startY=null, recipeId=null;
+  document.addEventListener('touchstart', function(e){
+    var wrap = e.target.closest ? e.target.closest('.recipe-cook-cal-swipe-area') : null;
+    if(!wrap){ startX=null; return; }
+    startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+    recipeId = wrap.getAttribute('data-recipe-id');
+  }, {passive:true});
+  document.addEventListener('touchend', function(e){
+    if(startX==null) return;
+    var dx = e.changedTouches[0].clientX-startX, dy = e.changedTouches[0].clientY-startY;
+    startX = null;
+    if(Math.abs(dx)>40 && Math.abs(dx)>Math.abs(dy)*1.5){
+      shiftRecipeCookCalMonth(recipeId, dx<0 ? 1 : -1);
+    }
+  }, {passive:true});
+})();
+
 (function initMacroWidgetSwipe(){
   var startX=null, startY=null;
   document.addEventListener('touchstart', function(e){
@@ -5239,7 +5262,11 @@ function setHomeSort(v){
     state.home.sortDir = state.home.sortDir==='desc' ? 'asc' : 'desc';
   } else {
     state.home.sort = v;
-    state.home.sortDir = 'asc';
+    // README 9.128: 录入/购买 are dates where "most recent first" is the useful default (you
+    // almost always want to see what you just bought/added, not what you bought years ago) -
+    // 过期/名称 keep their old default (ascending: soonest-to-expire / A→Z first). Repeat-tapping
+    // the same pill still flips the direction as before either way.
+    state.home.sortDir = (v==='purchase' || v==='created') ? 'desc' : 'asc';
   }
   render();
 }
@@ -9610,7 +9637,14 @@ function recipeNutritionFactsBoxHtml(n, basisLabelText, extra, totalWeightG){
     return '<div class="'+cls+'"><span>'+labels[row.key]+'</span><span class="nf-value">'+displayVal+'</span></div>';
   }).join('');
   var extraRowsHtml = recipeNutriExtraRowsHtml(extra);
-  var basisHtml = esc(basisLabelText) + (totalWeightG ? ('<br>'+t('recipeTotalWeightLabel')+' '+fmtNum(totalWeightG,0)+'g') : '');
+  // README 9.128: was two lines ("总计" then, on its own line, "成品总重量 xg") whenever a
+  // cooked weight was set - Lynn asked for this collapsed into a single line reading just
+  // "成品总重 xg", dropping the basis label entirely rather than keeping it in front. The
+  // basis label still prints on its own for boxes that don't carry a weight (每份/每100g成品,
+  // and 总计 itself when no cooked weight was ever entered) - unchanged.
+  var basisHtml = totalWeightG ?
+    (t('recipeTotalWeightShortLabel')+' '+fmtNum(totalWeightG,0)+'g') :
+    esc(basisLabelText);
   return '<div class="nutrition-facts">'+
     '<div class="nf-basis">'+basisHtml+'</div>'+
     '<div class="nf-calories-row"><span>'+t('nutriCalories')+'</span><span><span class="nf-calories-value">'+calVal+'</span><span class="nf-calories-unit">kcal</span></span></div>'+
@@ -9659,19 +9693,65 @@ function recipeCookRecords(recipeId){
 }
 function recipeCookHistoryHtml(recipeId){
   var records = recipeCookRecords(recipeId);
-  if(!records.length){
-    return '<p class="hint">'+t('recipeNeverCooked')+'</p>';
+  var summaryHtml = '<p class="hint" style="margin-bottom:8px;">'+
+    (records.length ? t('recipeCookedTimes').replace('{n}', records.length) : t('recipeNeverCooked'))+
+    '</p>';
+  return summaryHtml + recipeCookCalendarBodyHtml(recipeId);
+}
+// README 9.128: month calendar for 制作记录 - reuses the exact same CSS classes
+// (usage-cal-grid/usage-cal-day/usage-cal-weekday/usage-cal-dots/usage-cal-dot) and swipe
+// mechanics introduced for the 取用 entry page's inline calendar (README 9.121), just fed
+// recipeCookRecords() instead of an item's usage_log. Unlike that calendar, there's nothing to
+// pick here - it's a pure history browse, so days aren't clickable and there's no "selected"
+// state, only "today" (for orientation) and a dot on any day with at least one cook record.
+function recipeCookCalendarBodyHtml(recipeId){
+  var records = recipeCookRecords(recipeId);
+  var datesWithRecord = {};
+  records.forEach(function(rec){ datesWithRecord[rec.date] = true; });
+  var y = state.recipeCookCalUI.year, m = state.recipeCookCalUI.month;
+  var first = new Date(y, m, 1);
+  var startWeekday = first.getDay();
+  var daysInMonth = new Date(y, m+1, 0).getDate();
+  var todayS = todayStr();
+  var weekdayLabels = state.lang==='zh' ? ['日','一','二','三','四','五','六'] : ['Su','Mo','Tu','We','Th','Fr','Sa'];
+  var cells = '';
+  for(var i=0;i<startWeekday;i++) cells += '<div></div>';
+  for(var day=1; day<=daysInMonth; day++){
+    var ds = y+'-'+String(m+1).padStart(2,'0')+'-'+String(day).padStart(2,'0');
+    var cls = 'usage-cal-day'+(ds===todayS?' today':'');
+    var dotsHtml = datesWithRecord[ds] ?
+      '<span class="usage-cal-dots"><span class="usage-cal-dot" style="background:var(--fresh);"></span></span>' : '';
+    cells += '<div class="'+cls+'" style="cursor:default;">'+day+dotsHtml+'</div>';
   }
-  var shown = records.slice(0,5);
-  return '<p class="hint" style="margin-bottom:8px;">'+t('recipeCookedTimes').replace('{n}', records.length)+'</p>'+
-    '<div style="display:flex;flex-wrap:wrap;gap:8px;">'+
-      shown.map(function(r){ return '<span class="tag-option active" style="cursor:default;">'+esc(r.date)+'</span>'; }).join('')+
-    '</div>';
+  return '' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">'+
+      '<button class="icon-btn" onclick="shiftRecipeCookCalMonth('+aj(recipeId)+',-1)" aria-label="'+t('prevDay')+'">'+ic('back',18)+'</button>'+
+      '<div style="font-weight:700;">'+monthDisplayLabel(y,m)+'</div>'+
+      '<button class="icon-btn" onclick="shiftRecipeCookCalMonth('+aj(recipeId)+',1)" aria-label="'+t('nextDay')+'">'+ic('chevronRight',18)+'</button>'+
+    '</div>'+
+    '<div class="usage-cal-grid">'+weekdayLabels.map(function(w){ return '<div class="usage-cal-weekday">'+w+'</div>'; }).join('')+'</div>'+
+    '<div class="usage-cal-grid recipe-cook-cal-swipe-area" data-recipe-id="'+esc(recipeId)+'">'+cells+'</div>';
+}
+function shiftRecipeCookCalMonth(recipeId, delta){
+  var y = state.recipeCookCalUI.year, m = state.recipeCookCalUI.month + delta;
+  if(m<0){ m=11; y--; } else if(m>11){ m=0; y++; }
+  state.recipeCookCalUI.year = y; state.recipeCookCalUI.month = m;
+  var el = document.getElementById('recipe-cook-cal-body');
+  if(el) el.innerHTML = recipeCookHistoryHtml(recipeId);
 }
 function renderRecipeDetail(){
   var id = state.params.id;
   var r = state.recipes.find(function(x){ return x.id===id; });
   if(!r) return renderRecipesList();
+  // README 9.128: 制作记录 calendar defaults to the current month every time this page is
+  // opened for a given recipe - re-initialized whenever the recipe id changes (including the
+  // very first visit) rather than persisting whatever month was last scrolled to, same
+  // "reset per navigation, then swipe freely from there" convention as the 取用 entry
+  // calendar's state.usageCalUI.
+  if(!state.recipeCookCalUI || state.recipeCookCalUI.recipeId !== id){
+    var cookCalToday = new Date();
+    state.recipeCookCalUI = {year: cookCalToday.getFullYear(), month: cookCalToday.getMonth(), recipeId: id};
+  }
   var backTo = (state.params && state.params.from) || {view:'recipes'};
   var nutri = calcRecipeNutrition(r);
   var expanded = !!state.recipeDetailUI.nutriExpanded;
@@ -9716,9 +9796,7 @@ function renderRecipeDetail(){
       '<p style="color:var(--deep-caramel);font-size:14px;margin:0;">'+r.servings+' '+t('fieldServings')+' · '+recipeIngredientCount(r)+' '+t('sectionIngredients')+'</p>'+
       '<button class="btn btn-primary btn-sm" style="flex-shrink:0;" onclick="openCookConfirm('+aj(r.id)+')">'+t('cookThis')+'</button>'+
     '</div>'+
-    '<div class="section-title" style="margin-top:0;">'+t('recipeCookHistoryTitle')+'</div>'+
-    '<div class="form-group">'+recipeCookHistoryHtml(r.id)+'</div>'+
-    '<div class="section-title">'+t('sectionIngredients')+'</div>'+
+    '<div class="section-title" style="margin-top:0;">'+t('sectionIngredients')+'</div>'+
     '<div class="form-group">'+(ingHtml||('<p class="hint">'+t('noIngredientsYet')+'</p>'))+'</div>'+
     (function(){
       var steps = (r.steps && r.steps.length) ? r.steps : (r.instructions ? [r.instructions] : []);
@@ -9736,6 +9814,13 @@ function renderRecipeDetail(){
       (nutri.warnings && nutri.warnings.length ? '<p class="hint" style="color:var(--warn);">'+(state.lang==='zh'?'部分食材未计入(单位无法换算)：':'Excluded (unit not convertible): ')+nutri.warnings.map(esc).join('、')+'</p>' : '')+
       (nutri.extraWarnings && nutri.extraWarnings.length ? '<p class="hint" style="color:var(--warn);">'+(state.lang==='zh'?'部分维生素/矿物质因单位不一致，未计入总计：':'Some vitamins/minerals used mismatched units and were excluded from the totals: ')+nutri.extraWarnings.map(esc).join('、')+'</p>' : '')+
     '</div>'+
+    // README 9.128: 制作记录 moved down here, below 营养标签, and switched from a flat "up to
+    // 5 recent dates" pill list to a swipeable month calendar - a day with at least one
+    // confirmCook() record for this recipe gets a dot underneath it, and the person can swipe
+    // (or use the arrows) back/forward with no bound, same as the 取用 entry page's inline
+    // calendar this reuses the markup/CSS/swipe mechanics from (README 9.121).
+    '<div class="section-title">'+t('recipeCookHistoryTitle')+'</div>'+
+    '<div class="form-group" style="padding:12px 10px;" id="recipe-cook-cal-body">'+recipeCookHistoryHtml(r.id)+'</div>'+
   '</div>'+
   bottomNav();
 }
