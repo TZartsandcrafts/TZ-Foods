@@ -829,7 +829,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.128';
+var BUILD_VERSION = '9.129';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -3621,6 +3621,35 @@ function ingredientBasisInfo(src){
   }
   return {weightAmount: src.nutrition_basis_amount || 100, volumeAmount: null};
 }
+// README 9.129: bridges nutrition labels given per a bare-count "serving" unit (e.g. "每2个") -
+// amountToBasisUnits/ingredientBasisInfo above are built entirely around weight(g)/volume(ml)
+// canonicalization (see the README 9.110 comment on ingredientBasisInfo), so a recipe
+// ingredient measured in the exact same non-weight/non-volume unit as the item's own nutrition
+// basis (a bare count like "个"/"片"/"颗"/"包") had nowhere to match and fell through to the
+// "无法自动换算" warning even though the recipe and the label were speaking the exact same unit -
+// Lynn hit this with an item labelled "每116g / 每2个" where the recipe called for eggs by 个.
+// Deliberately narrow and literal: only fires when the recipe's unit string is IDENTICAL to
+// whichever of the item's own two basis-unit fields isn't a real weight/volume unit - there's
+// no attempt to convert between DIFFERENT bare-count units (e.g. "个" vs "片"), since unlike
+// g<->kg there's no universal ratio between them; that's a real "can't convert" case and still
+// correctly falls through to the warning. ingredientBasisInfo already leaves a basis amount
+// un-converted (raw) whenever its unit isn't a recognized weight/volume unit (weightUnitToG/
+// volumeUnitToMl both return null for something like "个", so the multiply-by-conversion-factor
+// step it would otherwise do just doesn't run) - so returning the recipe's raw amount here,
+// tagged with whichever slot (weight or volume) actually holds the matching raw basis number,
+// is all scaleNutrition further down needs to compute the right ratio.
+function countBasisMatch(src, amount, unit){
+  if(!unit) return null;
+  var wUnit = src.nutrition_basis_weight_unit || 'g';
+  if(src.nutrition_basis_weight_amount != null && wUnit === unit && weightUnitToG(wUnit) == null){
+    return {type:'weight', value:amount};
+  }
+  var vUnit = src.nutrition_basis_volume_unit || 'ml';
+  if(src.nutrition_basis_volume_amount != null && vUnit === unit && volumeUnitToMl(vUnit) == null){
+    return {type:'volume', value:amount};
+  }
+  return null;
+}
 function calcRecipeNutrition(recipe){
   var total = emptyNutrition();
   var warnings = [];
@@ -3641,6 +3670,7 @@ function calcRecipeNutrition(recipe){
     var perBasis = src.nutrition || emptyNutrition();
     var basisInfo = ingredientBasisInfo(src);
     var used = amountToBasisUnits(ri.amount, ri.unit, ri.source_type==='inventory'?src:null);
+    if(used == null) used = countBasisMatch(src, ri.amount, ri.unit);
     if(used == null){ warnings.push(src.name); return; }
     total = addNutrition(total, scaleNutrition(perBasis, basisInfo, used));
     var basisAmount = used.type==='volume' ? basisInfo.volumeAmount : basisInfo.weightAmount;
@@ -10604,6 +10634,7 @@ function saveMealLogEntry(){
     var unitPicked = (p.type==='item' && af.amountUnit) ? af.amountUnit : 'g';
     var basisInfo = ingredientBasisInfo(src);
     var used = amountToBasisUnits(amt2, unitPicked, p.type==='item' ? src : null);
+    if(used == null) used = countBasisMatch(src, amt2, unitPicked);
     if(used == null){ showToast(t('unitConversionUnavailable')); return; }
     nutrition = scaleNutrition(src.nutrition, basisInfo, used);
     name = p.type==='item' ? itemDisplayNameRaw(src) : src.name;
