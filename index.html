@@ -95,6 +95,25 @@
   }
   .back-btn:active{ background:var(--cream-2); }
 
+  /* README 9.132: horizontal scroll-tabs for the new full-page 三餐加食物 flow (库存/食谱/USDA/
+     自定, then 套餐/扫描 in a later batch) - Lynn asked for full pages instead of dropdowns/
+     modals wherever a screen has more than a couple of fields, and a source picker with several
+     tabs each carrying their own search+results is exactly that case. Sticky under the page
+     header so it stays reachable while scrolling a long result list; overflow-x:auto with
+     white-space:nowrap so it scrolls sideways instead of wrapping like .tag-select does. */
+  .meal-add-tabs{
+    position:sticky; z-index:15; background:var(--cream);
+    top:0; display:flex; overflow-x:auto; -webkit-overflow-scrolling:touch;
+    padding:0 18px; border-bottom:1px solid var(--line);
+    scrollbar-width:none;
+  }
+  .meal-add-tabs::-webkit-scrollbar{ display:none; }
+  .meal-add-tab{
+    flex-shrink:0; padding:12px 14px 10px; font-size:14.5px; color:var(--almond);
+    border-bottom:2px solid transparent; white-space:nowrap; cursor:pointer;
+  }
+  .meal-add-tab.active{ color:var(--deep-caramel); font-weight:600; border-bottom-color:var(--deep-caramel); }
+
   .content{ padding:16px 18px 24px; }
   .home-sticky-controls{
     position:sticky; z-index:15; background:var(--cream);
@@ -829,7 +848,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.131';
+var BUILD_VERSION = '9.132';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2168,6 +2187,10 @@ var I18N = {
     noMealLoggedHint:'还没有记录', addFoodBtn:'添加食物', deleteMealLogConfirm:'删除这条记录？',
     macroOverLabel:'超标', addFoodSearchPh:'搜索库存/食谱/食材，或输入英文查USDA',
     sourceInventory:'库存', sourceRecipe:'食谱', sourceExternal:'外部食材库',
+    tabCustom:'自定', usdaOnlySearchPh:'搜索 USDA 食物数据库（英文）',
+    quickCalLabel:'热量 (kcal)', requiredPh:'必填', optionalPh:'选填',
+    fieldMealCarbs:'碳水 (g)', fieldMealProtein:'蛋白质 (g)', fieldMealFat:'脂肪 (g)', fieldMealName:'名称',
+    quickCalDefaultName:'快速记录',
     servingsEatenLabel:'份数', deductFromInventoryLabel:'同时从库存扣减', servingsUnit:'份',
     fieldMealAmount:'重量', fieldMealAmountUnit:'单位',
     mealLoggedToast:'已记录', mealsHistoryBtn:'历史',
@@ -2439,6 +2462,10 @@ var I18N = {
     noMealLoggedHint:'Nothing logged yet', addFoodBtn:'Add Food', deleteMealLogConfirm:'Delete this entry?',
     macroOverLabel:'over', addFoodSearchPh:'Search inventory/recipes/ingredients, or an English term for USDA',
     sourceInventory:'Inventory', sourceRecipe:'Recipe', sourceExternal:'External Ingredients',
+    tabCustom:'Custom', usdaOnlySearchPh:'Search the USDA food database',
+    quickCalLabel:'Calories (kcal)', requiredPh:'required', optionalPh:'optional',
+    fieldMealCarbs:'Carbs (g)', fieldMealProtein:'Protein (g)', fieldMealFat:'Fat (g)', fieldMealName:'Name',
+    quickCalDefaultName:'Quick entry',
     servingsEatenLabel:'Servings', deductFromInventoryLabel:'Also deduct from inventory', servingsUnit:'serving(s)',
     fieldMealAmount:'Weight', fieldMealAmountUnit:'Unit',
     mealLoggedToast:'Logged', mealsHistoryBtn:'History',
@@ -3939,6 +3966,7 @@ function render(){
     case 'planSettings': html = renderPlanSettings(); break;
     case 'macroPresetPicker': html = renderMacroPresetPicker(); break;
     case 'mealsHistory': html = renderMealsHistory(); break;
+    case 'mealAddFood': html = renderMealAddFood(); break;
     case 'fastingHistory': html = renderFastingHistory(); break;
     case 'bpHistory': html = renderBpHistory(); break;
     case 'waistHistory': html = renderWaistHistory(); break;
@@ -3952,7 +3980,7 @@ function bottomNav(){
   var v = state.view;
   var isHome = (v==='home'||v==='itemForm'||v==='itemDetail'||v==='archive'||v==='stats'||v==='priceHistory'||v==='itemViewOnly'||v==='statFilteredList'||v==='usageLog'||v==='usageLogAdd'||v==='inventorySettings');
   var isRecipes = (v==='recipes'||v==='recipeForm'||v==='recipeDetail'||v==='pickInventory'||v==='pickExternal'||v==='recipesSettings');
-  var isMeals = (v==='meals'||v==='fastingHistory'||v==='mealsSettings'||v==='planSettings'||v==='macroPresetPicker');
+  var isMeals = (v==='meals'||v==='fastingHistory'||v==='mealsSettings'||v==='planSettings'||v==='macroPresetPicker'||v==='mealAddFood');
   var isHealth = (v==='health'||v==='bpHistory'||v==='waistHistory'||v==='exerciseHistory'||v==='weightHistory'||v==='healthSettings'||v==='personalInfo');
   return '' +
   (state.addMenuOpen ? ('<div class="add-menu-backdrop" onclick="closeAddMenu()"></div>'+addMenuFloatingOptionsHtml()) : '')+
@@ -3974,7 +4002,7 @@ function bottomNav(){
 function addMenuOptionsForCurrentSection(){
   var v = state.view;
   var isRecipes = (v==='recipes'||v==='recipeForm'||v==='recipeDetail'||v==='pickInventory'||v==='pickExternal'||v==='recipesSettings');
-  var isMeals = (v==='meals'||v==='fastingHistory'||v==='mealsHistory'||v==='mealsSettings'||v==='planSettings'||v==='macroPresetPicker');
+  var isMeals = (v==='meals'||v==='fastingHistory'||v==='mealsHistory'||v==='mealsSettings'||v==='planSettings'||v==='macroPresetPicker'||v==='mealAddFood');
   var isHealth = (v==='health'||v==='bpHistory'||v==='waistHistory'||v==='exerciseHistory'||v==='weightHistory'||v==='healthSettings'||v==='personalInfo');
   if(isRecipes) return null; // signals "no menu - do the direct action instead"
   if(isMeals){
@@ -3982,10 +4010,10 @@ function addMenuOptionsForCurrentSection(){
     // a hidden slot has nowhere to add food into via the FAB, matching how its section is
     // omitted from the page itself.
     var slotOptions = {
-      breakfast: {icon:'spoon', label:t('mealSlot_breakfast'), action:"openAddFoodModal(state.mealsUI.date,'breakfast')"},
-      lunch: {icon:'spoon', label:t('mealSlot_lunch'), action:"openAddFoodModal(state.mealsUI.date,'lunch')"},
-      dinner: {icon:'spoon', label:t('mealSlot_dinner'), action:"openAddFoodModal(state.mealsUI.date,'dinner')"},
-      snack: {icon:'spoon', label:t('mealSlot_snack'), action:"openAddFoodModal(state.mealsUI.date,'snack')"}
+      breakfast: {icon:'spoon', label:t('mealSlot_breakfast'), action:"openAddFoodPage(state.mealsUI.date,'breakfast')"},
+      lunch: {icon:'spoon', label:t('mealSlot_lunch'), action:"openAddFoodPage(state.mealsUI.date,'lunch')"},
+      dinner: {icon:'spoon', label:t('mealSlot_dinner'), action:"openAddFoodPage(state.mealsUI.date,'dinner')"},
+      snack: {icon:'spoon', label:t('mealSlot_snack'), action:"openAddFoodPage(state.mealsUI.date,'snack')"}
     };
     return MEAL_SLOTS.filter(function(s){ return state.visibleMealSlots.indexOf(s)!==-1; }).map(function(s){ return slotOptions[s]; });
   }
@@ -4273,6 +4301,7 @@ function openSettings(fromView){
     if(state.view==='personalInfo') return {view:'healthSettings'};
     if(state.view==='planSettings') return {view:'mealsSettings'};
     if(state.view==='macroPresetPicker') return {view:'planSettings'};
+    if(state.view==='mealAddFood') return {view:'meals'};
     if(state.view==='mealsHistory') return {view:'meals'};
     if(state.view==='fastingHistory') return {view:'meals'};
     if(state.view==='inventorySettings') return {view:'home'};
@@ -10688,53 +10717,103 @@ function macroBarHtml(actualG, targetG){
    stacked above a debounced USDA search (reusing usdaSearchFoods/usdaFetchFoodDetail - the
    fetch functions only, not the inline-autocomplete-under-a-name-field UI those are normally
    wrapped in, which doesn't fit a modal's own step-based flow) - then an amount-entry step. ---- */
-function openAddFoodModal(date, slot){
-  state.mealsUI.addFood = {date:date, slot:slot, step:'search', query:'', picked:null, amountText:'', deduct:false};
-  renderAddFoodModal();
+// README 9.132: full-page 三餐加食物 flow, replacing the old showModal-based one (Lynn: prefer
+// full pages over dropdowns/modals whenever a screen has more than a couple of fields - a
+// source-tab bar plus a search-and-results list plus, one tap later, a multi-field amount form
+// is exactly that case). openAddFoodModal/renderAddFoodModal are gone; everything now hangs off
+// state.mealsUI.addFood.tab (which of 库存/食谱/USDA/自定 is active - 套餐/扫描 land in a later
+// batch) alongside the step/picked/amount fields that already existed. The per-source search
+// functions (searchInventoryFoods/searchRecipeFoods) are new, narrower siblings of the old
+// combined searchLocalFoods (kept below, still used nowhere else now, but harmless to leave -
+// actually removed, see the diff, since nothing calls it anymore); external ingredients fold
+// into the 库存 tab's results (labelled distinctly) since there's no separate tab for them in
+// Lynn's 6-tab spec and they're both "something I already have saved locally", unlike 食谱
+// (computed nutrition) or USDA (external database).
+function openAddFoodPage(date, slot){
+  state.mealsUI.addFood = {date:date, slot:slot, tab:'inventory', step:'search', query:'', picked:null, amountText:'', deduct:true};
+  navigate('mealAddFood');
 }
-function renderAddFoodModal(){
+function renderMealAddFood(){
   var af = state.mealsUI.addFood;
-  if(af.step==='amount') showModal(t('addFoodBtn'), addFoodAmountBodyHtml(af));
-  else if(af.step==='loading') showModal(t('addFoodBtn'), '<p class="hint">'+t('usdaSearchLoading')+'</p>');
-  else showModal(t('addFoodBtn'), addFoodSearchBodyHtml(af));
+  var tabs = [
+    {id:'inventory', label:t('sourceInventory')},
+    {id:'recipe', label:t('sourceRecipe')},
+    {id:'usda', label:'USDA'},
+    {id:'custom', label:t('tabCustom')}
+  ];
+  var title = t('mealSlot_'+af.slot) || t('addFoodBtn');
+  return '' +
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'meals\')">'+ic('back',22)+'</button><h1>'+esc(title)+'</h1></div>'+
+  '<div class="meal-add-tabs">'+
+    tabs.map(function(tb){ return '<div class="meal-add-tab '+(af.tab===tb.id?'active':'')+'" onclick="setMealAddFoodTab('+aj(tb.id)+')">'+esc(tb.label)+'</div>'; }).join('')+
+  '</div>'+
+  '<div class="content" id="meal-add-food-content">'+mealAddFoodContentHtml()+'</div>';
 }
-function addFoodSearchBodyHtml(af){
-  var local = searchLocalFoods(af.query);
-  return '<div class="field"><input id="add-food-search-input" type="text" autocapitalize="none" placeholder="'+t('addFoodSearchPh')+'" value="'+esc(af.query)+'" oninput="onAddFoodQueryInput(this.value)"></div>'+
-    '<div id="add-food-local-results">'+addFoodLocalResultsHtml(local)+'</div>'+
+function setMealAddFoodTab(tabId){
+  var af = state.mealsUI.addFood;
+  af.tab = tabId; af.step = 'search'; af.picked = null; af.query = '';
+  render();
+}
+function mealAddFoodContentHtml(){
+  var af = state.mealsUI.addFood;
+  if(af.tab==='custom') return customMealFieldsHtml(af);
+  if(af.step==='amount') return addFoodAmountBodyHtml(af);
+  if(af.step==='loading') return '<p class="hint">'+t('usdaSearchLoading')+'</p>';
+  if(af.tab==='usda') return addFoodUsdaSearchBodyHtml(af);
+  return addFoodLocalSearchBodyHtml(af);
+}
+function addFoodLocalSearchBodyHtml(af){
+  var results = af.tab==='recipe' ? searchRecipeFoods(af.query) : searchInventoryFoods(af.query);
+  var ph = af.tab==='recipe' ? t('recipeSearchPlaceholder') : t('searchPlaceholder');
+  return '<div class="field"><input id="add-food-search-input" type="text" autocapitalize="none" placeholder="'+esc(ph)+'" value="'+esc(af.query)+'" oninput="onAddFoodQueryInput(this.value)"></div>'+
+    '<div id="add-food-local-results">'+addFoodLocalResultsHtml(results)+'</div>';
+}
+function addFoodUsdaSearchBodyHtml(af){
+  return '<div class="field"><input id="add-food-search-input" type="text" autocapitalize="none" placeholder="'+t('usdaOnlySearchPh')+'" value="'+esc(af.query)+'" oninput="onAddFoodQueryInput(this.value)"></div>'+
     '<div id="add-food-usda-results"></div>';
 }
 function addFoodLocalResultsHtml(local){
+  if(!local.length) return '<p class="hint">'+t('noMealLoggedHint')+'</p>';
   return local.map(function(r){
-    return '<div class="list-row" style="cursor:pointer;" onclick="pickLocalFoodForMeal('+aj(r.type)+','+aj(r.id)+')"><div class="row-label">'+esc(r.label)+'<div class="hint" style="margin-top:2px;">'+esc(r.sub)+'</div></div>'+ic('chevronRight',16)+'</div>';
+    return '<div class="list-row" style="cursor:pointer;" onclick="pickLocalFoodForMeal('+aj(r.type)+','+aj(r.id)+')"><div class="row-label">'+esc(r.label)+(r.sub?'<div class="hint" style="margin-top:2px;">'+esc(r.sub)+'</div>':'')+'</div>'+ic('chevronRight',16)+'</div>';
   }).join('');
 }
-function searchLocalFoods(q){
+// README 9.132: unlike the old combined search (which required at least a typed query before
+// showing anything), each tab now browses its own full list by default and narrows as you type -
+// full-page space makes that workable where the old modal's cramped list didn't.
+function searchInventoryFoods(q){
   q = (q||'').trim().toLowerCase();
-  if(!q) return [];
   var out = [];
   state.items.filter(function(it){ return !it.archived; }).forEach(function(it){
-    if(itemDisplayNameRaw(it).toLowerCase().indexOf(q)!==-1) out.push({type:'item', id:it.id, label:itemDisplayNameRaw(it), sub:t('sourceInventory')+(it.location?(' · '+it.location):'')});
-  });
-  state.recipes.forEach(function(r){
-    if((r.name||'').toLowerCase().indexOf(q)!==-1) out.push({type:'recipe', id:r.id, label:r.name, sub:t('sourceRecipe')});
+    if(!q || itemDisplayNameRaw(it).toLowerCase().indexOf(q)!==-1) out.push({type:'item', id:it.id, label:itemDisplayNameRaw(it), sub:it.location||''});
   });
   state.ingredients.forEach(function(ing){
-    if((ing.name||'').toLowerCase().indexOf(q)!==-1) out.push({type:'external', id:ing.id, label:ing.name, sub:t('sourceExternal')});
+    if(!q || (ing.name||'').toLowerCase().indexOf(q)!==-1) out.push({type:'external', id:ing.id, label:ing.name, sub:t('sourceExternal')});
   });
-  return out.slice(0,10);
+  return out.slice(0,60);
+}
+function searchRecipeFoods(q){
+  q = (q||'').trim().toLowerCase();
+  var out = [];
+  state.recipes.forEach(function(r){
+    if(!q || (r.name||'').toLowerCase().indexOf(q)!==-1) out.push({type:'recipe', id:r.id, label:r.name, sub:''});
+  });
+  return out.slice(0,60);
 }
 var addFoodUsdaTimer = null;
 function onAddFoodQueryInput(val){
   var af = state.mealsUI.addFood;
   af.query = val;
+  if(af.tab==='usda'){
+    clearTimeout(addFoodUsdaTimer);
+    var usdaEl = document.getElementById('add-food-usda-results');
+    if(usdaEl) usdaEl.innerHTML = '';
+    if(!usdaWorkerBase() || val.trim().length<2) return;
+    addFoodUsdaTimer = setTimeout(function(){ runAddFoodUsdaSearch(val.trim()); }, 450);
+    return;
+  }
   var localEl = document.getElementById('add-food-local-results');
-  if(localEl) localEl.innerHTML = addFoodLocalResultsHtml(searchLocalFoods(val));
-  clearTimeout(addFoodUsdaTimer);
-  var usdaEl = document.getElementById('add-food-usda-results');
-  if(usdaEl) usdaEl.innerHTML = '';
-  if(!usdaWorkerBase() || val.trim().length<2) return;
-  addFoodUsdaTimer = setTimeout(function(){ runAddFoodUsdaSearch(val.trim()); }, 450);
+  if(localEl) localEl.innerHTML = addFoodLocalResultsHtml(af.tab==='recipe' ? searchRecipeFoods(val) : searchInventoryFoods(val));
 }
 async function runAddFoodUsdaSearch(q){
   var el = document.getElementById('add-food-usda-results');
@@ -10743,8 +10822,8 @@ async function runAddFoodUsdaSearch(q){
     var results = await usdaSearchFoods(q);
     var el2 = document.getElementById('add-food-usda-results');
     if(!el2) return;
-    if(!results.length){ el2.innerHTML=''; return; }
-    el2.innerHTML = '<div class="hint" style="margin:10px 0 4px;">USDA</div>'+results.slice(0,8).map(function(f){
+    if(!results.length){ el2.innerHTML='<p class="hint">'+t('noMealLoggedHint')+'</p>'; return; }
+    el2.innerHTML = results.slice(0,20).map(function(f){
       var sub = usdaDataTypeLabel(f.dataType)+(f.brandName?(' · '+esc(f.brandName)):'');
       return '<div class="list-row" style="cursor:pointer;" onclick="pickUsdaFoodForMeal('+aj(f.fdcId)+')"><div class="row-label">'+esc(f.description)+'<div class="hint" style="margin-top:2px;">'+sub+'</div></div>'+ic('chevronRight',16)+'</div>';
     }).join('');
@@ -10771,12 +10850,12 @@ function pickLocalFoodForMeal(type, id){
     af.picked = {type:'external', id:id, name:ing.name};
   }
   af.step = 'amount';
-  renderAddFoodModal();
+  render();
 }
 async function pickUsdaFoodForMeal(fdcId){
   var af = state.mealsUI.addFood;
   af.step = 'loading';
-  renderAddFoodModal();
+  render();
   try{
     var detail = await usdaFetchFoodDetail(fdcId);
     af.picked = {type:'usda', name:detail.description, nutrition:detail.nutrition};
@@ -10786,16 +10865,47 @@ async function pickUsdaFoodForMeal(fdcId){
     af.step = 'search';
     showToast(t('usdaSearchError'));
   }
-  renderAddFoodModal();
+  render();
 }
 function backToAddFoodSearch(){
   var af = state.mealsUI.addFood;
   af.step = 'search'; af.picked = null;
-  renderAddFoodModal();
+  render();
 }
 function af_str(field, val){ state.mealsUI.addFood[field] = val; }
 function af_bool(field, val){ state.mealsUI.addFood[field] = val; }
-function setAddFoodAmountUnit(u){ state.mealsUI.addFood.amountUnit = u; state.mealsUI.addFood.amountText=''; renderAddFoodModal(); }
+function setAddFoodAmountUnit(u){ state.mealsUI.addFood.amountUnit = u; state.mealsUI.addFood.amountText=''; render(); }
+// README 9.132: 自定 tab - MyNetDiary's "Quick Calories" equivalent (see the screenshots Lynn
+// sent). Only calories is required; everything else (carbs/protein/fat/name) is optional and
+// simply omitted from the logged nutrition rather than defaulted to 0, same spirit as an
+// external ingredient's nutrition_extra fields being left out entirely when not filled in.
+function customMealFieldsHtml(af){
+  return '' +
+    '<div class="field"><label>'+t('quickCalLabel')+'</label><input type="number" inputmode="decimal" placeholder="'+t('requiredPh')+'" value="'+esc(af.customCalories||'')+'" oninput="af_str(\'customCalories\',this.value)"></div>'+
+    '<div class="field"><label>'+t('fieldMealCarbs')+'</label><input type="number" inputmode="decimal" placeholder="'+t('optionalPh')+'" value="'+esc(af.customCarbs||'')+'" oninput="af_str(\'customCarbs\',this.value)"></div>'+
+    '<div class="field"><label>'+t('fieldMealProtein')+'</label><input type="number" inputmode="decimal" placeholder="'+t('optionalPh')+'" value="'+esc(af.customProtein||'')+'" oninput="af_str(\'customProtein\',this.value)"></div>'+
+    '<div class="field"><label>'+t('fieldMealFat')+'</label><input type="number" inputmode="decimal" placeholder="'+t('optionalPh')+'" value="'+esc(af.customFat||'')+'" oninput="af_str(\'customFat\',this.value)"></div>'+
+    '<div class="field"><label>'+t('fieldMealName')+'</label><input type="text" autocapitalize="words" placeholder="'+t('optionalPh')+'" value="'+esc(af.customName||'')+'" oninput="af_str(\'customName\',this.value)"></div>'+
+    '<button class="btn btn-primary" style="margin-top:14px;width:100%;" onclick="saveCustomMealLogEntry()">'+t('save')+'</button>';
+}
+function saveCustomMealLogEntry(){
+  var af = state.mealsUI.addFood;
+  var cals = parseFloat(af.customCalories);
+  if(!cals || cals<=0){ showToast(t('weightEntryInvalid')); return; }
+  var nutrition = emptyNutrition();
+  nutrition.calories = cals;
+  if(af.customCarbs) nutrition.carbs = parseFloat(af.customCarbs)||0;
+  if(af.customProtein) nutrition.protein = parseFloat(af.customProtein)||0;
+  if(af.customFat) nutrition.fat = parseFloat(af.customFat)||0;
+  var entry = {
+    id: uid(), date: af.date, slot: af.slot, name: af.customName || t('quickCalDefaultName'), amount:null, unit:'',
+    nutrition: nutrition, created_at: nowLocalIso()
+  };
+  state.mealLogs.push(entry);
+  saveMealLogs();
+  showToast(t('mealLoggedToast'));
+  navigate('meals');
+}
 function addFoodAmountBodyHtml(af){
   var p = af.picked;
   var isRecipe = p.type==='recipe';
@@ -10843,6 +10953,9 @@ function addFoodAmountBodyHtml(af){
       :
       itemUnitField+
       '<div class="field"><label>'+t('fieldMealAmount')+(isItem ? (' ('+esc(af.amountUnit||'g')+')') : ' (g)')+'</label><input type="number" inputmode="decimal" placeholder="-" value="'+esc(af.amountText)+'" oninput="af_str(\'amountText\',this.value)"></div>'+
+      // README 9.132: defaults ON for a direct inventory pick now (was off) - Lynn: "直接吃库存
+      //食材也算消耗，要扣". Only inventory items ever show this row at all; recipe/USDA/external
+      // picks have nothing in stock to deduct from.
       (isItem ? ('<div class="list-row"><div class="row-label">'+t('deductFromInventoryLabel')+'</div><label class="switch"><input type="checkbox" '+(af.deduct?'checked':'')+' onchange="af_bool(\'deduct\',this.checked)"><span class="switch-slider"></span></label></div>') : '')
     )+
     '<button class="btn btn-outline" style="margin-top:14px;width:100%;" onclick="backToAddFoodSearch()">'+t('back')+'</button>'+
@@ -10897,9 +11010,8 @@ function saveMealLogEntry(){
   if(deductItemId){ entry.deductItemId=deductItemId; entry.deductAmount=deductAmount; entry.deductUnit=deductUnit; }
   state.mealLogs.push(entry);
   saveMealLogs();
-  closeModal();
   showToast(t('mealLoggedToast'));
-  render();
+  navigate('meals');
 }
 
 /* ---- history ---- */
@@ -12581,8 +12693,11 @@ function afterRender(){
   if(state.view === 'home'){
     syncHomeStickyControlsOffset();
   }
-  if(state.view === 'pickInventory' || state.view === 'pickExternal'){
+  if(state.view === 'pickInventory' || state.view === 'pickExternal' || state.view === 'pickRecipe'){
     syncPickStickyOffset();
+  }
+  if(state.view === 'mealAddFood'){
+    syncMealAddTabsOffset();
   }
 }
 function syncHomeStickyControlsOffset(){
@@ -12598,21 +12713,32 @@ function syncPickStickyOffset(){
   var sticky = document.querySelector('.pick-sticky-search');
   if(header && sticky) sticky.style.top = header.offsetHeight + 'px';
 }
+// README 9.132: same idea as syncPickStickyOffset, for the 三餐加食物 tab bar - it needs to sit
+// right below .page-header (whose height varies with the safe-area inset), not overlap it, and
+// CSS alone can't express "whatever the header's actual rendered height turns out to be".
+function syncMealAddTabsOffset(){
+  var header = document.querySelector('.page-header');
+  var tabs = document.querySelector('.meal-add-tabs');
+  if(header && tabs) tabs.style.top = header.offsetHeight + 'px';
+}
 // iOS can restore a home-screen PWA from a frozen/suspended background state with a stale
 // position:sticky calculation (a known WebKit quirk, not something specific to this app) -
 // re-measuring on these events, not just after render, is what actually recovers it.
 window.addEventListener('pageshow', function(){
   if(state.view==='home') syncHomeStickyControlsOffset();
-  if(state.view==='pickInventory' || state.view==='pickExternal') syncPickStickyOffset();
+  if(state.view==='pickInventory' || state.view==='pickExternal' || state.view==='pickRecipe') syncPickStickyOffset();
+  if(state.view==='mealAddFood') syncMealAddTabsOffset();
 });
 document.addEventListener('visibilitychange', function(){
   if(document.hidden) return;
   if(state.view==='home') syncHomeStickyControlsOffset();
-  if(state.view==='pickInventory' || state.view==='pickExternal') syncPickStickyOffset();
+  if(state.view==='pickInventory' || state.view==='pickExternal' || state.view==='pickRecipe') syncPickStickyOffset();
+  if(state.view==='mealAddFood') syncMealAddTabsOffset();
 });
 window.addEventListener('resize', function(){
   if(state.view==='home') syncHomeStickyControlsOffset();
-  if(state.view==='pickInventory' || state.view==='pickExternal') syncPickStickyOffset();
+  if(state.view==='pickInventory' || state.view==='pickExternal' || state.view==='pickRecipe') syncPickStickyOffset();
+  if(state.view==='mealAddFood') syncMealAddTabsOffset();
 });
 // Close an open unit dropdown (the "数量"/nutrition/price unit pickers) on any click outside
 // it - previously only picking an option or re-tapping the trigger closed it, so it stayed
