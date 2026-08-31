@@ -829,7 +829,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.129';
+var BUILD_VERSION = '9.131';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2282,6 +2282,10 @@ var I18N = {
     fieldRecipeName:'食谱名称', fieldRecipeNamePh:'例如：番茄炒蛋', fieldRecipeCover:'封面图',
     fieldServings:'份数', fieldInstructions:'做法', stepLabel:'步骤', stepPlaceholder:'输入这一步做法…', addStepBtn:'再增加一步',
     sectionIngredients:'食材', addFromInventory:'从库存选择', addExternal:'添加外部食材',
+    addRecipeAsIngredient:'添加食谱作为食材', pickRecipeTitle:'选择食谱作为食材',
+    recipeUnitWhole:'整份', recipeUnitServing:'人份', cookViaLabel:'来自',
+    recipeIngUseLabel:'食材来源', recipeIngUseFresh:'现做原料', recipeIngUseExisting:'用现成成品',
+    cookConfirmPreMade:'使用现成成品，不扣减原始食材',
     addIngredientGroupBtn:'分组', addIngredientGroupTitle:'添加分组', editIngredientGroupTitle:'编辑分组', ingredientGroupNameLabel:'分组名称', ingredientGroupNamePh:'例如：饺子皮',
     sectionOil:'额外用油(可选)', fieldOilAmount:'用油量(g)', fieldOilType:'油的种类',
     sectionCookedWeight:'成品重量(可选)', fieldCookedWeight:'成品总重量(g)', recipeTotalWeightLabel:'成品总重量',
@@ -2541,6 +2545,10 @@ var I18N = {
     fieldRecipeName:'Recipe name', fieldRecipeNamePh:'e.g. Tomato & egg stir-fry', fieldRecipeCover:'Cover photo',
     fieldServings:'Servings', fieldInstructions:'Steps', stepLabel:'Step', stepPlaceholder:'Describe this step…', addStepBtn:'Add another step',
     sectionIngredients:'Ingredients', addFromInventory:'Add from inventory', addExternal:'Add external ingredient',
+    addRecipeAsIngredient:'Add a recipe as ingredient', pickRecipeTitle:'Choose a recipe as ingredient',
+    recipeUnitWhole:'whole recipe', recipeUnitServing:'serving', cookViaLabel:'via',
+    recipeIngUseLabel:'Ingredient source', recipeIngUseFresh:'Make from raw', recipeIngUseExisting:'Use pre-made',
+    cookConfirmPreMade:'Using pre-made - raw ingredients not deducted',
     addIngredientGroupBtn:'Group', addIngredientGroupTitle:'Add group', editIngredientGroupTitle:'Edit group', ingredientGroupNameLabel:'Group name', ingredientGroupNamePh:'e.g. Dough',
     sectionOil:'Extra oil (optional)', fieldOilAmount:'Oil amount (g)', fieldOilType:'Oil type',
     sectionCookedWeight:'Cooked weight (optional)', fieldCookedWeight:'Total cooked weight (g)', recipeTotalWeightLabel:'Total cooked weight',
@@ -3586,10 +3594,74 @@ function addNutrition(a,b){
   NUTRI_KEYS.forEach(function(k){ out[k] = (a[k]||0)+(b[k]||0); });
   return out;
 }
+// README 9.130: scales an already-computed nutrition total by a plain multiplier - used for a
+// recipe-as-ingredient (see calcRecipeNutrition's 'recipe' branch below), where the "amount" is
+// a fraction/multiple of the whole sub-recipe's own total yield rather than a weight/volume
+// that needs basis-matching against a per-100g label the way an inventory/external ingredient
+// does.
+function multiplyNutrition(n, factor){
+  var out = emptyNutrition();
+  NUTRI_KEYS.forEach(function(k){ out[k] = (n[k]||0)*factor; });
+  return out;
+}
+// README 9.130: recipe-ingredient unit -> "what fraction of the sub-recipe's total yield is
+// this". 'whole' is always available (amount IS the multiplier directly - 0.5 whole = half the
+// recipe, 2 whole = double); 'serving'/'g' are only offered (see recipeUnitOptionsForRecipe)
+// when the sub-recipe actually has servings/cooked_weight set, since otherwise there's nothing
+// to divide by. Returns null when the requested unit can't be resolved (e.g. the sub-recipe's
+// cooked_weight was cleared after this ingredient row was already saved with unit 'g') so the
+// caller can fall through to its own "can't convert" warning, same shape as
+// amountToBasisUnits/countBasisMatch returning null.
+function recipeIngredientMultiplier(subRecipe, amount, unit){
+  if(unit === 'whole') return amount;
+  if(unit === 'serving') return (subRecipe.servings && subRecipe.servings>0) ? (amount/subRecipe.servings) : null;
+  if(unit === 'g') return (subRecipe.cooked_weight && subRecipe.cooked_weight>0) ? (amount/subRecipe.cooked_weight) : null;
+  return null;
+}
+// README 9.131: order is the default-selection order (first pill = pre-selected), not just a
+// menu order - Lynn's most common case is measuring by weight, so 'g' goes first whenever the
+// sub-recipe has a cooked_weight, ahead of 'serving' and 'whole' (which is still always
+// included last as the one option that never depends on the sub-recipe having filled in
+// anything else).
+function recipeUnitOptionsForRecipe(subRecipe){
+  var opts = [];
+  if(subRecipe.cooked_weight && subRecipe.cooked_weight>0) opts.push('g');
+  if(subRecipe.servings && subRecipe.servings>0) opts.push('serving');
+  opts.push('whole');
+  return opts;
+}
+// Display label for a recipe-ingredient's unit ('whole'/'serving' are internal codes, never
+// shown raw - see recipeIngredientMultiplier); every other unit string (g, ml, 个, whatever the
+// person typed for an inventory/external ingredient) passes through unchanged, so this is safe
+// to wrap every ri.unit display site in without touching non-recipe ingredients' behavior.
+function recipeUnitLabel(u){
+  if(u==='whole') return t('recipeUnitWhole');
+  if(u==='serving') return t('recipeUnitServing');
+  return u;
+}
+// README 9.130: true if `recipe`'s own ingredient tree (walked recursively through any further
+// nested recipes) uses `targetId` anywhere - used by the ingredient picker to keep a recipe
+// from being added into another recipe that it already (directly or transitively) contains,
+// which would otherwise create a cycle. `seen` is just a runaway-recursion guard in case bad
+// data already contains a loop; it never affects a well-formed tree's answer.
+function recipeUsesRecipe(recipe, targetId, seen){
+  seen = seen || [];
+  if(!recipe || !targetId || seen.indexOf(recipe.id)!==-1) return false;
+  seen = seen.concat([recipe.id]);
+  return (recipe.ingredients||[]).some(function(ri){
+    if(ri.type==='group' || ri.source_type!=='recipe') return false;
+    if(ri.source_id===targetId) return true;
+    var sub = state.recipes.find(function(r){ return r.id===ri.source_id; });
+    return sub ? recipeUsesRecipe(sub, targetId, seen) : false;
+  });
+}
 function getIngredientSource(ri){
-  // ri: recipe_ingredient {source_type:'inventory'|'external', source_id, amount, unit}
+  // ri: recipe_ingredient {source_type:'inventory'|'external'|'recipe', source_id, amount, unit}
   if(ri.source_type === 'inventory'){
     return state.items.find(function(i){ return i.id===ri.source_id; });
+  }
+  if(ri.source_type === 'recipe'){
+    return state.recipes.find(function(r){ return r.id===ri.source_id; });
   }
   return state.ingredients.find(function(i){ return i.id===ri.source_id; });
 }
@@ -3650,7 +3722,12 @@ function countBasisMatch(src, amount, unit){
   }
   return null;
 }
-function calcRecipeNutrition(recipe){
+// README 9.130: `visited` threads the chain of recipe ids currently being expanded, purely as a
+// cycle guard for the 'recipe' ingredient branch below - callers never pass it explicitly
+// (every existing call site in this file calls calcRecipeNutrition(recipe) with just the one
+// argument), it only gets populated by this function's own recursive call into a sub-recipe.
+function calcRecipeNutrition(recipe, visited){
+  visited = visited || [];
   var total = emptyNutrition();
   var warnings = [];
   // Tier-2 vitamins/minerals (nutrition_extra) can't just be summed like the core macros: each
@@ -3665,6 +3742,31 @@ function calcRecipeNutrition(recipe){
   var extraWarnings = [];
   (recipe.ingredients||[]).forEach(function(ri){
     if(ri.type==='group') return;
+    // README 9.130: a recipe-as-ingredient row is handled entirely separately from the
+    // inventory/external path below - there's no per-100g "nutrition label" to basis-match
+    // against here, just the sub-recipe's own already-computed total, scaled by whatever
+    // fraction/multiple of its whole yield this row's amount+unit represents (see
+    // recipeIngredientMultiplier). `visited` catches a cycle defensively (the ingredient picker
+    // already refuses to create one - see recipeUsesRecipe - so this should never actually
+    // fire, but a stack overflow from bad data would be a much worse failure mode than a
+    // "can't convert" warning).
+    if(ri.source_type === 'recipe'){
+      var subRecipe = state.recipes.find(function(r){ return r.id===ri.source_id; });
+      if(!subRecipe || visited.indexOf(subRecipe.id)!==-1){ warnings.push(ri.name_snapshot||'?'); return; }
+      var subResult = calcRecipeNutrition(subRecipe, visited.concat([subRecipe.id]));
+      var multiplier = recipeIngredientMultiplier(subRecipe, ri.amount, ri.unit);
+      if(multiplier == null){ warnings.push(subRecipe.name); return; }
+      total = addNutrition(total, multiplyNutrition(subResult.total, multiplier));
+      warnings = warnings.concat(subResult.warnings.map(function(w){ return subRecipe.name+' > '+w; }));
+      extraWarnings = extraWarnings.concat(subResult.extraWarnings.map(function(w){ return subRecipe.name+' > '+w; }));
+      Object.keys(subResult.extraTotal).forEach(function(k){
+        var e = subResult.extraTotal[k];
+        if(!extraTotals[k]) extraTotals[k] = {unit:e.unit, value:0};
+        if(extraTotals[k].unit !== e.unit){ extraWarnings.push(t(nutriExtraDefs()[k].labelKey)+'('+subRecipe.name+')'); return; }
+        extraTotals[k].value += e.value*multiplier;
+      });
+      return;
+    }
     var src = getIngredientSource(ri);
     if(!src){ warnings.push(ri.name_snapshot||'?'); return; }
     var perBasis = src.nutrition || emptyNutrition();
@@ -3824,6 +3926,7 @@ function render(){
     case 'manageTags': html = renderManageTags(); break;
     case 'pickInventory': html = renderPickInventory(); break;
     case 'pickExternal': html = renderPickExternal(); break;
+    case 'pickRecipe': html = renderPickRecipe(); break;
     case 'archive': html = renderArchiveList(); break;
     case 'itemViewOnly': html = renderItemViewOnly(); break;
     case 'stats': html = renderStats(); break;
@@ -8816,7 +8919,11 @@ function onPickSearch(v){
   clearTimeout(onPickSearch._t);
   onPickSearch._t = setTimeout(function(){
     var c = document.getElementById('pick-list');
-    if(c) c.outerHTML = (state.view==='pickInventory') ? ('<div id="pick-list">'+renderPickInventoryListOnly()+'</div>') : ('<div id="pick-list">'+renderPickExternalListOnly()+'</div>');
+    if(!c) return;
+    var html = state.view==='pickInventory' ? renderPickInventoryListOnly()
+      : state.view==='pickRecipe' ? renderPickRecipeListOnly()
+      : renderPickExternalListOnly();
+    c.outerHTML = '<div id="pick-list">'+html+'</div>';
   }, 200);
 }
 // Same "collapse same product's separate batches into one row" idea as the inventory list
@@ -8904,11 +9011,29 @@ function getActivePill(containerId){
   var active = c.querySelector('.active');
   return active ? active.getAttribute('data-u') : null;
 }
+// README 9.131: the "现做原料 / 用现成成品" toggle for a recipe-as-ingredient row (see the
+// 'recipe' branch of flattenRecipeIngredientsForCook) - deliberately just a flag on the
+// ingredient row, not a real tracked "how much of this batch is left" stock. Lynn considered
+// batch-level remaining-quantity tracking for cooked dishes and decided it was more precision
+// than eating-in-practice can actually support (portions eaten never quite match what was
+// "made"), so 用现成成品 only changes ONE thing: whether "我做了这道菜" on the parent recipe also
+// deducts the sub-recipe's raw ingredients. The nutrition math is identical either way (see
+// calcRecipeNutrition, which never looks at this flag at all) - both modes still read the same
+// 整份/人份/g amount against the sub-recipe's own total nutrition. Renders only when adding/
+// editing a 'recipe'-sourced ingredient; every other ingredient type never sees this markup.
+function recipeIngUseExistingToggleHtml(current){
+  var opts = [{u:'fresh', label:t('recipeIngUseFresh')}, {u:'existing', label:t('recipeIngUseExisting')}];
+  return '<div class="field"><label>'+t('recipeIngUseLabel')+'</label><div class="tag-select" id="ing-use-existing-pills">'+
+    opts.map(function(o){ return '<div class="tag-option '+(o.u===current?'active':'')+'" data-u="'+o.u+'" onclick="selectPillIn(this,\'ing-use-existing-pills\')">'+esc(o.label)+'</div>'; }).join('')+
+  '</div></div>';
+}
 function confirmAddIngredient(sourceType, id, name){
   var amount = parseAmountInput(document.getElementById('ing-amount').value);
   var unit = getActivePill('ing-unit-pills');
   if(!amount || amount<=0){ showToast(state.lang==='zh'?'请输入用量':'Please enter an amount'); return; }
-  addIngredientToRecipe(sourceType, id, name, amount, unit);
+  var useExistingEl = document.getElementById('ing-use-existing-pills');
+  var useExisting = useExistingEl ? (getActivePill('ing-use-existing-pills')==='existing') : false;
+  addIngredientToRecipe(sourceType, id, name, amount, unit, useExisting);
 }
 // Inserts right after the last ingredient already under whichever group was active when
 // goPickInventory/goPickExternal was tapped (see README) - i.e. right before the next group
@@ -8916,9 +9041,10 @@ function confirmAddIngredient(sourceType, id, name){
 // the group the person was actually adding to, not just tacked onto the end of the whole recipe.
 // Falls back to a plain append if there's somehow no active group (shouldn't happen now that
 // ensureRecipeIngredientGroups always guarantees at least one, but kept as a safe default).
-function addIngredientToRecipe(sourceType, sourceId, nameSnapshot, amount, unit){
+function addIngredientToRecipe(sourceType, sourceId, nameSnapshot, amount, unit, useExisting){
   var list = state.recipeDraft.ingredients || (state.recipeDraft.ingredients=[]);
   var entry = {id:uid(), source_type:sourceType, source_id:sourceId, name_snapshot:nameSnapshot, amount:amount, unit:unit};
+  if(sourceType==='recipe' && useExisting) entry.use_existing = true;
   var groupIdx = state.recipeFormUI && state.recipeFormUI.activeIngredientGroupIdx;
   if(groupIdx!=null && list[groupIdx] && list[groupIdx].type==='group'){
     var i = groupIdx+1;
@@ -8981,6 +9107,60 @@ function deleteExternalIngredientConfirm(id){
     saveIngredients();
     render();
   }, {title:t('delete')});
+}
+// README 9.130: recipe-as-ingredient picker page - same page shape as renderPickInventory/
+// renderPickExternal (page-header + sticky search + a list that re-renders in place on
+// search), but the list itself is getPickRecipeList() rather than a plain filter, since it also
+// has to exclude the recipe currently being edited and anything that would create a cycle (see
+// recipeUsesRecipe). Tapping a row opens an amount/unit modal (pickRecipeIngredient) instead of
+// adding straight away like quickAddExternalIngredient does, because unlike an external
+// ingredient's flat "100g default", there's no sensible default amount for "some of another
+// recipe" - the person has to say how much (整份/人份/g, whichever the sub-recipe's own
+// servings/cooked_weight make available - see recipeUnitOptionsForRecipe) every time.
+function getPickRecipeList(){
+  var q = (state.pickSearch||'').toLowerCase();
+  var selfId = state.recipeDraft && state.recipeDraft.id;
+  return state.recipes.filter(function(r){
+    if(r.id===selfId) return false;
+    if(recipeUsesRecipe(r, selfId)) return false;
+    if(q && (r.name||'').toLowerCase().indexOf(q)===-1) return false;
+    return true;
+  });
+}
+function renderPickRecipe(){
+  return '' +
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'recipeForm\')">'+ic('back',22)+'</button><h1>'+t('pickRecipeTitle')+'</h1></div>'+
+  '<div class="content">'+
+    '<div class="pick-sticky-search" id="pick-recipe-sticky">'+
+      searchBarHtml(state.pickSearch||'', t('searchPlaceholder'), 'onPickSearch')+
+    '</div>'+
+    '<div id="pick-list">'+renderPickRecipeListOnly()+'</div>'+
+  '</div>';
+}
+function renderPickRecipeListOnly(){
+  var list = getPickRecipeList();
+  if(!list.length) return '<div class="empty-state">'+ic('search',32)+'<p>'+(state.lang==='zh'?'没有可选的食谱':'No recipes available')+'</p></div>';
+  return list.map(function(r){
+    var nutri = calcRecipeNutrition(r);
+    var metaParts = [Math.round(nutri.total.calories||0)+' kcal'];
+    if(r.servings) metaParts.push(r.servings+recipeUnitLabel('serving'));
+    if(r.cooked_weight) metaParts.push(fmtNum(r.cooked_weight,0)+'g');
+    return '<div class="picker-item" onclick="pickRecipeIngredient('+aj(r.id)+')">'+
+      '<div><div class="pname">'+esc(r.name)+'</div><div class="pmeta">'+metaParts.map(esc).join(' · ')+'</div></div>'+
+      ic('chevronRight',18)+
+    '</div>';
+  }).join('');
+}
+function pickRecipeIngredient(id){
+  var r = state.recipes.find(function(x){ return x.id===id; });
+  if(!r) return;
+  var unitOpts = recipeUnitOptionsForRecipe(r);
+  showModal(esc(r.name),
+    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" inputmode="decimal" id="ing-amount" placeholder="'+t('ingAmountPh')+'"></div>'+
+    '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u,idx){ return '<div class="tag-option '+(idx===0?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+esc(recipeUnitLabel(u))+'</div>'; }).join('')+'</div></div>'+
+    recipeIngUseExistingToggleHtml('fresh')+
+    '<button class="btn btn-primary" onclick="confirmAddIngredient(\'recipe\','+aj(id)+','+aj(r.name)+')">'+t('add')+'</button>'
+  );
 }
 // External ingredient add/edit modal (see README): now a live-state-bound draft
 // (state.extIngUI), same idea as state.itemDraft for the item form, instead of the old
@@ -9287,7 +9467,8 @@ function ingredientGroupsEditorHtml(){
     var rowsHtml = seg.rows.map(function(r){
       return '<div class="ing-row" onclick="editRecipeIngredient('+r.idx+')"><div class="ing-info"><span class="ing-name">'+esc(recipeIngredientDisplayName(r.ri))+
         (r.ri.source_type==='external' ? ' <span style="font-size:11px;color:var(--almond);">('+t('pickExternal')+')</span>' : '')+
-        '</span><span class="ing-amt">'+fmtAmount(r.ri.amount, r.ri.unit)+' '+esc(r.ri.unit)+'</span></div></div>';
+        (r.ri.source_type==='recipe' ? ' <span style="font-size:11px;color:var(--almond);">('+t('navRecipes')+(r.ri.use_existing?(' · '+t('recipeIngUseExisting')):'')+')</span>' : '')+
+        '</span><span class="ing-amt">'+fmtAmount(r.ri.amount, r.ri.unit)+' '+esc(recipeUnitLabel(r.ri.unit))+'</span></div></div>';
     }).join('');
     return '<div class="ing-group-block">'+
       '<div class="ing-group-title-row">'+
@@ -9298,6 +9479,9 @@ function ingredientGroupsEditorHtml(){
       '<div class="btn-row" style="margin-top:6px;">'+
         '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="goPickInventory('+seg.groupIdx+')">'+t('addFromInventory')+'</button>'+
         '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="goPickExternal('+seg.groupIdx+')">'+t('addExternal')+'</button>'+
+      '</div>'+
+      '<div class="btn-row" style="margin-top:6px;">'+
+        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="goPickRecipe('+seg.groupIdx+')">'+t('addRecipeAsIngredient')+'</button>'+
       '</div>'+
     '</div>';
   }).join('');
@@ -9339,13 +9523,17 @@ function editRecipeIngredient(idx){
   if(ri.source_type==='inventory'){
     var item = state.items.find(function(i){ return i.id===ri.source_id; });
     unitOpts = recipeUnitOptionsForItem(item);
+  } else if(ri.source_type==='recipe'){
+    var subRecipe = state.recipes.find(function(r){ return r.id===ri.source_id; });
+    unitOpts = subRecipe ? recipeUnitOptionsForRecipe(subRecipe) : [ri.unit];
   } else {
     unitOpts = WEIGHT_UNITS.concat(VOLUME_UNITS);
   }
   if(unitOpts.indexOf(ri.unit)===-1) unitOpts.unshift(ri.unit);
   showModal(esc(recipeIngredientDisplayName(ri)),
     '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" inputmode="decimal" id="ing-amount" placeholder="'+t('ingAmountPh')+'" value="'+fmtAmount(ri.amount, ri.unit)+'"></div>'+
-    '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u){ return '<div class="tag-option '+(u===ri.unit?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+u+'</div>'; }).join('')+'</div></div>'+
+    '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u){ return '<div class="tag-option '+(u===ri.unit?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+esc(recipeUnitLabel(u))+'</div>'; }).join('')+'</div></div>'+
+    (ri.source_type==='recipe' ? recipeIngUseExistingToggleHtml(ri.use_existing?'existing':'fresh') : '')+
     '<div class="btn-row" style="margin-top:14px;">'+
       '<button class="btn btn-danger btn-sm" style="flex:1;" onclick="deleteRecipeIngredientFromModal('+idx+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
       '<button class="btn btn-primary btn-sm" style="flex:1;" onclick="confirmEditIngredient('+idx+')">'+t('save')+'</button>'+
@@ -9357,7 +9545,16 @@ function confirmEditIngredient(idx){
   var unit = getActivePill('ing-unit-pills');
   if(!amount || amount<=0){ showToast(state.lang==='zh'?'请输入用量':'Please enter an amount'); return; }
   var ri = state.recipeDraft.ingredients[idx];
-  if(ri){ ri.amount = amount; ri.unit = unit; }
+  if(ri){
+    ri.amount = amount; ri.unit = unit;
+    if(ri.source_type==='recipe'){
+      var useExistingEl = document.getElementById('ing-use-existing-pills');
+      if(useExistingEl){
+        if(getActivePill('ing-use-existing-pills')==='existing') ri.use_existing = true;
+        else delete ri.use_existing;
+      }
+    }
+  }
   closeModal();
   render();
 }
@@ -9588,6 +9785,7 @@ function removeRecipePhoto(){
 // picker flow (and possibly the amount/unit modal after it) finishes - see its own comment.
 function goPickInventory(groupIdx){ state.pickSearch=''; state.recipeFormUI.activeIngredientGroupIdx = groupIdx; navigate('pickInventory'); }
 function goPickExternal(groupIdx){ state.pickSearch=''; state.recipeFormUI.activeIngredientGroupIdx = groupIdx; navigate('pickExternal'); }
+function goPickRecipe(groupIdx){ state.pickSearch=''; state.recipeFormUI.activeIngredientGroupIdx = groupIdx; navigate('pickRecipe'); }
 function cancelRecipeForm(){
   // Same logic as cancelItemForm: the original photo (if any) was never touched, only a
   // brand-new upload from this session (never saved) needs cleaning up so it doesn't sit
@@ -9810,7 +10008,7 @@ function renderRecipeDetail(){
     return '<div class="ing-list-row"'+attrs+'>'+
         '<span class="ing-list-name">'+esc(recipeIngredientDisplayName(ri))+'</span>'+
         '<span class="ing-list-dots"></span>'+
-        '<span class="ing-list-amt">'+fmtAmount(ri.amount, ri.unit)+' '+esc(ri.unit)+'</span>'+
+        '<span class="ing-list-amt">'+fmtAmount(ri.amount, ri.unit)+' '+esc(recipeUnitLabel(ri.unit))+'</span>'+
         (linkedItem ? ic('chevronRight',15,'class="ing-list-chevron" style="color:#B79B78;"') : '')+
       '</div>';
   }).join('');
@@ -9864,21 +10062,66 @@ function deleteRecipeDetail(id){
   saveRecipes();
   navigate('recipes');
 }
-function openCookConfirm(recipeId){
-  var r = state.recipes.find(function(x){ return x.id===recipeId; });
-  var lines = r.ingredients.filter(function(ri){ return ri.type!=='group'; }).map(function(ri){
+// README 9.130: flattens a recipe's ingredient tree into the leaf-level rows "确认扣减库存"
+// actually needs - walking through any nested recipe-as-ingredient rows (see calcRecipeNutrition
+// for the equivalent nutrition-side walk) so that cooking a recipe which itself uses another
+// recipe as an ingredient deducts that inner recipe's own inventory ingredients too, not just
+// whatever's listed directly on the recipe being cooked. `multiplier` carries the cumulative
+// "how much of this level's yield are we using" scale factor down through the recursion (see
+// recipeIngredientMultiplier); `viaPath` is purely for display, the chain of recipe names this
+// leaf was reached through (empty for anything listed directly on the top-level recipe).
+function flattenRecipeIngredientsForCook(recipe, multiplier, viaPath, visited){
+  visited = visited || [];
+  if(!recipe || visited.indexOf(recipe.id)!==-1) return [];
+  visited = visited.concat([recipe.id]);
+  var out = [];
+  (recipe.ingredients||[]).forEach(function(ri){
+    if(ri.type==='group') return;
+    if(ri.source_type==='recipe'){
+      var sub = state.recipes.find(function(r){ return r.id===ri.source_id; });
+      if(!sub){ out.push({kind:'unresolvable', name: ri.name_snapshot||'?', viaPath:viaPath}); return; }
+      // README 9.131: 用现成成品 (ri.use_existing) stops the walk right here - the whole point
+      // of that toggle is "don't touch this sub-recipe's raw ingredients", so this row just
+      // shows up as its own line in the confirm list (see 'preMade' below) instead of expanding
+      // into a pile of inventory deductions. 现做原料 (the default) keeps recursing as before.
+      if(ri.use_existing){ out.push({kind:'preMade', name: sub.name, viaPath:viaPath}); return; }
+      var subMultiplier = recipeIngredientMultiplier(sub, ri.amount, ri.unit);
+      if(subMultiplier==null){ out.push({kind:'unresolvable', name: sub.name, viaPath:viaPath}); return; }
+      out = out.concat(flattenRecipeIngredientsForCook(sub, multiplier*subMultiplier, viaPath.concat([sub.name]), visited));
+      return;
+    }
     if(ri.source_type==='external'){
-      return {text: esc(recipeIngredientDisplayName(ri))+': '+fmtAmount(ri.amount, ri.unit)+' '+esc(ri.unit), note:t('cookConfirmNone')};
+      out.push({kind:'external', name: recipeIngredientDisplayName(ri), amount: ri.amount*multiplier, unit: ri.unit, viaPath:viaPath});
+      return;
     }
     var item = state.items.find(function(i){ return i.id===ri.source_id; });
-    if(!item){
-      return {text: esc(ri.name_snapshot)+': '+fmtAmount(ri.amount, ri.unit)+' '+esc(ri.unit), note:(state.lang==='zh'?'(已从库存中移除)':'(removed from inventory)')};
+    if(!item){ out.push({kind:'missing', name: ri.name_snapshot||'?', amount: ri.amount*multiplier, unit: ri.unit, viaPath:viaPath}); return; }
+    out.push({kind:'inventory', item:item, amount: ri.amount*multiplier, unit: ri.unit, viaPath:viaPath});
+  });
+  return out;
+}
+function openCookConfirm(recipeId){
+  var r = state.recipes.find(function(x){ return x.id===recipeId; });
+  var flat = flattenRecipeIngredientsForCook(r, 1, []);
+  var lines = flat.map(function(f){
+    var viaSuffix = f.viaPath.length ? (' <span style="color:var(--almond);">('+t('cookViaLabel')+' '+f.viaPath.map(esc).join(' > ')+')</span>') : '';
+    if(f.kind==='unresolvable'){
+      return {text: esc(f.name)+viaSuffix, note: t('cookConfirmNoConversion')};
     }
-    var primaryNeeded = primaryEquivalentAmount(item, ri.amount, ri.unit);
+    if(f.kind==='preMade'){
+      return {text: esc(f.name)+viaSuffix, note: t('cookConfirmPreMade')};
+    }
+    if(f.kind==='external'){
+      return {text: esc(f.name)+viaSuffix+': '+fmtAmount(f.amount, f.unit)+' '+esc(recipeUnitLabel(f.unit)), note:t('cookConfirmNone')};
+    }
+    if(f.kind==='missing'){
+      return {text: esc(f.name)+viaSuffix+': '+fmtAmount(f.amount, f.unit)+' '+esc(recipeUnitLabel(f.unit)), note:(state.lang==='zh'?'(已从库存中移除)':'(removed from inventory)')};
+    }
+    var primaryNeeded = primaryEquivalentAmount(f.item, f.amount, f.unit);
     var canDeduct = primaryNeeded != null;
     var note = !canDeduct ? t('cookConfirmNoConversion')
-      : ((item.primary_qty||0) < primaryNeeded - 1e-9 ? t('usageInsufficientWarn') : '');
-    return {text: esc(item.name)+': '+fmtAmount(ri.amount, ri.unit)+' '+esc(ri.unit), note: note};
+      : ((f.item.primary_qty||0) < primaryNeeded - 1e-9 ? t('usageInsufficientWarn') : '');
+    return {text: esc(f.item.name)+viaSuffix+': '+fmtAmount(f.amount, f.unit)+' '+esc(recipeUnitLabel(f.unit)), note: note};
   });
   var bodyHtml = '<p class="hint" style="margin-bottom:14px;">'+t('cookConfirmHint')+'</p>' +
     lines.map(function(l){
@@ -9890,19 +10133,22 @@ function openCookConfirm(recipeId){
 function confirmCook(recipeId){
   var r = state.recipes.find(function(x){ return x.id===recipeId; });
   var anyInsufficient = false;
-  r.ingredients.forEach(function(ri){
-    if(ri.type==='group' || ri.source_type!=='inventory') return;
-    var item = state.items.find(function(i){ return i.id===ri.source_id; });
-    if(!item) return;
-    var result = deductFromItem(item, ri.amount, ri.unit);
+  var flat = flattenRecipeIngredientsForCook(r, 1, []);
+  flat.forEach(function(f){
+    if(f.kind!=='inventory') return;
+    var item = f.item;
+    var result = deductFromItem(item, f.amount, f.unit);
     if(result.insufficient) anyInsufficient = true;
     // Cooking a recipe is real consumption just like a manual 取用 entry - it needs to show up
     // in the item's usage log the same way, linked to this recipe, or the log silently misses
-    // every deduction that happened via "做过这道菜" instead of the manual form.
+    // every deduction that happened via "做过这道菜" instead of the manual form. recipe_id is
+    // always the TOP-LEVEL recipe that was actually cooked (r.id), even for a deduction that
+    // came from a nested recipe-as-ingredient a few levels down - that's the thing that
+    // actually got made and is what should show up in this item's usage history.
     item.usage_log = item.usage_log || [];
     item.usage_log.push({
       id: uid(), date: todayStr(), destination_type:'recipe', destination_text:'',
-      recipe_id: r.id, amount: ri.amount, unit: ri.unit, created_at: nowLocalIso()
+      recipe_id: r.id, amount: f.amount, unit: f.unit, created_at: nowLocalIso()
     });
   });
   saveItems();
