@@ -848,7 +848,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.132';
+var BUILD_VERSION = '9.133';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2289,6 +2289,8 @@ var I18N = {
     usageLogEditTitle:'编辑使用记录', usageRestoreBtn:'恢复', usageRestoreConfirm:'恢复后这条记录会被取消，之前扣掉的数量会加回库存，确定吗？',
     usageRestoredToast:'已恢复库存并取消该记录', usageDeleteConfirm:'确定删除这条记录吗？删除后不会把数量加回库存。', usageDeletedToast:'已删除该记录',
     deleteConfirm:'确定要删除吗？此操作无法撤销。',
+    discardChangesTitle:'放弃这些修改？', discardChangesConfirm:'离开这个页面会丢失还没保存的修改，确定要放弃吗？', discardChangesConfirmBtn:'放弃修改',
+    linkedRecipeGoneToast:'该食谱不存在（可能已被删除）',
     // scan
     scanTitle:'扫码识别', scanHintCamera:'将条码放入框内，自动识别', scanManualEntry:'手动输入条码',
     scanLookingUp:'正在查询商品信息…', scanNotFound:'未查询到商品信息，请手动填写',
@@ -2558,6 +2560,8 @@ var I18N = {
     usageLogEditTitle:'Edit Usage Entry', usageRestoreBtn:'Restore', usageRestoreConfirm:'This will cancel the entry and add the amount back to stock. Continue?',
     usageRestoredToast:'Restored to stock and removed the entry', usageDeleteConfirm:'Delete this entry? Stock will not be added back.', usageDeletedToast:'Entry deleted',
     deleteConfirm:'Are you sure? This cannot be undone.',
+    discardChangesTitle:'Discard changes?', discardChangesConfirm:'Leaving this page will lose any unsaved changes. Discard them?', discardChangesConfirmBtn:'Discard',
+    linkedRecipeGoneToast:'This recipe no longer exists (it may have been deleted)',
     scanTitle:'Scan barcode', scanHintCamera:'Align the barcode within the frame', scanManualEntry:'Enter barcode manually',
     scanLookingUp:'Looking up product…', scanNotFound:'No product found, please fill in manually',
     scanFoundLocal:'Found in local history', scanFoundOFF:'Fetched from Open Food Facts',
@@ -3904,7 +3908,14 @@ function ic(name, size, extra){
 // e.g. tap an item in the middle of a long inventory list, look at it, swipe back: you land
 // back on that item instead of at the top of the list. Only applies to the two long
 // scrollable list views; every other view still resets to the top like before.
-var SCROLL_MEMORY_VIEWS = ['home', 'recipes'];
+// README 9.133: added 'recipeForm' - adding an ingredient mid-edit used to always land back at
+// the top of the recipe form (every navigate('recipeForm') call defaulted to scrollY 0), even
+// though the person almost always wants to keep adding more ingredients from right where the
+// "添加食材" buttons are. Scroll memory fixes this the same way it already worked for 'home'/
+// 'recipes': navigating AWAY from recipeForm (to a pick* page) remembers its scroll position,
+// and navigating back restores it - so a full add-ingredient round trip lands back within a row
+// or two of where the button was, not back at the very top of a possibly-long ingredient list.
+var SCROLL_MEMORY_VIEWS = ['home', 'recipes', 'recipeForm'];
 var _scrollMemory = {};
 function navigate(view, params){
   stopScan();
@@ -5565,6 +5576,10 @@ function openItemForm(id, prefill){
     originalPhotoUrl: state.itemDraft.photo_url || '',
     pendingPhotoDeleteRefs: []
   };
+  // README 9.133: same idea as recipeFormUI.originalSnapshot below - a full-draft JSON string
+  // taken once the draft is fully settled, so cancelItemForm() can tell "nothing changed, just
+  // discard silently" apart from "there's real unsaved work here, confirm first".
+  state.itemFormUI.originalSnapshot = JSON.stringify(state.itemDraft);
   navigate('itemForm', {id:id});
   // See maybeAutoSearchUsdaFromBarcode's own comment - only actually does anything when this
   // form was opened from a failed barcode scan (barcode set, name still empty).
@@ -5666,15 +5681,18 @@ function onQtyUnitDropdownPick(key, val){
 // exactly as printed on a multi-pack product - instead of making the person multiply it
 // themselves first. Evaluated once on blur (not while typing, so "796x" mid-entry doesn't
 // get clobbered); a plain number just passes through unchanged.
+// README 9.133: falls back to parseAmountInput (which already understands "1/4", "1 1/4" etc -
+// see its own comment) instead of a bare parseFloat, so a fraction typed into a quantity field
+// gets evaluated correctly on blur instead of silently truncating at the "/" (parseFloat("1/4")
+// is 1, not 0.25 - that's the actual bug Lynn hit, not just the keyboard missing a "/" key).
 function evalQtyExpression(str){
   str = (str||'').trim();
   var m = str.match(/^(\d+(?:\.\d+)?)\s*[x×*X]\s*(\d+(?:\.\d+)?)$/);
   if(m) return Math.round(parseFloat(m[1]) * parseFloat(m[2]) * 1000) / 1000;
-  var f = parseFloat(str);
-  return isNaN(f) ? null : f;
+  return parseAmountInput(str);
 }
-function setPrimaryQty(val){ state.itemDraft.primary_qty = (val==='') ? null : parseFloat(val); }
-function setSecondaryQty(idx, val){ state.itemDraft.secondary_units[idx].qty = (val==='') ? null : parseFloat(val); }
+function setPrimaryQty(val){ state.itemDraft.primary_qty = (val==='') ? null : parseAmountInput(val); }
+function setSecondaryQty(idx, val){ state.itemDraft.secondary_units[idx].qty = (val==='') ? null : parseAmountInput(val); }
 function onPrimaryQtyBlur(el){
   var v = evalQtyExpression(el.value);
   el.value = (v==null) ? '' : v;
@@ -5704,7 +5722,7 @@ function packUnitValue(idx){
   return idx==null ? (state.itemDraft.primary_pack_unit||'') : ((state.itemDraft.secondary_units[idx]||{}).pack_unit || '');
 }
 function setPackAmount(idx, val){
-  var v = (val==='') ? null : parseFloat(val);
+  var v = (val==='') ? null : parseAmountInput(val);
   if(idx==null) state.itemDraft.primary_pack_amount = v;
   else state.itemDraft.secondary_units[idx].pack_amount = v;
 }
@@ -5769,10 +5787,10 @@ function qtyGroupSpecRowHtml(idx, isLast){
   }
   return '<div class="field" style="margin-bottom:0;"><label>'+t('fieldQty')+'</label>'+
     '<div class="qty-spec-row">'+
-      '<input type="text" inputmode="decimal" class="qty-spec-amount" placeholder="'+t('fieldPackAmountPh')+'" value="'+(packAmt==null?'':packAmt)+'" oninput="setPackAmount('+aj(idx)+',this.value)">'+
+      '<input type="text" class="qty-spec-amount" placeholder="'+t('fieldPackAmountPh')+'" value="'+(packAmt==null?'':packAmt)+'" oninput="setPackAmount('+aj(idx)+',this.value)">'+
       '<div class="qty-spec-unit">'+packUnitFieldHtml(idx)+'</div>'+
       '<span class="qty-spec-x">x</span>'+
-      '<input type="text" inputmode="decimal" class="qty-spec-count" placeholder="'+t('fieldQtyPh')+'" value="'+qtyDisplayVal+'" oninput="'+qtyOninput+'" onblur="'+qtyOnblur+'">'+
+      '<input type="text" class="qty-spec-count" placeholder="'+t('fieldQtyPh')+'" value="'+qtyDisplayVal+'" oninput="'+qtyOninput+'" onblur="'+qtyOnblur+'">'+
       '<div class="qty-spec-countunit">'+qtyGroupUnitFieldHtml(idx)+'</div>'+
       removeBtn+
     '</div>'+
@@ -6820,7 +6838,18 @@ async function onItemNutritionPhotoSelected(input){
     input.value = '';
   }
 }
+// README 9.133: same dirty-check guard as cancelRecipeForm - see its comment for why this
+// covers the header back button, the 取消 button, and the swipe-right gesture all at once.
 function cancelItemForm(){
+  var snap = state.itemFormUI && state.itemFormUI.originalSnapshot;
+  var dirty = snap != null && JSON.stringify(state.itemDraft) !== snap;
+  if(dirty){
+    showConfirmModal(t('discardChangesConfirm'), discardItemFormChanges, {title:t('discardChangesTitle'), confirmLabel:t('discardChangesConfirmBtn')});
+    return;
+  }
+  discardItemFormChanges();
+}
+function discardItemFormChanges(){
   var target = (state.itemFormUI && state.itemFormUI.returnTo) || {view:'home'};
   // Nothing staged in pendingPhotoDeleteRefs actually got deleted yet, so the original photo
   // (if any) is untouched - just walk away from it. The only thing to clean up here is a
@@ -7394,7 +7423,7 @@ function renderUsageLogAdd(){
     '</div>'+
     '<div class="field"><label>'+t(isAdjust?'usageAdjustAmountLabel':'usageAmount')+'</label>'+
       '<div style="display:flex;gap:8px;align-items:center;">'+
-        '<input type="number" inputmode="decimal" value="'+(d.amount!=null?d.amount:'')+'" oninput="setUsageField(\'amount\',this.value)" style="flex:1;min-width:0;">'+
+        '<input type="text" value="'+(d.amount!=null?d.amount:'')+'" oninput="setUsageField(\'amount\',this.value)" style="flex:1;min-width:0;">'+
         '<div class="tag-select" style="flex-shrink:0;">'+unitOptions.map(function(u){
           return '<div class="tag-option '+(d.unit===u?'active':'')+'" onclick="setUsageUnit('+aj(u)+')">'+esc(u)+'</div>';
         }).join('')+'</div>'+
@@ -7432,7 +7461,7 @@ function renderUsageLogAdd(){
   '</div>';
 }
 function setUsageField(key, val){
-  if(key==='amount'){ state.usageDraft.amount = (val==='') ? null : parseFloat(val); }
+  if(key==='amount'){ state.usageDraft.amount = (val==='') ? null : parseAmountInput(val); }
   else { state.usageDraft[key] = val; }
 }
 function setUsageUnit(u){ state.usageDraft.unit = u; render(); }
@@ -8025,6 +8054,22 @@ function showModal(title, bodyHtml){
       bodyHtml+
     '</div>'+
   '</div>';
+  // README 9.133: the `autofocus` HTML attribute only does anything for elements present when
+  // the document is first parsed - it's silently a no-op for anything injected via innerHTML,
+  // which every modal body always is, so a quantity-input popup opening with the cursor already
+  // in the field (Lynn: 弹窗出现即可直接输入，不用额外再点一次输入框) needs an explicit focus()
+  // call instead. Doing it here, generically, means any modal body can opt in just by marking
+  // its one primary field `autofocus` - no per-modal wiring needed. This runs synchronously
+  // inside the same onclick handler that called showModal (there's no render-then-later-effect
+  // gap the way there is in a framework like React), so a plain synchronous focus() is enough to
+  // raise the iOS keyboard - no setTimeout/rAF hop required.
+  var toFocus = root.querySelector('[autofocus]');
+  if(toFocus){
+    toFocus.focus();
+    if(toFocus.value && toFocus.setSelectionRange){
+      try{ toFocus.setSelectionRange(toFocus.value.length, toFocus.value.length); }catch(e){}
+    }
+  }
 }
 function closeModal(){
   var y = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
@@ -8902,17 +8947,34 @@ function addRecipeGroupFromInput(elId){
 }
 
 /* ======================= INGREDIENT PICKERS ======================= */
+// README 9.133: reordered per Lynn's spec (confirmed the interpretation, see 9.133 changelog) -
+// two tiers, not one flat prepend. Tier 1 is the food's own NATIVE units (its actual primary/
+// pack/secondary units - i.e. what it's literally tracked in, NOT the weight/volume family
+// siblings allUnitsForItem also offers), with 'g' promoted to the very front of that tier
+// whenever it's one of them. Tier 2 is every standard weight/volume unit not already covered by
+// tier 1, appended after. Previously this just unshifted allUnitsForItem's whole return value
+// (native units AND its own family-sibling injection both) onto the standard list one at a time,
+// which put whatever the item's own literal unit happened to be first regardless of whether it
+// was 'g' or something like '件' - not wrong exactly, but not the g-first rule Lynn wants either.
 function recipeUnitOptionsForItem(item){
   // README 9.116: an item marked 按份消耗 (consume_whole_unit) should never offer grams/ml as
   // a recipe-ingredient unit either - the whole point of the toggle is "this is only ever used
   // a whole unit at a time", and a recipe amount is just another form of deduction.
   if(item && item.consume_whole_unit) return deductableUnitsForItem(item);
-  var opts = WEIGHT_UNITS.concat(VOLUME_UNITS);
-  if(item){
-    allUnitsForItem(item).forEach(function(u){
-      if(opts.indexOf(u)===-1) opts.unshift(u);
-    });
-  }
+  var stdUnits = WEIGHT_UNITS.concat(VOLUME_UNITS);
+  if(!item) return stdUnits.slice();
+  var ownUnits = [];
+  if(item.primary_unit) ownUnits.push(item.primary_unit);
+  if(item.primary_pack_unit && item.primary_pack_amount) ownUnits.push(item.primary_pack_unit);
+  (item.secondary_units||[]).forEach(function(g){
+    if(g.unit) ownUnits.push(g.unit);
+    if(g.pack_unit && g.pack_amount && g.ratio) ownUnits.push(g.pack_unit);
+  });
+  ownUnits = ownUnits.filter(function(u,i){ return ownUnits.indexOf(u)===i; });
+  var gIdx = ownUnits.indexOf('g');
+  if(gIdx > 0){ ownUnits.splice(gIdx,1); ownUnits.unshift('g'); }
+  var opts = ownUnits.slice();
+  stdUnits.forEach(function(u){ if(opts.indexOf(u)===-1) opts.push(u); });
   return opts;
 }
 // Shared by renderPickInventory (first paint) and onPickSearch's re-render (typing in the
@@ -9025,7 +9087,7 @@ function pickInventoryItem(id){
   if(!it) return;
   var unitOpts = recipeUnitOptionsForItem(it);
   showModal(itemDisplayNameRaw(it),
-    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" inputmode="decimal" id="ing-amount" placeholder="'+t('ingAmountPh')+'"></div>'+
+    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" id="ing-amount" autofocus placeholder="'+t('ingAmountPh')+'"></div>'+
     '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u,idx){ return '<div class="tag-option '+(idx===0?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+u+'</div>'; }).join('')+'</div></div>'+
     '<button class="btn btn-primary" onclick="confirmAddIngredient(\'inventory\','+aj(id)+','+aj(it.name)+')">'+t('add')+'</button>'
   );
@@ -9185,7 +9247,7 @@ function pickRecipeIngredient(id){
   if(!r) return;
   var unitOpts = recipeUnitOptionsForRecipe(r);
   showModal(esc(r.name),
-    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" inputmode="decimal" id="ing-amount" placeholder="'+t('ingAmountPh')+'"></div>'+
+    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" id="ing-amount" autofocus placeholder="'+t('ingAmountPh')+'"></div>'+
     '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u,idx){ return '<div class="tag-option '+(idx===0?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+esc(recipeUnitLabel(u))+'</div>'; }).join('')+'</div></div>'+
     recipeIngUseExistingToggleHtml('fresh')+
     '<button class="btn btn-primary" onclick="confirmAddIngredient(\'recipe\','+aj(id)+','+aj(r.name)+')">'+t('add')+'</button>'
@@ -9272,7 +9334,7 @@ function renderExternalIngredientModal(){
   var ui = state.extIngUI;
   var isNew = ui.mode==='new';
   var amountUnitHtml = isNew ?
-    '<div class="field" style="margin-top:14px;"><label>'+t('ingAmountLabel')+'</label><input type="number" inputmode="decimal" placeholder="-" value="'+(ui.amount==null?'':ui.amount)+'" oninput="onExtIngAmountInput(this.value)"></div>'+
+    '<div class="field" style="margin-top:14px;"><label>'+t('ingAmountLabel')+'</label><input type="text" placeholder="-" value="'+(ui.amount==null?'':ui.amount)+'" oninput="onExtIngAmountInput(this.value)"></div>'+
     '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select">'+WEIGHT_UNITS.concat(VOLUME_UNITS).map(function(u){ return '<div class="tag-option '+(u===ui.unit?'active':'')+'" onclick="onExtIngUnitPick('+aj(u)+')">'+u+'</div>'; }).join('')+'</div></div>'
     : '';
   showModal(isNew ? t('createNewIngredient') : t('editIngredientTitle'),
@@ -9290,7 +9352,7 @@ function renderExternalIngredientModal(){
       : '<button class="btn btn-primary" style="margin-top:14px;" onclick="saveExternalIngredientEdit()">'+t('save')+'</button>')
   );
 }
-function onExtIngAmountInput(val){ state.extIngUI.amount = (val==='') ? null : parseFloat(val); }
+function onExtIngAmountInput(val){ state.extIngUI.amount = (val==='') ? null : parseAmountInput(val); }
 function onExtIngUnitPick(u){ state.extIngUI.unit = u; renderExternalIngredientModal(); }
 // Same box/row markup as nutriFieldsHtml (the item form's editable label) minus the basis-amount
 // row - external ingredients predate the weight/volume split and are always fixed at per-100g
@@ -9446,6 +9508,14 @@ function openRecipeForm(id){
     pendingPhotoDeleteRefs: [],
     activeIngredientGroupIdx: null
   };
+  // README 9.133: snapshot taken right here, after every field above (_isNew, migrated steps,
+  // etc.) is already settled - cancelRecipeForm() diffs the live draft against this JSON string
+  // to decide whether there's actually anything to lose. Doing it as a single JSON.stringify
+  // rather than tracking a dirty flag on every single field mutation is deliberately the lazy
+  // option: this draft object is already the sole source of truth the form renders from, so a
+  // full-object string compare is cheap enough at this scale and can't drift out of sync the way
+  // a hand-maintained flag could if some future edit path forgot to set it.
+  state.recipeFormUI.originalSnapshot = JSON.stringify(state.recipeDraft);
   navigate('recipeForm', {id:id});
 }
 // Ingredient groups (e.g. "饺子皮" / "饺子馅") are represented as a pseudo-entry
@@ -9560,7 +9630,7 @@ function editRecipeIngredient(idx){
   }
   if(unitOpts.indexOf(ri.unit)===-1) unitOpts.unshift(ri.unit);
   showModal(esc(recipeIngredientDisplayName(ri)),
-    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" inputmode="decimal" id="ing-amount" placeholder="'+t('ingAmountPh')+'" value="'+fmtAmount(ri.amount, ri.unit)+'"></div>'+
+    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" id="ing-amount" autofocus placeholder="'+t('ingAmountPh')+'" value="'+fmtAmount(ri.amount, ri.unit)+'"></div>'+
     '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u){ return '<div class="tag-option '+(u===ri.unit?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+esc(recipeUnitLabel(u))+'</div>'; }).join('')+'</div></div>'+
     (ri.source_type==='recipe' ? recipeIngUseExistingToggleHtml(ri.use_existing?'existing':'fresh') : '')+
     '<div class="btn-row" style="margin-top:14px;">'+
@@ -9815,7 +9885,22 @@ function removeRecipePhoto(){
 function goPickInventory(groupIdx){ state.pickSearch=''; state.recipeFormUI.activeIngredientGroupIdx = groupIdx; navigate('pickInventory'); }
 function goPickExternal(groupIdx){ state.pickSearch=''; state.recipeFormUI.activeIngredientGroupIdx = groupIdx; navigate('pickExternal'); }
 function goPickRecipe(groupIdx){ state.pickSearch=''; state.recipeFormUI.activeIngredientGroupIdx = groupIdx; navigate('pickRecipe'); }
+// README 9.133: was an unconditional discard - an accidental edge-swipe (or a deliberate tap on
+// the back button/取消 with unsaved edits) silently threw away everything typed into the recipe
+// form, ingredients included, no confirmation at all. All three ways out of this form (the
+// header back button, the 取消 button, and the swipe-right gesture) already funnel through this
+// one function, so guarding it here covers all three at once rather than needing three separate
+// fixes.
 function cancelRecipeForm(){
+  var snap = state.recipeFormUI && state.recipeFormUI.originalSnapshot;
+  var dirty = snap != null && JSON.stringify(state.recipeDraft) !== snap;
+  if(dirty){
+    showConfirmModal(t('discardChangesConfirm'), discardRecipeFormChanges, {title:t('discardChangesTitle'), confirmLabel:t('discardChangesConfirmBtn')});
+    return;
+  }
+  discardRecipeFormChanges();
+}
+function discardRecipeFormChanges(){
   // Same logic as cancelItemForm: the original photo (if any) was never touched, only a
   // brand-new upload from this session (never saved) needs cleaning up so it doesn't sit
   // around unreferenced in IndexedDB.
@@ -10032,13 +10117,29 @@ function renderRecipeDetail(){
       if(!(ri.name||'').trim()) return '';
       return '<div class="ing-group-header" style="cursor:default;">'+esc(ri.name)+'</div>';
     }
+    // README 9.133: a recipe-sourced ingredient row now navigates to that sub-recipe's own
+    // detail page too, same as an inventory-linked row already does for its item - if the
+    // sub-recipe still exists. If it was deleted since this row was added, the row shows no
+    // chevron (nothing to navigate to) but tapping it still surfaces a toast explaining why,
+    // rather than just silently doing nothing, which would look like a bug rather than an
+    // intentional "this recipe no longer exists" state.
     var linkedItem = ri.source_type==='inventory' ? state.items.find(function(i){ return i.id===ri.source_id; }) : null;
-    var attrs = linkedItem ? ' onclick="navigate(\'itemDetail\',{id:'+aj(ri.source_id)+',from:{view:\'recipeDetail\',params:{id:'+aj(r.id)+'}}})" style="cursor:pointer;"' : ' style="cursor:default;"';
+    var linkedRecipe = ri.source_type==='recipe' ? state.recipes.find(function(x){ return x.id===ri.source_id; }) : null;
+    var attrs;
+    if(linkedItem){
+      attrs = ' onclick="navigate(\'itemDetail\',{id:'+aj(ri.source_id)+',from:{view:\'recipeDetail\',params:{id:'+aj(r.id)+'}}})" style="cursor:pointer;"';
+    } else if(linkedRecipe){
+      attrs = ' onclick="navigate(\'recipeDetail\',{id:'+aj(ri.source_id)+',from:{view:\'recipeDetail\',params:{id:'+aj(r.id)+'}}})" style="cursor:pointer;"';
+    } else if(ri.source_type==='recipe'){
+      attrs = ' onclick="showToast('+aj(t('linkedRecipeGoneToast'))+')" style="cursor:pointer;"';
+    } else {
+      attrs = ' style="cursor:default;"';
+    }
     return '<div class="ing-list-row"'+attrs+'>'+
         '<span class="ing-list-name">'+esc(recipeIngredientDisplayName(ri))+'</span>'+
         '<span class="ing-list-dots"></span>'+
         '<span class="ing-list-amt">'+fmtAmount(ri.amount, ri.unit)+' '+esc(recipeUnitLabel(ri.unit))+'</span>'+
-        (linkedItem ? ic('chevronRight',15,'class="ing-list-chevron" style="color:#B79B78;"') : '')+
+        ((linkedItem || linkedRecipe) ? ic('chevronRight',15,'class="ing-list-chevron" style="color:#B79B78;"') : '')+
       '</div>';
   }).join('');
   return '' +
