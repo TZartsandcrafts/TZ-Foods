@@ -113,6 +113,15 @@
     border-bottom:2px solid transparent; white-space:nowrap; cursor:pointer;
   }
   .meal-add-tab.active{ color:var(--deep-caramel); font-weight:600; border-bottom-color:var(--deep-caramel); }
+  /* README 9.134: sticky search box within a tab's content (separate sticky layer stacked below
+     .meal-add-tabs, offset synced by JS in syncMealAddSearchOffset since it has to sit below
+     BOTH .page-header and .meal-add-tabs, whose combined height isn't expressible in plain CSS
+     the way a single fixed offset would be). */
+  .meal-add-search-sticky{
+    position:sticky; z-index:14; background:var(--cream);
+    top:0; /* refined precisely by JS after each render, see syncMealAddSearchOffset() */
+    margin:-16px -18px 0; padding:16px 18px 12px;
+  }
 
   .content{ padding:16px 18px 24px; }
   .home-sticky-controls{
@@ -848,7 +857,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.133';
+var BUILD_VERSION = '9.134';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2291,6 +2300,7 @@ var I18N = {
     deleteConfirm:'确定要删除吗？此操作无法撤销。',
     discardChangesTitle:'放弃这些修改？', discardChangesConfirm:'离开这个页面会丢失还没保存的修改，确定要放弃吗？', discardChangesConfirmBtn:'放弃修改',
     linkedRecipeGoneToast:'该食谱不存在（可能已被删除）',
+    deleteRecipeUsedElsewhereWarn:'这个食谱正被用作以下食谱的食材：{names}。删除后，这些食谱的营养统计会出现"无法换算"的缺口，且不会自动恢复。确定要删除吗？',
     // scan
     scanTitle:'扫码识别', scanHintCamera:'将条码放入框内，自动识别', scanManualEntry:'手动输入条码',
     scanLookingUp:'正在查询商品信息…', scanNotFound:'未查询到商品信息，请手动填写',
@@ -2562,6 +2572,7 @@ var I18N = {
     deleteConfirm:'Are you sure? This cannot be undone.',
     discardChangesTitle:'Discard changes?', discardChangesConfirm:'Leaving this page will lose any unsaved changes. Discard them?', discardChangesConfirmBtn:'Discard',
     linkedRecipeGoneToast:'This recipe no longer exists (it may have been deleted)',
+    deleteRecipeUsedElsewhereWarn:'This recipe is used as an ingredient in: {names}. Deleting it will leave a permanent "unit not convertible" gap in those recipes\u2019 nutrition totals that won\u2019t fix itself. Delete anyway?',
     scanTitle:'Scan barcode', scanHintCamera:'Align the barcode within the frame', scanManualEntry:'Enter barcode manually',
     scanLookingUp:'Looking up product…', scanNotFound:'No product found, please fill in manually',
     scanFoundLocal:'Found in local history', scanFoundOFF:'Fetched from Open Food Facts',
@@ -2772,7 +2783,8 @@ async function loadAll(){
     storageGet('bpLogs', []),
     storageGet('waistLogs', []),
     storageGet('exerciseLogs', []),
-    storageGet('categoryGroups', null)
+    storageGet('categoryGroups', null),
+    storageGet('pickFrequency', {})
   ]);
   // README 9.125: categoryGroups is the new two-level (母分类/子分类) structure for inventory
   // categories, architecturally matching state.recipeCategoryGroups but without any color
@@ -2835,6 +2847,13 @@ async function loadAll(){
   state.bpLogs = results[21] || [];
   state.waistLogs = results[22] || [];
   state.exerciseLogs = results[23] || [];
+  // README 9.134: real per-food "how many times has this actually been logged to a meal"
+  // counter, keyed 'inventory:<id>' / 'recipe:<id>' (and later 'mealset:<id>') - used to sort
+  // the 三餐加食物 tabs' browse lists by Lynn's actual habits (实际添加频率) rather than
+  // insertion order or a search-hit count, which would reward things merely looked up, not
+  // things actually eaten. Bumped once per successful log, in saveMealLogEntry - never on a
+  // search keystroke or an abandoned pick that never got saved.
+  state.pickFrequency = results[25] || {};
   state.loaded = true;
 }
 // Old data shape had a single secondary_qty/secondary_unit/unit_ratio triplet per item. The
@@ -2935,6 +2954,13 @@ function saveRecipes(){
 }
 function saveSettings(){ return storageSet('settings', {lang:state.lang, reminderDays:state.reminderDays, aiProxyUrl:state.aiProxyUrl, fastingDisplayMode:state.fastingDisplayMode, fastingSettings:state.fastingSettings, visibleMealSlots:state.visibleMealSlots}); }
 function saveMealLogs(){ return storageSet('mealLogs', state.mealLogs); }
+function savePickFrequency(){ return storageSet('pickFrequency', state.pickFrequency); }
+function bumpPickFrequency(kind, id){
+  if(!id) return;
+  var k = kind+':'+id;
+  state.pickFrequency[k] = (state.pickFrequency[k]||0)+1;
+  savePickFrequency();
+}
 function saveWeightLogs(){ return storageSet('weightLogs', state.weightLogs); }
 function saveFastingLogs(){ return storageSet('fastingLogs', state.fastingLogs); }
 function saveActiveFast(){ return storageSet('activeFast', state.activeFast); }
@@ -3270,6 +3296,13 @@ function itemCategoryLabel(it){
 // still be used/consumed/cooked-with in any sibling unit of that same family - see README 9.83.
 var WEIGHT_UNITS = ['g','kg'];
 var VOLUME_UNITS = ['ml','l','tsp','tbsp','cup'];
+// README 9.134: Lynn's exact requested tie-break order for "standard units not already covered
+// by the food's own native units" (see recipeUnitOptionsForItem) - g, ml, tsp, tbsp, cup, kg, L
+// specifically, NOT the WEIGHT_UNITS-then-VOLUME_UNITS grouping (which puts kg right after g).
+// Kept as its own constant rather than reordering WEIGHT_UNITS/VOLUME_UNITS themselves, since
+// those two still get used elsewhere (e.g. NUTRI_WEIGHT_UNITS/NUTRI_VOLUME_UNITS-adjacent
+// conversion logic) in ways that don't care about this specific display ordering.
+var STD_UNIT_TIEBREAK_ORDER = ['g','ml','tsp','tbsp','cup','kg','l'];
 var WEIGHT_UNIT_TO_G = {g:1, kg:1000};
 var VOLUME_UNIT_TO_ML = {ml:1, l:1000, tsp:5, tbsp:15, cup:240};
 // README 9.113: units typed into a custom unit field (see UNIT_OPTIONS - only '件' is built in,
@@ -4599,9 +4632,33 @@ function closeRecipeSwipeRow(id){
   var cardEl = wrap ? wrap.querySelector('.recipe-card') : null;
   if(cardEl){ cardEl.style.transition=''; cardEl.style.transform='translateX(0)'; }
 }
+// README 9.134: Lynn deleted a recipe ("牛油果全麦老面") that was being used as an ingredient
+// inside another recipe (via 9.130's 食谱当食材), and the referencing recipe's nutrition tab
+// permanently broke - a "无法换算" warning and a lower total, forever, since nutrition is always
+// computed live from whatever the CURRENT ingredient graph looks like (there's no frozen/cached
+// snapshot on the recipe itself the way a logged 三餐 entry already freezes its nutrition at
+// save-time - those stay correct). There's no way to make deleting a still-referenced recipe
+// truly consequence-free without a much bigger "freeze nutrition per recipe" architecture change
+// (a real question for Lynn to weigh in on, not something to guess at silently) - but making the
+// consequence visible and requiring explicit confirmation, so it only happens on purpose, is a
+// tractable fix on its own. recipesReferencingRecipe/recipeDeleteConfirmMessage back every
+// recipe-delete entry point (swipe, the form's own 删除, and the detail page's 删除) so a
+// deletion that would orphan another recipe's ingredient always surfaces this warning, with the
+// referencing recipes named, instead of the plain generic "确定要删除吗？".
+function recipesReferencingRecipe(id){
+  return state.recipes.filter(function(r){
+    return r.id!==id && (r.ingredients||[]).some(function(ri){ return ri.type!=='group' && ri.source_type==='recipe' && ri.source_id===id; });
+  });
+}
+function recipeDeleteConfirmMessage(id){
+  var refs = recipesReferencingRecipe(id);
+  if(!refs.length) return t('deleteConfirm');
+  var names = refs.map(function(x){ return x.name; }).join(state.lang==='zh' ? '、' : ', ');
+  return t('deleteRecipeUsedElsewhereWarn').replace('{names}', names);
+}
 function deleteRecipeFromSwipe(id){
   closeRecipeSwipeRow(id);
-  showConfirmModal(t('deleteConfirm'), function(){
+  showConfirmModal(recipeDeleteConfirmMessage(id), function(){
     var r = state.recipes.find(function(x){ return x.id===id; });
     if(r) deletePhotoRef(r.photo_url);
     state.recipes = state.recipes.filter(function(x){ return x.id!==id; });
@@ -7506,8 +7563,23 @@ async function performLocationMove(it, amount, unit, targetLocation){
   var dedResult = deductFromItem(it, amount, unit);
   if(!dedResult.ok) return {ok:false};
   var key = itemGroupKey(it);
+  // README 9.134: a "twin" at the destination used to only have to match on product identity
+  // (same name/brand/barcode) and location - it merged into whatever was already sitting there
+  // even if that batch had a completely different 保质期至/购买日期, silently overwriting the
+  // moved batch's own expiry with the twin's. Lynn hit this moving a bottle expiring 2026.05.06
+  // into a location that already had a *different* bottle of the same oil expiring 2027.03.17 -
+  // the merged result kept the 2027 date, losing track of the fact that some of what's now in
+  // that location actually expires 5 months earlier. Now a twin only counts as the same batch
+  // when its expiry AND purchase date also match (both fields normalize '' the same way, so two
+  // items that both leave a field blank still correctly count as matching on it) - otherwise
+  // this creates a new, separate batch entry at the destination instead of merging, so a batch
+  // with an earlier expiry stays visible and correctly still tracked as expiring earlier.
   var twin = state.items.find(function(i){
-    return !i.archived && i.id!==it.id && itemGroupKey(i)===key && (i.location||'')===(targetLocation||'');
+    if(i.archived || i.id===it.id) return false;
+    if(itemGroupKey(i)!==key || (i.location||'')!==(targetLocation||'')) return false;
+    if((i.expiry_date||'')!==(it.expiry_date||'')) return false;
+    if((i.purchase_date||'')!==(it.purchase_date||'')) return false;
+    return true;
   });
   if(twin){
     applyPrimaryEquivalentDelta(twin, primaryDelta);
@@ -8947,22 +9019,18 @@ function addRecipeGroupFromInput(elId){
 }
 
 /* ======================= INGREDIENT PICKERS ======================= */
-// README 9.133: reordered per Lynn's spec (confirmed the interpretation, see 9.133 changelog) -
-// two tiers, not one flat prepend. Tier 1 is the food's own NATIVE units (its actual primary/
-// pack/secondary units - i.e. what it's literally tracked in, NOT the weight/volume family
-// siblings allUnitsForItem also offers), with 'g' promoted to the very front of that tier
-// whenever it's one of them. Tier 2 is every standard weight/volume unit not already covered by
-// tier 1, appended after. Previously this just unshifted allUnitsForItem's whole return value
-// (native units AND its own family-sibling injection both) onto the standard list one at a time,
-// which put whatever the item's own literal unit happened to be first regardless of whether it
-// was 'g' or something like '件' - not wrong exactly, but not the g-first rule Lynn wants either.
-function recipeUnitOptionsForItem(item){
-  // README 9.116: an item marked 按份消耗 (consume_whole_unit) should never offer grams/ml as
-  // a recipe-ingredient unit either - the whole point of the toggle is "this is only ever used
-  // a whole unit at a time", and a recipe amount is just another form of deduction.
-  if(item && item.consume_whole_unit) return deductableUnitsForItem(item);
-  var stdUnits = WEIGHT_UNITS.concat(VOLUME_UNITS);
-  if(!item) return stdUnits.slice();
+// README 9.134: shared by recipeUnitOptionsForItem (recipe-ingredient add/edit) AND the 三餐加
+// 食物 库存 tab's amount step (see addFoodAmountBodyHtml) - same rule, same two tiers, so both
+// pickers order units identically instead of drifting apart the way they had before this batch.
+// Tier 1 is the food's own NATIVE units (its actual primary/pack/secondary units - what it's
+// literally tracked in, NOT the weight/volume family siblings allUnitsForItem also offers), with
+// 'g' promoted to the very front of that tier whenever it's one of them. Tier 2 is
+// STD_UNIT_TIEBREAK_ORDER (g, ml, tsp, tbsp, cup, kg, L specifically - Lynn's exact requested
+// order, not the WEIGHT_UNITS-then-VOLUME_UNITS grouping) filtered down to whatever tier 1
+// didn't already cover, followed by any other odd unit STD_UNIT_TIEBREAK_ORDER doesn't even
+// know about (belt-and-suspenders - shouldn't normally happen, but never silently drops a unit).
+function orderedUnitOptionsForItem(item){
+  if(!item) return STD_UNIT_TIEBREAK_ORDER.slice();
   var ownUnits = [];
   if(item.primary_unit) ownUnits.push(item.primary_unit);
   if(item.primary_pack_unit && item.primary_pack_amount) ownUnits.push(item.primary_pack_unit);
@@ -8974,8 +9042,15 @@ function recipeUnitOptionsForItem(item){
   var gIdx = ownUnits.indexOf('g');
   if(gIdx > 0){ ownUnits.splice(gIdx,1); ownUnits.unshift('g'); }
   var opts = ownUnits.slice();
-  stdUnits.forEach(function(u){ if(opts.indexOf(u)===-1) opts.push(u); });
+  STD_UNIT_TIEBREAK_ORDER.forEach(function(u){ if(opts.indexOf(u)===-1) opts.push(u); });
   return opts;
+}
+function recipeUnitOptionsForItem(item){
+  // README 9.116: an item marked 按份消耗 (consume_whole_unit) should never offer grams/ml as
+  // a recipe-ingredient unit either - the whole point of the toggle is "this is only ever used
+  // a whole unit at a time", and a recipe amount is just another form of deduction.
+  if(item && item.consume_whole_unit) return deductableUnitsForItem(item);
+  return orderedUnitOptionsForItem(item);
 }
 // Shared by renderPickInventory (first paint) and onPickSearch's re-render (typing in the
 // search box) so the two can't drift out of sync with each other.
@@ -9946,7 +10021,7 @@ function saveRecipeForm(){
   navigate('recipeDetail',{id:d.id});
 }
 function deleteRecipeFromForm(){
-  showConfirmModal(t('deleteConfirm'), function(){
+  showConfirmModal(recipeDeleteConfirmMessage(state.recipeDraft.id), function(){
     deletePhotoRef(state.recipeDraft.photo_url);
     state.recipes = state.recipes.filter(function(r){ return r.id!==state.recipeDraft.id; });
     saveRecipes();
@@ -10185,7 +10260,7 @@ function renderRecipeDetail(){
 function confirmDeleteRecipeDetail(id){
   var r = state.recipes.find(function(x){ return x.id===id; });
   if(!r) return;
-  showConfirmModal(t('deleteConfirm'), function(){ deleteRecipeDetail(id); }, {title:t('delete')});
+  showConfirmModal(recipeDeleteConfirmMessage(id), function(){ deleteRecipeDetail(id); }, {title:t('delete')});
 }
 function deleteRecipeDetail(id){
   state.recipes = state.recipes.filter(function(r){ return r.id!==id; });
@@ -10866,11 +10941,11 @@ function mealAddFoodContentHtml(){
 function addFoodLocalSearchBodyHtml(af){
   var results = af.tab==='recipe' ? searchRecipeFoods(af.query) : searchInventoryFoods(af.query);
   var ph = af.tab==='recipe' ? t('recipeSearchPlaceholder') : t('searchPlaceholder');
-  return '<div class="field"><input id="add-food-search-input" type="text" autocapitalize="none" placeholder="'+esc(ph)+'" value="'+esc(af.query)+'" oninput="onAddFoodQueryInput(this.value)"></div>'+
+  return '<div class="meal-add-search-sticky"><input id="add-food-search-input" type="text" autocapitalize="none" placeholder="'+esc(ph)+'" value="'+esc(af.query)+'" oninput="onAddFoodQueryInput(this.value)" style="width:100%;box-sizing:border-box;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);"></div>'+
     '<div id="add-food-local-results">'+addFoodLocalResultsHtml(results)+'</div>';
 }
 function addFoodUsdaSearchBodyHtml(af){
-  return '<div class="field"><input id="add-food-search-input" type="text" autocapitalize="none" placeholder="'+t('usdaOnlySearchPh')+'" value="'+esc(af.query)+'" oninput="onAddFoodQueryInput(this.value)"></div>'+
+  return '<div class="meal-add-search-sticky"><input id="add-food-search-input" type="text" autocapitalize="none" placeholder="'+t('usdaOnlySearchPh')+'" value="'+esc(af.query)+'" oninput="onAddFoodQueryInput(this.value)" style="width:100%;box-sizing:border-box;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);"></div>'+
     '<div id="add-food-usda-results"></div>';
 }
 function addFoodLocalResultsHtml(local){
@@ -10882,6 +10957,12 @@ function addFoodLocalResultsHtml(local){
 // README 9.132: unlike the old combined search (which required at least a typed query before
 // showing anything), each tab now browses its own full list by default and narrows as you type -
 // full-page space makes that workable where the old modal's cramped list didn't.
+// README 9.134: sorted by actual add frequency (state.pickFrequency), highest first - Lynn:
+// 默认按照使用频率（实际添加频率，不是搜索频率）由高到低排列. Applies whether or not there's a
+// query typed (not just the empty-query browse case), since a frequency-ordered subset of
+// matches is still more useful than an arbitrary one once the list is already narrowed down.
+// Items/recipes never yet logged (no key in pickFrequency) all tie at 0 and fall back to
+// whatever order they were already in (their natural state.items/state.recipes order).
 function searchInventoryFoods(q){
   q = (q||'').trim().toLowerCase();
   var out = [];
@@ -10891,6 +10972,7 @@ function searchInventoryFoods(q){
   state.ingredients.forEach(function(ing){
     if(!q || (ing.name||'').toLowerCase().indexOf(q)!==-1) out.push({type:'external', id:ing.id, label:ing.name, sub:t('sourceExternal')});
   });
+  sortByPickFrequency(out, function(r){ return r.type==='item' ? ('inventory:'+r.id) : null; });
   return out.slice(0,60);
 }
 function searchRecipeFoods(q){
@@ -10899,7 +10981,19 @@ function searchRecipeFoods(q){
   state.recipes.forEach(function(r){
     if(!q || (r.name||'').toLowerCase().indexOf(q)!==-1) out.push({type:'recipe', id:r.id, label:r.name, sub:''});
   });
+  sortByPickFrequency(out, function(r){ return 'recipe:'+r.id; });
   return out.slice(0,60);
+}
+// Stable sort (relies on Array#sort being stable, guaranteed since ES2019 - true in every
+// browser this PWA targets) so ties at the same frequency (most commonly 0, for anything never
+// logged) keep their original relative order instead of jumping around unpredictably.
+function sortByPickFrequency(list, keyFn){
+  list.sort(function(a,b){
+    var ka = keyFn(a), kb = keyFn(b);
+    var fa = ka ? (state.pickFrequency[ka]||0) : 0;
+    var fb = kb ? (state.pickFrequency[kb]||0) : 0;
+    return fb - fa;
+  });
 }
 var addFoodUsdaTimer = null;
 function onAddFoodQueryInput(val){
@@ -10938,10 +11032,10 @@ function pickLocalFoodForMeal(type, id){
   if(type==='item'){
     var it = state.items.find(function(x){ return x.id===id; });
     af.picked = {type:'item', id:id, name:itemDisplayNameRaw(it)};
-    // Default to whatever unit this item's stock is actually counted in - README 9.108: the
-    // amount field used to always assume grams regardless of how the item itself is tracked
-    // (e.g. "件"/"包"), which meant every gram-less item silently couldn't be logged accurately.
-    af.amountUnit = it.primary_unit || 'g';
+    // README 9.134: leave amountUnit unset here - addFoodAmountBodyHtml now picks the default
+    // itself as the first entry of orderedUnitOptionsForItem (food's own units first, g
+    // promoted within that group), not always primary_unit.
+    af.amountUnit = null;
   } else if(type==='recipe'){
     var r = state.recipes.find(function(x){ return x.id===id; });
     af.picked = {type:'recipe', id:id, name:r.name};
@@ -11026,22 +11120,28 @@ function addFoodAmountBodyHtml(af){
         '<div class="tag-option '+(af.amountUnit==='g'?'active':'')+'" onclick="setAddFoodAmountUnit(\'g\')">g</div>'+
       '</div></div>'+
       (af.amountUnit==='g' ?
-        '<div class="field"><label>'+t('fieldMealAmount')+' (g)</label><input type="number" inputmode="decimal" placeholder="-" value="'+esc(af.amountText)+'" oninput="af_str(\'amountText\',this.value)"></div>'
+        '<div class="field"><label>'+t('fieldMealAmount')+' (g)</label><input type="text" placeholder="-" value="'+esc(af.amountText)+'" oninput="af_str(\'amountText\',this.value)"></div>'
         :
-        '<div class="field"><label>'+t('servingsEatenLabel')+'</label><input type="number" inputmode="decimal" placeholder="1" value="'+esc(af.amountText)+'" oninput="af_str(\'amountText\',this.value)"></div>'))
+        '<div class="field"><label>'+t('servingsEatenLabel')+'</label><input type="text" placeholder="1" value="'+esc(af.amountText)+'" oninput="af_str(\'amountText\',this.value)"></div>'))
       :
-      ('<div class="field"><label>'+t('servingsEatenLabel')+'</label><input type="number" inputmode="decimal" placeholder="1" value="'+esc(af.amountText)+'" oninput="af_str(\'amountText\',this.value)"></div>');
+      ('<div class="field"><label>'+t('servingsEatenLabel')+'</label><input type="text" placeholder="1" value="'+esc(af.amountText)+'" oninput="af_str(\'amountText\',this.value)"></div>');
   }
   // README 9.108: an inventory item's amount can be entered in ANY unit that item itself
   // tracks stock in (its own primary/secondary units and pack specs, plus same-family weight/
   // volume siblings - see allUnitsForItem), not just grams - both the nutrition math
   // (amountToBasisUnits) and the inventory deduction (deductFromItem) already understood
   // arbitrary units; the amount field here was the only thing still hardcoded to "g".
+  // README 9.134: unit list/order now shares recipeUnitOptionsForItem's exact logic (via
+  // orderedUnitOptionsForItem) instead of allUnitsForItem's raw order, so this tab's unit picker
+  // and the recipe-ingredient one order units identically - food's own units first (g promoted
+  // to the front of that group if present), standard units after in Lynn's g/ml/tsp/tbsp/cup/
+  // kg/L order. Default selection follows suit: whatever ends up first in that ordered list,
+  // not always primary_unit.
   var itemSrc = isItem ? state.items.find(function(x){ return x.id===p.id; }) : null;
   var itemUnitField = '';
   if(isItem && itemSrc){
-    if(!af.amountUnit) af.amountUnit = itemSrc.primary_unit || 'g';
-    var itemUnits = allUnitsForItem(itemSrc);
+    var itemUnits = orderedUnitOptionsForItem(itemSrc);
+    if(!af.amountUnit) af.amountUnit = itemUnits[0] || itemSrc.primary_unit || 'g';
     itemUnitField = itemUnits.length>1 ?
       ('<div class="field"><label>'+t('fieldMealAmountUnit')+'</label><div class="tag-select" style="flex-wrap:wrap;">'+
         itemUnits.map(function(u){ return '<div class="tag-option '+(af.amountUnit===u?'active':'')+'" onclick="setAddFoodAmountUnit(\''+u+'\')">'+esc(u)+'</div>'; }).join('')+
@@ -11053,7 +11153,7 @@ function addFoodAmountBodyHtml(af){
       recipeAmountField
       :
       itemUnitField+
-      '<div class="field"><label>'+t('fieldMealAmount')+(isItem ? (' ('+esc(af.amountUnit||'g')+')') : ' (g)')+'</label><input type="number" inputmode="decimal" placeholder="-" value="'+esc(af.amountText)+'" oninput="af_str(\'amountText\',this.value)"></div>'+
+      '<div class="field"><label>'+t('fieldMealAmount')+(isItem ? (' ('+esc(af.amountUnit||'g')+')') : ' (g)')+'</label><input type="text" placeholder="-" value="'+esc(af.amountText)+'" oninput="af_str(\'amountText\',this.value)"></div>'+
       // README 9.132: defaults ON for a direct inventory pick now (was off) - Lynn: "直接吃库存
       //食材也算消耗，要扣". Only inventory items ever show this row at all; recipe/USDA/external
       // picks have nothing in stock to deduct from.
@@ -11070,25 +11170,25 @@ function saveMealLogEntry(){
     var r = state.recipes.find(function(x){ return x.id===p.id; });
     var totalN = calcRecipeNutrition(r);
     if(af.amountUnit==='g'){
-      var grams = parseFloat(af.amountText);
+      var grams = parseAmountInput(af.amountText);
       if(!grams || grams<=0 || !totalN.per100g){ showToast(t('weightEntryInvalid')); return; }
       var gramsFactor = grams/100;
       nutrition = {}; NUTRI_KEYS.forEach(function(k){ nutrition[k]=(totalN.per100g[k]||0)*gramsFactor; });
       name = r.name; amount = grams; unit = 'g';
     } else {
-      var servings = parseFloat(af.amountText);
+      var servings = parseAmountInput(af.amountText);
       if(!servings || servings<=0){ showToast(t('weightEntryInvalid')); return; }
       nutrition = {}; NUTRI_KEYS.forEach(function(k){ nutrition[k]=(totalN.perServing[k]||0)*servings; });
       name = r.name; amount = servings; unit = t('servingsUnit');
     }
   } else if(p.type==='usda'){
-    var amt = parseFloat(af.amountText);
+    var amt = parseAmountInput(af.amountText);
     if(!amt || amt<=0){ showToast(t('weightEntryInvalid')); return; }
     var factor2 = amt/100;
     nutrition = {}; NUTRI_KEYS.forEach(function(k){ nutrition[k]=(p.nutrition[k]||0)*factor2; });
     name = p.name; amount = amt; unit = 'g';
   } else {
-    var amt2 = parseFloat(af.amountText);
+    var amt2 = parseAmountInput(af.amountText);
     if(!amt2 || amt2<=0){ showToast(t('weightEntryInvalid')); return; }
     var src = p.type==='item' ? state.items.find(function(x){ return x.id===p.id; }) : state.ingredients.find(function(x){ return x.id===p.id; });
     var unitPicked = (p.type==='item' && af.amountUnit) ? af.amountUnit : 'g';
@@ -11111,6 +11211,10 @@ function saveMealLogEntry(){
   if(deductItemId){ entry.deductItemId=deductItemId; entry.deductAmount=deductAmount; entry.deductUnit=deductUnit; }
   state.mealLogs.push(entry);
   saveMealLogs();
+  // README 9.134: bumped only here, on an actual successful log - not on every search
+  // keystroke or an abandoned pick that never got saved - see bumpPickFrequency's comment.
+  if(p.type==='recipe') bumpPickFrequency('recipe', p.id);
+  else if(p.type==='item') bumpPickFrequency('inventory', p.id);
   showToast(t('mealLoggedToast'));
   navigate('meals');
 }
@@ -12799,6 +12903,7 @@ function afterRender(){
   }
   if(state.view === 'mealAddFood'){
     syncMealAddTabsOffset();
+    syncMealAddSearchOffset();
   }
 }
 function syncHomeStickyControlsOffset(){
@@ -12822,24 +12927,35 @@ function syncMealAddTabsOffset(){
   var tabs = document.querySelector('.meal-add-tabs');
   if(header && tabs) tabs.style.top = header.offsetHeight + 'px';
 }
+// README 9.134: search box within a 三餐加食物 tab now sticks too (Lynn: 带搜索框的tab的搜索框
+//要吸顶) - stacked below BOTH .page-header and .meal-add-tabs, so its offset is their combined
+// height, not just the header's alone the way syncMealAddTabsOffset's target is. No-ops cleanly
+// on tabs/steps that don't render a .meal-add-search-sticky element at all (自定, USDA/loading
+// steps, the amount-entry step).
+function syncMealAddSearchOffset(){
+  var header = document.querySelector('.page-header');
+  var tabs = document.querySelector('.meal-add-tabs');
+  var search = document.querySelector('.meal-add-search-sticky');
+  if(header && tabs && search) search.style.top = (header.offsetHeight + tabs.offsetHeight) + 'px';
+}
 // iOS can restore a home-screen PWA from a frozen/suspended background state with a stale
 // position:sticky calculation (a known WebKit quirk, not something specific to this app) -
 // re-measuring on these events, not just after render, is what actually recovers it.
 window.addEventListener('pageshow', function(){
   if(state.view==='home') syncHomeStickyControlsOffset();
   if(state.view==='pickInventory' || state.view==='pickExternal' || state.view==='pickRecipe') syncPickStickyOffset();
-  if(state.view==='mealAddFood') syncMealAddTabsOffset();
+  if(state.view==='mealAddFood'){ syncMealAddTabsOffset(); syncMealAddSearchOffset(); }
 });
 document.addEventListener('visibilitychange', function(){
   if(document.hidden) return;
   if(state.view==='home') syncHomeStickyControlsOffset();
   if(state.view==='pickInventory' || state.view==='pickExternal' || state.view==='pickRecipe') syncPickStickyOffset();
-  if(state.view==='mealAddFood') syncMealAddTabsOffset();
+  if(state.view==='mealAddFood'){ syncMealAddTabsOffset(); syncMealAddSearchOffset(); }
 });
 window.addEventListener('resize', function(){
   if(state.view==='home') syncHomeStickyControlsOffset();
   if(state.view==='pickInventory' || state.view==='pickExternal' || state.view==='pickRecipe') syncPickStickyOffset();
-  if(state.view==='mealAddFood') syncMealAddTabsOffset();
+  if(state.view==='mealAddFood'){ syncMealAddTabsOffset(); syncMealAddSearchOffset(); }
 });
 // Close an open unit dropdown (the "数量"/nutrition/price unit pickers) on any click outside
 // it - previously only picking an option or re-tapping the trigger closed it, so it stayed
