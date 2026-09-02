@@ -857,7 +857,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.134';
+var BUILD_VERSION = '9.135';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2300,7 +2300,7 @@ var I18N = {
     deleteConfirm:'确定要删除吗？此操作无法撤销。',
     discardChangesTitle:'放弃这些修改？', discardChangesConfirm:'离开这个页面会丢失还没保存的修改，确定要放弃吗？', discardChangesConfirmBtn:'放弃修改',
     linkedRecipeGoneToast:'该食谱不存在（可能已被删除）',
-    deleteRecipeUsedElsewhereWarn:'这个食谱正被用作以下食谱的食材：{names}。删除后，这些食谱的营养统计会出现"无法换算"的缺口，且不会自动恢复。确定要删除吗？',
+    deleteRecipeUsedElsewhereWarn:'这个食谱正被以下食谱引用为食材：{names}。删除后，这些食谱会改用上次保存时记下的营养快照（不会再随这个食谱的改动更新），不会出现"无法换算"的问题。确定要删除吗？',
     // scan
     scanTitle:'扫码识别', scanHintCamera:'将条码放入框内，自动识别', scanManualEntry:'手动输入条码',
     scanLookingUp:'正在查询商品信息…', scanNotFound:'未查询到商品信息，请手动填写',
@@ -2572,7 +2572,7 @@ var I18N = {
     deleteConfirm:'Are you sure? This cannot be undone.',
     discardChangesTitle:'Discard changes?', discardChangesConfirm:'Leaving this page will lose any unsaved changes. Discard them?', discardChangesConfirmBtn:'Discard',
     linkedRecipeGoneToast:'This recipe no longer exists (it may have been deleted)',
-    deleteRecipeUsedElsewhereWarn:'This recipe is used as an ingredient in: {names}. Deleting it will leave a permanent "unit not convertible" gap in those recipes\u2019 nutrition totals that won\u2019t fix itself. Delete anyway?',
+    deleteRecipeUsedElsewhereWarn:'This recipe is used as an ingredient in: {names}. Deleting it will switch those recipes over to the nutrition snapshot saved last time they were edited (it won\u2019t keep updating with future changes to this recipe), so there\u2019s no "unit not convertible" gap. Delete anyway?',
     scanTitle:'Scan barcode', scanHintCamera:'Align the barcode within the frame', scanManualEntry:'Enter barcode manually',
     scanLookingUp:'Looking up product…', scanNotFound:'No product found, please fill in manually',
     scanFoundLocal:'Found in local history', scanFoundOFF:'Fetched from Open Food Facts',
@@ -3814,19 +3814,42 @@ function calcRecipeNutrition(recipe, visited){
     // already refuses to create one - see recipeUsesRecipe - so this should never actually
     // fire, but a stack overflow from bad data would be a much worse failure mode than a
     // "can't convert" warning).
+    // README 9.134: falls back to a stored snapshot (ri.snapshot) when the sub-recipe has been
+    // deleted, instead of just warning and dropping the contribution - see
+    // refreshRecipeIngredientSnapshots for where that snapshot gets written (every time this
+    // parent recipe is saved, for every recipe-sourced ingredient whose source still exists at
+    // that moment) and the 9.134 changelog for why: nutrition here is otherwise always computed
+    // live from the CURRENT ingredient graph, so a deleted source used to break this row's
+    // contribution permanently, retroactively, even for a recipe that had nothing to do with the
+    // deletion. The snapshot is just "the last known-good calcRecipeNutrition() result for that
+    // sub-recipe, as of this recipe's last save" - close enough that a well-behaved parent
+    // recipe's nutrition survives a sub-recipe's deletion, at the cost of it not reflecting any
+    // edits made to the sub-recipe (had it survived) after this recipe's last save. When the
+    // source still exists, this always prefers the fresh live computation over the snapshot, the
+    // same as before this change - the snapshot is purely a fallback, never a shortcut.
     if(ri.source_type === 'recipe'){
       var subRecipe = state.recipes.find(function(r){ return r.id===ri.source_id; });
-      if(!subRecipe || visited.indexOf(subRecipe.id)!==-1){ warnings.push(ri.name_snapshot||'?'); return; }
-      var subResult = calcRecipeNutrition(subRecipe, visited.concat([subRecipe.id]));
-      var multiplier = recipeIngredientMultiplier(subRecipe, ri.amount, ri.unit);
-      if(multiplier == null){ warnings.push(subRecipe.name); return; }
+      var subResult, subServingsInfo;
+      if(subRecipe){
+        if(visited.indexOf(subRecipe.id)!==-1){ warnings.push(ri.name_snapshot||'?'); return; }
+        subResult = calcRecipeNutrition(subRecipe, visited.concat([subRecipe.id]));
+        subServingsInfo = {servings:subRecipe.servings, cooked_weight:subRecipe.cooked_weight};
+      } else if(ri.snapshot){
+        subResult = ri.snapshot;
+        subServingsInfo = {servings:ri.snapshot.servings, cooked_weight:ri.snapshot.cooked_weight};
+      } else {
+        warnings.push(ri.name_snapshot||'?'); return;
+      }
+      var subName = subRecipe ? subRecipe.name : (ri.name_snapshot||'?');
+      var multiplier = recipeIngredientMultiplier(subServingsInfo, ri.amount, ri.unit);
+      if(multiplier == null){ warnings.push(subName); return; }
       total = addNutrition(total, multiplyNutrition(subResult.total, multiplier));
-      warnings = warnings.concat(subResult.warnings.map(function(w){ return subRecipe.name+' > '+w; }));
-      extraWarnings = extraWarnings.concat(subResult.extraWarnings.map(function(w){ return subRecipe.name+' > '+w; }));
-      Object.keys(subResult.extraTotal).forEach(function(k){
+      warnings = warnings.concat((subResult.warnings||[]).map(function(w){ return subName+' > '+w; }));
+      extraWarnings = extraWarnings.concat((subResult.extraWarnings||[]).map(function(w){ return subName+' > '+w; }));
+      Object.keys(subResult.extraTotal||{}).forEach(function(k){
         var e = subResult.extraTotal[k];
         if(!extraTotals[k]) extraTotals[k] = {unit:e.unit, value:0};
-        if(extraTotals[k].unit !== e.unit){ extraWarnings.push(t(nutriExtraDefs()[k].labelKey)+'('+subRecipe.name+')'); return; }
+        if(extraTotals[k].unit !== e.unit){ extraWarnings.push(t(nutriExtraDefs()[k].labelKey)+'('+subName+')'); return; }
         extraTotals[k].value += e.value*multiplier;
       });
       return;
@@ -10004,11 +10027,38 @@ function stripEmptyIngredientGroups(list){
   }
   return out;
 }
+// README 9.134: called right before a recipe is persisted (saveRecipeForm) - refreshes
+// ri.snapshot for every recipe-sourced ingredient row whose source recipe still exists, so
+// calcRecipeNutrition always has something to fall back on if that source is deleted later (see
+// its 9.134 comment). Deliberately only touches rows whose source is currently resolvable -
+// leaves an existing snapshot alone if the source has ALREADY been deleted (nothing fresher to
+// capture), and intentionally does NOT recurse into further-nested sub-recipes' own ingredient
+// snapshots, since calcRecipeNutrition's live-or-snapshot fallback happens at every level
+// independently - a sub-recipe refreshes its own rows' snapshots when IT is saved.
+function refreshRecipeIngredientSnapshots(recipe){
+  (recipe.ingredients||[]).forEach(function(ri){
+    if(ri.type==='group' || ri.source_type!=='recipe') return;
+    var subRecipe = state.recipes.find(function(r){ return r.id===ri.source_id; });
+    if(!subRecipe) return;
+    var result = calcRecipeNutrition(subRecipe, [subRecipe.id]);
+    ri.snapshot = {
+      total: result.total,
+      extraTotal: result.extraTotal,
+      warnings: result.warnings,
+      extraWarnings: result.extraWarnings,
+      servings: subRecipe.servings,
+      cooked_weight: subRecipe.cooked_weight,
+      name: subRecipe.name,
+      captured_at: nowLocalIso()
+    };
+  });
+}
 function saveRecipeForm(){
   var d = state.recipeDraft;
   if(!d.name || !d.name.trim()){ showToast(state.lang==='zh'?'请填写食谱名称':'Please enter a recipe name'); return; }
   if(!d.servings || d.servings<=0) d.servings=1;
   d.ingredients = stripEmptyIngredientGroups(d.ingredients||[]);
+  refreshRecipeIngredientSnapshots(d);
   d.updated_at = nowLocalIso();
   var idx = state.recipes.findIndex(function(r){ return r.id===d.id; });
   if(idx===-1) state.recipes.push(d); else state.recipes[idx]=d;
@@ -13618,12 +13668,39 @@ async function requestPersistentStorage(){
     state.storagePersisted = null;
   }
 }
+// README 9.134: one-time-per-load backfill for recipes saved before this feature existed (or
+// edited without triggering a re-save since) - refreshRecipeIngredientSnapshots only runs on
+// saveRecipeForm, so a recipe with a still-resolvable recipe-sourced ingredient that just
+// hasn't been re-saved since 9.134 shipped would have no snapshot to fall back on yet if that
+// source got deleted right now. Only touches rows that are missing a snapshot AND whose source
+// still resolves (nothing to capture for one that's already gone) - cheap at personal-app scale,
+// and only writes to storage when it actually found something to backfill.
+function backfillRecipeIngredientSnapshots(){
+  var touched = false;
+  state.recipes.forEach(function(recipe){
+    (recipe.ingredients||[]).forEach(function(ri){
+      if(ri.type==='group' || ri.source_type!=='recipe' || ri.snapshot) return;
+      var subRecipe = state.recipes.find(function(r){ return r.id===ri.source_id; });
+      if(!subRecipe) return;
+      var result = calcRecipeNutrition(subRecipe, [subRecipe.id]);
+      ri.snapshot = {
+        total: result.total, extraTotal: result.extraTotal,
+        warnings: result.warnings, extraWarnings: result.extraWarnings,
+        servings: subRecipe.servings, cooked_weight: subRecipe.cooked_weight,
+        name: subRecipe.name, captured_at: nowLocalIso()
+      };
+      touched = true;
+    });
+  });
+  if(touched) saveRecipes();
+}
 async function initApp(){
   var app = document.getElementById('app');
   app.innerHTML = renderLoading();
   await requestPersistentStorage();
   try{
     await loadAll();
+    backfillRecipeIngredientSnapshots();
   }catch(e){
     console.error('init load failed', e);
     state.loaded = true;
