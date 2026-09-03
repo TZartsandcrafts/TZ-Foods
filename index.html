@@ -857,7 +857,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.136';
+var BUILD_VERSION = '9.137';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -11390,6 +11390,56 @@ function saveCustomMealLogEntry(){
   showToast(t('mealLoggedToast'));
   navigate('meals');
 }
+// README 9.137: pure nutrition calculation shared between the live preview shown while still
+// picking an amount (addFoodAmountBodyHtml) and the actual save (saveMealLogEntry) - Lynn's
+// original note (item 1) asked for this at the point of ADDING, not just after the fact once
+// already logged (which 9.136 covered). Returns null whenever the amount typed so far can't be
+// resolved into a number yet (empty, mid-fraction like "1/", zero) - callers show a placeholder
+// dash rather than a stale/wrong preview in that case, same spirit as the recipe/edit forms
+// elsewhere in this app that tolerate an in-progress, not-yet-valid input.
+function computeAddFoodPreviewNutrition(af){
+  var p = af && af.picked;
+  if(!p) return null;
+  if(p.type==='recipe'){
+    var r = state.recipes.find(function(x){ return x.id===p.id; });
+    if(!r) return null;
+    var totalN = calcRecipeNutrition(r);
+    if(af.amountUnit==='g'){
+      var grams = parseAmountInput(af.amountText);
+      if(!grams || grams<=0 || !totalN.per100g) return null;
+      var gf = grams/100;
+      var og = {}; NUTRI_KEYS.forEach(function(k){ og[k]=(totalN.per100g[k]||0)*gf; });
+      return og;
+    }
+    var servings = parseAmountInput(af.amountText);
+    if(!servings || servings<=0) return null;
+    var os = {}; NUTRI_KEYS.forEach(function(k){ os[k]=(totalN.perServing[k]||0)*servings; });
+    return os;
+  }
+  if(p.type==='usda'){
+    var amt = parseAmountInput(af.amountText);
+    if(!amt || amt<=0) return null;
+    var uf = amt/100;
+    var ou = {}; NUTRI_KEYS.forEach(function(k){ ou[k]=(p.nutrition[k]||0)*uf; });
+    return ou;
+  }
+  var amt2 = parseAmountInput(af.amountText);
+  if(!amt2 || amt2<=0) return null;
+  var src = p.type==='item' ? state.items.find(function(x){ return x.id===p.id; }) : state.ingredients.find(function(x){ return x.id===p.id; });
+  if(!src) return null;
+  var unitPicked = (p.type==='item' && af.amountUnit) ? af.amountUnit : 'g';
+  var basisInfo = ingredientBasisInfo(src);
+  var used = amountToBasisUnits(amt2, unitPicked, p.type==='item' ? src : null);
+  if(used == null) used = countBasisMatch(src, amt2, unitPicked);
+  if(used == null) return null;
+  return scaleNutrition(src.nutrition, basisInfo, used);
+}
+function onAddFoodAmountInput(val){
+  var af = state.mealsUI.addFood;
+  af.amountText = val;
+  var el = document.getElementById('add-food-nutrition-preview');
+  if(el) el.innerHTML = mealEntryNutritionPreviewHtml(computeAddFoodPreviewNutrition(af));
+}
 function addFoodAmountBodyHtml(af){
   var p = af.picked;
   var isRecipe = p.type==='recipe';
@@ -11409,11 +11459,11 @@ function addFoodAmountBodyHtml(af){
         '<div class="tag-option '+(af.amountUnit==='g'?'active':'')+'" onclick="setAddFoodAmountUnit(\'g\')">g</div>'+
       '</div></div>'+
       (af.amountUnit==='g' ?
-        '<div class="field"><label>'+t('fieldMealAmount')+' (g)</label><input type="text" placeholder="-" value="'+esc(af.amountText)+'" oninput="af_str(\'amountText\',this.value)"></div>'
+        '<div class="field"><label>'+t('fieldMealAmount')+' (g)</label><input type="text" placeholder="-" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>'
         :
-        '<div class="field"><label>'+t('servingsEatenLabel')+'</label><input type="text" placeholder="1" value="'+esc(af.amountText)+'" oninput="af_str(\'amountText\',this.value)"></div>'))
+        '<div class="field"><label>'+t('servingsEatenLabel')+'</label><input type="text" placeholder="1" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>'))
       :
-      ('<div class="field"><label>'+t('servingsEatenLabel')+'</label><input type="text" placeholder="1" value="'+esc(af.amountText)+'" oninput="af_str(\'amountText\',this.value)"></div>');
+      ('<div class="field"><label>'+t('servingsEatenLabel')+'</label><input type="text" placeholder="1" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>');
   }
   // README 9.108: an inventory item's amount can be entered in ANY unit that item itself
   // tracks stock in (its own primary/secondary units and pack specs, plus same-family weight/
@@ -11442,12 +11492,16 @@ function addFoodAmountBodyHtml(af){
       recipeAmountField
       :
       itemUnitField+
-      '<div class="field"><label>'+t('fieldMealAmount')+(isItem ? (' ('+esc(af.amountUnit||'g')+')') : ' (g)')+'</label><input type="text" placeholder="-" value="'+esc(af.amountText)+'" oninput="af_str(\'amountText\',this.value)"></div>'+
+      '<div class="field"><label>'+t('fieldMealAmount')+(isItem ? (' ('+esc(af.amountUnit||'g')+')') : ' (g)')+'</label><input type="text" placeholder="-" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>'+
       // README 9.132: defaults ON for a direct inventory pick now (was off) - Lynn: "直接吃库存
       //食材也算消耗，要扣". Only inventory items ever show this row at all; recipe/USDA/external
       // picks have nothing in stock to deduct from.
       (isItem ? ('<div class="list-row"><div class="row-label">'+t('deductFromInventoryLabel')+'</div><label class="switch"><input type="checkbox" '+(af.deduct?'checked':'')+' onchange="af_bool(\'deduct\',this.checked)"><span class="switch-slider"></span></label></div>') : '')
     )+
+    // README 9.137: live nutrition preview, right here at the point of choosing how much - see
+    // computeAddFoodPreviewNutrition. Shows a dash placeholder (mealEntryNutritionPreviewHtml's
+    // own null-handling) until the typed amount resolves to a usable number.
+    '<div id="add-food-nutrition-preview" style="margin-top:6px;">'+mealEntryNutritionPreviewHtml(computeAddFoodPreviewNutrition(af))+'</div>'+
     '<button class="btn btn-outline" style="margin-top:14px;width:100%;" onclick="backToAddFoodSearch()">'+t('back')+'</button>'+
     '<button class="btn btn-primary" style="margin-top:10px;width:100%;" onclick="saveMealLogEntry()">'+t('save')+'</button>';
 }
