@@ -857,7 +857,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.135';
+var BUILD_VERSION = '9.136';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2200,6 +2200,10 @@ var I18N = {
     quickCalLabel:'热量 (kcal)', requiredPh:'必填', optionalPh:'选填',
     fieldMealCarbs:'碳水 (g)', fieldMealProtein:'蛋白质 (g)', fieldMealFat:'脂肪 (g)', fieldMealName:'名称',
     quickCalDefaultName:'快速记录',
+    viewSourceDetail:'查看详情', moveOrCopyEntry:'移动/复制到其它日期', mealSlotLabel:'餐次',
+    copyEntryBtn:'复制到这里', moveEntryBtn:'移动到这里',
+    copyNoDeductHint:'复制不会重复扣减库存；移动不会改变已扣减的库存。',
+    mealMovedToast:'已移动', mealCopiedToast:'已复制',
     servingsEatenLabel:'份数', deductFromInventoryLabel:'同时从库存扣减', servingsUnit:'份',
     fieldMealAmount:'重量', fieldMealAmountUnit:'单位',
     mealLoggedToast:'已记录', mealsHistoryBtn:'历史',
@@ -2478,6 +2482,10 @@ var I18N = {
     quickCalLabel:'Calories (kcal)', requiredPh:'required', optionalPh:'optional',
     fieldMealCarbs:'Carbs (g)', fieldMealProtein:'Protein (g)', fieldMealFat:'Fat (g)', fieldMealName:'Name',
     quickCalDefaultName:'Quick entry',
+    viewSourceDetail:'View details', moveOrCopyEntry:'Move/copy to another date', mealSlotLabel:'Meal',
+    copyEntryBtn:'Copy here', moveEntryBtn:'Move here',
+    copyNoDeductHint:"Copying won't deduct inventory again; moving won't change any inventory already deducted.",
+    mealMovedToast:'Moved', mealCopiedToast:'Copied',
     servingsEatenLabel:'Servings', deductFromInventoryLabel:'Also deduct from inventory', servingsUnit:'serving(s)',
     fieldMealAmount:'Weight', fieldMealAmountUnit:'Unit',
     mealLoggedToast:'Logged', mealsHistoryBtn:'History',
@@ -4034,6 +4042,7 @@ function render(){
     case 'macroPresetPicker': html = renderMacroPresetPicker(); break;
     case 'mealsHistory': html = renderMealsHistory(); break;
     case 'mealAddFood': html = renderMealAddFood(); break;
+    case 'mealLogEntryDetail': html = renderMealLogEntryDetail(); break;
     case 'fastingHistory': html = renderFastingHistory(); break;
     case 'bpHistory': html = renderBpHistory(); break;
     case 'waistHistory': html = renderWaistHistory(); break;
@@ -4046,8 +4055,8 @@ function render(){
 function bottomNav(){
   var v = state.view;
   var isHome = (v==='home'||v==='itemForm'||v==='itemDetail'||v==='archive'||v==='stats'||v==='priceHistory'||v==='itemViewOnly'||v==='statFilteredList'||v==='usageLog'||v==='usageLogAdd'||v==='inventorySettings');
-  var isRecipes = (v==='recipes'||v==='recipeForm'||v==='recipeDetail'||v==='pickInventory'||v==='pickExternal'||v==='recipesSettings');
-  var isMeals = (v==='meals'||v==='fastingHistory'||v==='mealsSettings'||v==='planSettings'||v==='macroPresetPicker'||v==='mealAddFood');
+  var isRecipes = (v==='recipes'||v==='recipeForm'||v==='recipeDetail'||v==='pickInventory'||v==='pickExternal'||v==='pickRecipe'||v==='recipesSettings');
+  var isMeals = (v==='meals'||v==='fastingHistory'||v==='mealsSettings'||v==='planSettings'||v==='macroPresetPicker'||v==='mealAddFood'||v==='mealLogEntryDetail');
   var isHealth = (v==='health'||v==='bpHistory'||v==='waistHistory'||v==='exerciseHistory'||v==='weightHistory'||v==='healthSettings'||v==='personalInfo');
   return '' +
   (state.addMenuOpen ? ('<div class="add-menu-backdrop" onclick="closeAddMenu()"></div>'+addMenuFloatingOptionsHtml()) : '')+
@@ -4068,8 +4077,8 @@ function bottomNav(){
 //   choice, which wouldn't make sense there.
 function addMenuOptionsForCurrentSection(){
   var v = state.view;
-  var isRecipes = (v==='recipes'||v==='recipeForm'||v==='recipeDetail'||v==='pickInventory'||v==='pickExternal'||v==='recipesSettings');
-  var isMeals = (v==='meals'||v==='fastingHistory'||v==='mealsHistory'||v==='mealsSettings'||v==='planSettings'||v==='macroPresetPicker'||v==='mealAddFood');
+  var isRecipes = (v==='recipes'||v==='recipeForm'||v==='recipeDetail'||v==='pickInventory'||v==='pickExternal'||v==='pickRecipe'||v==='recipesSettings');
+  var isMeals = (v==='meals'||v==='fastingHistory'||v==='mealsHistory'||v==='mealsSettings'||v==='planSettings'||v==='macroPresetPicker'||v==='mealAddFood'||v==='mealLogEntryDetail');
   var isHealth = (v==='health'||v==='bpHistory'||v==='waistHistory'||v==='exerciseHistory'||v==='weightHistory'||v==='healthSettings'||v==='personalInfo');
   if(isRecipes) return null; // signals "no menu - do the direct action instead"
   if(isMeals){
@@ -4369,6 +4378,7 @@ function openSettings(fromView){
     if(state.view==='planSettings') return {view:'mealsSettings'};
     if(state.view==='macroPresetPicker') return {view:'planSettings'};
     if(state.view==='mealAddFood') return {view:'meals'};
+    if(state.view==='mealLogEntryDetail') return {view:'meals'};
     if(state.view==='mealsHistory') return {view:'meals'};
     if(state.view==='fastingHistory') return {view:'meals'};
     if(state.view==='inventorySettings') return {view:'home'};
@@ -4998,10 +5008,11 @@ function getFilteredSortedItems(){
 // search boxes update their results via a debounced targeted DOM patch rather than a full
 // render() (see e.g. onArchiveSearch), so the button itself needs to work independently of
 // whichever update strategy the page it's on happens to use.
-function searchBarHtml(value, placeholder, onInputFnName, inputId){
+function searchBarHtml(value, placeholder, onInputFnName, inputId, autofocus){
   var idAttr = inputId ? (' id="'+esc(inputId)+'"') : '';
+  var afAttr = autofocus ? ' autofocus' : '';
   return '<div class="search-bar">'+ic('search',19)+
-    '<input type="text"'+idAttr+' placeholder="'+esc(placeholder)+'" value="'+esc(value)+'" oninput="'+onInputFnName+'(this.value);toggleSearchClearBtn(this)">'+
+    '<input type="text"'+idAttr+afAttr+' placeholder="'+esc(placeholder)+'" value="'+esc(value)+'" oninput="'+onInputFnName+'(this.value);toggleSearchClearBtn(this)">'+
     '<button type="button" class="search-clear-btn" style="display:'+(value?'flex':'none')+';" onclick="clearSearchInput(this,'+aj(onInputFnName)+')" aria-label="'+t('clearSearchBtn')+'">'+ic('x',14)+'</button>'+
   '</div>';
 }
@@ -9098,7 +9109,7 @@ function renderPickInventory(){
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'recipeForm\')">'+ic('back',22)+'</button><h1>'+t('pickFromInventory')+'</h1></div>'+
   '<div class="content">'+
     '<div class="pick-sticky-search" id="pick-inventory-sticky">'+
-      searchBarHtml(state.pickSearch||'', t('searchPlaceholder'), 'onPickSearch')+
+      searchBarHtml(state.pickSearch||'', t('searchPlaceholder'), 'onPickSearch', null, true)+
     '</div>'+
     '<div id="pick-list">'+renderPickInventoryListOnly()+'</div>'+
   '</div>';
@@ -9261,7 +9272,7 @@ function renderPickExternal(){
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'recipeForm\')">'+ic('back',22)+'</button><h1>'+t('pickExternal')+'</h1></div>'+
   '<div class="content" style="padding-bottom:90px;">'+
     '<div class="pick-sticky-search" id="pick-external-sticky">'+
-      searchBarHtml(state.pickSearch||'', t('searchPlaceholder'), 'onPickSearch')+
+      searchBarHtml(state.pickSearch||'', t('searchPlaceholder'), 'onPickSearch', null, true)+
     '</div>'+
     '<div id="pick-list">'+itemsHtml+'</div>'+
   '</div>'+
@@ -9321,7 +9332,7 @@ function renderPickRecipe(){
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'recipeForm\')">'+ic('back',22)+'</button><h1>'+t('pickRecipeTitle')+'</h1></div>'+
   '<div class="content">'+
     '<div class="pick-sticky-search" id="pick-recipe-sticky">'+
-      searchBarHtml(state.pickSearch||'', t('searchPlaceholder'), 'onPickSearch')+
+      searchBarHtml(state.pickSearch||'', t('searchPlaceholder'), 'onPickSearch', null, true)+
     '</div>'+
     '<div id="pick-list">'+renderPickRecipeListOnly()+'</div>'+
   '</div>';
@@ -9669,7 +9680,7 @@ function ingredientGroupsEditorHtml(){
     }).join('');
     return '<div class="ing-group-block">'+
       '<div class="ing-group-title-row">'+
-        '<input type="text" class="ing-group-title-input" autocapitalize="words" placeholder="'+t('ingredientGroupNamePh')+'" value="'+esc(seg.group.name||'')+'" oninput="onIngredientGroupTitleInput('+seg.groupIdx+',this.value)" onblur="render()">'+
+        '<input type="text" class="ing-group-title-input" autocapitalize="words" placeholder="'+t('ingredientGroupNamePh')+'" value="'+esc(seg.group.name||'')+'" oninput="onIngredientGroupTitleInput('+seg.groupIdx+',this.value)">'+
         (!isLast && isEmpty ? '<button type="button" class="icon-btn" onclick="removeIngredientGroupBlock('+seg.groupIdx+')" aria-label="'+t('delete')+'">'+ic('trash',16)+'</button>' : '')+
       '</div>'+
       rowsHtml+
@@ -10816,10 +10827,11 @@ function mealSlotSectionHtml(date, slot){
   var logs = mealLogsForSlot(date, slot);
   var slotCal = Math.round(sumMealNutrition(logs).calories||0);
   var rows = logs.map(function(m){
-    return '<div class="list-row">'+
-      '<div class="row-label">'+esc(m.name)+'<div class="hint" style="margin-top:2px;">'+fmtNum(m.amount,1)+m.unit+'</div></div>'+
+    var amountLine = (m.amount!=null) ? (fmtNum(m.amount,1)+esc(m.unit)) : '';
+    return '<div class="list-row" style="cursor:pointer;" onclick="openMealLogEntryDetail('+aj(m.id)+')">'+
+      '<div class="row-label">'+esc(m.name)+(amountLine?('<div class="hint" style="margin-top:2px;">'+amountLine+'</div>'):'')+'</div>'+
       '<div style="display:flex;align-items:center;gap:8px;flex-shrink:0;"><span>'+Math.round(m.nutrition.calories||0)+' kcal</span>'+
-      '<button class="icon-btn" onclick="deleteMealLog('+aj(m.id)+')" aria-label="'+t('delete')+'">'+ic('x',15)+'</button></div>'+
+      '<button class="icon-btn" onclick="event.stopPropagation();deleteMealLog('+aj(m.id)+')" aria-label="'+t('delete')+'">'+ic('x',15)+'</button></div>'+
     '</div>';
   }).join('');
   return '<div class="section-title">'+t('mealSlot_'+slot)+(slotCal ? (' · '+slotCal+' kcal') : '')+'</div>'+
@@ -10838,6 +10850,223 @@ function deleteMealLog(id){
     saveMealLogs();
     closeModal();
     render();
+  }, {title:t('delete')});
+}
+
+/* ======================= MEAL LOG ENTRY DETAIL/EDIT ======================= */
+// README 9.136: previously a logged meal entry could only be deleted, never adjusted - eating
+// less than planned meant delete-and-relog from scratch. This page lets the amount (or, for a
+// 自定/custom entry, the calorie/macro fields themselves) be edited in place, with a live
+// nutrition preview, plus a way to jump to the source recipe/inventory item and to move or copy
+// the entry to a different date/meal - modeled on what Lynn pointed to in MyNetDiary.
+function openMealLogEntryDetail(id){
+  var m = state.mealLogs.find(function(x){ return x.id===id; });
+  if(!m) return;
+  state.mealsUI.editEntry = {
+    id: id,
+    amountText: m.amount!=null ? fmtAmount(m.amount, m.unit) : '',
+    customCalories: m.custom_calories!=null ? String(m.custom_calories) : '',
+    customCarbs: m.custom_carbs!=null ? String(m.custom_carbs) : '',
+    customProtein: m.custom_protein!=null ? String(m.custom_protein) : '',
+    customFat: m.custom_fat!=null ? String(m.custom_fat) : '',
+    customName: m.custom_name || '',
+    moveOpen: false, moveDate: m.date, moveSlot: m.slot
+  };
+  navigate('mealLogEntryDetail', {id:id});
+}
+// Nutrition scales linearly with amount for any single food regardless of what it was actually
+// sourced from (recipe/item/USDA/external all reduce to "some nutrient total for X grams/units,
+// a different amount is just that total times a ratio") - so re-deriving from the ORIGINAL
+// source isn't needed here even though source_type/source_id are now stored (those are for the
+// "view source detail" link, not for this). Falls back to returning the base unchanged if either
+// amount is missing/invalid, so a bad in-progress edit never wipes the preview to all-zero.
+function computeScaledNutrition(baseNutrition, baseAmount, newAmount){
+  if(!baseAmount || newAmount==null || isNaN(newAmount) || newAmount<0) return baseNutrition;
+  var factor = newAmount/baseAmount;
+  var out = {};
+  NUTRI_KEYS.forEach(function(k){ out[k] = (baseNutrition[k]==null) ? null : baseNutrition[k]*factor; });
+  return out;
+}
+// Same rows/markup as nutritionFactsBoxHtml's tier-1 section, minus the basis line and tier-2
+// extras a mealLog entry's flat `nutrition` object doesn't carry.
+function mealEntryNutritionPreviewHtml(n){
+  n = n || emptyNutrition();
+  var labels = nutriLabels(), units = nutriUnits();
+  var calVal = (n.calories==null) ? '-' : fmtNum(n.calories,0);
+  var rowsHtml = NUTRI_TIER1_ROWS.filter(function(row){
+    return !row.optional || n[row.key]!=null;
+  }).map(function(row){
+    var v = n[row.key];
+    var displayVal = (v==null) ? '-' : (fmtNum(v,1)+units[row.key]);
+    var cls = 'nf-row' + (row.level===1?' indent1':'') + (row.level===2?' indent2':'') + (row.bold?' bold':'');
+    return '<div class="'+cls+'"><span>'+labels[row.key]+'</span><span class="nf-value">'+displayVal+'</span></div>';
+  }).join('');
+  return '<div class="nutrition-facts">'+
+    '<div class="nf-calories-row"><span>'+t('nutriCalories')+'</span><span><span class="nf-calories-value">'+calVal+'</span><span class="nf-calories-unit">kcal</span></span></div>'+
+    rowsHtml+
+  '</div>';
+}
+function customEntryPreviewNutrition(ee){
+  var n = emptyNutrition();
+  n.calories = parseAmountInput(ee.customCalories) || 0;
+  var carbs = ee.customCarbs ? parseAmountInput(ee.customCarbs) : null;
+  var protein = ee.customProtein ? parseAmountInput(ee.customProtein) : null;
+  var fat = ee.customFat ? parseAmountInput(ee.customFat) : null;
+  if(carbs) n.carbs = carbs;
+  if(protein) n.protein = protein;
+  if(fat) n.fat = fat;
+  return n;
+}
+function onMealEntryAmountInput(val){
+  var ee = state.mealsUI.editEntry;
+  ee.amountText = val;
+  var m = state.mealLogs.find(function(x){ return x.id===ee.id; });
+  if(!m) return;
+  var el = document.getElementById('meal-entry-nutrition-preview');
+  if(el) el.innerHTML = mealEntryNutritionPreviewHtml(computeScaledNutrition(m.nutrition, m.amount, parseAmountInput(val)));
+}
+function onMealEntryCustomInput(field, val){
+  var ee = state.mealsUI.editEntry;
+  ee[field] = val;
+  var el = document.getElementById('meal-entry-nutrition-preview');
+  if(el) el.innerHTML = mealEntryNutritionPreviewHtml(customEntryPreviewNutrition(ee));
+}
+function toggleMealEntryMove(open){ state.mealsUI.editEntry.moveOpen = open; render(); }
+function onMealEntryMoveDate(val){ state.mealsUI.editEntry.moveDate = val; }
+function onMealEntryMoveSlot(slot){ state.mealsUI.editEntry.moveSlot = slot; render(); }
+// README 9.136: a COPY deliberately does NOT re-deduct inventory - silently deducting stock a
+// second time for what's really just "duplicate this logged entry onto another day" would be a
+// surprising, easy-to-miss side effect (see deductLabel note in the UI). A MOVE keeps whatever
+// deduction already happened untouched too, since the food itself wasn't consumed twice - only
+// its logged date/meal changed.
+function commitMealEntryMove(isMove){
+  var ee = state.mealsUI.editEntry;
+  var m = state.mealLogs.find(function(x){ return x.id===ee.id; });
+  if(!m) return;
+  if(isMove){
+    m.date = ee.moveDate; m.slot = ee.moveSlot;
+    saveMealLogs();
+    showToast(t('mealMovedToast'));
+  } else {
+    var clone = JSON.parse(JSON.stringify(m));
+    clone.id = uid();
+    clone.date = ee.moveDate; clone.slot = ee.moveSlot;
+    clone.created_at = nowLocalIso();
+    delete clone.deductItemId; delete clone.deductAmount; delete clone.deductUnit;
+    state.mealLogs.push(clone);
+    saveMealLogs();
+    showToast(t('mealCopiedToast'));
+  }
+  navigate('meals');
+}
+function mealEntryMoveSectionHtml(ee){
+  if(!ee.moveOpen){
+    return '<button class="btn btn-outline" style="width:100%;margin-bottom:10px;" onclick="toggleMealEntryMove(true)">'+ic('calendar',16)+' '+t('moveOrCopyEntry')+'</button>';
+  }
+  return '<div style="margin-bottom:10px;">'+
+    '<div class="field"><label>'+t('fieldDate')+'</label><input type="date" value="'+esc(ee.moveDate)+'" onchange="onMealEntryMoveDate(this.value)" style="width:100%;box-sizing:border-box;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);"></div>'+
+    '<div class="field"><label>'+t('mealSlotLabel')+'</label><div class="tag-select">'+
+      MEAL_SLOTS.map(function(s){ return '<div class="tag-option '+(ee.moveSlot===s?'active':'')+'" onclick="onMealEntryMoveSlot(\''+s+'\')">'+esc(t('mealSlot_'+s))+'</div>'; }).join('')+
+    '</div></div>'+
+    '<p class="hint" style="margin-bottom:10px;">'+t('copyNoDeductHint')+'</p>'+
+    '<div class="btn-row">'+
+      '<button class="btn btn-outline" style="flex:1;" onclick="commitMealEntryMove(false)">'+t('copyEntryBtn')+'</button>'+
+      '<button class="btn btn-primary" style="flex:1;" onclick="commitMealEntryMove(true)">'+t('moveEntryBtn')+'</button>'+
+    '</div>'+
+  '</div>';
+}
+function renderMealLogEntryDetail(){
+  var id = state.params.id;
+  var m = state.mealLogs.find(function(x){ return x.id===id; });
+  if(!m) return renderMeals();
+  var ee = state.mealsUI.editEntry;
+  if(!ee || ee.id!==id) openMealLogEntryDetail(id); // defensive - e.g. deep-link/back-forward without going through the row tap
+  ee = state.mealsUI.editEntry;
+  var isCustom = m.source_type==='custom';
+  var previewN = isCustom ? customEntryPreviewNutrition(ee) : computeScaledNutrition(m.nutrition, m.amount, parseAmountInput(ee.amountText));
+
+  var sourceLinkHtml = '';
+  if(m.source_type==='recipe'){
+    var r = state.recipes.find(function(x){ return x.id===m.source_id; });
+    if(r) sourceLinkHtml = '<button class="btn btn-outline" style="width:100%;margin-bottom:10px;" onclick="navigate(\'recipeDetail\',{id:'+aj(r.id)+',from:{view:\'mealLogEntryDetail\',params:{id:'+aj(id)+'}}})">'+ic('book',16)+' '+t('viewSourceDetail')+'</button>';
+  } else if(m.source_type==='inventory'){
+    var it = state.items.find(function(x){ return x.id===m.source_id; });
+    if(it) sourceLinkHtml = '<button class="btn btn-outline" style="width:100%;margin-bottom:10px;" onclick="navigate(\'itemDetail\',{id:'+aj(it.id)+',from:{view:\'mealLogEntryDetail\',params:{id:'+aj(id)+'}}})">'+ic('box',16)+' '+t('viewSourceDetail')+'</button>';
+  }
+
+  var mainFieldsHtml = isCustom ?
+    ('<div class="field"><label>'+t('quickCalLabel')+'</label><input type="text" autofocus id="meal-entry-amount-input" inputmode="decimal" value="'+esc(ee.customCalories)+'" oninput="onMealEntryCustomInput(\'customCalories\',this.value)"></div>'+
+     '<div class="field"><label>'+t('fieldMealCarbs')+'</label><input type="text" inputmode="decimal" value="'+esc(ee.customCarbs)+'" oninput="onMealEntryCustomInput(\'customCarbs\',this.value)"></div>'+
+     '<div class="field"><label>'+t('fieldMealProtein')+'</label><input type="text" inputmode="decimal" value="'+esc(ee.customProtein)+'" oninput="onMealEntryCustomInput(\'customProtein\',this.value)"></div>'+
+     '<div class="field"><label>'+t('fieldMealFat')+'</label><input type="text" inputmode="decimal" value="'+esc(ee.customFat)+'" oninput="onMealEntryCustomInput(\'customFat\',this.value)"></div>'+
+     '<div class="field"><label>'+t('fieldMealName')+'</label><input type="text" autocapitalize="words" value="'+esc(ee.customName)+'" oninput="onMealEntryCustomInput(\'customName\',this.value)"></div>')
+    :
+    ('<div class="field"><label>'+t('fieldMealAmount')+(m.unit?(' ('+esc(m.unit)+')'):'')+'</label><input type="text" autofocus id="meal-entry-amount-input" inputmode="decimal" value="'+esc(ee.amountText)+'" oninput="onMealEntryAmountInput(this.value)"></div>');
+
+  return '' +
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'meals\')">'+ic('back',22)+'</button><h1>'+esc(m.name)+'</h1></div>'+
+  '<div class="content">'+
+    mainFieldsHtml+
+    '<div id="meal-entry-nutrition-preview">'+mealEntryNutritionPreviewHtml(previewN)+'</div>'+
+    '<button class="btn btn-primary" style="width:100%;margin-top:16px;margin-bottom:20px;" onclick="saveMealLogEntryEdit()">'+t('save')+'</button>'+
+    sourceLinkHtml+
+    mealEntryMoveSectionHtml(ee)+
+    '<button class="btn btn-danger" style="width:100%;" onclick="deleteMealLogEntryFromDetail('+aj(id)+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
+  '</div>';
+}
+function saveMealLogEntryEdit(){
+  var ee = state.mealsUI.editEntry;
+  var m = state.mealLogs.find(function(x){ return x.id===ee.id; });
+  if(!m) return;
+  if(m.source_type==='custom'){
+    var cals = parseAmountInput(ee.customCalories);
+    if(!cals || cals<=0){ showToast(t('weightEntryInvalid')); return; }
+    var carbs = ee.customCarbs ? parseAmountInput(ee.customCarbs) : null;
+    var protein = ee.customProtein ? parseAmountInput(ee.customProtein) : null;
+    var fat = ee.customFat ? parseAmountInput(ee.customFat) : null;
+    m.custom_calories=cals; m.custom_carbs=carbs; m.custom_protein=protein; m.custom_fat=fat; m.custom_name=ee.customName||'';
+    m.name = ee.customName || t('quickCalDefaultName');
+    m.nutrition = emptyNutrition();
+    m.nutrition.calories = cals;
+    if(carbs) m.nutrition.carbs = carbs;
+    if(protein) m.nutrition.protein = protein;
+    if(fat) m.nutrition.fat = fat;
+  } else {
+    var newAmt = parseAmountInput(ee.amountText);
+    if(!newAmt || newAmt<=0){ showToast(t('weightEntryInvalid')); return; }
+    if(m.amount){
+      m.nutrition = computeScaledNutrition(m.nutrition, m.amount, newAmt);
+      // README 9.136: a linked inventory deduction gets rescaled by the same delta, so editing
+      // the amount after logging keeps the earlier stock deduction consistent with what's now
+      // actually recorded, rather than leaving it frozen at whatever the original amount was.
+      if(m.deductItemId){
+        var item = state.items.find(function(x){ return x.id===m.deductItemId; });
+        if(item){
+          var delta = newAmt - m.amount;
+          if(delta > 0) deductFromItem(item, delta, m.deductUnit);
+          else if(delta < 0) addBackToItem(item, -delta, m.deductUnit);
+          m.deductAmount = newAmt;
+          saveItems();
+        }
+      }
+      m.amount = newAmt;
+    }
+  }
+  saveMealLogs();
+  showToast(t('mealLoggedToast'));
+  navigate('meals');
+}
+function deleteMealLogEntryFromDetail(id){
+  showConfirmModal(t('deleteMealLogConfirm'), function(){
+    var m = state.mealLogs.find(function(x){ return x.id===id; });
+    if(m && m.deductItemId){
+      var item = state.items.find(function(i){ return i.id===m.deductItemId; });
+      if(item){ addBackToItem(item, m.deductAmount, m.deductUnit); saveItems(); }
+    }
+    state.mealLogs = state.mealLogs.filter(function(x){ return x.id!==id; });
+    saveMealLogs();
+    closeModal();
+    navigate('meals');
   }, {title:t('delete')});
 }
 
@@ -11103,7 +11332,7 @@ async function pickUsdaFoodForMeal(fdcId){
   render();
   try{
     var detail = await usdaFetchFoodDetail(fdcId);
-    af.picked = {type:'usda', name:detail.description, nutrition:detail.nutrition};
+    af.picked = {type:'usda', name:detail.description, nutrition:detail.nutrition, fdcId:fdcId};
     af.amountText = '100';
     af.step = 'amount';
   }catch(e){
@@ -11135,16 +11364,26 @@ function customMealFieldsHtml(af){
 }
 function saveCustomMealLogEntry(){
   var af = state.mealsUI.addFood;
-  var cals = parseFloat(af.customCalories);
+  var cals = parseAmountInput(af.customCalories);
   if(!cals || cals<=0){ showToast(t('weightEntryInvalid')); return; }
   var nutrition = emptyNutrition();
   nutrition.calories = cals;
-  if(af.customCarbs) nutrition.carbs = parseFloat(af.customCarbs)||0;
-  if(af.customProtein) nutrition.protein = parseFloat(af.customProtein)||0;
-  if(af.customFat) nutrition.fat = parseFloat(af.customFat)||0;
+  var carbs = af.customCarbs ? parseAmountInput(af.customCarbs) : null;
+  var protein = af.customProtein ? parseAmountInput(af.customProtein) : null;
+  var fat = af.customFat ? parseAmountInput(af.customFat) : null;
+  if(carbs) nutrition.carbs = carbs;
+  if(protein) nutrition.protein = protein;
+  if(fat) nutrition.fat = fat;
   var entry = {
     id: uid(), date: af.date, slot: af.slot, name: af.customName || t('quickCalDefaultName'), amount:null, unit:'',
-    nutrition: nutrition, created_at: nowLocalIso()
+    nutrition: nutrition, created_at: nowLocalIso(),
+    // README 9.136: source_type:'custom' plus the raw field values (not just the derived
+    // `nutrition` object) - the entry detail/edit page re-shows these exact fields for editing,
+    // same shape as when the entry was first created, rather than trying to reverse-engineer
+    // carbs/protein/fat back out of `nutrition` (which would be lossy for a field left blank -
+    // there'd be no way to tell "left blank" apart from "typed 0").
+    source_type: 'custom',
+    custom_calories: cals, custom_carbs: carbs, custom_protein: protein, custom_fat: fat, custom_name: af.customName || ''
   };
   state.mealLogs.push(entry);
   saveMealLogs();
@@ -11256,7 +11495,14 @@ function saveMealLogEntry(){
   }
   var entry = {
     id: uid(), date: af.date, slot: af.slot, name: name, amount: amount, unit: unit,
-    nutrition: nutrition, created_at: nowLocalIso()
+    nutrition: nutrition, created_at: nowLocalIso(),
+    // README 9.136: lets the meal log entry detail page (openMealLogEntryDetail) know what this
+    // was actually logged from, so it can offer "查看食谱/食品详情" (only when the source still
+    // exists) and so re-scaling the amount later has something principled behind it. Entries
+    // logged before 9.136 won't have these fields - the detail page treats that the same as any
+    // other case where the source can't be resolved (see recipeIngredientDisplayName-style
+    // graceful degradation elsewhere in this app: hide the action, don't error).
+    source_type: p.type==='item' ? 'inventory' : p.type, source_id: (p.type==='usda' ? p.fdcId : p.id) || null
   };
   if(deductItemId){ entry.deductItemId=deductItemId; entry.deductAmount=deductAmount; entry.deductUnit=deductUnit; }
   state.mealLogs.push(entry);
@@ -12940,8 +13186,28 @@ function deleteRecipeSub(groupId, sub){
 }
 
 /* ======================= AFTER RENDER HOOK ======================= */
+// README 9.136: [autofocus] elements (search boxes on pick* pages, the amount field on the meal
+// log entry detail page) only get focused once per genuine navigation to that view, not on
+// every re-render - afterRender() runs on EVERY render() call, including ones triggered by
+// something unrelated while the person is already sitting on the same view (background sync,
+// an edit elsewhere that happens to call a full render()), and re-stealing focus/popping the
+// keyboard on those would be actively disruptive, not helpful. _lastAutofocusedView tracks which
+// view last got its autofocus applied; a repeat render() of the SAME view is a no-op here.
+var _lastAutofocusedView = null;
+function focusAutofocusElementOnce(){
+  if(state.view === _lastAutofocusedView) return;
+  _lastAutofocusedView = state.view;
+  var app = document.getElementById('app');
+  var el = app && app.querySelector('[autofocus]');
+  if(!el) return;
+  el.focus();
+  if(el.value && el.setSelectionRange){
+    try{ el.setSelectionRange(el.value.length, el.value.length); }catch(e){}
+  }
+}
 function afterRender(){
   hydratePhotos();
+  focusAutofocusElementOnce();
   if(state.view === 'scan'){
     startScan();
   }
