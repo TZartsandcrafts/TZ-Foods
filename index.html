@@ -857,7 +857,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.137';
+var BUILD_VERSION = '9.138';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -4403,6 +4403,12 @@ function openSettings(fromView){
     if(dx > 60 && Math.abs(dy) < 60){
       if(state.view==='itemForm') cancelItemForm();
       else if(state.view==='recipeForm') cancelRecipeForm();
+      // README 9.138: 从哪里来回哪里去 - while still choosing an amount (or mid-USDA-lookup) on
+      // the 三餐加食物 page, swipe-back should return to the search step within THIS SAME page,
+      // not exit the whole flow back to 三餐. Only the search step itself (nothing left to step
+      // back to within the page) falls through to the normal navigate(target) below, which is
+      // when leaving to 三餐 is actually correct.
+      else if(state.view==='mealAddFood' && state.mealsUI.addFood && (state.mealsUI.addFood.step==='amount' || state.mealsUI.addFood.step==='loading')) backToAddFoodSearch();
       else navigate(target.view, target.params);
     }
   }, {passive:true});
@@ -11218,20 +11224,78 @@ function mealAddFoodContentHtml(){
   return addFoodLocalSearchBodyHtml(af);
 }
 function addFoodLocalSearchBodyHtml(af){
-  var results = af.tab==='recipe' ? searchRecipeFoods(af.query) : searchInventoryFoods(af.query);
   var ph = af.tab==='recipe' ? t('recipeSearchPlaceholder') : t('searchPlaceholder');
+  var resultsHtml = af.tab==='recipe' ? addFoodRecipeResultsHtml(searchRecipeFoods(af.query)) : addFoodInventoryResultsHtml(searchInventoryFoods(af.query));
   return '<div class="meal-add-search-sticky"><input id="add-food-search-input" type="text" autocapitalize="none" placeholder="'+esc(ph)+'" value="'+esc(af.query)+'" oninput="onAddFoodQueryInput(this.value)" style="width:100%;box-sizing:border-box;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);"></div>'+
-    '<div id="add-food-local-results">'+addFoodLocalResultsHtml(results)+'</div>';
+    '<div id="add-food-local-results">'+resultsHtml+'</div>';
 }
 function addFoodUsdaSearchBodyHtml(af){
   return '<div class="meal-add-search-sticky"><input id="add-food-search-input" type="text" autocapitalize="none" placeholder="'+t('usdaOnlySearchPh')+'" value="'+esc(af.query)+'" oninput="onAddFoodQueryInput(this.value)" style="width:100%;box-sizing:border-box;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);"></div>'+
     '<div id="add-food-usda-results"></div>';
 }
-function addFoodLocalResultsHtml(local){
+function addFoodRecipeResultsHtml(local){
   if(!local.length) return '<p class="hint">'+t('noMealLoggedHint')+'</p>';
   return local.map(function(r){
     return '<div class="list-row" style="cursor:pointer;" onclick="pickLocalFoodForMeal('+aj(r.type)+','+aj(r.id)+')"><div class="row-label">'+esc(r.label)+(r.sub?'<div class="hint" style="margin-top:2px;">'+esc(r.sub)+'</div>':'')+'</div>'+ic('chevronRight',16)+'</div>';
   }).join('');
+}
+// README 9.138: 库存 tab's results now group same-product batches the exact same way the recipe
+// ingredient picker already does (see getPickInventoryList/renderPickInventoryListOnly's own
+// comment) - Lynn: 搜索结果的显示都与食谱添加食材显示逻辑一致. Previously the same product
+// bought more than once just showed up as N separate, visually-identical rows (same name, same
+// location), no way to tell them apart or know there even WAS more than one without reading
+// carefully - now it's one row with a batch count, expandable to the individual batches (with
+// their own quantity/location/expiry), collapsed by default. Uses its own expand-state
+// (state.mealsUI.addFood.expandedGroups) rather than sharing pickExpandedGroups with the recipe
+// picker, so expanding a group here doesn't leave it looking pre-expanded over there later -
+// separate pages, separate transient UI state, same underlying grouping logic.
+function addFoodInventoryResultsHtml(data){
+  if(!data.groups.length && !data.externals.length) return '<p class="hint">'+t('noMealLoggedHint')+'</p>';
+  var groupsHtml = data.groups.map(function(gr){
+    return gr.items.length===1 ? addFoodInventoryRowHtml(gr.items[0]) : addFoodInventoryGroupHtml(gr.key, gr.items);
+  }).join('');
+  var externalsHtml = data.externals.map(function(ing){
+    return '<div class="list-row" style="cursor:pointer;" onclick="pickLocalFoodForMeal(\'external\','+aj(ing.id)+')"><div class="row-label">'+esc(ing.name)+'<div class="hint" style="margin-top:2px;">'+esc(t('sourceExternal'))+'</div></div>'+ic('chevronRight',16)+'</div>';
+  }).join('');
+  return groupsHtml + externalsHtml;
+}
+function addFoodInventoryRowHtml(it){
+  var expiryText = it.expiry_date ? (t('fieldExpiry')+' '+fmtDateDots(it.expiry_date)) : '';
+  return '<div class="list-row" style="cursor:pointer;" onclick="pickLocalFoodForMeal(\'item\','+aj(it.id)+')">'+
+    '<div class="row-label">'+itemDisplayName(it)+'<div class="hint" style="margin-top:2px;">'+qtyDisplay(it)+(it.location?' · '+esc(it.location):'')+(expiryText?' · '+esc(expiryText):'')+'</div></div>'+
+    ic('chevronRight',16)+
+  '</div>';
+}
+function addFoodInventoryGroupHtml(key, group){
+  var rep = representativeGroupItem(group);
+  var af = state.mealsUI.addFood;
+  var expanded = !!(af.expandedGroups && af.expandedGroups[key]);
+  var expiryText = rep.expiry_date ? (t('fieldExpiry')+' '+fmtDateDots(rep.expiry_date)) : '';
+  var batchCountText = group.length+(state.lang==='zh'?'个批次':' batches');
+  var distinctLocations = [];
+  group.forEach(function(it){ var loc=it.location||''; if(distinctLocations.indexOf(loc)===-1) distinctLocations.push(loc); });
+  var locationText = (distinctLocations.length===1 && distinctLocations[0]) ? distinctLocations[0] :
+    (distinctLocations.length>1 ? (state.lang==='zh'?('分布于'+distinctLocations.length+'个位置'):('across '+distinctLocations.length+' locations')) : '');
+  var header = '<div class="list-row" style="cursor:pointer;" onclick="toggleAddFoodInventoryGroup('+aj(key)+')">'+
+    '<div class="row-label">'+itemDisplayName(rep)+'<div class="hint" style="margin-top:2px;">'+batchCountText+(locationText?' · '+esc(locationText):'')+(expiryText?' · '+esc(expiryText):'')+'</div></div>'+
+    ic('chevronRight',16,'style="transform:rotate('+(expanded?'90':'0')+'deg);transition:transform .15s;"')+
+  '</div>';
+  if(!expanded) return header;
+  var childrenHtml = group.map(function(it){
+    var et = it.expiry_date ? (t('fieldExpiry')+' '+fmtDateDots(it.expiry_date)) : '';
+    return '<div class="list-row" style="cursor:pointer;padding-left:24px;" onclick="pickLocalFoodForMeal(\'item\','+aj(it.id)+')">'+
+      '<div class="row-label">'+qtyDisplay(it)+(it.location?' · '+esc(it.location):'')+(et?' · '+esc(et):'')+'</div>'+
+      ic('chevronRight',16)+
+    '</div>';
+  }).join('');
+  return header+childrenHtml;
+}
+function toggleAddFoodInventoryGroup(key){
+  var af = state.mealsUI.addFood;
+  af.expandedGroups = af.expandedGroups || {};
+  af.expandedGroups[key] = !af.expandedGroups[key];
+  var el = document.getElementById('add-food-local-results');
+  if(el) el.innerHTML = addFoodInventoryResultsHtml(searchInventoryFoods(af.query));
 }
 // README 9.132: unlike the old combined search (which required at least a typed query before
 // showing anything), each tab now browses its own full list by default and narrows as you type -
@@ -11242,17 +11306,33 @@ function addFoodLocalResultsHtml(local){
 // matches is still more useful than an arbitrary one once the list is already narrowed down.
 // Items/recipes never yet logged (no key in pickFrequency) all tie at 0 and fall back to
 // whatever order they were already in (their natural state.items/state.recipes order).
+// README 9.138: now groups items into {key, items, rep} clusters (same shape getPickInventoryList
+// uses internally) BEFORE sorting, so frequency-ordering acts on one row per product rather than
+// scattering a product's several batches to different spots in the list; a group's frequency is
+// its representative batch's own count.
 function searchInventoryFoods(q){
   q = (q||'').trim().toLowerCase();
-  var out = [];
-  state.items.filter(function(it){ return !it.archived; }).forEach(function(it){
-    if(!q || itemDisplayNameRaw(it).toLowerCase().indexOf(q)!==-1) out.push({type:'item', id:it.id, label:itemDisplayNameRaw(it), sub:it.location||''});
+  var items = state.items.filter(function(it){
+    if(it.archived) return false;
+    return !q || itemDisplayNameRaw(it).toLowerCase().indexOf(q)!==-1;
   });
-  state.ingredients.forEach(function(ing){
-    if(!q || (ing.name||'').toLowerCase().indexOf(q)!==-1) out.push({type:'external', id:ing.id, label:ing.name, sub:t('sourceExternal')});
+  var groupOrder = [], groupMap = {};
+  items.forEach(function(it){
+    var k = itemGroupKey(it);
+    if(!groupMap[k]){ groupMap[k]=[]; groupOrder.push(k); }
+    groupMap[k].push(it);
   });
-  sortByPickFrequency(out, function(r){ return r.type==='item' ? ('inventory:'+r.id) : null; });
-  return out.slice(0,60);
+  var groups = groupOrder.map(function(k){
+    var g = groupMap[k];
+    g.sort(function(a,b){ var ad=a.expiry_date||'9999-99-99', bd=b.expiry_date||'9999-99-99'; return ad.localeCompare(bd); });
+    return {key:k, items:g, rep: representativeGroupItem(g)};
+  });
+  sortByPickFrequency(groups, function(gr){ return 'inventory:'+gr.rep.id; });
+  var externals = state.ingredients.filter(function(ing){
+    return !q || (ing.name||'').toLowerCase().indexOf(q)!==-1;
+  });
+  sortByPickFrequency(externals, function(e){ return 'external:'+e.id; });
+  return {groups: groups.slice(0,60), externals: externals.slice(0,20)};
 }
 function searchRecipeFoods(q){
   q = (q||'').trim().toLowerCase();
@@ -11287,7 +11367,7 @@ function onAddFoodQueryInput(val){
     return;
   }
   var localEl = document.getElementById('add-food-local-results');
-  if(localEl) localEl.innerHTML = addFoodLocalResultsHtml(af.tab==='recipe' ? searchRecipeFoods(val) : searchInventoryFoods(val));
+  if(localEl) localEl.innerHTML = af.tab==='recipe' ? addFoodRecipeResultsHtml(searchRecipeFoods(val)) : addFoodInventoryResultsHtml(searchInventoryFoods(val));
 }
 async function runAddFoodUsdaSearch(q){
   var el = document.getElementById('add-food-usda-results');
@@ -11565,6 +11645,7 @@ function saveMealLogEntry(){
   // keystroke or an abandoned pick that never got saved - see bumpPickFrequency's comment.
   if(p.type==='recipe') bumpPickFrequency('recipe', p.id);
   else if(p.type==='item') bumpPickFrequency('inventory', p.id);
+  else if(p.type==='external') bumpPickFrequency('external', p.id);
   showToast(t('mealLoggedToast'));
   navigate('meals');
 }
@@ -11735,9 +11816,10 @@ function parseWeightInputToKg(val){
   if(isNaN(n)) return null;
   return healthWeightUnit()==='lb' ? lbToKg(n) : n;
 }
+// README 9.138: 2 decimal places (was 1) - Lynn: 体重显示支持两位小数.
 function fmtWeight(kg){
   if(kg==null) return '-';
-  return fmtNum(displayWeight(kg), 1)+' '+healthWeightUnit();
+  return fmtNum(displayWeight(kg), 2)+' '+healthWeightUnit();
 }
 
 // ---- waist unit conversion (README 9.109) - shares the SAME metric/imperial toggle as weight
@@ -11852,7 +11934,7 @@ function ensureWeightPlanDefaults(){
 function openWeightLogModal(id){
   var existing = id ? state.weightLogs.find(function(e){ return e.id===id; }) : null;
   state.weightLogUI = existing ?
-    {id:id, date:existing.date, weightText: fmtNum(displayWeight(existing.weightKg),1), note:existing.note||''} :
+    {id:id, date:existing.date, weightText: fmtNum(displayWeight(existing.weightKg),2), note:existing.note||''} :
     {id:null, date:todayStr(), weightText:'', note:''};
   renderWeightLogModal();
 }
@@ -12191,7 +12273,7 @@ function renderWeightHistory(){
     var delta = prev ? (displayWeight(e.weightKg) - displayWeight(prev.weightKg)) : null;
     var deltaHtml = delta==null ? '' : (
       '<span style="font-size:12.5px;margin-left:8px;color:'+(delta>0?'var(--danger)':(delta<0?'var(--fresh)':'var(--deep-caramel)'))+';">'+
-      (delta>0?'▲':(delta<0?'▼':'—'))+' '+fmtNum(Math.abs(delta),1)+'</span>'
+      (delta>0?'▲':(delta<0?'▼':'—'))+' '+fmtNum(Math.abs(delta),2)+'</span>'
     );
     return '<div class="list-row" onclick="openWeightLogModal('+aj(e.id)+')" style="cursor:pointer;">'+
       '<div class="row-label">'+esc(fmtDateDots(e.date))+(e.note?('<div class="hint" style="margin-top:2px;">'+esc(e.note)+'</div>'):'')+'</div>'+
@@ -12264,7 +12346,7 @@ function renderPlanSettings(){
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'mealsSettings\')">'+ic('back',22)+'</button><h1>'+t('planSettingsBtn')+'</h1></div>'+
   '<div class="content">'+
     '<div class="section-title" style="margin-top:0;">'+t('goalSection')+'</div>'+
-    '<div class="field"><label>'+t('fieldGoalWeight')+' ('+healthWeightUnit()+')</label><input type="number" inputmode="decimal" placeholder="-" value="'+(p.goalWeightKg==null?'':fmtNum(displayWeight(p.goalWeightKg),1))+'" oninput="onGoalWeightInput(this.value)" onblur="render()"></div>'+
+    '<div class="field"><label>'+t('fieldGoalWeight')+' ('+healthWeightUnit()+')</label><input type="number" inputmode="decimal" placeholder="-" value="'+(p.goalWeightKg==null?'':fmtNum(displayWeight(p.goalWeightKg),2))+'" oninput="onGoalWeightInput(this.value)" onblur="render()"></div>'+
     '<div class="field"><label>'+t('fieldWeeklyRate')+' ('+healthWeightUnit()+'/'+t('perWeekShort')+')</label><input type="number" inputmode="decimal" step="0.1" placeholder="-" value="'+(p.weeklyRateKg==null?'':fmtNum(displayWeight(p.weeklyRateKg),2))+'" oninput="onWeeklyRateInput(this.value)" onblur="render()"></div>'+
     '<div class="field"><label>'+t('fieldTargetDate')+'</label><input type="date" value="'+esc(p.targetDate||'')+'" oninput="onTargetDateInput(this.value)"></div>'+
     '<p class="hint">'+t('planPriorityHint')+'</p>'+
