@@ -868,7 +868,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.143';
+var BUILD_VERSION = '9.144';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -11852,12 +11852,18 @@ function macroPieHtml(actualG, targetG){
   // Same three colors the bar view uses (see its own comment) so pie and bar always agree:
   // carbs = fresh green, protein = expired brick red, fat = almond (the app's general accent
   // color, since fat has no natural badge partner the way the other two do).
+  // README 9.144: labels were sitting right on top of the circle's rim (protein's especially,
+  // directly below the pie with barely any gap) and were on the small side generally - widened
+  // the canvas's own margin around the circle (r shrank a bit, viewBox grew) purely to give the
+  // 3 percentage labels breathing room outside the circle, bumped their font size up, and gave
+  // the svg-vs-legend gap more room too. Same fixed-position idea as before (see 9.143's
+  // comment) - only the actual numbers moved, not the underlying logic.
   var slices = [
-    {label:t('macroCarbs'), grams:actualG.carbs, target:targetG.carbs, val:actualG.carbs*4, fill:'var(--fresh)', labelX:112, labelY:24, anchor:'middle'},
-    {label:t('macroProtein'), grams:actualG.protein, target:targetG.protein, val:actualG.protein*4, fill:'var(--danger)', labelX:85, labelY:160, anchor:'middle'},
-    {label:t('macroFat'), grams:actualG.fat, target:targetG.fat, val:actualG.fat*9, fill:'var(--almond)', labelX:30, labelY:24, anchor:'middle'}
+    {label:t('macroCarbs'), grams:actualG.carbs, target:targetG.carbs, val:actualG.carbs*4, fill:'var(--fresh)', labelX:156, labelY:26, anchor:'middle'},
+    {label:t('macroProtein'), grams:actualG.protein, target:targetG.protein, val:actualG.protein*4, fill:'var(--danger)', labelX:95, labelY:184, anchor:'middle'},
+    {label:t('macroFat'), grams:actualG.fat, target:targetG.fat, val:actualG.fat*9, fill:'var(--almond)', labelX:34, labelY:26, anchor:'middle'}
   ];
-  var cx=85, cy=90, r=58, startAngle=-90, paths='';
+  var cx=95, cy=97, r=54, startAngle=-90, paths='';
   slices.forEach(function(s){
     var frac = s.val/totalCal;
     var endAngle = startAngle + frac*360;
@@ -11876,7 +11882,7 @@ function macroPieHtml(actualG, targetG){
     startAngle = endAngle;
   });
   var pctLabels = slices.map(function(s){
-    return '<text x="'+s.labelX+'" y="'+s.labelY+'" text-anchor="'+s.anchor+'" font-size="15" font-weight="700" fill="'+s.fill+'">'+Math.round(s.val/totalCal*100)+'%</text>';
+    return '<text x="'+s.labelX+'" y="'+s.labelY+'" text-anchor="'+s.anchor+'" font-size="20" font-weight="700" fill="'+s.fill+'">'+Math.round(s.val/totalCal*100)+'%</text>';
   }).join('');
   var legend = slices.map(function(s){
     return '<div style="display:flex;align-items:center;gap:7px;margin-bottom:7px;">'+
@@ -11884,8 +11890,8 @@ function macroPieHtml(actualG, targetG){
       '<span style="font-size:14.5px;font-weight:700;color:'+s.fill+';">'+s.label+' '+s.grams+'g / '+s.target+'g</span>'+
     '</div>';
   }).join('');
-  return '<div style="display:flex;align-items:center;justify-content:center;gap:24px;">'+
-    '<svg viewBox="0 0 170 170" style="width:128px;height:128px;flex-shrink:0;">'+paths+pctLabels+'</svg>'+
+  return '<div style="display:flex;align-items:center;justify-content:center;gap:36px;">'+
+    '<svg viewBox="0 0 190 200" style="width:136px;height:143px;flex-shrink:0;">'+paths+pctLabels+'</svg>'+
     '<div>'+legend+'</div>'+
   '</div>';
 }
