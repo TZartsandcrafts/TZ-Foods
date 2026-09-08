@@ -857,7 +857,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.138';
+var BUILD_VERSION = '9.139';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2195,8 +2195,13 @@ var I18N = {
     mealSlot_breakfast:'早餐', mealSlot_lunch:'午餐', mealSlot_dinner:'晚餐', mealSlot_snack:'零食',
     noMealLoggedHint:'还没有记录', addFoodBtn:'添加食物', deleteMealLogConfirm:'删除这条记录？',
     macroOverLabel:'超标', addFoodSearchPh:'搜索库存/食谱/食材，或输入英文查USDA',
-    sourceInventory:'库存', sourceRecipe:'食谱', sourceExternal:'外部食材库',
+    sourceInventory:'库存', sourceRecipe:'食谱', sourceExternal:'外部食材库', sourceMealset:'套餐',
     tabCustom:'自定', usdaOnlySearchPh:'搜索 USDA 食物数据库（英文）',
+    newMealsetBtn:'新建套餐', mealsetNoItemsHint:'还没有套餐，点击上方新建一个',
+    mealsetFormTitleNew:'新建套餐', mealsetFormTitleEdit:'编辑套餐', mealsetNameLabel:'套餐名称',
+    mealsetItemsEmptyHint:'还没有添加任何食材', addMealsetNested:'添加套餐（嵌套）',
+    pickMealsetTitle:'选择套餐', mealsetMultiplierLabel:'份数（该套餐重复次数）',
+    deleteMealsetConfirm:'删除这个套餐？', mealsetSavedToast:'已保存',
     quickCalLabel:'热量 (kcal)', requiredPh:'必填', optionalPh:'选填',
     fieldMealCarbs:'碳水 (g)', fieldMealProtein:'蛋白质 (g)', fieldMealFat:'脂肪 (g)', fieldMealName:'名称',
     quickCalDefaultName:'快速记录',
@@ -2477,8 +2482,13 @@ var I18N = {
     mealSlot_breakfast:'Breakfast', mealSlot_lunch:'Lunch', mealSlot_dinner:'Dinner', mealSlot_snack:'Snacks',
     noMealLoggedHint:'Nothing logged yet', addFoodBtn:'Add Food', deleteMealLogConfirm:'Delete this entry?',
     macroOverLabel:'over', addFoodSearchPh:'Search inventory/recipes/ingredients, or an English term for USDA',
-    sourceInventory:'Inventory', sourceRecipe:'Recipe', sourceExternal:'External Ingredients',
+    sourceInventory:'Inventory', sourceRecipe:'Recipe', sourceExternal:'External Ingredients', sourceMealset:'Mealset',
     tabCustom:'Custom', usdaOnlySearchPh:'Search the USDA food database',
+    newMealsetBtn:'New mealset', mealsetNoItemsHint:'No mealsets yet — create one above',
+    mealsetFormTitleNew:'New mealset', mealsetFormTitleEdit:'Edit mealset', mealsetNameLabel:'Mealset name',
+    mealsetItemsEmptyHint:'No items added yet', addMealsetNested:'Add a mealset (nested)',
+    pickMealsetTitle:'Choose a mealset', mealsetMultiplierLabel:'Quantity (times to include)',
+    deleteMealsetConfirm:'Delete this mealset?', mealsetSavedToast:'Saved',
     quickCalLabel:'Calories (kcal)', requiredPh:'required', optionalPh:'optional',
     fieldMealCarbs:'Carbs (g)', fieldMealProtein:'Protein (g)', fieldMealFat:'Fat (g)', fieldMealName:'Name',
     quickCalDefaultName:'Quick entry',
@@ -2705,6 +2715,13 @@ var state = {
   locations: DEFAULT_LOCATIONS.slice(),
   ingredients: [],
   recipes: [],
+  // README 9.139: 套餐 (mealset) templates - {id, name, items:[{id, source_type:'inventory'|
+  // 'external'|'recipe'|'mealset', source_id, amount, unit, name_snapshot}]}. Deliberately local-
+  // only (like mealLogs/health data), NOT in SYNCABLE_STORAGE_KEYS - see README for why (三餐/
+  // 健康 data is intentionally per-user, not shared between the two household members).
+  mealsets: [],
+  mealsetDraft: null,
+  mealsetFormUI: {},
   // README 9.96: data model for 三餐/健康 (batch 1 - skeleton pages only, these arrays/object
   // are wired into storage load/save now so later batches don't need to touch this plumbing
   // again, but nothing populates them yet).
@@ -2792,7 +2809,8 @@ async function loadAll(){
     storageGet('waistLogs', []),
     storageGet('exerciseLogs', []),
     storageGet('categoryGroups', null),
-    storageGet('pickFrequency', {})
+    storageGet('pickFrequency', {}),
+    storageGet('mealsets', [])
   ]);
   // README 9.125: categoryGroups is the new two-level (母分类/子分类) structure for inventory
   // categories, architecturally matching state.recipeCategoryGroups but without any color
@@ -2862,6 +2880,7 @@ async function loadAll(){
   // things actually eaten. Bumped once per successful log, in saveMealLogEntry - never on a
   // search keystroke or an abandoned pick that never got saved.
   state.pickFrequency = results[25] || {};
+  state.mealsets = results[26] || [];
   state.loaded = true;
 }
 // Old data shape had a single secondary_qty/secondary_unit/unit_ratio triplet per item. The
@@ -2962,6 +2981,7 @@ function saveRecipes(){
 }
 function saveSettings(){ return storageSet('settings', {lang:state.lang, reminderDays:state.reminderDays, aiProxyUrl:state.aiProxyUrl, fastingDisplayMode:state.fastingDisplayMode, fastingSettings:state.fastingSettings, visibleMealSlots:state.visibleMealSlots}); }
 function saveMealLogs(){ return storageSet('mealLogs', state.mealLogs); }
+function saveMealsets(){ return storageSet('mealsets', state.mealsets); }
 function savePickFrequency(){ return storageSet('pickFrequency', state.pickFrequency); }
 function bumpPickFrequency(kind, id){
   if(!id) return;
@@ -3727,6 +3747,85 @@ function recipeUsesRecipe(recipe, targetId, seen){
     return sub ? recipeUsesRecipe(sub, targetId, seen) : false;
   });
 }
+// README 9.139: same cycle guard as recipeUsesRecipe, but for 套餐 nesting a 套餐 - a mealset's
+// items can reference another mealset (source_type:'mealset'), so the nested-mealset picker
+// needs to refuse anything that would create a loop, the same way the recipe-as-ingredient
+// picker already does.
+function mealsetUsesMealset(mealset, targetId, seen){
+  seen = seen || [];
+  if(!mealset || !targetId || seen.indexOf(mealset.id)!==-1) return false;
+  seen = seen.concat([mealset.id]);
+  return (mealset.items||[]).some(function(it){
+    if(it.source_type!=='mealset') return false;
+    if(it.source_id===targetId) return true;
+    var sub = state.mealsets.find(function(m){ return m.id===it.source_id; });
+    return sub ? mealsetUsesMealset(sub, targetId, seen) : false;
+  });
+}
+// Display name for a 套餐 item row - mirrors recipeIngredientDisplayName's "always prefer the
+// live source name, name_snapshot is only a fallback for a deleted source" convention, extended
+// with a 'mealset' branch (getIngredientSource only knows inventory/external/recipe).
+function mealsetItemDisplayName(item){
+  if(item.source_type==='mealset'){
+    var sub = state.mealsets.find(function(x){ return x.id===item.source_id; });
+    return sub ? sub.name : (item.name_snapshot || '?');
+  }
+  var src = getIngredientSource(item);
+  return src ? src.name : (item.name_snapshot || '?');
+}
+// Recomputes a single flattened 套餐 log item's nutrition from its live source (inventory/
+// external item's per-basis label, or a recipe's own calcRecipeNutrition total) at its current
+// amount/unit - shared by buildMealsetLogItems (initial flatten) and confirmEditMealsetDraftItem
+// (after the person changes the amount/unit on an already-flattened draft row), so both paths
+// compute nutrition exactly the same way. Recipe items are always treated as "用现成成品" here
+// (see calcRecipeNutrition's own recipe-in-recipe branch for the non-mealset equivalent) - a
+// 套餐's food-as-ingredient rows never expand into that recipe's own raw ingredients, matching
+// Lynn's decision that this is fixed behavior for 套餐, not a per-row toggle.
+function recomputeMealsetLogItemNutrition(item){
+  if(item.source_type==='recipe'){
+    var r = state.recipes.find(function(x){ return x.id===item.source_id; });
+    if(!r) return emptyNutrition();
+    var totalN = calcRecipeNutrition(r);
+    var mult = recipeIngredientMultiplier({servings:r.servings, cooked_weight:r.cooked_weight}, item.amount, item.unit);
+    return mult!=null ? multiplyNutrition(totalN.total, mult) : emptyNutrition();
+  }
+  var src = item.source_type==='inventory' ? state.items.find(function(x){ return x.id===item.source_id; }) : state.ingredients.find(function(x){ return x.id===item.source_id; });
+  if(!src) return emptyNutrition();
+  var basisInfo = ingredientBasisInfo(src);
+  var used = amountToBasisUnits(item.amount, item.unit, item.source_type==='inventory'?src:null);
+  if(used==null) used = countBasisMatch(src, item.amount, item.unit);
+  return used!=null ? scaleNutrition(src.nutrition, basisInfo, used) : emptyNutrition();
+}
+// README 9.139: flattens a 套餐 template (including any nested 套餐, recursively - see
+// mealsetUsesMealset for the cycle guard that keeps this from ever needing to bail out on bad
+// data) into the leaf-level rows a meal-log draft actually needs: one entry per inventory/
+// external/recipe item, each already carrying its own computed nutrition and (for inventory
+// items only) enough info to offer an inventory deduction. `multiplier` is the cumulative
+// "how many times over" factor carried down through nested 套餐 - a nested 套餐 item's own
+// `amount` field is that multiplier (a plain count, unit '份'), not a weight/volume, mirroring
+// how a recipe-as-ingredient's amount is a fraction/multiple of its own yield rather than a
+// basis-matched quantity.
+function buildMealsetLogItems(mealset, multiplier, visited){
+  visited = visited || [];
+  var out = [];
+  if(!mealset || visited.indexOf(mealset.id)!==-1) return out;
+  visited = visited.concat([mealset.id]);
+  (mealset.items||[]).forEach(function(it){
+    if(it.source_type==='mealset'){
+      var sub = state.mealsets.find(function(m){ return m.id===it.source_id; });
+      if(sub) out = out.concat(buildMealsetLogItems(sub, multiplier*(it.amount||1), visited));
+      return;
+    }
+    var scaledItem = {source_type: it.source_type, source_id: it.source_id, amount: (it.amount||0)*multiplier, unit: it.unit};
+    var nutrition = recomputeMealsetLogItemNutrition(scaledItem);
+    out.push({
+      id: uid(), source_type: it.source_type, source_id: it.source_id,
+      name: mealsetItemDisplayName(it), amount: scaledItem.amount, unit: it.unit,
+      nutrition: nutrition, deduct: it.source_type==='inventory'
+    });
+  });
+  return out;
+}
 function getIngredientSource(ri){
   // ri: recipe_ingredient {source_type:'inventory'|'external'|'recipe', source_id, amount, unit}
   if(ri.source_type === 'inventory'){
@@ -4029,6 +4128,11 @@ function render(){
     case 'pickInventory': html = renderPickInventory(); break;
     case 'pickExternal': html = renderPickExternal(); break;
     case 'pickRecipe': html = renderPickRecipe(); break;
+    case 'mealsetForm': html = renderMealsetForm(); break;
+    case 'mealsetPickInventory': html = renderPickInventory(); break;
+    case 'mealsetPickExternal': html = renderPickExternal(); break;
+    case 'mealsetPickRecipe': html = renderPickRecipe(); break;
+    case 'mealsetPickMealset': html = renderMealsetPickMealset(); break;
     case 'archive': html = renderArchiveList(); break;
     case 'itemViewOnly': html = renderItemViewOnly(); break;
     case 'stats': html = renderStats(); break;
@@ -4378,6 +4482,11 @@ function openSettings(fromView){
     if(state.view==='planSettings') return {view:'mealsSettings'};
     if(state.view==='macroPresetPicker') return {view:'planSettings'};
     if(state.view==='mealAddFood') return {view:'meals'};
+    if(state.view==='mealsetForm') return {view:'mealAddFood'};
+    if(state.view==='mealsetPickInventory') return {view:'mealsetForm'};
+    if(state.view==='mealsetPickExternal') return {view:'mealsetForm'};
+    if(state.view==='mealsetPickRecipe') return {view:'mealsetForm'};
+    if(state.view==='mealsetPickMealset') return {view:'mealsetForm'};
     if(state.view==='mealLogEntryDetail') return {view:'meals'};
     if(state.view==='mealsHistory') return {view:'meals'};
     if(state.view==='fastingHistory') return {view:'meals'};
@@ -4409,6 +4518,7 @@ function openSettings(fromView){
       // back to within the page) falls through to the normal navigate(target) below, which is
       // when leaving to 三餐 is actually correct.
       else if(state.view==='mealAddFood' && state.mealsUI.addFood && (state.mealsUI.addFood.step==='amount' || state.mealsUI.addFood.step==='loading')) backToAddFoodSearch();
+      else if(state.view==='mealAddFood' && state.mealsUI.addFood && state.mealsUI.addFood.tab==='mealset' && state.mealsUI.addFood.mealsetPhase==='draft') mealAddFoodBack();
       else navigate(target.view, target.params);
     }
   }, {passive:true});
@@ -9110,9 +9220,15 @@ function getPickInventoryList(){
   });
   return list;
 }
+function pickerBackView(){
+  // README 9.139: pickInventory/pickExternal/pickRecipe are shared between the recipe-ingredient
+  // picker and the 套餐-item picker - this just says which page "back" (and a successful pick)
+  // should return to, based on which mealsetPick*/pick* view got us here.
+  return (state.view==='mealsetPickInventory' || state.view==='mealsetPickExternal' || state.view==='mealsetPickRecipe') ? 'mealsetForm' : 'recipeForm';
+}
 function renderPickInventory(){
   return '' +
-  '<div class="page-header"><button class="back-btn" onclick="navigate(\'recipeForm\')">'+ic('back',22)+'</button><h1>'+t('pickFromInventory')+'</h1></div>'+
+  '<div class="page-header"><button class="back-btn" onclick="navigate('+aj(pickerBackView())+')">'+ic('back',22)+'</button><h1>'+t('pickFromInventory')+'</h1></div>'+
   '<div class="content">'+
     '<div class="pick-sticky-search" id="pick-inventory-sticky">'+
       searchBarHtml(state.pickSearch||'', t('searchPlaceholder'), 'onPickSearch', null, true)+
@@ -9126,8 +9242,9 @@ function onPickSearch(v){
   onPickSearch._t = setTimeout(function(){
     var c = document.getElementById('pick-list');
     if(!c) return;
-    var html = state.view==='pickInventory' ? renderPickInventoryListOnly()
-      : state.view==='pickRecipe' ? renderPickRecipeListOnly()
+    var html = (state.view==='pickInventory'||state.view==='mealsetPickInventory') ? renderPickInventoryListOnly()
+      : (state.view==='pickRecipe'||state.view==='mealsetPickRecipe') ? renderPickRecipeListOnly()
+      : state.view==='mealsetPickMealset' ? renderMealsetPickMealsetListOnly()
       : renderPickExternalListOnly();
     c.outerHTML = '<div id="pick-list">'+html+'</div>';
   }, 200);
@@ -9206,8 +9323,7 @@ function pickInventoryItem(id){
     '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u,idx){ return '<div class="tag-option '+(idx===0?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+u+'</div>'; }).join('')+'</div></div>'+
     '<button class="btn btn-primary" onclick="confirmAddIngredient(\'inventory\','+aj(id)+','+aj(it.name)+')">'+t('add')+'</button>'
   );
-}
-function selectPillIn(el, containerId){
+}function selectPillIn(el, containerId){
   var c = document.getElementById(containerId);
   Array.prototype.forEach.call(c.children, function(ch){ ch.classList.remove('active'); });
   el.classList.add('active');
@@ -9237,6 +9353,16 @@ function confirmAddIngredient(sourceType, id, name){
   var amount = parseAmountInput(document.getElementById('ing-amount').value);
   var unit = getActivePill('ing-unit-pills');
   if(!amount || amount<=0){ showToast(state.lang==='zh'?'请输入用量':'Please enter an amount'); return; }
+  var isMealsetCtx = (state.view==='mealsetPickInventory' || state.view==='mealsetPickRecipe' || state.view==='mealsetPickExternal');
+  if(isMealsetCtx){
+    var mlist = state.mealsetDraft.items || (state.mealsetDraft.items=[]);
+    var entry = {id:uid(), source_type:sourceType, source_id:id, name_snapshot:name, amount:amount, unit:unit};
+    if(sourceType==='recipe') entry.use_existing = true; // 套餐里的食谱项固定按"现成成品"处理，没有开关
+    mlist.push(entry);
+    closeModal();
+    navigate('mealsetForm');
+    return;
+  }
   var useExistingEl = document.getElementById('ing-use-existing-pills');
   var useExisting = useExistingEl ? (getActivePill('ing-use-existing-pills')==='existing') : false;
   addIngredientToRecipe(sourceType, id, name, amount, unit, useExisting);
@@ -9275,7 +9401,7 @@ function renderPickExternal(){
     '</div>';
   }).join('');
   return '' +
-  '<div class="page-header"><button class="back-btn" onclick="navigate(\'recipeForm\')">'+ic('back',22)+'</button><h1>'+t('pickExternal')+'</h1></div>'+
+  '<div class="page-header"><button class="back-btn" onclick="navigate('+aj(pickerBackView())+')">'+ic('back',22)+'</button><h1>'+t('pickExternal')+'</h1></div>'+
   '<div class="content" style="padding-bottom:90px;">'+
     '<div class="pick-sticky-search" id="pick-external-sticky">'+
       searchBarHtml(state.pickSearch||'', t('searchPlaceholder'), 'onPickSearch', null, true)+
@@ -9305,6 +9431,12 @@ function renderPickExternalListOnly(){
 function quickAddExternalIngredient(id){
   var ing = state.ingredients.find(function(i){ return i.id===id; });
   if(!ing) return;
+  if(state.view==='mealsetPickExternal'){
+    var mlist = state.mealsetDraft.items || (state.mealsetDraft.items=[]);
+    mlist.push({id:uid(), source_type:'external', source_id:id, name_snapshot:ing.name, amount:100, unit:'g'});
+    navigate('mealsetForm');
+    return;
+  }
   addIngredientToRecipe('external', id, ing.name, 100, 'g');
 }
 function deleteExternalIngredientConfirm(id){
@@ -9325,17 +9457,17 @@ function deleteExternalIngredientConfirm(id){
 // servings/cooked_weight make available - see recipeUnitOptionsForRecipe) every time.
 function getPickRecipeList(){
   var q = (state.pickSearch||'').toLowerCase();
-  var selfId = state.recipeDraft && state.recipeDraft.id;
+  var isMealsetCtx = (state.view==='mealsetPickRecipe');
+  var selfId = isMealsetCtx ? null : (state.recipeDraft && state.recipeDraft.id);
   return state.recipes.filter(function(r){
-    if(r.id===selfId) return false;
-    if(recipeUsesRecipe(r, selfId)) return false;
+    if(selfId){ if(r.id===selfId) return false; if(recipeUsesRecipe(r, selfId)) return false; }
     if(q && (r.name||'').toLowerCase().indexOf(q)===-1) return false;
     return true;
   });
 }
 function renderPickRecipe(){
   return '' +
-  '<div class="page-header"><button class="back-btn" onclick="navigate(\'recipeForm\')">'+ic('back',22)+'</button><h1>'+t('pickRecipeTitle')+'</h1></div>'+
+  '<div class="page-header"><button class="back-btn" onclick="navigate('+aj(pickerBackView())+')">'+ic('back',22)+'</button><h1>'+t('pickRecipeTitle')+'</h1></div>'+
   '<div class="content">'+
     '<div class="pick-sticky-search" id="pick-recipe-sticky">'+
       searchBarHtml(state.pickSearch||'', t('searchPlaceholder'), 'onPickSearch', null, true)+
@@ -9360,11 +9492,12 @@ function renderPickRecipeListOnly(){
 function pickRecipeIngredient(id){
   var r = state.recipes.find(function(x){ return x.id===id; });
   if(!r) return;
+  var isMealsetCtx = (state.view==='mealsetPickRecipe');
   var unitOpts = recipeUnitOptionsForRecipe(r);
   showModal(esc(r.name),
     '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" id="ing-amount" autofocus placeholder="'+t('ingAmountPh')+'"></div>'+
     '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u,idx){ return '<div class="tag-option '+(idx===0?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+esc(recipeUnitLabel(u))+'</div>'; }).join('')+'</div></div>'+
-    recipeIngUseExistingToggleHtml('fresh')+
+    (isMealsetCtx ? '<p class="hint" style="margin:-4px 0 10px;">'+t('cookConfirmPreMade')+'</p>' : recipeIngUseExistingToggleHtml('fresh'))+
     '<button class="btn btn-primary" onclick="confirmAddIngredient(\'recipe\','+aj(id)+','+aj(r.name)+')">'+t('add')+'</button>'
   );
 }
@@ -9566,6 +9699,13 @@ function createExternalIngredientAndAdd(){
   var ing = {id:uid(), name:name, nutrition:ui.nutrition, nutrition_extra:ui.nutrition_extra, created_at:todayStr(), updated_at:nowLocalIso()};
   state.ingredients.push(ing);
   saveIngredients();
+  if(state.view==='mealsetPickExternal'){
+    var mlist = state.mealsetDraft.items || (state.mealsetDraft.items=[]);
+    mlist.push({id:uid(), source_type:'external', source_id:ing.id, name_snapshot:ing.name, amount:ui.amount||100, unit:ui.unit||'g'});
+    closeModal();
+    navigate('mealsetForm');
+    return;
+  }
   addIngredientToRecipe('external', ing.id, ing.name, ui.amount||100, ui.unit||'g');
 }
 function saveExternalIngredientEdit(){
@@ -9581,6 +9721,200 @@ function saveExternalIngredientEdit(){
   saveIngredients();
   closeModal();
   render();
+}
+
+/* ======================= MEALSET (套餐) FORM ======================= */
+// README 9.139: 套餐 template management lives entirely inside the 三餐加食物 page's 套餐 tab
+// (see mealsetTabListHtml) - there's no separate bottom-nav entry, matching Lynn's call that
+// this doesn't need to be a peer of 食谱. Editing what's INSIDE a referenced recipe/inventory
+// item still happens on that item's own page - 套餐 rows are pure references (source_type +
+// source_id + amount/unit), same shape as a recipe ingredient row, reusing all the same
+// picker infrastructure (see pickerBackView / the mealsetPick* branches added throughout the
+// pickInventory/pickExternal/pickRecipe functions above) rather than inventing a parallel set.
+function goMealsetPickInventory(){ state.pickSearch=''; navigate('mealsetPickInventory'); }
+function goMealsetPickExternal(){ state.pickSearch=''; navigate('mealsetPickExternal'); }
+function goMealsetPickRecipe(){ state.pickSearch=''; navigate('mealsetPickRecipe'); }
+function goMealsetPickMealset(){ state.pickSearch=''; navigate('mealsetPickMealset'); }
+function openMealsetForm(id){
+  if(id){
+    var m = state.mealsets.find(function(x){ return x.id===id; });
+    if(!m) return;
+    state.mealsetDraft = JSON.parse(JSON.stringify(m));
+    state.mealsetDraft._isNew = false;
+  } else {
+    state.mealsetDraft = {id:uid(), name:'', items:[], created_at:nowLocalIso(), _isNew:true};
+  }
+  navigate('mealsetForm');
+}
+function ms_setName(val){ state.mealsetDraft.name = val; }
+function mealsetNutritionSummaryHtml(d){
+  var items = buildMealsetLogItems(d, 1, []);
+  var total = emptyNutrition();
+  items.forEach(function(it){ total = addNutrition(total, it.nutrition||emptyNutrition()); });
+  return mealEntryNutritionPreviewHtml(total);
+}
+function mealsetItemTagHtml(it){
+  if(it.source_type==='external') return ' <span style="font-size:11px;color:var(--almond);">('+t('sourceExternal')+')</span>';
+  if(it.source_type==='recipe') return ' <span style="font-size:11px;color:var(--almond);">('+t('sourceRecipe')+')</span>';
+  if(it.source_type==='mealset') return ' <span style="font-size:11px;color:var(--almond);">('+t('sourceMealset')+')</span>';
+  return '';
+}
+function renderMealsetForm(){
+  var d = state.mealsetDraft;
+  if(!d) return renderMealAddFood();
+  var itemsHtml = (d.items||[]).map(function(it, idx){
+    var unitLabel = it.source_type==='mealset' ? (state.lang==='zh'?'份':'x') : recipeUnitLabel(it.unit);
+    return '<div class="ing-row" onclick="editMealsetTplItem('+idx+')"><div class="ing-info"><span class="ing-name">'+esc(mealsetItemDisplayName(it))+mealsetItemTagHtml(it)+'</span><span class="ing-amt">'+fmtAmount(it.amount, it.unit)+' '+esc(unitLabel)+'</span></div></div>';
+  }).join('') || '<p class="hint" style="margin:0;">'+t('mealsetItemsEmptyHint')+'</p>';
+  return '' +
+  '<div class="page-header">'+
+    '<button class="back-btn" onclick="navigate(\'mealAddFood\')">'+ic('back',22)+'</button>'+
+    '<h1>'+(d._isNew?t('mealsetFormTitleNew'):t('mealsetFormTitleEdit'))+'</h1>'+
+  '</div>'+
+  '<div class="content">'+
+    '<div class="form-group">'+
+      '<div class="field"><label>'+t('mealsetNameLabel')+' *</label><input type="text" autocapitalize="words" value="'+esc(d.name)+'" placeholder="'+t('mealsetNameLabel')+'" oninput="ms_setName(this.value)"></div>'+
+    '</div>'+
+    '<div class="section-title">'+t('sectionIngredients')+'</div>'+
+    '<div class="form-group">'+
+      itemsHtml+
+      '<div class="btn-row" style="margin-top:6px;">'+
+        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="goMealsetPickInventory()">'+t('addFromInventory')+'</button>'+
+        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="goMealsetPickExternal()">'+t('addExternal')+'</button>'+
+      '</div>'+
+      '<div class="btn-row" style="margin-top:6px;">'+
+        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="goMealsetPickRecipe()">'+t('addRecipeAsIngredient')+'</button>'+
+        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="goMealsetPickMealset()">'+t('addMealsetNested')+'</button>'+
+      '</div>'+
+    '</div>'+
+    '<div class="section-title">'+t('nutritionSummary')+'</div>'+
+    '<div class="form-group">'+mealsetNutritionSummaryHtml(d)+'</div>'+
+    '<div class="btn-row" style="margin-top:8px;">'+
+      '<button class="btn btn-outline" onclick="navigate(\'mealAddFood\')">'+t('cancel')+'</button>'+
+      '<button class="btn btn-primary" onclick="saveMealsetForm()">'+t('save')+'</button>'+
+    '</div>'+
+    (!d._isNew ? '<button class="btn btn-danger" style="width:100%;margin-top:10px;" onclick="deleteMealsetFromForm()">'+ic('trash',16)+' '+t('delete')+'</button>' : '')+
+  '</div>';
+}
+function saveMealsetForm(){
+  var d = state.mealsetDraft;
+  if(!(d.name||'').trim()){ showToast(state.lang==='zh'?'请输入套餐名称':'Please enter a name'); return; }
+  var idx = state.mealsets.findIndex(function(m){ return m.id===d.id; });
+  d.updated_at = nowLocalIso();
+  delete d._isNew;
+  if(idx===-1) state.mealsets.push(d); else state.mealsets[idx]=d;
+  saveMealsets();
+  showToast(t('mealsetSavedToast'));
+  navigate('mealAddFood');
+}
+function deleteMealsetFromForm(){
+  var d = state.mealsetDraft;
+  showConfirmModal(t('deleteMealsetConfirm'), function(){
+    state.mealsets = state.mealsets.filter(function(m){ return m.id!==d.id; });
+    saveMealsets();
+    closeModal();
+    navigate('mealAddFood');
+  }, {title:t('delete')});
+}
+function editMealsetTplItem(idx){
+  var it = (state.mealsetDraft.items||[])[idx];
+  if(!it) return;
+  if(it.source_type==='mealset'){
+    showModal(esc(mealsetItemDisplayName(it)),
+      '<div class="field"><label>'+t('mealsetMultiplierLabel')+'</label><input type="text" id="ing-amount" autofocus value="'+fmtAmount(it.amount, it.unit)+'"></div>'+
+      '<div class="btn-row" style="margin-top:14px;">'+
+        '<button class="btn btn-danger btn-sm" style="flex:1;" onclick="deleteMealsetTplItemFromModal('+idx+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
+        '<button class="btn btn-primary btn-sm" style="flex:1;" onclick="confirmEditMealsetTplItemMultiplier('+idx+')">'+t('save')+'</button>'+
+      '</div>'
+    );
+    return;
+  }
+  var unitOpts;
+  if(it.source_type==='inventory'){
+    var item = state.items.find(function(i){ return i.id===it.source_id; });
+    unitOpts = item ? recipeUnitOptionsForItem(item) : [it.unit];
+  } else if(it.source_type==='recipe'){
+    var subRecipe = state.recipes.find(function(r){ return r.id===it.source_id; });
+    unitOpts = subRecipe ? recipeUnitOptionsForRecipe(subRecipe) : [it.unit];
+  } else {
+    unitOpts = WEIGHT_UNITS.concat(VOLUME_UNITS);
+  }
+  if(unitOpts.indexOf(it.unit)===-1) unitOpts.unshift(it.unit);
+  showModal(esc(mealsetItemDisplayName(it)),
+    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" id="ing-amount" autofocus placeholder="'+t('ingAmountPh')+'" value="'+fmtAmount(it.amount, it.unit)+'"></div>'+
+    '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u){ return '<div class="tag-option '+(u===it.unit?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+esc(recipeUnitLabel(u))+'</div>'; }).join('')+'</div></div>'+
+    '<div class="btn-row" style="margin-top:14px;">'+
+      '<button class="btn btn-danger btn-sm" style="flex:1;" onclick="deleteMealsetTplItemFromModal('+idx+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
+      '<button class="btn btn-primary btn-sm" style="flex:1;" onclick="confirmEditMealsetTplItem('+idx+')">'+t('save')+'</button>'+
+    '</div>'
+  );
+}
+function confirmEditMealsetTplItem(idx){
+  var amount = parseAmountInput(document.getElementById('ing-amount').value);
+  var unit = getActivePill('ing-unit-pills');
+  if(!amount || amount<=0){ showToast(state.lang==='zh'?'请输入用量':'Please enter an amount'); return; }
+  var it = state.mealsetDraft.items[idx];
+  if(it){ it.amount=amount; it.unit=unit; }
+  closeModal();
+  render();
+}
+function confirmEditMealsetTplItemMultiplier(idx){
+  var amount = parseAmountInput(document.getElementById('ing-amount').value);
+  if(!amount || amount<=0){ showToast(state.lang==='zh'?'请输入份数':'Please enter a quantity'); return; }
+  var it = state.mealsetDraft.items[idx];
+  if(it) it.amount = amount;
+  closeModal();
+  render();
+}
+function deleteMealsetTplItemFromModal(idx){
+  closeModal();
+  state.mealsetDraft.items.splice(idx,1);
+  render();
+}
+function renderMealsetPickMealset(){
+  return '<div class="page-header"><button class="back-btn" onclick="navigate(\'mealsetForm\')">'+ic('back',22)+'</button><h1>'+t('pickMealsetTitle')+'</h1></div>'+
+  '<div class="content">'+
+    '<div class="pick-sticky-search" id="pick-mealset-sticky">'+searchBarHtml(state.pickSearch||'', t('searchPlaceholder'), 'onPickSearch', null, true)+'</div>'+
+    '<div id="pick-list">'+renderMealsetPickMealsetListOnly()+'</div>'+
+  '</div>';
+}
+function getMealsetPickMealsetList(){
+  var q = (state.pickSearch||'').toLowerCase();
+  var selfId = state.mealsetDraft && state.mealsetDraft.id;
+  return state.mealsets.filter(function(m){
+    if(m.id===selfId) return false;
+    if(mealsetUsesMealset(m, selfId)) return false;
+    if(q && (m.name||'').toLowerCase().indexOf(q)===-1) return false;
+    return true;
+  });
+}
+function renderMealsetPickMealsetListOnly(){
+  var list = getMealsetPickMealsetList();
+  if(!list.length) return '<div class="empty-state">'+ic('search',32)+'<p>'+(state.lang==='zh'?'没有可选的套餐':'No mealsets available')+'</p></div>';
+  return list.map(function(m){
+    var items = buildMealsetLogItems(m,1,[]);
+    var cal = 0; items.forEach(function(it){ cal += (it.nutrition.calories||0); });
+    return '<div class="picker-item" onclick="pickMealsetAsNestedItem('+aj(m.id)+')">'+
+      '<div><div class="pname">'+esc(m.name)+'</div><div class="pmeta">'+Math.round(cal)+' kcal · '+(m.items||[]).length+(state.lang==='zh'?' 项':' items')+'</div></div>'+
+      ic('chevronRight',18)+
+    '</div>';
+  }).join('');
+}
+function pickMealsetAsNestedItem(id){
+  var m = state.mealsets.find(function(x){ return x.id===id; });
+  if(!m) return;
+  showModal(esc(m.name),
+    '<div class="field"><label>'+t('mealsetMultiplierLabel')+'</label><input type="text" id="ing-amount" autofocus value="1"></div>'+
+    '<button class="btn btn-primary" onclick="confirmAddMealsetTplNested('+aj(id)+','+aj(m.name)+')">'+t('add')+'</button>'
+  );
+}
+function confirmAddMealsetTplNested(id, name){
+  var amount = parseAmountInput(document.getElementById('ing-amount').value);
+  if(!amount || amount<=0){ showToast(state.lang==='zh'?'请输入份数':'Please enter a quantity'); return; }
+  var list = state.mealsetDraft.items || (state.mealsetDraft.items=[]);
+  list.push({id:uid(), source_type:'mealset', source_id:id, name_snapshot:name, amount:amount, unit:'份'});
+  closeModal();
+  navigate('mealsetForm');
 }
 
 /* ======================= RECIPE FORM ======================= */
@@ -10833,7 +11167,7 @@ function mealSlotSectionHtml(date, slot){
   var logs = mealLogsForSlot(date, slot);
   var slotCal = Math.round(sumMealNutrition(logs).calories||0);
   var rows = logs.map(function(m){
-    var amountLine = (m.amount!=null) ? (fmtNum(m.amount,1)+esc(m.unit)) : '';
+    var amountLine = (m.source_type==='mealset') ? ((m.subItems||[]).length+(state.lang==='zh'?' 项':' items')) : (m.amount!=null ? (fmtNum(m.amount,1)+esc(m.unit)) : '');
     return '<div class="list-row" style="cursor:pointer;" onclick="openMealLogEntryDetail('+aj(m.id)+')">'+
       '<div class="row-label">'+esc(m.name)+(amountLine?('<div class="hint" style="margin-top:2px;">'+amountLine+'</div>'):'')+'</div>'+
       '<div style="display:flex;align-items:center;gap:8px;flex-shrink:0;"><span>'+Math.round(m.nutrition.calories||0)+' kcal</span>'+
@@ -10845,13 +11179,29 @@ function mealSlotSectionHtml(date, slot){
       (rows || '<p class="hint" style="margin:0;">'+t('noMealLoggedHint')+'</p>')+
     '</div>';
 }
+// README 9.139: a 套餐 log entry can carry many inventory deductions at once (one per
+// inventory-sourced subItem), unlike every other entry type which has at most the single
+// top-level deductItemId/deductAmount/deductUnit. Shared by deleteMealLog and
+// deleteMealLogEntryFromDetail so both reverse exactly the same way. Returns true if anything
+// was actually added back, so callers only call saveItems() when something changed.
+function reverseMealLogDeductions(m){
+  var changed = false;
+  if(m.deductItemId){
+    var item = state.items.find(function(i){ return i.id===m.deductItemId; });
+    if(item){ addBackToItem(item, m.deductAmount, m.deductUnit); changed = true; }
+  }
+  (m.subItems||[]).forEach(function(si){
+    if(si.deductItemId){
+      var it2 = state.items.find(function(i){ return i.id===si.deductItemId; });
+      if(it2){ addBackToItem(it2, si.deductAmount, si.deductUnit); changed = true; }
+    }
+  });
+  return changed;
+}
 function deleteMealLog(id){
   showConfirmModal(t('deleteMealLogConfirm'), function(){
     var m = state.mealLogs.find(function(x){ return x.id===id; });
-    if(m && m.deductItemId){
-      var item = state.items.find(function(i){ return i.id===m.deductItemId; });
-      if(item){ addBackToItem(item, m.deductAmount, m.deductUnit); saveItems(); }
-    }
+    if(m && reverseMealLogDeductions(m)) saveItems();
     state.mealLogs = state.mealLogs.filter(function(x){ return x.id!==id; });
     saveMealLogs();
     closeModal();
@@ -10985,6 +11335,21 @@ function renderMealLogEntryDetail(){
   var id = state.params.id;
   var m = state.mealLogs.find(function(x){ return x.id===id; });
   if(!m) return renderMeals();
+  // README 9.139: 套餐 log entries have no single editable amount (each subItem has its own,
+  // fixed at log time in the draft step - see mealsetDraftHtml) - this just shows the breakdown
+  // ("展开后能看到内部每项") plus a delete that reverses every subItem's deduction at once (see
+  // reverseMealLogDeductions). Per-item post-log editing is intentionally out of scope for now.
+  if(m.source_type==='mealset'){
+    var itemsHtml = (m.subItems||[]).map(function(si){
+      return '<div class="list-row"><div class="row-label">'+esc(si.name)+(si.amount!=null?('<div class="hint" style="margin-top:2px;">'+fmtAmount(si.amount,si.unit)+esc(si.unit)+'</div>'):'')+'</div><div>'+Math.round((si.nutrition&&si.nutrition.calories)||0)+' kcal</div></div>';
+    }).join('');
+    return '<div class="page-header"><button class="back-btn" onclick="navigate(\'meals\')">'+ic('back',22)+'</button><h1>'+esc(m.name)+'</h1></div>'+
+    '<div class="content">'+
+      '<div class="form-group">'+(itemsHtml||'')+'</div>'+
+      '<div id="meal-entry-nutrition-preview">'+mealEntryNutritionPreviewHtml(m.nutrition)+'</div>'+
+      '<button class="btn btn-danger" style="width:100%;margin-top:16px;" onclick="deleteMealLogEntryFromDetail('+aj(id)+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
+    '</div>';
+  }
   var ee = state.mealsUI.editEntry;
   if(!ee || ee.id!==id) openMealLogEntryDetail(id); // defensive - e.g. deep-link/back-forward without going through the row tap
   ee = state.mealsUI.editEntry;
@@ -11065,10 +11430,7 @@ function saveMealLogEntryEdit(){
 function deleteMealLogEntryFromDetail(id){
   showConfirmModal(t('deleteMealLogConfirm'), function(){
     var m = state.mealLogs.find(function(x){ return x.id===id; });
-    if(m && m.deductItemId){
-      var item = state.items.find(function(i){ return i.id===m.deductItemId; });
-      if(item){ addBackToItem(item, m.deductAmount, m.deductUnit); saveItems(); }
-    }
+    if(m && reverseMealLogDeductions(m)) saveItems();
     state.mealLogs = state.mealLogs.filter(function(x){ return x.id!==id; });
     saveMealLogs();
     closeModal();
@@ -11199,29 +11561,200 @@ function renderMealAddFood(){
   var tabs = [
     {id:'inventory', label:t('sourceInventory')},
     {id:'recipe', label:t('sourceRecipe')},
+    {id:'mealset', label:t('sourceMealset')},
     {id:'usda', label:'USDA'},
     {id:'custom', label:t('tabCustom')}
   ];
   var title = t('mealSlot_'+af.slot) || t('addFoodBtn');
   return '' +
-  '<div class="page-header"><button class="back-btn" onclick="navigate(\'meals\')">'+ic('back',22)+'</button><h1>'+esc(title)+'</h1></div>'+
+  '<div class="page-header"><button class="back-btn" onclick="mealAddFoodBack()">'+ic('back',22)+'</button><h1>'+esc(title)+'</h1></div>'+
   '<div class="meal-add-tabs">'+
     tabs.map(function(tb){ return '<div class="meal-add-tab '+(af.tab===tb.id?'active':'')+'" onclick="setMealAddFoodTab('+aj(tb.id)+')">'+esc(tb.label)+'</div>'; }).join('')+
   '</div>'+
   '<div class="content" id="meal-add-food-content">'+mealAddFoodContentHtml()+'</div>';
 }
+// README 9.139: the page-header back button used to always go straight to 三餐 - now checks
+// whether we're mid-套餐-log-draft first, in which case "back" should return to the 套餐 list
+// (to pick a different one / adjust nothing) rather than exiting food-adding entirely. Mirrors
+// the same idea as af.step==='amount' already having its own back-within-page handling via the
+// swipe-back listener (see initItemDetailBackSwipe) - this just also covers the tap-target back
+// arrow, and the swipe listener below is updated to call this same function for consistency.
+function mealAddFoodBack(){
+  var af = state.mealsUI.addFood;
+  if(af.tab==='mealset' && af.mealsetPhase==='draft'){
+    af.mealsetPhase = null;
+    af.mealsetLogItems = null;
+    render();
+    return;
+  }
+  navigate('meals');
+}
 function setMealAddFoodTab(tabId){
   var af = state.mealsUI.addFood;
-  af.tab = tabId; af.step = 'search'; af.picked = null; af.query = '';
+  af.tab = tabId; af.step = 'search'; af.picked = null; af.query = ''; af.mealsetPhase = null; af.mealsetLogItems = null;
   render();
 }
 function mealAddFoodContentHtml(){
   var af = state.mealsUI.addFood;
   if(af.tab==='custom') return customMealFieldsHtml(af);
+  if(af.tab==='mealset'){
+    if(af.mealsetPhase==='draft') return mealsetDraftHtml(af);
+    return mealsetTabListHtml(af);
+  }
   if(af.step==='amount') return addFoodAmountBodyHtml(af);
   if(af.step==='loading') return '<p class="hint">'+t('usdaSearchLoading')+'</p>';
   if(af.tab==='usda') return addFoodUsdaSearchBodyHtml(af);
   return addFoodLocalSearchBodyHtml(af);
+}
+// README 9.139: 套餐 tab of 三餐加食物 - step 1 is just "which 套餐" (+ template management via
+// the edit-pencil / "+新建套餐", same list). Step 2 (mealsetDraftHtml) is the snapshot draft -
+// see buildMealsetLogItems for how a template turns into this flat, editable, per-log-only copy.
+function mealsetTabListHtml(af){
+  var list = state.mealsets.slice();
+  sortByPickFrequency(list, function(m){ return 'mealset:'+m.id; });
+  var rows = list.map(function(m){
+    var items = buildMealsetLogItems(m,1,[]);
+    var cal = 0; items.forEach(function(it){ cal += (it.nutrition.calories||0); });
+    return '<div class="list-row">'+
+      '<div class="row-label" style="cursor:pointer;" onclick="selectMealsetForLog('+aj(m.id)+')">'+esc(m.name)+'<div class="hint" style="margin-top:2px;">'+Math.round(cal)+' kcal · '+(m.items||[]).length+(state.lang==='zh'?' 项':' items')+'</div></div>'+
+      '<button class="icon-btn" onclick="event.stopPropagation();openMealsetForm('+aj(m.id)+')" aria-label="'+t('edit')+'">'+ic('edit',17)+'</button>'+
+    '</div>';
+  }).join('');
+  return '<button class="btn btn-outline" style="width:100%;margin-bottom:10px;" onclick="openMealsetForm(null)">'+ic('plus',15)+' '+t('newMealsetBtn')+'</button>'+
+    (rows || '<p class="hint">'+t('mealsetNoItemsHint')+'</p>');
+}
+function selectMealsetForLog(id){
+  var m = state.mealsets.find(function(x){ return x.id===id; });
+  if(!m) return;
+  var af = state.mealsUI.addFood;
+  af.mealsetLogItems = buildMealsetLogItems(m, 1, []);
+  af.mealsetSourceName = m.name;
+  af.mealsetSourceMealsetId = m.id;
+  af.mealsetPhase = 'draft';
+  render();
+}
+// README 9.139: draft is a plain copy (buildMealsetLogItems already snapshots everything, incl.
+// resolved names/nutrition) - editing amounts/deleting rows here only touches af.mealsetLogItems,
+// never the 套餐 template itself or any previously-saved log entry, matching Lynn's "改这条已记
+// 录的餐不影响模板，模板以后变了也不影响这条历史" requirement.
+function mealsetDraftHtml(af){
+  var items = af.mealsetLogItems||[];
+  var rows = items.map(function(it, idx){
+    return '<div class="list-row" style="cursor:pointer;" onclick="editMealsetDraftItemAmount('+idx+')">'+
+      '<div class="row-label">'+esc(it.name)+'<div class="hint" style="margin-top:2px;">'+fmtAmount(it.amount,it.unit)+esc(it.unit==='份'?'份':it.unit)+'</div></div>'+
+      '<div style="display:flex;align-items:center;gap:8px;flex-shrink:0;"><span>'+Math.round(it.nutrition.calories||0)+' kcal</span>'+
+      '<button class="icon-btn" onclick="event.stopPropagation();deleteMealsetDraftItem('+idx+')" aria-label="'+t('delete')+'">'+ic('x',15)+'</button></div>'+
+    '</div>';
+  }).join('');
+  var total = emptyNutrition();
+  items.forEach(function(it){ total = addNutrition(total, it.nutrition||emptyNutrition()); });
+  return '<p style="font-weight:600;margin-bottom:10px;">'+esc(af.mealsetSourceName||'')+'</p>'+
+    '<div class="form-group">'+(rows||'<p class="hint" style="margin:0;">'+t('mealsetItemsEmptyHint')+'</p>')+'</div>'+
+    '<div id="mealset-draft-nutrition-preview" style="margin-top:6px;">'+mealEntryNutritionPreviewHtml(total)+'</div>'+
+    '<button class="btn btn-primary" style="margin-top:14px;width:100%;" onclick="onMealsetDraftConfirm()">'+t('save')+'</button>';
+}
+function deleteMealsetDraftItem(idx){
+  var af = state.mealsUI.addFood;
+  af.mealsetLogItems.splice(idx,1);
+  render();
+}
+function deleteMealsetDraftItemFromModal(idx){ closeModal(); deleteMealsetDraftItem(idx); }
+function editMealsetDraftItemAmount(idx){
+  var af = state.mealsUI.addFood;
+  var it = af.mealsetLogItems[idx];
+  if(!it) return;
+  var unitOpts;
+  if(it.source_type==='recipe'){
+    var r = state.recipes.find(function(x){ return x.id===it.source_id; });
+    unitOpts = r ? recipeUnitOptionsForRecipe(r) : [it.unit];
+  } else if(it.source_type==='inventory'){
+    var item = state.items.find(function(x){ return x.id===it.source_id; });
+    unitOpts = item ? recipeUnitOptionsForItem(item) : [it.unit];
+  } else {
+    unitOpts = WEIGHT_UNITS.concat(VOLUME_UNITS);
+  }
+  if(unitOpts.indexOf(it.unit)===-1) unitOpts.unshift(it.unit);
+  showModal(esc(it.name),
+    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" id="ing-amount" autofocus placeholder="'+t('ingAmountPh')+'" value="'+fmtAmount(it.amount, it.unit)+'"></div>'+
+    '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u){ return '<div class="tag-option '+(u===it.unit?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+esc(recipeUnitLabel(u))+'</div>'; }).join('')+'</div></div>'+
+    '<div class="btn-row" style="margin-top:14px;">'+
+      '<button class="btn btn-danger btn-sm" style="flex:1;" onclick="deleteMealsetDraftItemFromModal('+idx+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
+      '<button class="btn btn-primary btn-sm" style="flex:1;" onclick="confirmEditMealsetDraftItem('+idx+')">'+t('save')+'</button>'+
+    '</div>'
+  );
+}
+function confirmEditMealsetDraftItem(idx){
+  var amount = parseAmountInput(document.getElementById('ing-amount').value);
+  var unit = getActivePill('ing-unit-pills');
+  if(!amount || amount<=0){ showToast(state.lang==='zh'?'请输入用量':'Please enter an amount'); return; }
+  var af = state.mealsUI.addFood;
+  var it = af.mealsetLogItems[idx];
+  if(it){ it.amount=amount; it.unit=unit; it.nutrition = recomputeMealsetLogItemNutrition(it); }
+  closeModal();
+  render();
+}
+// README 9.139: same "确认扣减库存" pattern as 我做了这道菜 (see openCookConfirm) - lists every
+// inventory-sourced row in the draft and asks for one confirmation before deducting all of them
+// AND creating the meal-log entry together (unlike 我做了这道菜, which only deducts and never
+// touches 三餐 - here the two always happen in the same step, per Lynn's spec).
+function onMealsetDraftConfirm(){
+  var af = state.mealsUI.addFood;
+  var items = af.mealsetLogItems||[];
+  if(!items.length){ showToast(state.lang==='zh'?'这份套餐没有任何食材':'This mealset has no items'); return; }
+  var hasInventory = items.some(function(it){ return it.source_type==='inventory'; });
+  if(hasInventory) openMealsetLogConfirm(); else saveMealsetLogEntryFinal();
+}
+function openMealsetLogConfirm(){
+  var af = state.mealsUI.addFood;
+  var items = af.mealsetLogItems||[];
+  var lines = items.filter(function(it){ return it.source_type==='inventory'; }).map(function(it){
+    var item = state.items.find(function(x){ return x.id===it.source_id; });
+    if(!item) return '<div class="list-row"><div><div class="row-label" style="font-size:15px;">'+esc(it.name)+'</div><div class="row-sub" style="color:var(--warn);">'+t('cookConfirmNoConversion')+'</div></div></div>';
+    return '<div class="list-row"><div><div class="row-label" style="font-size:15px;">'+esc(item.name)+': '+fmtAmount(it.amount,it.unit)+esc(it.unit)+'</div></div></div>';
+  }).join('');
+  var bodyHtml = '<p class="hint" style="margin-bottom:14px;">'+t('cookConfirmHint')+'</p>'+lines+
+    '<button class="btn btn-primary" style="margin-top:14px;width:100%;" onclick="confirmSaveMealsetLogEntry()">'+t('cookConfirmBtn')+'</button>';
+  showModal(t('cookConfirmTitle'), bodyHtml);
+}
+function confirmSaveMealsetLogEntry(){
+  closeModal();
+  saveMealsetLogEntryFinal();
+}
+function saveMealsetLogEntryFinal(){
+  var af = state.mealsUI.addFood;
+  var items = af.mealsetLogItems||[];
+  var totalN = emptyNutrition();
+  items.forEach(function(it){ totalN = addNutrition(totalN, it.nutrition||emptyNutrition()); });
+  var subItems = items.map(function(it){
+    return {source_type:it.source_type, source_id:it.source_id, name:it.name, amount:it.amount, unit:it.unit, nutrition:it.nutrition};
+  });
+  var anyDeducted = false;
+  items.forEach(function(it, idx){
+    if(it.source_type!=='inventory') return;
+    var item = state.items.find(function(x){ return x.id===it.source_id; });
+    if(!item) return;
+    var res = deductFromItem(item, it.amount, it.unit);
+    if(res && res.ok){
+      subItems[idx].deductItemId = item.id;
+      subItems[idx].deductAmount = it.amount;
+      subItems[idx].deductUnit = it.unit;
+      anyDeducted = true;
+    }
+  });
+  if(anyDeducted) saveItems();
+  var entry = {
+    id: uid(), date: af.date, slot: af.slot, name: af.mealsetSourceName||'', amount:null, unit:'',
+    nutrition: totalN, created_at: nowLocalIso(),
+    source_type: 'mealset', source_id: af.mealsetSourceMealsetId||null,
+    subItems: subItems
+  };
+  state.mealLogs.push(entry);
+  saveMealLogs();
+  if(af.mealsetSourceMealsetId) bumpPickFrequency('mealset', af.mealsetSourceMealsetId);
+  af.mealsetPhase = null;
+  af.mealsetLogItems = null;
+  showToast(t('mealLoggedToast'));
+  navigate('meals');
 }
 function addFoodLocalSearchBodyHtml(af){
   var ph = af.tab==='recipe' ? t('recipeSearchPlaceholder') : t('searchPlaceholder');
@@ -13350,7 +13883,9 @@ function afterRender(){
   if(state.view === 'home'){
     syncHomeStickyControlsOffset();
   }
-  if(state.view === 'pickInventory' || state.view === 'pickExternal' || state.view === 'pickRecipe'){
+  if(state.view === 'pickInventory' || state.view === 'pickExternal' || state.view === 'pickRecipe' ||
+     state.view === 'mealsetPickInventory' || state.view === 'mealsetPickExternal' ||
+     state.view === 'mealsetPickRecipe' || state.view === 'mealsetPickMealset'){
     syncPickStickyOffset();
   }
   if(state.view === 'mealAddFood'){
