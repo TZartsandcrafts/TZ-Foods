@@ -857,7 +857,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.139';
+var BUILD_VERSION = '9.142';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2195,8 +2195,10 @@ var I18N = {
     mealSlot_breakfast:'早餐', mealSlot_lunch:'午餐', mealSlot_dinner:'晚餐', mealSlot_snack:'零食',
     noMealLoggedHint:'还没有记录', addFoodBtn:'添加食物', deleteMealLogConfirm:'删除这条记录？',
     macroOverLabel:'超标', addFoodSearchPh:'搜索库存/食谱/食材，或输入英文查USDA',
-    sourceInventory:'库存', sourceRecipe:'食谱', sourceExternal:'外部食材库', sourceMealset:'套餐',
+    sourceInventory:'库存', sourceRecipe:'食谱', sourceExternal:'外部食材库', sourceMealset:'套餐', sourceScan:'扫描',
     tabCustom:'自定', usdaOnlySearchPh:'搜索 USDA 食物数据库（英文）',
+    mealScanNotInInventoryTitle:'库存里没有这个食品', mealScanNotInInventoryMsg:'要不要顺便添加到库存？',
+    mealScanAddToInventoryBtn:'添加到库存', mealScanOneTimeBtn:'仅记录这一次',
     newMealsetBtn:'新建套餐', mealsetNoItemsHint:'还没有套餐，点击上方新建一个',
     mealsetFormTitleNew:'新建套餐', mealsetFormTitleEdit:'编辑套餐', mealsetNameLabel:'套餐名称',
     mealsetItemsEmptyHint:'还没有添加任何食材', addMealsetNested:'添加套餐（嵌套）',
@@ -2482,8 +2484,10 @@ var I18N = {
     mealSlot_breakfast:'Breakfast', mealSlot_lunch:'Lunch', mealSlot_dinner:'Dinner', mealSlot_snack:'Snacks',
     noMealLoggedHint:'Nothing logged yet', addFoodBtn:'Add Food', deleteMealLogConfirm:'Delete this entry?',
     macroOverLabel:'over', addFoodSearchPh:'Search inventory/recipes/ingredients, or an English term for USDA',
-    sourceInventory:'Inventory', sourceRecipe:'Recipe', sourceExternal:'External Ingredients', sourceMealset:'Mealset',
+    sourceInventory:'Inventory', sourceRecipe:'Recipe', sourceExternal:'External Ingredients', sourceMealset:'Mealset', sourceScan:'Scan',
     tabCustom:'Custom', usdaOnlySearchPh:'Search the USDA food database',
+    mealScanNotInInventoryTitle:'Not in your inventory', mealScanNotInInventoryMsg:"Want to add it to your inventory while you're at it?",
+    mealScanAddToInventoryBtn:'Add to inventory', mealScanOneTimeBtn:'Just log this once',
     newMealsetBtn:'New mealset', mealsetNoItemsHint:'No mealsets yet — create one above',
     mealsetFormTitleNew:'New mealset', mealsetFormTitleEdit:'Edit mealset', mealsetNameLabel:'Mealset name',
     mealsetItemsEmptyHint:'No items added yet', addMealsetNested:'Add a mealset (nested)',
@@ -2722,6 +2726,13 @@ var state = {
   mealsets: [],
   mealsetDraft: null,
   mealsetFormUI: {},
+  mealsetPickerMode: 'template',
+  // README 9.141: 三餐加食物's 扫描 tab needs to survive a detour through the inventory item
+  // form (when the person chooses "添加到库存") and come back to logging a meal afterward -
+  // these two travel with state.itemFormUI.returnTo/saveItemForm rather than living on
+  // state.mealsUI.addFood, since the item form doesn't know or care about that object.
+  mealScanPendingLog: false,
+  mealScanPendingOffResult: null,
   // README 9.96: data model for 三餐/健康 (batch 1 - skeleton pages only, these arrays/object
   // are wired into storage load/save now so later batches don't need to touch this plumbing
   // again, but nothing populates them yet).
@@ -4283,7 +4294,17 @@ function sidebarPageForCurrentView(){
   if(state.view==='home' || state.view==='archive' || state.view==='stats' || state.view==='priceHistory' || state.view==='statFilteredList') return 'home';
   if(state.view==='recipes') return 'recipes';
   if(state.view==='meals' || state.view==='mealsHistory') return 'meals';
-  if(state.view==='health' || state.view==='weightHistory' || state.view==='personalInfo' || state.view==='planSettings' || state.view==='macroPresetPicker') return 'health';
+  // README 9.142: planSettings/macroPresetPicker used to live under 健康, back when this list was
+  // last written, so they were grouped in with the health sidebar here. README 9.109 moved both
+  // pages to be reached from 三餐设置 instead (see the comment near renderPlanSettings) and
+  // updated backTarget() below accordingly, but this classification was never updated to match -
+  // so the left-edge swipe gesture on those two pages was still opening the (wrong, and by now
+  // orphaned) health sidebar on top of them, racing with the ALSO-firing swipe-back gesture
+  // (initItemDetailBackSwipe correctly returns {view:'mealsSettings'}/{view:'planSettings'} for
+  // these views) every time. Neither page has its own sidebar - same as mealsSettings/
+  // healthSettings/inventorySettings and every other settings sub-page - so this simply drops
+  // them, letting the swipe mean "go back" here with no gesture conflict, exactly like those.
+  if(state.view==='health' || state.view==='weightHistory' || state.view==='personalInfo') return 'health';
   return null;
 }
 function sidebarContentFor(page){
@@ -4329,8 +4350,20 @@ function openSidebar(page){
   drawer._touchStartX = null; drawer._touchStartY = null;
   drawer.innerHTML = sidebarContentFor(page);
   overlay.classList.add('open');
+  // README 9.142: this used to unconditionally add 'open' to the drawer once the two queued
+  // frames came around, with no check that the sidebar was even still supposed to be open by
+  // then. Almost always harmless (nothing else happens in that ~30ms window) - but if something
+  // else calls closeSidebar() (or opens a DIFFERENT page's sidebar) before these frames fire -
+  // e.g. navigate()'s own unconditional closeSidebar() at its top, racing against this open() from
+  // a swipe gesture that fired on the same touch as a swipe-back gesture - the drawer would still
+  // slide open regardless, with the overlay left closed underneath it (only the overlay's 'open'
+  // class controls its dimmed backdrop AND its pointer-events:auto - see the CSS - so a drawer
+  // open with no overlay is not just visually wrong, it's untappable-to-dismiss: background taps
+  // fall straight through to the page behind it, leaving the drawer's own X button as the only
+  // way out). Capturing `page` and re-checking state.sidebarOpen===page before actually adding
+  // the class closes that race at its source, for every call site, not just this one bug.
   requestAnimationFrame(function(){
-    requestAnimationFrame(function(){ drawer.classList.add('open'); });
+    requestAnimationFrame(function(){ if(state.sidebarOpen===page) drawer.classList.add('open'); });
   });
 }
 function closeSidebar(){
@@ -4483,9 +4516,9 @@ function openSettings(fromView){
     if(state.view==='macroPresetPicker') return {view:'planSettings'};
     if(state.view==='mealAddFood') return {view:'meals'};
     if(state.view==='mealsetForm') return {view:'mealAddFood'};
-    if(state.view==='mealsetPickInventory') return {view:'mealsetForm'};
-    if(state.view==='mealsetPickExternal') return {view:'mealsetForm'};
-    if(state.view==='mealsetPickRecipe') return {view:'mealsetForm'};
+    if(state.view==='mealsetPickInventory') return {view: state.mealsetPickerMode==='draft' ? 'mealAddFood' : 'mealsetForm'};
+    if(state.view==='mealsetPickExternal') return {view: state.mealsetPickerMode==='draft' ? 'mealAddFood' : 'mealsetForm'};
+    if(state.view==='mealsetPickRecipe') return {view: state.mealsetPickerMode==='draft' ? 'mealAddFood' : 'mealsetForm'};
     if(state.view==='mealsetPickMealset') return {view:'mealsetForm'};
     if(state.view==='mealLogEntryDetail') return {view:'meals'};
     if(state.view==='mealsHistory') return {view:'meals'};
@@ -5231,7 +5264,13 @@ function expiryRelativeText(item){
   if(d < 0) return relativeTimeLabel(-d) + (state.lang==='zh' ? '前' : ' ago');
   return relativeTimeLabel(d);
 }
-function renderItemListHtml(items){
+function renderItemListHtml(items, from){
+  // README 9.142: `from` records which page this list is being rendered on (home, or a
+  // dedicated stat-filtered list like 已用完/临期), and travels all the way down into each
+  // card's navigate('itemDetail', ...) call so the detail page's right-swipe/back button
+  // returns HERE - "从哪里来回哪里去" - instead of always assuming "home" like it used to.
+  // Defaults to {view:'home'} for the (still very common) case of the main inventory list.
+  from = from || {view:'home'};
   if(items.length===0){
     if(activeItems().length===0){
       return '<div class="empty-state">'+ic('box',40)+'<p><strong>'+t('emptyInventory')+'</strong><br>'+t('emptyInventoryHint')+'</p></div>';
@@ -5255,7 +5294,7 @@ function renderItemListHtml(items){
   });
   return groupOrder.map(function(k){
     var group = groupMap[k];
-    return group.length===1 ? renderSingleItemCard(group[0]) : renderItemGroupHtml(k, group);
+    return group.length===1 ? renderSingleItemCard(group[0], from) : renderItemGroupHtml(k, group, from);
   }).join('');
 }
 function itemGroupKey(it){
@@ -5293,7 +5332,7 @@ function toggleItemGroup(key){
   state.home.expandedGroups[key] = !state.home.expandedGroups[key];
   render();
 }
-function renderSingleItemCard(it){
+function renderSingleItemCard(it, from){
   var st = expiryStatus(it);
   var meta = (it.location?esc(it.location)+' · ':'') + t('remainingQtyLabel')+' '+qtyDisplay(it);
   var expiryDateText = it.expiry_date ? fmtDateDots(it.expiry_date) : '';
@@ -5308,7 +5347,7 @@ function renderSingleItemCard(it){
       '<button class="swipe-action-btn action-archive" onclick="event.stopPropagation();archiveItemFromSwipe('+aj(it.id)+')">'+ic('archive',20)+'<span>'+esc(t('archiveBtn'))+'</span></button>'+
       '<button class="swipe-action-btn action-edit" onclick="event.stopPropagation();closeItemSwipeRow('+aj(it.id)+');openItemForm('+aj(it.id)+')">'+ic('edit',20)+'<span>'+esc(t('edit'))+'</span></button>'+
     '</div>'+
-    '<div class="item-card card-'+st.level+'" onclick="navigate(\'itemDetail\',{id:'+aj(it.id)+'})">'+
+    '<div class="item-card card-'+st.level+'" onclick="navigate(\'itemDetail\',{id:'+aj(it.id)+',from:'+aj(from||{view:'home'})+'})">'+
       '<div class="item-card-main">'+
         '<div class="item-icon">'+thumb+'</div>'+
         '<div class="item-info">'+
@@ -5323,7 +5362,7 @@ function renderSingleItemCard(it){
     '</div>'+
   '</div>';
 }
-function renderItemGroupHtml(key, group){
+function renderItemGroupHtml(key, group, from){
   var rep = representativeGroupItem(group);
   var st = expiryStatus(rep);
   var totalQty = groupTotalQty(group);
@@ -5336,7 +5375,7 @@ function renderItemGroupHtml(key, group){
     esc(t('unset'));
   var badgeText = rep.expiry_date ? expiryRelativeText(rep) : t('unset');
   var batchMeta = state.lang==='zh' ? ('共'+group.length+'批') : (group.length+' batches');
-  var childrenHtml = expanded ? group.map(renderSingleItemCard).join('') : '';
+  var childrenHtml = expanded ? group.map(function(it){ return renderSingleItemCard(it, from); }).join('') : '';
   return '<div class="item-group">'+
     '<div class="item-card card-'+st.level+' item-group-header" data-item-id="'+esc(rep.id)+'" onclick="toggleItemGroup('+aj(key)+')">'+
       '<div class="item-card-main">'+
@@ -5485,7 +5524,7 @@ function renderStatFilteredList(){
   var titleKey = level==='expired' ? 'statExpired' : (level==='soon' ? 'statSoon' : (level==='usedup' ? 'statUsedUp' : 'statTotal'));
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'home\')">'+ic('back',22)+'</button><h1>📦 '+t(titleKey)+'</h1></div>'+
-  '<div class="content">'+renderItemListHtml(items)+'</div>'+
+  '<div class="content">'+renderItemListHtml(items, {view:'statFilteredList', params:{level:level}})+'</div>'+
   bottomNav();
 }
 function setHomeFilter(kind, val){ state.home[kind]=val; render(); }
@@ -5737,7 +5776,12 @@ function openItemForm(id, prefill){
   // page; opening from the inventory list (or adding a brand-new item from anywhere) returns
   // to the list, same as before.
   var returnTo = {view:'home'};
-  if(id && state.view==='itemDetail' && state.params && state.params.id===id){
+  if(state.mealScanPendingLog){
+    // README 9.141: opened from 三餐加食物's 扫描 tab via "添加到库存" - cancelling this form
+    // should drop the person back at the 扫描 tab (still on af.tab==='scan'), not the inventory
+    // list they were never trying to browse.
+    returnTo = {view:'mealAddFood'};
+  } else if(id && state.view==='itemDetail' && state.params && state.params.id===id){
     returnTo = {view:'itemDetail', params:{id:id}};
   }
   // README 9.100: editing an archived item from either its read-only detail page or the
@@ -6949,6 +6993,45 @@ async function onDetailPhotoSelected(input, id){
   }
   input.value = '';
 }
+// README 9.142: recipe-detail equivalent of onDetailPhotoSelected above - same immediate-commit
+// pipeline (compress, save to IndexedDB, swap the ref in, persist, clean up the old blob), just
+// against state.recipes/saveRecipes instead of state.items/saveItems. This is deliberately
+// separate from onRecipePhotoSelected (the recipe FORM's photo field), which writes into a draft
+// and only actually commits the photo on Save/discards it on cancel - the little camera badge on
+// the detail page's cover photo has no such draft/cancel step to go through, exactly like the
+// item detail page's own quick-photo-edit button doesn't either.
+async function onRecipeDetailPhotoSelected(input, id){
+  var file = input.files && input.files[0];
+  if(!file) return;
+  var r = state.recipes.find(function(x){ return x.id===id; });
+  if(!r) return;
+  try{
+    var maxDim = 900, quality = 0.72;
+    var dataUrl = await compressImageFile(file, maxDim, quality);
+    var tries = 0;
+    while(dataUrl.length > 180*1024 && tries < 5){
+      maxDim = Math.round(maxDim * 0.8);
+      quality = Math.max(0.4, quality - 0.1);
+      dataUrl = await compressImageFile(file, maxDim, quality);
+      tries++;
+    }
+    if(dataUrl.length > 260*1024){
+      showToast(t('photoTooLarge'));
+      input.value = '';
+      return;
+    }
+    var oldRef = r.photo_url;
+    var ref = await savePhotoToIDB(dataUrl);
+    r.photo_url = ref;
+    r.updated_at = nowLocalIso();
+    saveRecipes();
+    if(oldRef) deletePhotoRef(oldRef);
+    render();
+  }catch(e){
+    showToast(t('photoProcessFailed'));
+  }
+  input.value = '';
+}
 async function onItemPhotoSelected(input){
   var file = input.files && input.files[0];
   if(!file) return;
@@ -7058,6 +7141,7 @@ function cancelItemForm(){
 }
 function discardItemFormChanges(){
   var target = (state.itemFormUI && state.itemFormUI.returnTo) || {view:'home'};
+  state.mealScanPendingLog = false; // README 9.141: cancel always clears this, even though target was already decided at open time via returnTo
   // Nothing staged in pendingPhotoDeleteRefs actually got deleted yet, so the original photo
   // (if any) is untouched - just walk away from it. The only thing to clean up here is a
   // brand-new photo the person uploaded during this session and never saved, so it doesn't
@@ -7132,7 +7216,22 @@ function saveItemForm(){
   if(siblings.length){
     promptBatchSync(savedId, siblings.map(function(i){ return i.id; }), savedArchived);
   } else {
-    if(savedArchived) navigate('itemViewOnly', {id:savedId, from:'archive'});
+    if(state.mealScanPendingLog){
+      // README 9.141: came from 三餐加食物's 扫描 tab "添加到库存" - jump straight into the
+      // amount step for this brand-new item instead of landing on its detail page, so scanning
+      // + adding to inventory + logging the meal is one continuous flow. Setting af.step to
+      // 'loading' (rather than leaving it at 'search') BEFORE navigate() matters here: navigate()
+      // triggers one render on its own before pickLocalFoodForMeal below gets to run, and if
+      // af.step were still 'search' with af.tab==='scan', that intermediate render would show
+      // the camera view and afterRender() would call startScan() on it - a stream that then has
+      // no video element left to attach to by the time getUserMedia resolves (this render is
+      // immediately replaced by pickLocalFoodForMeal's own render), leaking an orphaned camera
+      // stream nothing ever stops. 'loading' just shows inert text for that one frame instead.
+      state.mealScanPendingLog = false;
+      state.mealsUI.addFood.step = 'loading';
+      navigate('mealAddFood');
+      pickLocalFoodForMeal('item', savedId);
+    } else if(savedArchived) navigate('itemViewOnly', {id:savedId, from:'archive'});
     else navigate('itemDetail',{id:savedId});
   }
 }
@@ -7630,7 +7729,7 @@ function renderUsageLogAdd(){
     '</div>'+
     '<div class="field"><label>'+t(isAdjust?'usageAdjustAmountLabel':'usageAmount')+'</label>'+
       '<div style="display:flex;gap:8px;align-items:center;">'+
-        '<input type="text" value="'+(d.amount!=null?d.amount:'')+'" oninput="setUsageField(\'amount\',this.value)" style="flex:1;min-width:0;">'+
+        '<input type="text" autofocus value="'+(d.amount!=null?d.amount:'')+'" oninput="setUsageField(\'amount\',this.value)" style="flex:1;min-width:0;">'+
         '<div class="tag-select" style="flex-shrink:0;">'+unitOptions.map(function(u){
           return '<div class="tag-option '+(d.unit===u?'active':'')+'" onclick="setUsageUnit('+aj(u)+')">'+esc(u)+'</div>';
         }).join('')+'</div>'+
@@ -8288,8 +8387,14 @@ function showModal(title, bodyHtml){
   var toFocus = root.querySelector('[autofocus]');
   if(toFocus){
     toFocus.focus();
-    if(toFocus.value && toFocus.setSelectionRange){
-      try{ toFocus.setSelectionRange(toFocus.value.length, toFocus.value.length); }catch(e){}
+    // README 9.142: was setSelectionRange(length,length) - cursor parked AFTER the existing
+    // number, so correcting a prefilled value (调整余量 and friends) meant manually selecting or
+    // deleting the old digits before typing the new one. Lynn wants the field to land ready for
+    // a straight overwrite: select() highlights the whole existing value the instant the
+    // keyboard appears, so the very next keystroke replaces it outright - no extra tap/selection
+    // step needed. Still perfectly safe for empty fields (select() on '' is a no-op).
+    if(toFocus.value && toFocus.select){
+      try{ toFocus.select(); }catch(e){}
     }
   }
 }
@@ -8547,14 +8652,16 @@ function setScanStatus(msg){
 }
 function onBarcodeDetected(code){
   stopScan();
-  lookupAndPrefill(code);
+  if(state.view==='mealAddFood') mealScanLookup(code);
+  else lookupAndPrefill(code);
 }
 function manualBarcodeLookup(){
   var el = document.getElementById('manual-barcode-input');
   var code = el ? el.value.trim() : '';
   if(!code) return;
   stopScan();
-  lookupAndPrefill(code);
+  if(state.view==='mealAddFood') mealScanLookup(code);
+  else lookupAndPrefill(code);
 }
 async function lookupAndPrefill(code){
   setScanStatus(t('scanLookingUp'));
@@ -9221,10 +9328,13 @@ function getPickInventoryList(){
   return list;
 }
 function pickerBackView(){
-  // README 9.139: pickInventory/pickExternal/pickRecipe are shared between the recipe-ingredient
-  // picker and the 套餐-item picker - this just says which page "back" (and a successful pick)
-  // should return to, based on which mealsetPick*/pick* view got us here.
-  return (state.view==='mealsetPickInventory' || state.view==='mealsetPickExternal' || state.view==='mealsetPickRecipe') ? 'mealsetForm' : 'recipeForm';
+  // README 9.139/9.140: pickInventory/pickExternal/pickRecipe are shared between the recipe-
+  // ingredient picker, the 套餐-template picker, and (as of 9.140) the 套餐-log-draft ad hoc
+  // add picker - this says which page "back" (and a successful pick) should return to.
+  if(state.view==='mealsetPickInventory' || state.view==='mealsetPickExternal' || state.view==='mealsetPickRecipe'){
+    return state.mealsetPickerMode==='draft' ? 'mealAddFood' : 'mealsetForm';
+  }
+  return 'recipeForm';
 }
 function renderPickInventory(){
   return '' +
@@ -9355,6 +9465,12 @@ function confirmAddIngredient(sourceType, id, name){
   if(!amount || amount<=0){ showToast(state.lang==='zh'?'请输入用量':'Please enter an amount'); return; }
   var isMealsetCtx = (state.view==='mealsetPickInventory' || state.view==='mealsetPickRecipe' || state.view==='mealsetPickExternal');
   if(isMealsetCtx){
+    if(state.mealsetPickerMode==='draft'){
+      addRawItemToMealsetDraftLog(sourceType, id, name, amount, unit);
+      closeModal();
+      navigate('mealAddFood');
+      return;
+    }
     var mlist = state.mealsetDraft.items || (state.mealsetDraft.items=[]);
     var entry = {id:uid(), source_type:sourceType, source_id:id, name_snapshot:name, amount:amount, unit:unit};
     if(sourceType==='recipe') entry.use_existing = true; // 套餐里的食谱项固定按"现成成品"处理，没有开关
@@ -9392,7 +9508,7 @@ function renderPickExternal(){
   var q = (state.pickSearch||'').toLowerCase();
   var list = state.ingredients.filter(function(i){ return !q || (i.name||'').toLowerCase().indexOf(q)!==-1; });
   var itemsHtml = list.map(function(ing){
-    return '<div class="picker-item" onclick="quickAddExternalIngredient('+aj(ing.id)+')">'+
+    return '<div class="picker-item" onclick="pickExternalIngredient('+aj(ing.id)+')">'+
       '<div><div class="pname">'+esc(ing.name)+'</div><div class="pmeta">'+fmtNum(ing.nutrition.calories,0)+' kcal /100g</div></div>'+
       '<div style="display:flex;align-items:center;gap:2px;">'+
         '<button class="icon-btn" onclick="event.stopPropagation();deleteExternalIngredientConfirm('+aj(ing.id)+')" aria-label="'+t('delete')+'">'+ic('trash',17)+'</button>'+
@@ -9414,7 +9530,7 @@ function renderPickExternalListOnly(){
   var q = (state.pickSearch||'').toLowerCase();
   var list = state.ingredients.filter(function(i){ return !q || (i.name||'').toLowerCase().indexOf(q)!==-1; });
   return list.map(function(ing){
-    return '<div class="picker-item" onclick="quickAddExternalIngredient('+aj(ing.id)+')">'+
+    return '<div class="picker-item" onclick="pickExternalIngredient('+aj(ing.id)+')">'+
       '<div><div class="pname">'+esc(ing.name)+'</div><div class="pmeta">'+fmtNum(ing.nutrition.calories,0)+' kcal /100g</div></div>'+
       '<div style="display:flex;align-items:center;gap:2px;">'+
         '<button class="icon-btn" onclick="event.stopPropagation();deleteExternalIngredientConfirm('+aj(ing.id)+')" aria-label="'+t('delete')+'">'+ic('trash',17)+'</button>'+
@@ -9423,21 +9539,37 @@ function renderPickExternalListOnly(){
     '</div>';
   }).join('');
 }
-// Tapping a row now adds it straight to the recipe at a flat 100g default instead of popping
-// an amount/unit modal first - adjusting the actual amount already happens by tapping the
-// ingredient once it's in the recipe's own list (editRecipeIngredient), so asking for it twice
-// was redundant. No confirmation needed to add; deleteExternalIngredientConfirm below is the
-// one that's destructive and asks first.
-function quickAddExternalIngredient(id){
+// README 9.142: this used to add straight at a flat 100g default with no amount prompt at all
+// (the comment used to justify it by pointing at editRecipeIngredient/editing after the fact -
+// but Lynn wants the amount asked for up front here, the same as pickInventoryItem already does
+// for inventory ingredients, not as an extra edit step after adding). Now opens the same kind of
+// autofocus-amount modal instead - no unit picker needed since external ingredients are always
+// tracked in grams (their nutrition is stored per-100g to begin with - see openNewExternalIngredientModal).
+function pickExternalIngredient(id){
   var ing = state.ingredients.find(function(i){ return i.id===id; });
   if(!ing) return;
+  showModal(ing.name,
+    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" id="ing-amount" autofocus placeholder="'+t('ingAmountPh')+'"></div>'+
+    '<button class="btn btn-primary" onclick="confirmAddExternalIngredient('+aj(id)+','+aj(ing.name)+')">'+t('add')+'</button>'
+  );
+}
+function confirmAddExternalIngredient(id, name){
+  var amount = parseAmountInput(document.getElementById('ing-amount').value);
+  if(!amount || amount<=0){ showToast(state.lang==='zh'?'请输入用量':'Please enter an amount'); return; }
   if(state.view==='mealsetPickExternal'){
+    if(state.mealsetPickerMode==='draft'){
+      addRawItemToMealsetDraftLog('external', id, name, amount, 'g');
+      closeModal();
+      navigate('mealAddFood');
+      return;
+    }
     var mlist = state.mealsetDraft.items || (state.mealsetDraft.items=[]);
-    mlist.push({id:uid(), source_type:'external', source_id:id, name_snapshot:ing.name, amount:100, unit:'g'});
+    mlist.push({id:uid(), source_type:'external', source_id:id, name_snapshot:name, amount:amount, unit:'g'});
+    closeModal();
     navigate('mealsetForm');
     return;
   }
-  addIngredientToRecipe('external', id, ing.name, 100, 'g');
+  addIngredientToRecipe('external', id, name, amount, 'g');
 }
 function deleteExternalIngredientConfirm(id){
   showConfirmModal(t('deleteConfirm'), function(){
@@ -9446,15 +9578,15 @@ function deleteExternalIngredientConfirm(id){
     render();
   }, {title:t('delete')});
 }
-// README 9.130: recipe-as-ingredient picker page - same page shape as renderPickInventory/
-// renderPickExternal (page-header + sticky search + a list that re-renders in place on
-// search), but the list itself is getPickRecipeList() rather than a plain filter, since it also
-// has to exclude the recipe currently being edited and anything that would create a cycle (see
-// recipeUsesRecipe). Tapping a row opens an amount/unit modal (pickRecipeIngredient) instead of
-// adding straight away like quickAddExternalIngredient does, because unlike an external
-// ingredient's flat "100g default", there's no sensible default amount for "some of another
-// recipe" - the person has to say how much (整份/人份/g, whichever the sub-recipe's own
-// servings/cooked_weight make available - see recipeUnitOptionsForRecipe) every time.
+// README 9.130 (updated 9.142): recipe-as-ingredient picker page - same page shape as
+// renderPickInventory/renderPickExternal (page-header + sticky search + a list that re-renders
+// in place on search), but the list itself is getPickRecipeList() rather than a plain filter,
+// since it also has to exclude the recipe currently being edited and anything that would create
+// a cycle (see recipeUsesRecipe). Tapping a row opens an amount/unit modal (pickRecipeIngredient),
+// same idea as pickExternalIngredient's amount modal - except this one also needs a unit picker
+// (整份/人份/g, whichever the sub-recipe's own servings/cooked_weight make available - see
+// recipeUnitOptionsForRecipe), since unlike an external ingredient (always grams), "some of
+// another recipe" has more than one sensible way to measure it.
 function getPickRecipeList(){
   var q = (state.pickSearch||'').toLowerCase();
   var isMealsetCtx = (state.view==='mealsetPickRecipe');
@@ -9700,6 +9832,12 @@ function createExternalIngredientAndAdd(){
   state.ingredients.push(ing);
   saveIngredients();
   if(state.view==='mealsetPickExternal'){
+    if(state.mealsetPickerMode==='draft'){
+      addRawItemToMealsetDraftLog('external', ing.id, ing.name, ui.amount||100, ui.unit||'g');
+      closeModal();
+      navigate('mealAddFood');
+      return;
+    }
     var mlist = state.mealsetDraft.items || (state.mealsetDraft.items=[]);
     mlist.push({id:uid(), source_type:'external', source_id:ing.id, name_snapshot:ing.name, amount:ui.amount||100, unit:ui.unit||'g'});
     closeModal();
@@ -9731,10 +9869,32 @@ function saveExternalIngredientEdit(){
 // source_id + amount/unit), same shape as a recipe ingredient row, reusing all the same
 // picker infrastructure (see pickerBackView / the mealsetPick* branches added throughout the
 // pickInventory/pickExternal/pickRecipe functions above) rather than inventing a parallel set.
-function goMealsetPickInventory(){ state.pickSearch=''; navigate('mealsetPickInventory'); }
-function goMealsetPickExternal(){ state.pickSearch=''; navigate('mealsetPickExternal'); }
-function goMealsetPickRecipe(){ state.pickSearch=''; navigate('mealsetPickRecipe'); }
-function goMealsetPickMealset(){ state.pickSearch=''; navigate('mealsetPickMealset'); }
+// README 9.140: goMealsetPick*() (template editing) vs goMealsetDraftPick*() (ad hoc add while
+// logging a meal, see mealsetDraftHtml's "+添加" row) share the exact same picker pages -
+// state.mealsetPickerMode is the only thing telling confirmAddIngredient/confirmAddExternalIngredient/
+// createExternalIngredientAndAdd/pickerBackView which draft to write into and where "back" goes.
+// Always set explicitly on entry (never left over from a previous visit) so the two modes can't
+// bleed into each other.
+function goMealsetPickInventory(){ state.pickSearch=''; state.mealsetPickerMode='template'; navigate('mealsetPickInventory'); }
+function goMealsetPickExternal(){ state.pickSearch=''; state.mealsetPickerMode='template'; navigate('mealsetPickExternal'); }
+function goMealsetPickRecipe(){ state.pickSearch=''; state.mealsetPickerMode='template'; navigate('mealsetPickRecipe'); }
+function goMealsetPickMealset(){ state.pickSearch=''; state.mealsetPickerMode='template'; navigate('mealsetPickMealset'); }
+function goMealsetDraftPickInventory(){ state.pickSearch=''; state.mealsetPickerMode='draft'; navigate('mealsetPickInventory'); }
+function goMealsetDraftPickExternal(){ state.pickSearch=''; state.mealsetPickerMode='draft'; navigate('mealsetPickExternal'); }
+function goMealsetDraftPickRecipe(){ state.pickSearch=''; state.mealsetPickerMode='draft'; navigate('mealsetPickRecipe'); }
+// Adds one ad hoc leaf item straight to the in-progress 套餐 log draft (af.mealsetLogItems) -
+// this is the "顺手加了根黄瓜" case: it never touches the 套餐 template itself, only this one
+// meal-log-in-progress, same as everything else in the draft (see buildMealsetLogItems/README
+// 9.139 for why the draft is always a disconnected snapshot).
+function addRawItemToMealsetDraftLog(sourceType, sourceId, name, amount, unit){
+  var af = state.mealsUI.addFood;
+  if(!af.mealsetLogItems) af.mealsetLogItems = [];
+  var nutrition = recomputeMealsetLogItemNutrition({source_type:sourceType, source_id:sourceId, amount:amount, unit:unit});
+  af.mealsetLogItems.push({
+    id: uid(), source_type: sourceType, source_id: sourceId, name: name,
+    amount: amount, unit: unit, nutrition: nutrition, deduct: sourceType==='inventory'
+  });
+}
 function openMealsetForm(id){
   if(id){
     var m = state.mealsets.find(function(x){ return x.id===id; });
@@ -10618,17 +10778,39 @@ function renderRecipeDetail(){
         ((linkedItem || linkedRecipe) ? ic('chevronRight',15,'class="ing-list-chevron" style="color:#B79B78;"') : '')+
       '</div>';
   }).join('');
+  var photoBlock = r.photo_url
+    ? photoImgHtml(r.photo_url, 'width:100%;height:100%;border-radius:14px;display:block;border:1px solid var(--line);object-fit:cover;')
+    : '<div class="item-detail-photo-placeholder">'+ic('book',30)+'</div>';
   return '' +
   '<div class="page-header">'+
     '<button class="back-btn" onclick="navigate('+aj(backTo.view)+','+aj(backTo.params||{})+')">'+ic('back',22)+'</button>'+
     '<h1>'+esc(r.name)+'</h1>'+
-    '<button class="icon-btn" onclick="confirmDeleteRecipeDetail('+aj(r.id)+')">'+ic('trash',18)+'</button>'+
-    '<button class="icon-btn" onclick="openRecipeForm('+aj(r.id)+')">'+ic('edit',18)+'</button>'+
   '</div>'+
   '<div class="content">'+
-    '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:16px;">'+
-      '<p style="color:var(--deep-caramel);font-size:14px;margin:0;">'+r.servings+' '+t('fieldServings')+' · '+recipeIngredientCount(r)+' '+t('sectionIngredients')+'</p>'+
-      '<button class="btn btn-primary btn-sm" style="flex-shrink:0;" onclick="openCookConfirm('+aj(r.id)+')">'+t('cookThis')+'</button>'+
+    // README 9.142: hero layout now matches itemDetail's upper section (renderItemDetail) -
+    // name in the page-header above, then this row (cover photo left / info+actions right,
+    // 3 rows: 份数·食材, delete+edit, 我做了这道菜) - instead of the old plain header-icon
+    // delete/edit buttons plus a bare text-and-button row with no photo shown at all. The cover
+    // photo itself was already settable from the recipe form (openRecipeForm's own photo field,
+    // same compressImageFile/savePhotoToIDB pipeline as an inventory item's photo - see
+    // onRecipePhotoSelected there) - this just also exposes the same quick inline edit button
+    // (onRecipeDetailPhotoSelected) directly on the detail page, the same convenience
+    // onDetailPhotoSelected already gives item detail, so changing the cover doesn't require
+    // opening the full edit form.
+    '<div class="item-detail-hero">'+
+      '<div class="item-detail-photo">'+photoBlock+
+        '<label class="item-detail-photo-edit-btn" title="'+esc(t('fieldPhotoUploadBtn'))+'">'+ic('camera',15)+
+          '<input type="file" accept="image/*" style="display:none" onchange="onRecipeDetailPhotoSelected(this,'+aj(r.id)+')">'+
+        '</label>'+
+      '</div>'+
+      '<div class="item-detail-hero-info">'+
+        '<p style="margin:0;color:var(--deep-caramel);font-size:14px;">'+r.servings+' '+t('fieldServings')+' · '+recipeIngredientCount(r)+' '+t('sectionIngredients')+'</p>'+
+        '<div class="item-detail-hero-actions">'+
+          '<button class="item-detail-action-btn danger" onclick="event.stopPropagation();confirmDeleteRecipeDetail('+aj(r.id)+')"><span class="icon">'+ic('trash',20)+'</span><span>'+t('delete')+'</span></button>'+
+          '<button class="item-detail-action-btn edit" onclick="event.stopPropagation();openRecipeForm('+aj(r.id)+')"><span class="icon">'+ic('edit',20)+'</span><span>'+t('edit')+'</span></button>'+
+        '</div>'+
+        '<button class="btn btn-primary" style="width:100%;" onclick="openCookConfirm('+aj(r.id)+')">'+t('cookThis')+'</button>'+
+      '</div>'+
     '</div>'+
     '<div class="section-title" style="margin-top:0;">'+t('sectionIngredients')+'</div>'+
     '<div class="form-group">'+(ingHtml||('<p class="hint">'+t('noIngredientsYet')+'</p>'))+'</div>'+
@@ -11335,13 +11517,18 @@ function renderMealLogEntryDetail(){
   var id = state.params.id;
   var m = state.mealLogs.find(function(x){ return x.id===id; });
   if(!m) return renderMeals();
-  // README 9.139: 套餐 log entries have no single editable amount (each subItem has its own,
-  // fixed at log time in the draft step - see mealsetDraftHtml) - this just shows the breakdown
-  // ("展开后能看到内部每项") plus a delete that reverses every subItem's deduction at once (see
-  // reverseMealLogDeductions). Per-item post-log editing is intentionally out of scope for now.
+  // README 9.140: each 套餐 log subItem is now independently editable/deletable in place
+  // (editMealsetLogSubItem/confirmEditMealsetLogSubItem/deleteMealsetLogSubItem) - there's still
+  // no single "whole entry amount" the way a plain food entry has, since a 套餐 entry is a list,
+  // but each row within it behaves like the single-item edit page now does. The overall delete
+  // button below still removes the whole entry (and reverses every remaining subItem's
+  // deduction at once via reverseMealLogDeductions).
   if(m.source_type==='mealset'){
-    var itemsHtml = (m.subItems||[]).map(function(si){
-      return '<div class="list-row"><div class="row-label">'+esc(si.name)+(si.amount!=null?('<div class="hint" style="margin-top:2px;">'+fmtAmount(si.amount,si.unit)+esc(si.unit)+'</div>'):'')+'</div><div>'+Math.round((si.nutrition&&si.nutrition.calories)||0)+' kcal</div></div>';
+    var itemsHtml = (m.subItems||[]).map(function(si, idx){
+      return '<div class="list-row" style="cursor:pointer;" onclick="editMealsetLogSubItem('+aj(id)+','+idx+')">'+
+        '<div class="row-label">'+esc(si.name)+(si.amount!=null?('<div class="hint" style="margin-top:2px;">'+fmtAmount(si.amount,si.unit)+esc(si.unit)+'</div>'):'')+'</div>'+
+        '<div>'+Math.round((si.nutrition&&si.nutrition.calories)||0)+' kcal</div>'+
+      '</div>';
     }).join('');
     return '<div class="page-header"><button class="back-btn" onclick="navigate(\'meals\')">'+ic('back',22)+'</button><h1>'+esc(m.name)+'</h1></div>'+
     '<div class="content">'+
@@ -11436,6 +11623,100 @@ function deleteMealLogEntryFromDetail(id){
     closeModal();
     navigate('meals');
   }, {title:t('delete')});
+}
+// README 9.140: per-item post-log editing for a 套餐 entry - same amount/unit modal shape as
+// editMealsetDraftItemAmount (pre-log) and editRecipeIngredient (recipe form), but operating on
+// an already-saved mealLogs entry's subItems array, so it also has to keep any linked inventory
+// deduction in sync (see saveMealLogEntryEdit's single-amount equivalent for the non-mealset
+// case this mirrors) and re-sum the entry's total nutrition afterward.
+function editMealsetLogSubItem(entryId, idx){
+  var m = state.mealLogs.find(function(x){ return x.id===entryId; });
+  if(!m) return;
+  var si = (m.subItems||[])[idx];
+  if(!si) return;
+  var unitOpts;
+  if(si.source_type==='recipe'){
+    var r = state.recipes.find(function(x){ return x.id===si.source_id; });
+    unitOpts = r ? recipeUnitOptionsForRecipe(r) : [si.unit];
+  } else if(si.source_type==='inventory'){
+    var item = state.items.find(function(x){ return x.id===si.source_id; });
+    unitOpts = item ? recipeUnitOptionsForItem(item) : [si.unit];
+  } else {
+    unitOpts = WEIGHT_UNITS.concat(VOLUME_UNITS);
+  }
+  if(unitOpts.indexOf(si.unit)===-1) unitOpts.unshift(si.unit);
+  showModal(esc(si.name),
+    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" id="ing-amount" autofocus placeholder="'+t('ingAmountPh')+'" value="'+fmtAmount(si.amount, si.unit)+'"></div>'+
+    '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u){ return '<div class="tag-option '+(u===si.unit?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+esc(recipeUnitLabel(u))+'</div>'; }).join('')+'</div></div>'+
+    '<div class="btn-row" style="margin-top:14px;">'+
+      '<button class="btn btn-danger btn-sm" style="flex:1;" onclick="deleteMealsetLogSubItem('+aj(entryId)+','+idx+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
+      '<button class="btn btn-primary btn-sm" style="flex:1;" onclick="confirmEditMealsetLogSubItem('+aj(entryId)+','+idx+')">'+t('save')+'</button>'+
+    '</div>'
+  );
+}
+function resumeMealsetEntryNutrition(m){
+  m.nutrition = emptyNutrition();
+  (m.subItems||[]).forEach(function(x){ m.nutrition = addNutrition(m.nutrition, x.nutrition||emptyNutrition()); });
+}
+function confirmEditMealsetLogSubItem(entryId, idx){
+  var amount = parseAmountInput(document.getElementById('ing-amount').value);
+  var unit = getActivePill('ing-unit-pills');
+  if(!amount || amount<=0){ showToast(state.lang==='zh'?'请输入用量':'Please enter an amount'); return; }
+  var m = state.mealLogs.find(function(x){ return x.id===entryId; });
+  if(!m) return;
+  var si = m.subItems[idx];
+  if(!si) return;
+  if(si.deductItemId && si.deductUnit===unit){
+    // Same unit as before - rescale the existing deduction by the delta, exactly like
+    // saveMealLogEntryEdit already does for a plain single-item entry.
+    var item = state.items.find(function(x){ return x.id===si.deductItemId; });
+    if(item){
+      var delta = amount - si.deductAmount;
+      if(delta > 0) deductFromItem(item, delta, unit);
+      else if(delta < 0) addBackToItem(item, -delta, unit);
+      si.deductAmount = amount;
+      saveItems();
+    }
+  } else if(si.deductItemId && si.deductUnit!==unit){
+    // Unit changed - reverse the old deduction rather than guess a conversion; the person can
+    // re-deduct manually if this row still needs it (same caution as elsewhere in this file
+    // about never silently assuming a unit conversion is safe).
+    var item2 = state.items.find(function(x){ return x.id===si.deductItemId; });
+    if(item2){ addBackToItem(item2, si.deductAmount, si.deductUnit); saveItems(); }
+    delete si.deductItemId; delete si.deductAmount; delete si.deductUnit;
+    showToast(state.lang==='zh'?'单位已改，原库存扣减已撤销':'Unit changed - the earlier inventory deduction was reversed');
+  }
+  si.amount = amount;
+  si.unit = unit;
+  si.nutrition = recomputeMealsetLogItemNutrition(si);
+  resumeMealsetEntryNutrition(m);
+  saveMealLogs();
+  closeModal();
+  render();
+}
+function deleteMealsetLogSubItem(entryId, idx){
+  var m = state.mealLogs.find(function(x){ return x.id===entryId; });
+  if(!m) return;
+  var si = m.subItems[idx];
+  if(!si) return;
+  if(si.deductItemId){
+    var item = state.items.find(function(x){ return x.id===si.deductItemId; });
+    if(item){ addBackToItem(item, si.deductAmount, si.deductUnit); saveItems(); }
+  }
+  m.subItems.splice(idx,1);
+  if(!m.subItems.length){
+    // Nothing left in this 套餐 entry - remove the whole (now-empty) log entry instead of
+    // leaving a zero-item husk behind.
+    state.mealLogs = state.mealLogs.filter(function(x){ return x.id!==entryId; });
+    saveMealLogs();
+    closeModal();
+    navigate('meals');
+    return;
+  }
+  resumeMealsetEntryNutrition(m);
+  saveMealLogs();
+  closeModal();
+  render();
 }
 
 /* ---- macro widget: pie/bar, target (from weightPlan) vs actual (today's logged intake) ----
@@ -11563,6 +11844,7 @@ function renderMealAddFood(){
     {id:'recipe', label:t('sourceRecipe')},
     {id:'mealset', label:t('sourceMealset')},
     {id:'usda', label:'USDA'},
+    {id:'scan', label:t('sourceScan')},
     {id:'custom', label:t('tabCustom')}
   ];
   var title = t('mealSlot_'+af.slot) || t('addFoodBtn');
@@ -11590,8 +11872,11 @@ function mealAddFoodBack(){
   navigate('meals');
 }
 function setMealAddFoodTab(tabId){
+  stopScan(); // README 9.141: setMealAddFoodTab doesn't go through navigate() (which already
+              // calls stopScan() itself), so switching away from the 扫描 tab needs its own
+              // call to release the camera - safe no-op when nothing was scanning.
   var af = state.mealsUI.addFood;
-  af.tab = tabId; af.step = 'search'; af.picked = null; af.query = ''; af.mealsetPhase = null; af.mealsetLogItems = null;
+  af.tab = tabId; af.step = 'search'; af.picked = null; af.query = ''; af.mealsetPhase = null; af.mealsetLogItems = null; af.amountUnit = null;
   render();
 }
 function mealAddFoodContentHtml(){
@@ -11603,6 +11888,7 @@ function mealAddFoodContentHtml(){
   }
   if(af.step==='amount') return addFoodAmountBodyHtml(af);
   if(af.step==='loading') return '<p class="hint">'+t('usdaSearchLoading')+'</p>';
+  if(af.tab==='scan') return mealScanTabHtml(af);
   if(af.tab==='usda') return addFoodUsdaSearchBodyHtml(af);
   return addFoodLocalSearchBodyHtml(af);
 }
@@ -11649,7 +11935,15 @@ function mealsetDraftHtml(af){
   var total = emptyNutrition();
   items.forEach(function(it){ total = addNutrition(total, it.nutrition||emptyNutrition()); });
   return '<p style="font-weight:600;margin-bottom:10px;">'+esc(af.mealsetSourceName||'')+'</p>'+
-    '<div class="form-group">'+(rows||'<p class="hint" style="margin:0;">'+t('mealsetItemsEmptyHint')+'</p>')+'</div>'+
+    '<div class="form-group">'+(rows||'<p class="hint" style="margin:0;">'+t('mealsetItemsEmptyHint')+'</p>')+
+      '<div class="btn-row" style="margin-top:6px;">'+
+        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="goMealsetDraftPickInventory()">'+t('addFromInventory')+'</button>'+
+        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="goMealsetDraftPickExternal()">'+t('addExternal')+'</button>'+
+      '</div>'+
+      '<div class="btn-row" style="margin-top:6px;">'+
+        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="goMealsetDraftPickRecipe()">'+t('addRecipeAsIngredient')+'</button>'+
+      '</div>'+
+    '</div>'+
     '<div id="mealset-draft-nutrition-preview" style="margin-top:6px;">'+mealEntryNutritionPreviewHtml(total)+'</div>'+
     '<button class="btn btn-primary" style="margin-top:14px;width:100%;" onclick="onMealsetDraftConfirm()">'+t('save')+'</button>';
 }
@@ -11755,6 +12049,110 @@ function saveMealsetLogEntryFinal(){
   af.mealsetLogItems = null;
   showToast(t('mealLoggedToast'));
   navigate('meals');
+}
+
+/* ======================= MEAL ADD FOOD: 扫描 tab ======================= */
+// README 9.141: reuses the exact same camera/manual-entry mechanics as the inventory page's
+// own 'scan' view (startScan/stopScan/detectLoop/lookupBarcode - see that section) via the same
+// element ids (#scan-video/#scan-status/#manual-barcode-input) and the same onBarcodeDetected/
+// manualBarcodeLookup entry points, which now branch on state.view to route here instead of to
+// lookupAndPrefill's "always open the item form" behavior. Only one of the two markups is ever
+// on screen at once, so sharing ids is safe.
+function mealScanTabHtml(af){
+  return '' +
+  '<div class="scan-wrap">'+
+    '<video id="scan-video" playsinline muted autoplay></video>'+
+    '<div class="scan-frame"></div>'+
+    '<div class="scan-status" id="scan-status">'+t('scanHintCamera')+'</div>'+
+  '</div>'+
+  '<div class="section-title">'+t('scanManualEntry')+'</div>'+
+  '<div class="field-row">'+
+    '<input type="text" inputmode="numeric" id="manual-barcode-input" placeholder="'+t('barcodeInputPh')+'" style="flex:1;font-size:16px;padding:13px 14px;border-radius:11px;border:1px solid var(--line);" onkeydown="if(event.key===\'Enter\')manualBarcodeLookup()">'+
+    '<button class="btn btn-primary btn-sm" onclick="manualBarcodeLookup()">'+t('lookupBtn')+'</button>'+
+  '</div>';
+}
+// README 9.141: a scanned barcode already in inventory or the external-ingredient library goes
+// straight into the same pick+amount flow those tabs already use (pickLocalFoodForMeal) - no
+// prompt needed, this is just a faster way to reach a food that's already there. Anything else
+// (found on Open Food Facts but not local, or not found anywhere) asks whether to add it to
+// inventory first - see openMealScanNotFoundPrompt.
+async function mealScanLookup(code){
+  setScanStatus(t('scanLookingUp'));
+  var result = await lookupBarcode(code);
+  if(result && result.fromLocal){
+    var localItem = state.items.find(function(i){ return i.barcode===code; });
+    if(localItem){ pickLocalFoodForMeal('item', localItem.id); return; }
+    var localIng = state.ingredients.find(function(i){ return i.barcode===code; });
+    if(localIng){ pickLocalFoodForMeal('external', localIng.id); return; }
+  }
+  openMealScanNotFoundPrompt(code, result);
+}
+function openMealScanNotFoundPrompt(code, offResult){
+  state.mealScanPendingOffResult = (offResult && offResult.fromOFF) ? offResult : null;
+  var name = state.mealScanPendingOffResult ? state.mealScanPendingOffResult.name : '';
+  var msg = t('mealScanNotInInventoryMsg') + (name ? ('<br><span style="color:var(--deep-caramel);">'+esc(name)+'</span>') : '');
+  showModal(t('mealScanNotInInventoryTitle'),
+    '<p class="hint" style="margin-bottom:16px;">'+msg+'</p>'+
+    '<div class="btn-row">'+
+      '<button class="btn btn-outline" style="flex:1;" onclick="mealScanDeclineAddToInventory('+aj(code)+')">'+t('mealScanOneTimeBtn')+'</button>'+
+      '<button class="btn btn-primary" style="flex:1;" onclick="mealScanAcceptAddToInventory('+aj(code)+')">'+t('mealScanAddToInventoryBtn')+'</button>'+
+    '</div>'
+  );
+}
+// "添加到库存": hands off entirely to the existing inventory-item form (prefilled from OFF if
+// we have it, same shape lookupAndPrefill already builds) - saveItemForm/openItemForm's
+// mealScanPendingLog branch (see README 9.141 there) is what brings the person back here to log
+// the meal once the item is actually saved, so nothing else needs to happen in this function.
+function mealScanAcceptAddToInventory(code){
+  closeModal();
+  var off = state.mealScanPendingOffResult;
+  var prefill = {barcode: code};
+  if(off){
+    prefill.name = off.name || '';
+    prefill.brand = off.brand || '';
+    prefill.photo_url = off.photo_url || '';
+    prefill.nutrition = off.nutrition || emptyNutrition();
+    prefill.nutrition_edited = false;
+    if(off.basisWeight){ prefill.nutrition_basis_weight_amount = off.basisWeight.amount; prefill.nutrition_basis_weight_unit = off.basisWeight.unit; }
+    if(off.basisVolume){ prefill.nutrition_basis_volume_amount = off.basisVolume.amount; prefill.nutrition_basis_volume_unit = off.basisVolume.unit; }
+  }
+  state.mealScanPendingLog = true;
+  openItemForm(null, prefill);
+}
+// "仅记录这一次": OFF had data -> log it directly at OFF's own basis amount/unit (a lightweight
+// 'offquick'-typed pick, using the exact same generic basis-scaling machinery - ingredientBasisInfo/
+// amountToBasisUnits/scaleNutrition - that inventory/external items already use, just pointed at
+// a throwaway object instead of something in state.items/state.ingredients, so nothing is saved
+// to any library). OFF had nothing either -> falls back to the 自定 tab's manual Quick-Calories
+// entry, same as picking 自定 directly.
+function mealScanDeclineAddToInventory(code){
+  closeModal();
+  var off = state.mealScanPendingOffResult;
+  var af = state.mealsUI.addFood;
+  if(off){
+    var basisAmount = off.basisWeight ? off.basisWeight.amount : (off.basisVolume ? off.basisVolume.amount : 100);
+    var basisUnit = off.basisWeight ? off.basisWeight.unit : (off.basisVolume ? off.basisVolume.unit : 'g');
+    af.picked = {
+      type: 'offquick',
+      name: off.name || (state.lang==='zh'?'扫描食品':'Scanned food'),
+      fakeSrc: {
+        nutrition: off.nutrition || emptyNutrition(),
+        nutrition_basis_weight_amount: off.basisWeight ? off.basisWeight.amount : null,
+        nutrition_basis_weight_unit: off.basisWeight ? off.basisWeight.unit : 'g',
+        nutrition_basis_volume_amount: off.basisVolume ? off.basisVolume.amount : null,
+        nutrition_basis_volume_unit: off.basisVolume ? off.basisVolume.unit : 'ml'
+      }
+    };
+    af.amountUnit = basisUnit;
+    af.amountText = String(basisAmount);
+    af.step = 'amount';
+  } else {
+    af.tab = 'custom';
+    af.customName = '';
+    af.customCalories = ''; af.customCarbs=''; af.customProtein=''; af.customFat='';
+    af.step = 'search';
+  }
+  render();
 }
 function addFoodLocalSearchBodyHtml(af){
   var ph = af.tab==='recipe' ? t('recipeSearchPlaceholder') : t('searchPlaceholder');
@@ -12038,9 +12436,11 @@ function computeAddFoodPreviewNutrition(af){
   }
   var amt2 = parseAmountInput(af.amountText);
   if(!amt2 || amt2<=0) return null;
-  var src = p.type==='item' ? state.items.find(function(x){ return x.id===p.id; }) : state.ingredients.find(function(x){ return x.id===p.id; });
+  var src = p.type==='item' ? state.items.find(function(x){ return x.id===p.id; })
+    : p.type==='offquick' ? p.fakeSrc
+    : state.ingredients.find(function(x){ return x.id===p.id; });
   if(!src) return null;
-  var unitPicked = (p.type==='item' && af.amountUnit) ? af.amountUnit : 'g';
+  var unitPicked = (af.amountUnit && (p.type==='item' || p.type==='offquick')) ? af.amountUnit : 'g';
   var basisInfo = ingredientBasisInfo(src);
   var used = amountToBasisUnits(amt2, unitPicked, p.type==='item' ? src : null);
   if(used == null) used = countBasisMatch(src, amt2, unitPicked);
@@ -12105,7 +12505,7 @@ function addFoodAmountBodyHtml(af){
       recipeAmountField
       :
       itemUnitField+
-      '<div class="field"><label>'+t('fieldMealAmount')+(isItem ? (' ('+esc(af.amountUnit||'g')+')') : ' (g)')+'</label><input type="text" placeholder="-" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>'+
+      '<div class="field"><label>'+t('fieldMealAmount')+((isItem||p.type==='offquick') ? (' ('+esc(af.amountUnit||'g')+')') : ' (g)')+'</label><input type="text" placeholder="-" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>'+
       // README 9.132: defaults ON for a direct inventory pick now (was off) - Lynn: "直接吃库存
       //食材也算消耗，要扣". Only inventory items ever show this row at all; recipe/USDA/external
       // picks have nothing in stock to deduct from.
@@ -12146,14 +12546,16 @@ function saveMealLogEntry(){
   } else {
     var amt2 = parseAmountInput(af.amountText);
     if(!amt2 || amt2<=0){ showToast(t('weightEntryInvalid')); return; }
-    var src = p.type==='item' ? state.items.find(function(x){ return x.id===p.id; }) : state.ingredients.find(function(x){ return x.id===p.id; });
-    var unitPicked = (p.type==='item' && af.amountUnit) ? af.amountUnit : 'g';
+    var src = p.type==='item' ? state.items.find(function(x){ return x.id===p.id; })
+      : p.type==='offquick' ? p.fakeSrc
+      : state.ingredients.find(function(x){ return x.id===p.id; });
+    var unitPicked = (af.amountUnit && (p.type==='item' || p.type==='offquick')) ? af.amountUnit : 'g';
     var basisInfo = ingredientBasisInfo(src);
     var used = amountToBasisUnits(amt2, unitPicked, p.type==='item' ? src : null);
     if(used == null) used = countBasisMatch(src, amt2, unitPicked);
     if(used == null){ showToast(t('unitConversionUnavailable')); return; }
     nutrition = scaleNutrition(src.nutrition, basisInfo, used);
-    name = p.type==='item' ? itemDisplayNameRaw(src) : src.name;
+    name = p.type==='item' ? itemDisplayNameRaw(src) : (p.type==='offquick' ? p.name : src.name);
     amount = amt2; unit = unitPicked;
     if(p.type==='item' && af.deduct){
       var res = deductFromItem(src, amt2, unitPicked);
@@ -13870,14 +14272,19 @@ function focusAutofocusElementOnce(){
   var el = app && app.querySelector('[autofocus]');
   if(!el) return;
   el.focus();
-  if(el.value && el.setSelectionRange){
-    try{ el.setSelectionRange(el.value.length, el.value.length); }catch(e){}
+  // README 9.142: same select-the-whole-value fix as showModal's autofocus handling, for the
+  // full-page (non-modal) [autofocus] fields - see that comment for the reasoning.
+  if(el.value && el.select){
+    try{ el.select(); }catch(e){}
   }
 }
 function afterRender(){
   hydratePhotos();
   focusAutofocusElementOnce();
   if(state.view === 'scan'){
+    startScan();
+  }
+  if(state.view === 'mealAddFood' && state.mealsUI.addFood && state.mealsUI.addFood.tab==='scan' && state.mealsUI.addFood.step==='search'){
     startScan();
   }
   if(state.view === 'home'){
