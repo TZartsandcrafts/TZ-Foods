@@ -868,7 +868,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.147';
+var BUILD_VERSION = '9.149';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -4609,7 +4609,7 @@ function closeItemSwipeRow(id){
 function archiveItemFromSwipe(id){ closeItemSwipeRow(id); archiveItem(id); }
 function deleteItemFromSwipe(id){ closeItemSwipeRow(id); deleteItemDetail(id); }
 (function initItemSwipeGestures(){
-  var sx=0, sy=0, tracking=false, cardEl=null, itemId=null, startedOpen=false, moved=false;
+  var sx=0, sy=0, tracking=false, cardEl=null, itemId=null, startedOpen=false, moved=false, actionsWidth=ITEM_SWIPE_ACTIONS_WIDTH;
   document.addEventListener('touchstart', function(e){
     if(modalIsOpen()){ tracking=false; cardEl=null; return; }
     var wrap = e.target.closest ? e.target.closest('.item-card-swipe') : null;
@@ -4623,6 +4623,15 @@ function deleteItemFromSwipe(id){ closeItemSwipeRow(id); deleteItemDetail(id); }
     cardEl = wrap.querySelector('.item-card');
     itemId = wrap.getAttribute('data-item-id');
     startedOpen = (itemId === itemSwipeOpenId);
+    // README 9.149: was always ITEM_SWIPE_ACTIONS_WIDTH (192px = the usual edit+archive+delete
+    // 3-button panel), regardless of how many buttons this particular row's .item-swipe-actions
+    // actually rendered - fine as long as everything using this gesture happened to have exactly
+    // 3 buttons, but a row with fewer (三餐 entries here have just the one delete button, 64px)
+    // would slide the full 192px anyway, revealing 128px of bare background past the button
+    // instead of stopping right at its edge. Measuring the actual panel each time a drag starts
+    // fixes that for every button count at once, not just this new 1-button case.
+    var panel = wrap.querySelector('.item-swipe-actions');
+    actionsWidth = (panel && panel.offsetWidth) ? panel.offsetWidth : ITEM_SWIPE_ACTIONS_WIDTH;
     if(cardEl) cardEl.style.transition='none';
   }, {passive:true});
   document.addEventListener('touchmove', function(e){
@@ -4634,13 +4643,13 @@ function deleteItemFromSwipe(id){ closeItemSwipeRow(id); deleteItemDetail(id); }
     if(Math.abs(dy) > Math.abs(dx)){
       tracking=false;
       cardEl.style.transition='';
-      cardEl.style.transform = startedOpen ? ('translateX(-'+ITEM_SWIPE_ACTIONS_WIDTH+'px)') : 'translateX(0)';
+      cardEl.style.transform = startedOpen ? ('translateX(-'+actionsWidth+'px)') : 'translateX(0)';
       return;
     }
-    var base = startedOpen ? -ITEM_SWIPE_ACTIONS_WIDTH : 0;
+    var base = startedOpen ? -actionsWidth : 0;
     var x = base + dx;
     if(x>0) x=0;
-    if(x< -ITEM_SWIPE_ACTIONS_WIDTH) x=-ITEM_SWIPE_ACTIONS_WIDTH;
+    if(x< -actionsWidth) x=-actionsWidth;
     cardEl.style.transform = 'translateX('+x+'px)';
   }, {passive:true});
   document.addEventListener('touchend', function(e){
@@ -4654,7 +4663,7 @@ function deleteItemFromSwipe(id){ closeItemSwipeRow(id); deleteItemDetail(id); }
     var shouldOpen = startedOpen ? (dx <= 40) : (dx < -40);
     if(shouldOpen){
       itemSwipeOpenId = itemId;
-      cardEl.style.transform = 'translateX(-'+ITEM_SWIPE_ACTIONS_WIDTH+'px)';
+      cardEl.style.transform = 'translateX(-'+actionsWidth+'px)';
     } else {
       if(itemSwipeOpenId===itemId) itemSwipeOpenId=null;
       cardEl.style.transform = 'translateX(0)';
@@ -11459,22 +11468,43 @@ function renderMealsSidebarContent(){
     '<div class="sidebar-item" onclick="navigate(\'fastingHistory\')">'+t('fastingHistoryBtn')+'</div>';
 }
 
+// README 9.149: Lynn - remove the right-side "x" delete button, remove the shared white/cream
+// card background behind the whole slot's list (was a .form-group wrapper - one big card holding
+// every row), and lay each row out as name-on-its-own-line/left, then amount+calories stacked
+// underneath/right, matching how 库存 entries are just individual cards sitting directly on the
+// page's own background rather than grouped inside one bigger shared box. Uses .item-card itself
+// (not .list-row) as the visible content, deliberately - it's the exact class 库存 cards use, so
+// "look like 库存 entries" comes for free, AND the swipe gesture engine's touchstart handler
+// specifically looks for a `.item-card` child inside `.item-card-swipe` to animate (see
+// initItemSwipeGestures / closeItemSwipeRow) - a .list-row in that slot would silently never
+// slide at all. .item-card is already flex-direction:column with an 8px gap, which happens to be
+// exactly the two-block stack (name, then the amount+calories block) this layout needs, with no
+// extra layout CSS required beyond right-aligning that second block. Delete moves to the same
+// left-swipe-to-reveal gesture 库存/usage-log entries already use (.item-swipe-actions) - reused
+// as-is, generic and keyed purely by data-item-id. Tapping the row still opens the entry's edit/
+// detail page, unchanged.
 function mealSlotSectionHtml(date, slot){
   var logs = mealLogsForSlot(date, slot);
   var slotCal = Math.round(sumMealNutrition(logs).calories||0);
   var rows = logs.map(function(m){
     var amountLine = (m.source_type==='mealset') ? ((m.subItems||[]).length+(state.lang==='zh'?' 项':' items')) : (m.amount!=null ? (fmtNum(m.amount,1)+esc(m.unit)) : '');
-    return '<div class="list-row" style="cursor:pointer;" onclick="openMealLogEntryDetail('+aj(m.id)+')">'+
-      '<div class="row-label">'+esc(m.name)+(amountLine?('<div class="hint" style="margin-top:2px;">'+amountLine+'</div>'):'')+'</div>'+
-      '<div style="display:flex;align-items:center;gap:8px;flex-shrink:0;"><span>'+Math.round(m.nutrition.calories||0)+' kcal</span>'+
-      '<button class="icon-btn" onclick="event.stopPropagation();deleteMealLog('+aj(m.id)+')" aria-label="'+t('delete')+'">'+ic('x',15)+'</button></div>'+
+    return '<div class="item-card-swipe" data-item-id="'+esc(m.id)+'">'+
+      '<div class="item-swipe-actions">'+
+        '<button class="swipe-action-btn action-delete" onclick="event.stopPropagation();deleteMealLogFromSwipe('+aj(m.id)+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button>'+
+      '</div>'+
+      '<div class="item-card" onclick="openMealLogEntryDetail('+aj(m.id)+')">'+
+        '<div class="item-name">'+esc(m.name)+'</div>'+
+        '<div style="display:flex;flex-direction:column;align-items:flex-end;">'+
+          (amountLine?('<div class="hint" style="margin:0;">'+amountLine+'</div>'):'')+
+          '<div style="font-weight:600;color:var(--cocoa);margin-top:2px;">'+Math.round(m.nutrition.calories||0)+' kcal</div>'+
+        '</div>'+
+      '</div>'+
     '</div>';
   }).join('');
   return '<div class="section-title">'+t('mealSlot_'+slot)+(slotCal ? (' · '+slotCal+' kcal') : '')+'</div>'+
-    '<div class="form-group">'+
-      (rows || '<p class="hint" style="margin:0;">'+t('noMealLoggedHint')+'</p>')+
-    '</div>';
+    (rows || '<p class="hint" style="margin:0 0 14px;">'+t('noMealLoggedHint')+'</p>');
 }
+function deleteMealLogFromSwipe(id){ closeItemSwipeRow(id); deleteMealLog(id); }
 // README 9.139: a 套餐 log entry can carry many inventory deductions at once (one per
 // inventory-sourced subItem), unlike every other entry type which has at most the single
 // top-level deductItemId/deductAmount/deductUnit. Shared by deleteMealLog and
@@ -12293,6 +12323,7 @@ function mealScanDeclineAddToInventory(code){
     af.step = 'search';
   }
   render();
+  focusAddFoodAmountInput();
 }
 function addFoodLocalSearchBodyHtml(af){
   var ph = af.tab==='recipe' ? t('recipeSearchPlaceholder') : t('searchPlaceholder');
@@ -12487,6 +12518,7 @@ function pickLocalFoodForMeal(type, id){
   }
   af.step = 'amount';
   render();
+  focusAddFoodAmountInput();
 }
 async function pickUsdaFoodForMeal(fdcId){
   var af = state.mealsUI.addFood;
@@ -12502,6 +12534,7 @@ async function pickUsdaFoodForMeal(fdcId){
     showToast(t('usdaSearchError'));
   }
   render();
+  focusAddFoodAmountInput();
 }
 function backToAddFoodSearch(){
   var af = state.mealsUI.addFood;
@@ -12538,9 +12571,11 @@ function setAddFoodAmountUnit(u){
     }
     af.amountUnit = u;
     render();
+    focusAddFoodAmountInput();
     return;
   }
   af.amountUnit = u; af.amountText=''; render();
+  focusAddFoodAmountInput();
 }
 // README 9.132: 自定 tab - MyNetDiary's "Quick Calories" equivalent (see the screenshots Lynn
 // sent). Only calories is required; everything else (carbs/protein/fat/name) is optional and
@@ -12635,6 +12670,24 @@ function onAddFoodAmountInput(val){
   var el = document.getElementById('add-food-nutrition-preview');
   if(el) el.innerHTML = mealEntryNutritionPreviewHtml(computeAddFoodPreviewNutrition(af));
 }
+// README 9.148: this page's amount input sits inside the 'mealAddFood' view the whole time -
+// picking a food and switching units are both just internal step/state changes within that same
+// view, not a real navigate() to a new one. focusAutofocusElementOnce's own [autofocus] handling
+// is keyed on state.view (see its comment) specifically so it does NOT refire on every re-render
+// of a view the person is already sitting on - which means it never refires here either, since
+// the view name never changes across these steps. So this field never had Lynn's usual "land
+// ready to type over" treatment at all: not on first picking a food, and not on switching units
+// (which became a real problem once 9.147 started leaving an actual converted number in the
+// field instead of leaving it blank - a filled-in number the person can't immediately overwrite
+// is exactly the "click in / double-tap / delete first" friction she's ruled out everywhere
+// else). Called directly, right after render(), from every place that lands on or changes this
+// field - not routed through the generic mechanism - since none of them are a state.view change.
+function focusAddFoodAmountInput(){
+  var el = document.getElementById('af-amount-input');
+  if(!el) return;
+  el.focus();
+  if(el.value && el.select){ try{ el.select(); }catch(e){} }
+}
 function addFoodAmountBodyHtml(af){
   var p = af.picked;
   var isRecipe = p.type==='recipe';
@@ -12654,11 +12707,11 @@ function addFoodAmountBodyHtml(af){
         '<div class="tag-option '+(af.amountUnit==='g'?'active':'')+'" onclick="setAddFoodAmountUnit(\'g\')">g</div>'+
       '</div></div>'+
       (af.amountUnit==='g' ?
-        '<div class="field"><label>'+t('fieldMealAmount')+' (g)</label><input type="text" placeholder="-" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>'
+        '<div class="field"><label>'+t('fieldMealAmount')+' (g)</label><input type="text" id="af-amount-input" placeholder="-" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>'
         :
-        '<div class="field"><label>'+t('servingsEatenLabel')+'</label><input type="text" placeholder="1" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>'))
+        '<div class="field"><label>'+t('servingsEatenLabel')+'</label><input type="text" id="af-amount-input" placeholder="1" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>'))
       :
-      ('<div class="field"><label>'+t('servingsEatenLabel')+'</label><input type="text" placeholder="1" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>');
+      ('<div class="field"><label>'+t('servingsEatenLabel')+'</label><input type="text" id="af-amount-input" placeholder="1" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>');
   }
   // README 9.108: an inventory item's amount can be entered in ANY unit that item itself
   // tracks stock in (its own primary/secondary units and pack specs, plus same-family weight/
@@ -12687,7 +12740,7 @@ function addFoodAmountBodyHtml(af){
       recipeAmountField
       :
       itemUnitField+
-      '<div class="field"><label>'+t('fieldMealAmount')+((isItem||p.type==='offquick') ? (' ('+esc(af.amountUnit||'g')+')') : ' (g)')+'</label><input type="text" placeholder="-" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>'+
+      '<div class="field"><label>'+t('fieldMealAmount')+((isItem||p.type==='offquick') ? (' ('+esc(af.amountUnit||'g')+')') : ' (g)')+'</label><input type="text" id="af-amount-input" placeholder="-" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>'+
       // README 9.132: defaults ON for a direct inventory pick now (was off) - Lynn: "直接吃库存
       //食材也算消耗，要扣". Only inventory items ever show this row at all; recipe/USDA/external
       // picks have nothing in stock to deduct from.
