@@ -577,6 +577,11 @@
   .modal-sheet{
     background:var(--cream); width:100%; max-width:480px; border-radius:20px;
     max-height:80vh; overflow-y:auto; padding:20px 18px calc(24px + var(--safe-bottom));
+    /* README 9.151: same scroll-chaining containment as .usda-autocomplete-list above, one
+       level further out - stops a modal's own scroll from handing off to the page behind the
+       overlay once this sheet hits its top/bottom, which is what let a reversed drag inside a
+       nested scrollable (like that dropdown) drag the page underneath instead of just stopping. */
+    overscroll-behavior-y:contain; -webkit-overflow-scrolling:touch;
   }
   .modal-sheet h2{ font-size:18px; font-weight:600; margin-bottom:16px; }
   .modal-close{ position:absolute; right:18px; top:16px; }
@@ -658,6 +663,12 @@
     position:absolute; left:0; right:0; top:100%; margin-top:4px; z-index:20;
     max-height:min(45vh,340px); overflow-y:auto; background:var(--card-bg);
     border:1px solid var(--line); border-radius:11px; box-shadow:0 6px 18px rgba(74,46,30,0.18);
+    /* README 9.151: without this, scrolling this dropdown to one end and then reversing
+       direction could hand the rest of that same touch gesture off to whatever scrollable
+       ancestor sits behind it (the modal sheet, and past that the page underneath the modal
+       overlay - see .modal-sheet's own comment) instead of just stopping - "contain" tells iOS
+       Safari this element's own scroll bounds are a hard stop, not a relay. */
+    overscroll-behavior-y:contain; -webkit-overflow-scrolling:touch;
   }
   .usda-result-row{ padding:11px 12px; border-bottom:1px solid var(--line); cursor:pointer; }
   .usda-result-row:last-child{ border-bottom:none; }
@@ -868,7 +879,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.150';
+var BUILD_VERSION = '9.151';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -8398,8 +8409,43 @@ function renderPriceHistory(){
 // tap-outside or the X to close, same #modal-root/closeModal() for all of it. Used to be
 // two functions (a bottom sheet + this centered style, added for the recipe detail page's
 // delete/cook-confirm popups) - now every modal in the app goes through this one.
+// README 9.151: same fixed-position scroll-lock technique lockBodyScrollForSidebar uses, kept
+// as its own independent pair of functions/variable rather than sharing state with the sidebar's
+// - modal and sidebar are never open at the same time in this app, so there's no real reentrancy
+// case to handle, and keeping them separate means a change to one can't accidentally affect the
+// other's behavior later. Was missing entirely before - closeModal's own scroll-position restore
+// (below) was a workaround for the SYMPTOM of the page behind a modal being scrollable at all,
+// not a fix for it: it could restore the scroll position after the fact, but couldn't stop a
+// stuck/reversed drag inside a nested scrollable (like the USDA autocomplete dropdown) from
+// visibly dragging that page around while the modal was still open. Actually locking the body,
+// the same way the sidebar already does, closes that off at the source instead of mopping up
+// after it - both this lock AND the overscroll-behavior:contain added to .modal-sheet/
+// .usda-autocomplete-list matter here, since either alone leaves a gap iOS Safari can find.
+var _modalScrollLockY = 0;
+var _modalScrollLocked = false;
+function lockBodyScrollForModal(){
+  _modalScrollLockY = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
+  document.body.style.position = 'fixed';
+  document.body.style.top = (-_modalScrollLockY) + 'px';
+  document.body.style.left = '0';
+  document.body.style.right = '0';
+  _modalScrollLocked = true;
+}
+function unlockBodyScrollForModal(){
+  // Guards against a stray closeModal() call with no matching lock (e.g. a defensive
+  // "closeModal(); render();" that fires even when nothing was actually open) resetting body
+  // styles or jumping the page to a stale _modalScrollLockY left over from an earlier cycle.
+  if(!_modalScrollLocked) return;
+  _modalScrollLocked = false;
+  document.body.style.position = '';
+  document.body.style.top = '';
+  document.body.style.left = '';
+  document.body.style.right = '';
+  window.scrollTo(0, _modalScrollLockY);
+}
 function showModal(title, bodyHtml){
   var root = document.getElementById('modal-root');
+  if(!_modalScrollLocked) lockBodyScrollForModal();
   root.innerHTML = '<div class="modal-wrap" onclick="if(event.target===this) closeModal()">'+
     '<div class="modal-sheet" style="position:relative;">'+
       '<button class="icon-btn modal-close" onclick="closeModal()">'+ic('x',18)+'</button>'+
@@ -8431,12 +8477,10 @@ function showModal(title, bodyHtml){
   }
 }
 function closeModal(){
-  var y = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
   if(document.activeElement && document.activeElement !== document.body && document.activeElement.blur) document.activeElement.blur();
   var r = document.getElementById('modal-root');
   if(r) r.innerHTML='';
-  window.scrollTo(0, y);
-  requestAnimationFrame(function(){ window.scrollTo(0, y); });
+  unlockBodyScrollForModal();
 }
 // Generic confirm popup (see README 9.72): same shape as confirmDeleteRecipeDetail below,
 // pulled out into one reusable helper so every "are you sure?" in the app - the ones that used
