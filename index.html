@@ -868,7 +868,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.144';
+var BUILD_VERSION = '9.146';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2738,6 +2738,11 @@ var state = {
   // 健康 data is intentionally per-user, not shared between the two household members).
   mealsets: [],
   mealsetDraft: null,
+  // README 9.146: {id, recipe_id, date, created_at} - one row per confirmed "我做了这道菜" tap,
+  // written unconditionally regardless of what (if anything) actually got deducted from
+  // inventory. See recipeCookRecords' own comment for why this exists alongside the older
+  // item-usage_log-derived history. Local-only, same as mealLogs/health data.
+  recipeCookLogs: [],
   mealsetFormUI: {},
   mealsetPickerMode: 'template',
   // README 9.141: 三餐加食物's 扫描 tab needs to survive a detour through the inventory item
@@ -2834,7 +2839,10 @@ async function loadAll(){
     storageGet('exerciseLogs', []),
     storageGet('categoryGroups', null),
     storageGet('pickFrequency', {}),
-    storageGet('mealsets', [])
+    storageGet('mealsets', []),
+    // README 9.146: explicit "我做了这道菜" cook-event log - see recipeCookRecords' comment for
+    // why this exists alongside the item-usage_log-derived history it already had.
+    storageGet('recipeCookLogs', [])
   ]);
   // README 9.125: categoryGroups is the new two-level (母分类/子分类) structure for inventory
   // categories, architecturally matching state.recipeCategoryGroups but without any color
@@ -2905,6 +2913,7 @@ async function loadAll(){
   // search keystroke or an abandoned pick that never got saved.
   state.pickFrequency = results[25] || {};
   state.mealsets = results[26] || [];
+  state.recipeCookLogs = results[27] || [];
   state.loaded = true;
 }
 // Old data shape had a single secondary_qty/secondary_unit/unit_ratio triplet per item. The
@@ -3006,6 +3015,7 @@ function saveRecipes(){
 function saveSettings(){ return storageSet('settings', {lang:state.lang, reminderDays:state.reminderDays, aiProxyUrl:state.aiProxyUrl, fastingDisplayMode:state.fastingDisplayMode, fastingSettings:state.fastingSettings, visibleMealSlots:state.visibleMealSlots}); }
 function saveMealLogs(){ return storageSet('mealLogs', state.mealLogs); }
 function saveMealsets(){ return storageSet('mealsets', state.mealsets); }
+function saveRecipeCookLogs(){ return storageSet('recipeCookLogs', state.recipeCookLogs); }
 function savePickFrequency(){ return storageSet('pickFrequency', state.pickFrequency); }
 function bumpPickFrequency(kind, id){
   if(!id) return;
@@ -10661,23 +10671,35 @@ function toggleRecipeNutriExpanded(){
   state.recipeDetailUI.nutriExpanded = !state.recipeDetailUI.nutriExpanded;
   render();
 }
-// README 9.117: derives the recipe's "制作记录" (made-on dates) purely from the item usage_log
-// entries confirmCook() already writes (destination_type:'recipe', recipe_id) - deliberately no
-// separate "did I cook this" flag to maintain, so there's exactly one source of truth and it can
-// never drift out of sync with what actually got deducted from inventory. Groups entries down
-// to the minute so the several ingredient-deduction rows written by a single 我做了这道菜 tap
-// collapse into one record instead of listing every ingredient's timestamp separately.
+// README 9.117: derives the recipe's "制作记录" (made-on dates) from the item usage_log entries
+// confirmCook() writes (destination_type:'recipe', recipe_id) for whichever ingredients actually
+// came from inventory - kept as the primary source rather than replaced outright so cook history
+// recorded before 9.146 (all of it inventory-usage_log-derived) isn't lost.
+// README 9.146: ALSO merges in state.recipeCookLogs, the explicit per-tap record confirmCook()
+// now always writes regardless of whether that tap deducted anything - a recipe built entirely
+// from 外部食材库/USDA ingredients has no inventory deductions to ever derive a usage_log record
+// from, so it needed a source of truth that doesn't depend on inventory being involved at all.
+// Both sources use the exact same date+to-the-minute dedup key (confirmCook writes both from the
+// same shared timestamp in one call), so a cook event that DID touch inventory doesn't get
+// double-counted as two separate records just because it now appears in both places.
 function recipeCookRecords(recipeId){
   var seen = {};
   var records = [];
+  function add(date, created_at){
+    var key = date+'|'+(created_at||'').slice(0,16);
+    if(seen[key]) return;
+    seen[key] = true;
+    records.push({date:date, created_at:created_at||date});
+  }
   state.items.forEach(function(it){
     (it.usage_log||[]).forEach(function(e){
       if(e.destination_type!=='recipe' || e.recipe_id!==recipeId) return;
-      var key = e.date+'|'+(e.created_at||'').slice(0,16);
-      if(seen[key]) return;
-      seen[key] = true;
-      records.push({date:e.date, created_at:e.created_at||e.date});
+      add(e.date, e.created_at);
     });
+  });
+  (state.recipeCookLogs||[]).forEach(function(e){
+    if(e.recipe_id!==recipeId) return;
+    add(e.date, e.created_at);
   });
   records.sort(function(a,b){ return a.created_at < b.created_at ? 1 : -1; });
   return records;
@@ -10935,6 +10957,11 @@ function confirmCook(recipeId){
   var r = state.recipes.find(function(x){ return x.id===recipeId; });
   var anyInsufficient = false;
   var flat = flattenRecipeIngredientsForCook(r, 1, []);
+  // README 9.146: computed once and reused for every write below (the inventory usage_log
+  // entries AND the new recipeCookLogs record) so they all land in the exact same to-the-minute
+  // bucket recipeCookRecords' dedup key groups by - see that function's comment for why a
+  // mismatch here would double-count this single tap as two separate cook events.
+  var ts = nowLocalIso();
   flat.forEach(function(f){
     if(f.kind!=='inventory') return;
     var item = f.item;
@@ -10949,10 +10976,23 @@ function confirmCook(recipeId){
     item.usage_log = item.usage_log || [];
     item.usage_log.push({
       id: uid(), date: todayStr(), destination_type:'recipe', destination_text:'',
-      recipe_id: r.id, amount: f.amount, unit: f.unit, created_at: nowLocalIso()
+      recipe_id: r.id, amount: f.amount, unit: f.unit, created_at: ts
     });
   });
   saveItems();
+  // README 9.146: written unconditionally, even when every single ingredient above was
+  // external/USDA/pre-made/unresolvable and the loop above touched zero inventory items. Before
+  // this, 制作记录's calendar dot derived ENTIRELY from those item.usage_log writes (see
+  // recipeCookRecords) - a deliberate "one source of truth" simplification per 9.117, but it
+  // quietly assumed every recipe deducts SOMETHING from inventory. A recipe built entirely from
+  // 外部食材库/USDA ingredients (nothing tracked in 库存 at all) has nothing to deduct, so that
+  // loop above was always a no-op for it - "我做了这道菜" would show its success toast every
+  // time, yet the calendar could never show a single dot, no matter how many times it was
+  // tapped, because there was nothing anywhere recording that the tap ever happened. This
+  // explicit record is the fix: always written, so every recipe gets a real cook history
+  // regardless of what it's made of.
+  state.recipeCookLogs.push({id:uid(), recipe_id:r.id, date:todayStr(), created_at:ts});
+  saveRecipeCookLogs();
   closeModal();
   showToast(anyInsufficient ? t('cookSuccessInsufficient') : t('cookSuccess'));
   render();
@@ -12430,6 +12470,17 @@ function pickLocalFoodForMeal(type, id){
     var r = state.recipes.find(function(x){ return x.id===id; });
     af.picked = {type:'recipe', id:id, name:r.name};
     af.amountText = '1';
+    // README 9.145: this was the one branch here that never reset amountUnit, unlike the
+    // 'item' branch right above it - so picking a recipe right after having picked something
+    // else (an inventory item, or a PREVIOUS recipe whose unit was switched to g) carried that
+    // leftover unit straight into this brand new pick. addFoodAmountBodyHtml's own
+    // `if(isRecipe && !af.amountUnit) af.amountUnit = 'servings'` default never got a chance to
+    // fire, because the stale value was already truthy - so a fresh recipe pick could silently
+    // open on 克数(g) instead of the expected 份数(servings), with amountText still '1' meaning
+    // "1g" rather than "1份" until the person noticed and re-typed it. Resetting to null here,
+    // same as 'item' does, guarantees every fresh pick gets addFoodAmountBodyHtml's real default
+    // instead of whatever the previous pick happened to leave behind.
+    af.amountUnit = null;
   } else {
     var ing = state.ingredients.find(function(x){ return x.id===id; });
     af.picked = {type:'external', id:id, name:ing.name};
