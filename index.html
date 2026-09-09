@@ -868,7 +868,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.146';
+var BUILD_VERSION = '9.147';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -12510,7 +12510,38 @@ function backToAddFoodSearch(){
 }
 function af_str(field, val){ state.mealsUI.addFood[field] = val; }
 function af_bool(field, val){ state.mealsUI.addFood[field] = val; }
-function setAddFoodAmountUnit(u){ state.mealsUI.addFood.amountUnit = u; state.mealsUI.addFood.amountText=''; render(); }
+// README 9.147: for a recipe pick specifically, 份/g both describe the exact same fixed
+// quantity (this recipe's total yield) just measured two different ways, so toggling between
+// them converts the already-typed number instead of wiping it - Lynn: switching to g to type a
+// gram amount blanked out the working "1份" that was already there (and switching back to 份
+// afterward blanked it AGAIN), so getting from "here's a recipe, defaulted to 份" to "let me
+// enter a specific gram amount" meant losing every number along the way instead of converting
+// the one that was already sitting right there. Falls back to clearing (the old behavior) when
+// there's nothing valid to convert, or the recipe doesn't have both servings and cooked_weight
+// set (nothing to convert against). Item/USDA picks keep the original clear-on-switch behavior -
+// their unit choices come from the food's own tracked units, not two views of one fixed amount,
+// so there's no single obviously-correct conversion to make.
+function setAddFoodAmountUnit(u){
+  var af = state.mealsUI.addFood;
+  var oldUnit = af.amountUnit;
+  var p = af.picked;
+  if(p && p.type==='recipe' && oldUnit && oldUnit!==u){
+    var r = state.recipes.find(function(x){ return x.id===p.id; });
+    var curAmt = parseAmountInput(af.amountText);
+    var gramsPerServing = (r && r.servings && r.cooked_weight) ? (r.cooked_weight/r.servings) : null;
+    if(r && curAmt!=null && curAmt>0 && gramsPerServing){
+      if(oldUnit==='servings' && u==='g') af.amountText = fmtNum(curAmt*gramsPerServing, 1);
+      else if(oldUnit==='g' && u==='servings') af.amountText = fmtNum(curAmt/gramsPerServing, 2);
+      else af.amountText = '';
+    } else {
+      af.amountText = '';
+    }
+    af.amountUnit = u;
+    render();
+    return;
+  }
+  af.amountUnit = u; af.amountText=''; render();
+}
 // README 9.132: 自定 tab - MyNetDiary's "Quick Calories" equivalent (see the screenshots Lynn
 // sent). Only calories is required; everything else (carbs/protein/fat/name) is optional and
 // simply omitted from the logged nutrition rather than defaulted to 0, same spirit as an
