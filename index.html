@@ -868,7 +868,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.149';
+var BUILD_VERSION = '9.150';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -11483,6 +11483,15 @@ function renderMealsSidebarContent(){
 // left-swipe-to-reveal gesture 库存/usage-log entries already use (.item-swipe-actions) - reused
 // as-is, generic and keyed purely by data-item-id. Tapping the row still opens the entry's edit/
 // detail page, unchanged.
+// README 9.150: Lynn's clarification on 9.149's layout - name and the amount/calories block stay
+// in ONE horizontal row (not two stacked blocks): the name sits on the left, vertically centered
+// against the row's height; calories (top line) and weight/quantity (bottom line) stack on the
+// right, right-aligned - so the single-line name ends up vertically centered relative to that
+// two-line block beside it, not above it. .item-card is flex-direction:column by default (see
+// its own rule) since inventory cards stack their own rows vertically - overridden back to a
+// plain centered horizontal row here, same shape .list-row normally uses, just kept on
+// .item-card specifically so the swipe gesture engine still finds it (see this function's
+// earlier comment on why .list-row can't be used for that).
 function mealSlotSectionHtml(date, slot){
   var logs = mealLogsForSlot(date, slot);
   var slotCal = Math.round(sumMealNutrition(logs).calories||0);
@@ -11492,11 +11501,11 @@ function mealSlotSectionHtml(date, slot){
       '<div class="item-swipe-actions">'+
         '<button class="swipe-action-btn action-delete" onclick="event.stopPropagation();deleteMealLogFromSwipe('+aj(m.id)+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button>'+
       '</div>'+
-      '<div class="item-card" onclick="openMealLogEntryDetail('+aj(m.id)+')">'+
-        '<div class="item-name">'+esc(m.name)+'</div>'+
-        '<div style="display:flex;flex-direction:column;align-items:flex-end;">'+
-          (amountLine?('<div class="hint" style="margin:0;">'+amountLine+'</div>'):'')+
-          '<div style="font-weight:600;color:var(--cocoa);margin-top:2px;">'+Math.round(m.nutrition.calories||0)+' kcal</div>'+
+      '<div class="item-card" style="flex-direction:row;align-items:center;justify-content:space-between;gap:10px;" onclick="openMealLogEntryDetail('+aj(m.id)+')">'+
+        '<div class="item-name" style="flex:1;min-width:0;">'+esc(m.name)+'</div>'+
+        '<div style="display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0;">'+
+          '<div style="font-weight:600;color:var(--cocoa);">'+Math.round(m.nutrition.calories||0)+' kcal</div>'+
+          (amountLine?('<div class="hint" style="margin:2px 0 0;">'+amountLine+'</div>'):'')+
         '</div>'+
       '</div>'+
     '</div>';
