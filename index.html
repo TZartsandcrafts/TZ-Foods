@@ -529,17 +529,6 @@
   .meals-calorie-num{ font-size:32px; font-weight:700; color:var(--almond); }
   .macro-view-dot{ width:7px; height:7px; border-radius:50%; background:var(--line); cursor:pointer; }
   .macro-view-dot.active{ background:var(--almond); }
-  /* README 9.143: daily-calorie trend bar chart on the 三餐 page - horizontally scrollable
-     (native overflow-x, momentum scroll on iOS), one bar per calendar day from the first ever
-     logged meal through today. Tapping a bar jumps to that day the same way tapping the
-     prev/next arrows or picking a date on the calendar does. */
-  .meals-cal-bar-scroll{ display:flex; gap:11px; overflow-x:auto; padding:4px 2px 6px; -webkit-overflow-scrolling:touch; scroll-behavior:smooth; }
-  .meals-cal-bar-col{ display:flex; flex-direction:column; align-items:center; gap:6px; flex-shrink:0; width:30px; cursor:pointer; -webkit-tap-highlight-color:transparent; }
-  .meals-cal-bar-track{ width:14px; height:74px; background:var(--cream); border-radius:7px; display:flex; align-items:flex-end; overflow:hidden; flex-shrink:0; }
-  .meals-cal-bar-fill{ width:100%; border-radius:7px; min-height:3px; }
-  .meals-cal-bar-label{ font-size:10.5px; line-height:1.25; color:var(--deep-caramel); text-align:center; }
-  .meals-cal-bar-col.active .meals-cal-bar-label{ font-weight:700; color:var(--cocoa); }
-  .meals-cal-bar-col.active .meals-cal-bar-track{ box-shadow:0 0 0 2px var(--almond); }
   .macro-view-slide{ animation-duration:.28s; animation-timing-function:cubic-bezier(.25,.7,.4,1); animation-fill-mode:both; }
   @keyframes macroSlideInRight{ from{ transform:translateX(28px); opacity:0; } to{ transform:translateX(0); opacity:1; } }
   @keyframes macroSlideInLeft{ from{ transform:translateX(-28px); opacity:0; } to{ transform:translateX(0); opacity:1; } }
@@ -879,7 +868,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.151';
+var BUILD_VERSION = '9.152';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2168,7 +2157,6 @@ var I18N = {
     healthWeightSection:'体重', healthPlanSection:'饮食计划', weightChartEmptyHint:'记录至少两次体重后这里会显示趋势图',
     healthNoWeightYet:'还没有体重记录', logWeightBtn:'记录体重', viewWeightHistory:'体重历史',
     dailyCalorieBudgetLabel:'每日热量预算', macroDistLabel:'宏量营养素分布', targetDateLabel:'预计达成日期',
-    calorieTrendLabel:'每日热量趋势',
     healthPlanIncompleteHint:'填写个人信息和目标体重后，这里会自动算出每日热量预算', planSettingsBtn:'计划设置', personalInfoBtn:'个人信息',
     editWeightEntryTitle:'编辑体重记录', fieldWeight:'体重', fieldDate:'日期',
     weightEntryInvalid:'请填写日期和体重', weightSavedToast:'已保存', deleteWeightConfirm:'删除这条体重记录？',
@@ -2458,7 +2446,6 @@ var I18N = {
     healthWeightSection:'Weight', healthPlanSection:'Diet Plan', weightChartEmptyHint:'Log at least two entries to see a trend chart',
     healthNoWeightYet:'No weight logged yet', logWeightBtn:'Log Weight', viewWeightHistory:'Weight History',
     dailyCalorieBudgetLabel:'Daily Calorie Budget', macroDistLabel:'Macronutrient Distribution', targetDateLabel:'Projected Target Date',
-    calorieTrendLabel:'Calorie Trend',
     healthPlanIncompleteHint:'Fill in your personal info and goal weight to see your daily calorie budget here', planSettingsBtn:'Plan Settings', personalInfoBtn:'Personal Info',
     editWeightEntryTitle:'Edit Weight Entry', fieldWeight:'Weight', fieldDate:'Date',
     weightEntryInvalid:'Please fill in a date and weight', weightSavedToast:'Saved', deleteWeightConfirm:'Delete this weight entry?',
@@ -11088,66 +11075,6 @@ function shiftMealsDate(delta){
   render();
 }
 function setMealsDate(d){ mealsUIDefaults(); state.mealsUI.date = d; }
-// README 9.143: same jump-to-day action as tapping the prev/next arrows or picking a date on
-// the calendar (setMealsDate + render) - just triggered by tapping a bar in the trend chart
-// instead. A plain function (not inlined at the call site) so the onclick markup stays short.
-function jumpMealsDate(d){ setMealsDate(d); render(); }
-// Weekday-abbreviation + day-of-month label for one bar chart column, matching the compact
-// two-line date labels under each bar in Lynn's MyNetDiary reference screenshot. Doesn't reuse
-// fmtDateDots (that prints the full YYYY.MM.DD, far too wide for a ~30px bar column).
-function mealsBarDayLabel(dateStr){
-  var d = new Date(dateStr+'T00:00:00');
-  var wd = state.lang==='zh' ? ['日','一','二','三','四','五','六'][d.getDay()] : ['Su','Mo','Tu','We','Th','Fr','Sa'][d.getDay()];
-  return esc(wd)+'<br>'+d.getDate();
-}
-// README 9.143: daily-calorie trend bar chart for the 三餐 page (Lynn's MyNetDiary reference -
-// a horizontally scrollable row of bars, one per day, tapping one jumps to that day). One bar
-// for every calendar day from the first-ever logged meal through today (inclusive), not just
-// the days that happen to have a log - a day with nothing logged still gets its own empty-ish
-// slot instead of silently vanishing from the timeline, so a gap in logging actually reads as a
-// gap. Bar height is that day's calories relative to the tallest bar currently in the chart (or
-// that day's own budget if it's taller than every actual day, so a mostly-empty history doesn't
-// render every bar pinned to 100%); color is the same green/red the calorie summary card above
-// already uses for "within budget" vs "over budget" - red only where a budget is actually set
-// and exceeded, plain almond where there's no budget to compare against at all.
-function mealsCalorieBarChartHtml(){
-  var byDate = {};
-  state.mealLogs.forEach(function(m){ byDate[m.date] = (byDate[m.date]||0) + (m.nutrition.calories||0); });
-  var loggedDates = Object.keys(byDate);
-  if(!loggedDates.length) return '';
-  var today = todayStr();
-  var minDate = loggedDates.reduce(function(a,b){ return b<a?b:a; }, today);
-  var dates = [];
-  for(var cur=minDate; cur<=today; cur=addDaysStr(cur,1)) dates.push(cur);
-  var maxCal = Math.max.apply(null, dates.map(function(d){ return byDate[d]||0; }).concat([1]));
-  var selected = state.mealsUI.date;
-  var bars = dates.map(function(d){
-    var cal = Math.round(byDate[d]||0);
-    var budget = calcDailyCalorieBudget(d);
-    var over = budget!=null && cal>budget;
-    var pct = Math.max(3, Math.min(100, Math.round(cal/maxCal*100)));
-    var barColor = over ? 'var(--danger)' : (budget!=null ? 'var(--fresh)' : 'var(--almond)');
-    return '<div class="meals-cal-bar-col'+(d===selected?' active':'')+'" data-date="'+esc(d)+'" onclick="jumpMealsDate('+aj(d)+')">'+
-      '<div class="meals-cal-bar-track"><div class="meals-cal-bar-fill" style="height:'+pct+'%;background:'+barColor+';"></div></div>'+
-      '<div class="meals-cal-bar-label">'+mealsBarDayLabel(d)+'</div>'+
-    '</div>';
-  }).join('');
-  return '<div class="section-title">'+t('calorieTrendLabel')+'</div>'+
-    '<div class="form-group" style="padding-left:8px;padding-right:8px;">'+
-      '<div class="meals-cal-bar-scroll" id="meals-cal-bar-scroll">'+bars+'</div>'+
-    '</div>';
-}
-// Keeps the selected day's bar scrolled into view whenever the selected date changes (arrows,
-// calendar picker, or tapping a different bar) - but only then, not on every unrelated re-render
-// of the 三餐 page (adding/removing a food item, switching pie/bar macro view, etc.), the same
-// "only act on a genuine change" guard focusAutofocusElementOnce uses for its own element.
-var _lastMealsBarScrolledDate = null;
-function scrollMealsCalBarIntoViewOnce(){
-  if(state.mealsUI.date === _lastMealsBarScrolledDate) return;
-  _lastMealsBarScrolledDate = state.mealsUI.date;
-  var col = document.querySelector('.meals-cal-bar-col.active');
-  if(col) col.scrollIntoView({inline:'center', block:'nearest'});
-}
 /* ---- date-nav calendar picker (README 9.105) - tap the date label above the calorie card to
    jump to any day, past or future (no cap either direction - meal logs and the calorie budget
    are just per-date lookups, nothing about them assumes "today or earlier"). ---- */
@@ -11176,15 +11103,29 @@ function mealsCalendarBodyHtml(){
   var startWeekday = first.getDay();
   var daysInMonth = new Date(y, m+1, 0).getDate();
   var todayS = todayStr(), selectedS = state.mealsUI.date;
-  var loggedDates = {};
-  state.mealLogs.forEach(function(ml){ loggedDates[ml.date]=true; });
+  // README 9.148: dot color now encodes budget status instead of just "something was logged"
+  // that day - the daily-calorie trend bar chart this replaced showed the same info as a row of
+  // bars; here it's one dot per day inside the month calendar Lynn already opens from the date
+  // label, so the info survives without adding a separate scrolling widget to the page. Red only
+  // where a budget is actually set AND exceeded (mirrors the calorie summary card's own red vs
+  // green), green where a budget exists and was met, plain almond where there's a log but no
+  // budget configured to compare against - a day with no log at all gets no dot, same as before.
+  var dailyCalories = {};
+  state.mealLogs.forEach(function(ml){ dailyCalories[ml.date] = (dailyCalories[ml.date]||0) + (ml.nutrition.calories||0); });
   var weekdayLabels = state.lang==='zh' ? ['日','一','二','三','四','五','六'] : ['Su','Mo','Tu','We','Th','Fr','Sa'];
   var cells = '';
   for(var i=0;i<startWeekday;i++) cells += '<div></div>';
   for(var day=1; day<=daysInMonth; day++){
     var ds = y+'-'+String(m+1).padStart(2,'0')+'-'+String(day).padStart(2,'0');
     var cls = 'meals-cal-day'+(ds===selectedS?' selected':'')+(ds===todayS?' today':'');
-    cells += '<div class="'+cls+'" onclick="pickMealsCalendarDate(\''+ds+'\')">'+day+(loggedDates[ds]?'<span class="meals-cal-dot"></span>':'')+'</div>';
+    var dot = '';
+    if(dailyCalories.hasOwnProperty(ds)){
+      var dayBudget = calcDailyCalorieBudget(ds);
+      var dayOver = dayBudget!=null && Math.round(dailyCalories[ds])>dayBudget;
+      var dotColor = dayOver ? 'var(--danger)' : (dayBudget!=null ? 'var(--fresh)' : 'var(--almond)');
+      dot = '<span class="meals-cal-dot" style="background:'+dotColor+';"></span>';
+    }
+    cells += '<div class="'+cls+'" onclick="pickMealsCalendarDate(\''+ds+'\')">'+day+dot+'</div>';
   }
   return '' +
     '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">'+
@@ -11496,13 +11437,12 @@ function renderMeals(){
   '</div>';
 
   var macroWidget = budget!=null ? macroWidgetHtml(totals, budget) : '';
-  var calorieTrendChart = mealsCalorieBarChartHtml();
   var slotsHtml = MEAL_SLOTS.filter(function(slot){ return state.visibleMealSlots.indexOf(slot)!==-1; }).map(function(slot){ return mealSlotSectionHtml(date, slot); }).join('');
 
   return '' +
   '<div class="topbar"><div><h1>🍽️ '+t('mealsTitle')+'</h1></div>'+menuButtonHtml('meals', true)+'</div>'+
   '<div class="content">'+
-    fastingCardHtml() + dateNav + calorieCard + calorieTrendChart + macroWidget + slotsHtml +
+    fastingCardHtml() + dateNav + calorieCard + macroWidget + slotsHtml +
   '</div>'+
   bottomNav();
 }
@@ -14577,9 +14517,6 @@ function afterRender(){
   }
   if(state.view === 'home'){
     syncHomeStickyControlsOffset();
-  }
-  if(state.view === 'meals'){
-    scrollMealsCalBarIntoViewOnce();
   }
   if(state.view === 'pickInventory' || state.view === 'pickExternal' || state.view === 'pickRecipe' ||
      state.view === 'mealsetPickInventory' || state.view === 'mealsetPickExternal' ||
