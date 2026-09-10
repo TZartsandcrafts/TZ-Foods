@@ -877,7 +877,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.155';
+var BUILD_VERSION = '9.156';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2474,7 +2474,7 @@ var I18N = {
     usageBtn:'取用', usageLogTitle:'取用记录', usageLogAddTitle:'记录使用', usageLogEmpty:'还没有取用记录',
     viewUsageHistoryBtn:'查看取用记录',
     usageTypePickerTitle:'选择取用类型', usageTypeMoveDesc:'移动到其它位置', usageTypeRecipeDesc:'关联到某个食谱', usageTypeAdjustDesc:'手动调整剩余量', usageTypeFreeDesc:'其它去向',
-    usageDate:'日期', usageDestination:'去向', usageDestFree:'自由输入', usageDestRecipe:'关联食谱', usageDestMove:'移动位置', usageDestAdjust:'调整余量',
+    usageDate:'日期', usageDestination:'去向', usageDestFree:'自由输入', usageDestRecipe:'关联食谱', usageDestMove:'移动位置', usageDestAdjust:'调整余量', usageDestMealPrefix:'三餐 · ',
     usageNotesLabel:'备注',
     usageDestPlaceholder:'比如：早餐吐司、送朋友、直接吃掉了', usageAmount:'数量', usageAdjustAmountLabel:'调整后剩余数量', usageAdjustCurrentPrefix:'当前库存约为 ',
     usageAdjustPreviewDecrease:'将扣减', usageAdjustPreviewIncrease:'将增加', usageAdjustPreviewNoChange:'跟当前库存一致，不会有变化',
@@ -2760,7 +2760,7 @@ var I18N = {
     usageBtn:'Use', usageLogTitle:'Usage Log', usageLogAddTitle:'Log Usage', usageLogEmpty:'No usage logged yet',
     viewUsageHistoryBtn:'View Usage History',
     usageTypePickerTitle:'What kind of usage?', usageTypeMoveDesc:'Move to another location', usageTypeRecipeDesc:'Used in a recipe', usageTypeAdjustDesc:'Manually correct the amount', usageTypeFreeDesc:'Something else',
-    usageDate:'Date', usageDestination:'Where it went', usageDestFree:'Free text', usageDestRecipe:'Link a recipe', usageDestMove:'Move to another location', usageDestAdjust:'Adjust remaining',
+    usageDate:'Date', usageDestination:'Where it went', usageDestFree:'Free text', usageDestRecipe:'Link a recipe', usageDestMove:'Move to another location', usageDestAdjust:'Adjust remaining', usageDestMealPrefix:'Meals · ',
     usageNotesLabel:'Note',
     usageDestPlaceholder:'e.g. breakfast toast, gave to a friend, ate it plain', usageAmount:'Amount', usageAdjustAmountLabel:'Remaining after adjustment', usageAdjustCurrentPrefix:'Currently about ',
     usageAdjustPreviewDecrease:'Will deduct', usageAdjustPreviewIncrease:'Will add', usageAdjustPreviewNoChange:'Matches current stock, no change',
@@ -3698,6 +3698,36 @@ function addBackToItem(item, amount, unit){
   if(amountInPrimary == null) return {ok:false, reason:'no_conversion'};
   applyPrimaryEquivalentDelta(item, amountInPrimary);
   return {ok:true};
+}
+// README 9.156: 三餐记录扣库存时（直接单条、或套餐里的某个子项）跟"我做了这道菜"
+// (confirmCook) 一样是真实消耗，之前一直没有像 confirmCook 那样在 item.usage_log 里留一笔，
+// 导致这笔扣减在该食材"取用记录"页上完全看不到（库存数字变了，但翻查取用记录却"还没有取用
+// 记录"）。这三个函数补上这一段，并通过 meal_log_id（套餐子项再加 sub_item_id）把
+// usage_log 条目跟对应的三餐记录关联起来，好让下面两件事都能找到彼此：
+//  - 三餐记录被删/改用量时（reverseMealLogDeductions、saveMealLogEntryEdit、
+//    confirmEditMealsetLogSubItem），对应的 usage_log 条目要跟着一起清掉/改数，不然会留下
+//    一条早就已经撤销或过期的"用了多少"记录。
+//  - 反过来，人从取用记录页手动删除/恢复这条 meal 来源的记录时（usageLogRowHtml 的通用
+//    删除/恢复走的还是同一套 deleteUsageLogEntry/restoreUsageLogEntry，没有另外分支)，也要
+//    把三餐那边的 deductItemId 链接断开，不然三餐记录之后被删除/改量时会把这笔库存重复加回去。
+function pushMealUsageLog(item, amount, unit, mealLogId, subItemId, slot, date, ts){
+  item.usage_log = item.usage_log || [];
+  var entry = {
+    id: uid(), date: date || todayStr(), destination_type:'meal', destination_text:'',
+    meal_log_id: mealLogId, meal_slot: slot, amount: amount, unit: unit, created_at: ts || nowLocalIso()
+  };
+  if(subItemId) entry.sub_item_id = subItemId;
+  item.usage_log.push(entry);
+}
+function findMealUsageLogEntry(item, mealLogId, subItemId){
+  return (item.usage_log||[]).find(function(e){
+    return e.destination_type==='meal' && e.meal_log_id===mealLogId && (subItemId ? e.sub_item_id===subItemId : !e.sub_item_id);
+  });
+}
+function removeMealUsageLog(item, mealLogId, subItemId){
+  item.usage_log = (item.usage_log||[]).filter(function(e){
+    return !(e.destination_type==='meal' && e.meal_log_id===mealLogId && (subItemId ? e.sub_item_id===subItemId : !e.sub_item_id));
+  });
 }
 // README 9.116: how many decimal places make sense to show for a TOTAL remaining amount,
 // keyed on the pack's own subunit - "g"/"ml"/a bare count like "罐" read naturally as whole
@@ -7766,13 +7796,20 @@ function usageLogRowHtml(entry, itemId){
   var isRecipe = entry.destination_type==='recipe';
   var isTransferIn = entry.destination_type==='transfer_in';
   var isAdjust = entry.destination_type==='adjust';
+  var isMeal = entry.destination_type==='meal';
   var recipeExists = isRecipe && state.recipes.some(function(r){ return r.id===entry.recipe_id; });
+  var mealLogExists = isMeal && state.mealLogs.some(function(x){ return x.id===entry.meal_log_id; });
   var destText = isRecipe ? recipeNameForUsage(entry.recipe_id)
     : isMove ? (t('usageMovedTo')+' '+entry.destination_text)
     : isTransferIn ? (t('usageTransferInPrefix')+(entry.source_location||t('usageTransferInUnknown'))+t('usageTransferInSuffix'))
     : isAdjust ? t('usageDestAdjust')
+    // README 9.156: entry.meal_slot is one of MEAL_SLOTS ('breakfast'/'lunch'/... - see
+    // mealSlot_* i18n keys), always set at creation time (pushMealUsageLog) - no fallback
+    // needed the way isMove's destination_text can be empty for an old record.
+    : isMeal ? (t('usageDestMealPrefix')+t('mealSlot_'+entry.meal_slot))
     : entry.destination_text;
-  var cardClickAttr = recipeExists ? ' onclick="navigate(\'recipeDetail\',{id:'+aj(entry.recipe_id)+',from:{view:\'usageLog\',params:{id:'+aj(itemId)+'}}})" style="cursor:pointer;"' : '';
+  var cardClickAttr = recipeExists ? ' onclick="navigate(\'recipeDetail\',{id:'+aj(entry.recipe_id)+',from:{view:\'usageLog\',params:{id:'+aj(itemId)+'}}})" style="cursor:pointer;"'
+    : mealLogExists ? ' onclick="openMealLogEntryDetail('+aj(entry.meal_log_id)+')" style="cursor:pointer;"' : '';
   // adjust shows the target value it was set TO, not delta_primary (which is in the item's own
   // primary unit, not necessarily the unit the person actually typed in) - colored the same
   // green-for-increase convention as transfer_in when the adjustment raised the stock, so a
@@ -7797,8 +7834,12 @@ function usageLogRowHtml(entry, itemId){
   }
   // Editing a move-location or stock-adjustment entry isn't supported (see
   // performLocationMove/restoreUsageLogEntry - both need more than just this one row's own
-  // amount/unit to undo correctly) - only delete/restore.
-  var editBtnHtml = (isMove || isAdjust) ? '' :
+  // amount/unit to undo correctly) - only delete/restore. A 三餐-sourced ('meal') entry is the
+  // same story for a different reason: the manual usage-log form has no "meal" destination
+  // option to edit it back INTO, so opening that form here would silently reclassify it as a
+  // plain free-text entry and drop the meal_log_id link - only delete/restore, same as the
+  // other two programmatic-only types.
+  var editBtnHtml = (isMove || isAdjust || isMeal) ? '' :
     '<button class="swipe-action-btn action-edit" onclick="event.stopPropagation();closeItemSwipeRow('+aj(entry.id)+');openUsageLogEdit('+aj(itemId)+','+aj(entry.id)+')">'+ic('edit',20)+'<span>'+esc(t('edit'))+'</span></button>';
   return '<div class="item-card-swipe" data-item-id="'+esc(entry.id)+'">'+
     '<div class="item-swipe-actions">'+
@@ -7811,7 +7852,7 @@ function usageLogRowHtml(entry, itemId){
         '<div style="min-width:0;display:flex;align-items:center;gap:4px;">'+
           '<div><div class="item-name" style="font-size:15px;">'+esc(destText||'-')+'</div>'+
           '<div class="item-meta">'+esc(fmtDateDots(entry.date))+'</div></div>'+
-          (recipeExists ? ic('chevronRight',15,'style="color:#B79B78;flex-shrink:0;"') : '')+
+          ((recipeExists || mealLogExists) ? ic('chevronRight',15,'style="color:#B79B78;flex-shrink:0;"') : '')+
         '</div>'+
         '<div style="text-align:right;font-weight:600;color:'+amountColor+';flex-shrink:0;">'+amountHtml+'</div>'+
       '</div>'+
@@ -8259,6 +8300,24 @@ function restoreUsageLogEntry(itemId, entryId){
       applyPrimaryEquivalentDelta(it, entry.delta_primary);
     } else {
       addBackToItem(it, entry.amount, entry.unit);
+      // README 9.156: this usage_log entry came from a 三餐 deduction (destination_type==='meal')
+      // - the stock is now back, so the meal log entry's own deductItemId/deductAmount/deductUnit
+      // (or, for a 套餐 subItem, the same three fields on that subItem) needs to be cleared too,
+      // or a later edit/delete of that meal entry would try to add the same amount back again
+      // (reverseMealLogDeductions/saveMealLogEntryEdit/confirmEditMealsetLogSubItem all still
+      // trust those fields as "this much is genuinely still deducted").
+      if(entry.destination_type==='meal'){
+        var linkedMeal = state.mealLogs.find(function(x){ return x.id===entry.meal_log_id; });
+        if(linkedMeal){
+          if(entry.sub_item_id){
+            var linkedSub = (linkedMeal.subItems||[]).find(function(si){ return si.id===entry.sub_item_id; });
+            if(linkedSub){ delete linkedSub.deductItemId; delete linkedSub.deductAmount; delete linkedSub.deductUnit; }
+          } else {
+            delete linkedMeal.deductItemId; delete linkedMeal.deductAmount; delete linkedMeal.deductUnit;
+          }
+          saveMealLogs();
+        }
+      }
     }
     it.usage_log = (it.usage_log||[]).filter(function(e){ return e.id!==entryId; });
     saveItems();
@@ -11738,6 +11797,11 @@ function switchMealsSlotTab(slot){
 // README 9.154: no longer prints its own section-title header - the meal-slot tab above it
 // already shows the name and that slot's calorie total, so repeating both right below the tabs
 // would just be the same two numbers twice in a row.
+// README 9.156: 9.154 做标签切换重排的时候，不小心把 9.149 特意去掉的外层 `.form-group`
+// 大卡片又包回来了——这里的 rows 本身已经是一条条独立的 `.item-card`（同款库存条目样式），不该
+// 再套一层带白色/米白色背景的容器，否则视觉上又变回"一整餐所有条目共享一块卡片背景"，跟库存/
+// 取用记录列表"每条记录自己一张卡片、直接摆在页面底色上"的样式不一致了。改回纯排版用的 div，
+// 不带 `.form-group` 的卡片背景。
 function mealSlotDetailHtml(date, slot){
   var logs = mealLogsForSlot(date, slot);
   var rows = logs.map(function(m){
@@ -11755,10 +11819,10 @@ function mealSlotDetailHtml(date, slot){
       '</div>'+
     '</div>';
   }).join('');
-  return '<div class="form-group" style="padding-top:6px;">'+(rows || '<p class="hint" style="margin:0;">'+t('noMealLoggedHint')+'</p>')+'</div>';
+  return '<div style="padding-top:6px;">'+(rows || '<p class="hint" style="margin:0;">'+t('noMealLoggedHint')+'</p>')+'</div>';
 }
 // README 9.154: 每日营养摄入详情——按营养标签顺序（跟 NUTRI_TIER1_ROWS 这个 app 自己一直用的
-// 营养标签行顺序一致：脂肪/饱和脂肪/反式脂肪/碳水/膳食纤维/总糖/蛋白质/胆固醇/钠，热量另外放在
+// 营养标签行顺序一致：脂肪/饱和脂肪/反式脂肪/碳水/膳食纤维/总糖/蛋白质/钠，热量另外放在
 // 最前面）把当天四餐加总后的核心营养素，做成跟宏量营养素条图同一套视觉语言的进度条：底色统一
 // 米色（--cream），未超标用深绿（--fresh），超标用深红（--danger）。
 // 目标值来源分两种：热量/脂肪/碳水/蛋白质优先用这个人自己在"饮食计划"里设的个性化目标（复用
@@ -11767,17 +11831,20 @@ function mealSlotDetailHtml(date, slot){
 // 一份维生素矿物质用的是同一份官方标准)里的75g，碳水/蛋白质则没有退回值可用——因为加拿大营养
 // 标签本来就不给总碳水/蛋白质标百分比每日参考值，这两项在没设饮食计划时条图会显示"未设置目标"
 // （空米色条，参照 Lynn 给的 MyNetDiary 截图里 Sat. Fat "limit not set" 那一行的处理方式）。
-// 胆固醇/钠/膳食纤维/总糖这四项没有"个性化"这一说，不管有没有设饮食计划，一律用该官方表的数值
-// (300mg/2300mg/28g/100g)。饱和脂肪比较特殊：加拿大标签上饱和脂肪+反式脂肪是合并算一个每日
+// 钠/膳食纤维/总糖这三项没有"个性化"这一说，不管有没有设饮食计划，一律用该官方表的数值
+// (2300mg/28g/100g)。饱和脂肪比较特殊：加拿大标签上饱和脂肪+反式脂肪是合并算一个每日
 // 参考值(20g)的，所以这里饱和脂肪这一条比的是"饱和脂肪+反式脂肪"两者相加对这20g的占比，跟真实
-// 标签的算法一致；反式脂肪单独那一行因此没有自己的条图/目标，只显示克数（真实标签上反式脂肪也
-// 从来不单独标百分比，这不是遗漏）。
+// 标签的算法一致；反式脂肪单独那一行因此没有自己的百分比/目标，只显示克数（真实标签上反式脂肪
+// 也从来不单独标百分比，不是遗漏）——但（见9.156）仍然画一条只有底色、不着色的空条，跟其余每一
+// 行统一有一条"视觉占位"，不是这一行完全没有条图。
 // 9.155：钙/铁/钾/维生素D 这四项已经从库存/食谱/USDA/套餐一路带进每条三餐记录里加总了（见
 // scaleNutritionExtraCore/recomputeMealsetLogItemNutrition/saveMealLogEntry），下面直接按
 // NUTRI_DV_REFERENCE 给目标值、样式跟其余10项完全一样（含超标变红），接在同一个列表最后。维生素
 // A/C/E/B12、镁、锌 NUTRI_DV_REFERENCE 里虽然也有参考值，但这次只做 Lynn 确认要的这四项强制项，
 // 没有被这次改动带进三餐记录的加总里，不在这里出现。自定(自定义热量)条目本来就没有来源，不带
 // nutrition_extra，对这四项的贡献自然是0，跟其余没记录来源的旧数据一样处理。
+// 9.156：Lynn 确认这个列表不需要"胆固醇"这一行，去掉了（`NUTRI_KEYS`/营养标签页那边的胆固醇字段
+// 不受影响，只是这份"当日"汇总不再显示这一行）。
 function dailyNutrientTargets(budget){
   var macroG = budget!=null ? macroGramsForBudget(budget, state.weightPlan.macroPreset) : null;
   var targets = {
@@ -11788,13 +11855,12 @@ function dailyNutrientTargets(budget){
     fiber: 28,
     sugar: 100,
     protein: macroG ? macroG.protein : null,
-    cholesterol: 300,
     sodium: 2300
   };
   NUTRI_EXTRA_CORE_KEYS.forEach(function(k){ targets[k] = NUTRI_DV_REFERENCE[k].amount; });
   return targets;
 }
-var DAILY_NUTRIENT_BAR_ORDER = ['calories','fat','saturated_fat','trans_fat','carbs','fiber','sugar','protein','cholesterol','sodium'].concat(NUTRI_EXTRA_CORE_KEYS);
+var DAILY_NUTRIENT_BAR_ORDER = ['calories','fat','saturated_fat','trans_fat','carbs','fiber','sugar','protein','sodium'].concat(NUTRI_EXTRA_CORE_KEYS);
 function dailyNutrientBarsHtml(totals, budget){
   var targets = dailyNutrientTargets(budget);
   var labels = nutriLabels();
@@ -11805,7 +11871,10 @@ function dailyNutrientBarsHtml(totals, budget){
     var actual = Math.round(totals[key]||0);
     var unit = units[key];
     if(key==='trans_fat'){
-      return '<div style="margin-bottom:11px;"><div style="display:flex;justify-content:space-between;font-size:13px;"><span>'+labels.trans_fat+'</span><span class="hint">'+actual+unit+'</span></div></div>';
+      return '<div style="margin-bottom:11px;">'+
+        '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span>'+labels.trans_fat+'</span><span class="hint">'+actual+unit+'</span></div>'+
+        '<div style="height:8px;background:var(--cream);border-radius:4px;"></div>'+
+      '</div>';
     }
     var compareActual = (key==='saturated_fat') ? actual+Math.round(totals.trans_fat||0) : actual;
     var target = targets[key];
@@ -11839,12 +11908,12 @@ function reverseMealLogDeductions(m){
   var changed = false;
   if(m.deductItemId){
     var item = state.items.find(function(i){ return i.id===m.deductItemId; });
-    if(item){ addBackToItem(item, m.deductAmount, m.deductUnit); changed = true; }
+    if(item){ addBackToItem(item, m.deductAmount, m.deductUnit); removeMealUsageLog(item, m.id, null); changed = true; }
   }
   (m.subItems||[]).forEach(function(si){
     if(si.deductItemId){
       var it2 = state.items.find(function(i){ return i.id===si.deductItemId; });
-      if(it2){ addBackToItem(it2, si.deductAmount, si.deductUnit); changed = true; }
+      if(it2){ addBackToItem(it2, si.deductAmount, si.deductUnit); removeMealUsageLog(it2, m.id, si.id); changed = true; }
     }
   });
   return changed;
@@ -12088,6 +12157,8 @@ function saveMealLogEntryEdit(){
           if(delta > 0) deductFromItem(item, delta, m.deductUnit);
           else if(delta < 0) addBackToItem(item, -delta, m.deductUnit);
           m.deductAmount = newAmt;
+          var usageEntry = findMealUsageLogEntry(item, m.id, null);
+          if(usageEntry) usageEntry.amount = newAmt;
           saveItems();
         }
       }
@@ -12163,6 +12234,8 @@ function confirmEditMealsetLogSubItem(entryId, idx){
       if(delta > 0) deductFromItem(item, delta, unit);
       else if(delta < 0) addBackToItem(item, -delta, unit);
       si.deductAmount = amount;
+      var usageEntry2 = findMealUsageLogEntry(item, m.id, si.id);
+      if(usageEntry2) usageEntry2.amount = amount;
       saveItems();
     }
   } else if(si.deductItemId && si.deductUnit!==unit){
@@ -12170,7 +12243,7 @@ function confirmEditMealsetLogSubItem(entryId, idx){
     // re-deduct manually if this row still needs it (same caution as elsewhere in this file
     // about never silently assuming a unit conversion is safe).
     var item2 = state.items.find(function(x){ return x.id===si.deductItemId; });
-    if(item2){ addBackToItem(item2, si.deductAmount, si.deductUnit); saveItems(); }
+    if(item2){ addBackToItem(item2, si.deductAmount, si.deductUnit); removeMealUsageLog(item2, m.id, si.id); saveItems(); }
     delete si.deductItemId; delete si.deductAmount; delete si.deductUnit;
     showToast(state.lang==='zh'?'单位已改，原库存扣减已撤销':'Unit changed - the earlier inventory deduction was reversed');
   }
@@ -12191,7 +12264,7 @@ function deleteMealsetLogSubItem(entryId, idx){
   if(!si) return;
   if(si.deductItemId){
     var item = state.items.find(function(x){ return x.id===si.deductItemId; });
-    if(item){ addBackToItem(item, si.deductAmount, si.deductUnit); saveItems(); }
+    if(item){ addBackToItem(item, si.deductAmount, si.deductUnit); removeMealUsageLog(item, m.id, si.id); saveItems(); }
   }
   m.subItems.splice(idx,1);
   if(!m.subItems.length){
@@ -12540,8 +12613,10 @@ function saveMealsetLogEntryFinal(){
     totalExtra = addNutritionExtraCore(totalExtra, it.nutrition_extra||{});
   });
   var subItems = items.map(function(it){
-    return {source_type:it.source_type, source_id:it.source_id, name:it.name, amount:it.amount, unit:it.unit, nutrition:it.nutrition, nutrition_extra:it.nutrition_extra||{}};
+    return {id: it.id||uid(), source_type:it.source_type, source_id:it.source_id, name:it.name, amount:it.amount, unit:it.unit, nutrition:it.nutrition, nutrition_extra:it.nutrition_extra||{}};
   });
+  var entryId = uid();
+  var ts = nowLocalIso();
   var anyDeducted = false;
   items.forEach(function(it, idx){
     if(it.source_type!=='inventory') return;
@@ -12552,13 +12627,14 @@ function saveMealsetLogEntryFinal(){
       subItems[idx].deductItemId = item.id;
       subItems[idx].deductAmount = it.amount;
       subItems[idx].deductUnit = it.unit;
+      pushMealUsageLog(item, it.amount, it.unit, entryId, subItems[idx].id, af.slot, af.date, ts);
       anyDeducted = true;
     }
   });
   if(anyDeducted) saveItems();
   var entry = {
-    id: uid(), date: af.date, slot: af.slot, name: af.mealsetSourceName||'', amount:null, unit:'',
-    nutrition: totalN, nutrition_extra: totalExtra, created_at: nowLocalIso(),
+    id: entryId, date: af.date, slot: af.slot, name: af.mealsetSourceName||'', amount:null, unit:'',
+    nutrition: totalN, nutrition_extra: totalExtra, created_at: ts,
     source_type: 'mealset', source_id: af.mealsetSourceMealsetId||null,
     subItems: subItems
   };
@@ -13175,6 +13251,11 @@ function saveMealLogEntry(){
   };
   if(deductItemId){ entry.deductItemId=deductItemId; entry.deductAmount=deductAmount; entry.deductUnit=deductUnit; }
   state.mealLogs.push(entry);
+  if(deductItemId){
+    var deductedItem = state.items.find(function(x){ return x.id===deductItemId; });
+    if(deductedItem) pushMealUsageLog(deductedItem, deductAmount, deductUnit, entry.id, null, af.slot, af.date, entry.created_at);
+    saveItems();
+  }
   saveMealLogs();
   // README 9.134: bumped only here, on an actual successful log - not on every search
   // keystroke or an abandoned pick that never got saved - see bumpPickFrequency's comment.
