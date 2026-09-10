@@ -877,7 +877,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.154';
+var BUILD_VERSION = '9.155';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -3900,6 +3900,55 @@ function multiplyNutrition(n, factor){
   NUTRI_KEYS.forEach(function(k){ out[k] = (n[k]||0)*factor; });
   return out;
 }
+// README 9.155: shared by scaleNutritionExtraCore/calcRecipeNutrition-style callers - "how much
+// of this source's basis does `used` represent", the same basis-matching arithmetic scaleNutrition
+// does inline, pulled out so the extra (vitamin/mineral) path can reuse the identical factor
+// instead of recomputing it slightly differently in a second place.
+function nutritionBasisFactor(basisInfo, used){
+  if(used == null) return 0;
+  basisInfo = basisInfo || {};
+  var basisAmount = used.type==='volume' ? basisInfo.volumeAmount : basisInfo.weightAmount;
+  if(basisAmount == null) basisAmount = used.type==='volume' ? basisInfo.weightAmount : basisInfo.volumeAmount;
+  if(basisAmount == null) basisAmount = 100;
+  return used.value/basisAmount;
+}
+// README 9.155: the 三餐 equivalent of calcRecipeNutrition's inline extraTotals loop, for a
+// single inventory/external-ingredient source being logged directly (not through a recipe).
+// Only NUTRI_EXTRA_CORE_KEYS (维生素D/钾/钙/铁 - the four items 三餐's daily详情 actually shows,
+// see dailyNutrientBarsHtml) are carried through; everything is normalized to that nutrient's
+// natural absolute unit via extraToNaturalUnit so later addition (addNutritionExtraCore) never
+// has to worry about mixed units, same treatment the recipe path already relies on. A source with
+// no value for a given key, or a unit extraToNaturalUnit can't place (vitamin A/E's IU), simply
+// contributes nothing for that key - same "left out, not zeroed" spirit as everywhere else this
+// app handles optional nutrition_extra fields.
+function scaleNutritionExtraCore(extra, basisInfo, used){
+  var factor = nutritionBasisFactor(basisInfo, used);
+  var out = {};
+  extra = extra || {};
+  NUTRI_EXTRA_CORE_KEYS.forEach(function(k){
+    var e = extra[k];
+    if(!e || e.value==null) return;
+    var norm = extraToNaturalUnit(k, Number(e.value)*factor, e.unit);
+    if(norm) out[k] = norm;
+  });
+  return out;
+}
+// README 9.155: adds two {key:{value,unit}} nutrition_extra-shaped totals together (mealset
+// subItems, or a day's worth of 三餐记录 in sumMealNutrition). Safe to assume both sides already
+// share the same unit per key - everything that reaches this point went through
+// extraToNaturalUnit/scaleNutritionExtraCore first, which always normalizes to that nutrient's
+// one fixed natural unit (NUTRI_DV_REFERENCE[key].unit), so there's no calcRecipeNutrition-style
+// unit-mismatch case to guard against here.
+function addNutritionExtraCore(a, b){
+  var out = {};
+  a = a || {}; b = b || {};
+  NUTRI_EXTRA_CORE_KEYS.forEach(function(k){
+    var av = a[k], bv = b[k];
+    if(!av && !bv) return;
+    out[k] = {unit:(av||bv).unit, value:(av?av.value:0)+(bv?bv.value:0)};
+  });
+  return out;
+}
 // README 9.130: recipe-ingredient unit -> "what fraction of the sub-recipe's total yield is
 // this". 'whole' is always available (amount IS the multiplier directly - 0.5 whole = half the
 // recipe, 2 whole = double); 'serving'/'g' are only offered (see recipeUnitOptionsForRecipe)
@@ -3985,20 +4034,31 @@ function mealsetItemDisplayName(item){
 // (see calcRecipeNutrition's own recipe-in-recipe branch for the non-mealset equivalent) - a
 // 套餐's food-as-ingredient rows never expand into that recipe's own raw ingredients, matching
 // Lynn's decision that this is fixed behavior for 套餐, not a per-row toggle.
+// README 9.155: now returns {nutrition, nutrition_extra} instead of just the core nutrition -
+// nutrition_extra carries NUTRI_EXTRA_CORE_KEYS (维生素D/钾/钙/铁), already normalized to their
+// natural unit, scaled the same way (mult for a recipe row, basis-factor for an
+// inventory/external row) as the core macros right next to it - see scaleNutritionExtraCore.
 function recomputeMealsetLogItemNutrition(item){
   if(item.source_type==='recipe'){
     var r = state.recipes.find(function(x){ return x.id===item.source_id; });
-    if(!r) return emptyNutrition();
+    if(!r) return {nutrition:emptyNutrition(), nutrition_extra:{}};
     var totalN = calcRecipeNutrition(r);
     var mult = recipeIngredientMultiplier({servings:r.servings, cooked_weight:r.cooked_weight}, item.amount, item.unit);
-    return mult!=null ? multiplyNutrition(totalN.total, mult) : emptyNutrition();
+    if(mult==null) return {nutrition:emptyNutrition(), nutrition_extra:{}};
+    var extra = {};
+    NUTRI_EXTRA_CORE_KEYS.forEach(function(k){
+      var e = (totalN.extraTotal||{})[k];
+      if(e) extra[k] = {unit:e.unit, value:e.value*mult};
+    });
+    return {nutrition:multiplyNutrition(totalN.total, mult), nutrition_extra:extra};
   }
   var src = item.source_type==='inventory' ? state.items.find(function(x){ return x.id===item.source_id; }) : state.ingredients.find(function(x){ return x.id===item.source_id; });
-  if(!src) return emptyNutrition();
+  if(!src) return {nutrition:emptyNutrition(), nutrition_extra:{}};
   var basisInfo = ingredientBasisInfo(src);
   var used = amountToBasisUnits(item.amount, item.unit, item.source_type==='inventory'?src:null);
   if(used==null) used = countBasisMatch(src, item.amount, item.unit);
-  return used!=null ? scaleNutrition(src.nutrition, basisInfo, used) : emptyNutrition();
+  if(used==null) return {nutrition:emptyNutrition(), nutrition_extra:{}};
+  return {nutrition:scaleNutrition(src.nutrition, basisInfo, used), nutrition_extra:scaleNutritionExtraCore(src.nutrition_extra, basisInfo, used)};
 }
 // README 9.139: flattens a 套餐 template (including any nested 套餐, recursively - see
 // mealsetUsesMealset for the cycle guard that keeps this from ever needing to bail out on bad
@@ -4021,11 +4081,11 @@ function buildMealsetLogItems(mealset, multiplier, visited){
       return;
     }
     var scaledItem = {source_type: it.source_type, source_id: it.source_id, amount: (it.amount||0)*multiplier, unit: it.unit};
-    var nutrition = recomputeMealsetLogItemNutrition(scaledItem);
+    var computed = recomputeMealsetLogItemNutrition(scaledItem);
     out.push({
       id: uid(), source_type: it.source_type, source_id: it.source_id,
       name: mealsetItemDisplayName(it), amount: scaledItem.amount, unit: it.unit,
-      nutrition: nutrition, deduct: it.source_type==='inventory'
+      nutrition: computed.nutrition, nutrition_extra: computed.nutrition_extra, deduct: it.source_type==='inventory'
     });
   });
   return out;
@@ -10128,10 +10188,10 @@ function goMealsetDraftPickRecipe(){ state.pickSearch=''; state.mealsetPickerMod
 function addRawItemToMealsetDraftLog(sourceType, sourceId, name, amount, unit){
   var af = state.mealsUI.addFood;
   if(!af.mealsetLogItems) af.mealsetLogItems = [];
-  var nutrition = recomputeMealsetLogItemNutrition({source_type:sourceType, source_id:sourceId, amount:amount, unit:unit});
+  var computed = recomputeMealsetLogItemNutrition({source_type:sourceType, source_id:sourceId, amount:amount, unit:unit});
   af.mealsetLogItems.push({
     id: uid(), source_type: sourceType, source_id: sourceId, name: name,
-    amount: amount, unit: unit, nutrition: nutrition, deduct: sourceType==='inventory'
+    amount: amount, unit: unit, nutrition: computed.nutrition, nutrition_extra: computed.nutrition_extra, deduct: sourceType==='inventory'
   });
 }
 function openMealsetForm(id){
@@ -11237,9 +11297,20 @@ function setMealSlotVisible(slot, val){
 }
 function mealLogsForDate(date){ return state.mealLogs.filter(function(m){ return m.date===date; }); }
 function mealLogsForSlot(date, slot){ return mealLogsForDate(date).filter(function(m){ return m.slot===slot; }); }
+// README 9.155: also sums each entry's nutrition_extra (维生素D/钾/钙/铁 - see
+// NUTRI_EXTRA_CORE_KEYS) and merges the totals into the same flat object as plain numbers
+// (already in each nutrient's natural unit, since everything that reaches m.nutrition_extra
+// went through scaleNutritionExtraCore/extraToNaturalUnit first) - so dailyNutrientBarsHtml can
+// read totals[key] for these four exactly the way it already does for the ten core macros,
+// with no separate code path needed.
 function sumMealNutrition(list){
   var out = emptyNutrition();
-  list.forEach(function(m){ out = addNutrition(out, m.nutrition||{}); });
+  var extraOut = {};
+  list.forEach(function(m){
+    out = addNutrition(out, m.nutrition||{});
+    extraOut = addNutritionExtraCore(extraOut, m.nutrition_extra||{});
+  });
+  NUTRI_EXTRA_CORE_KEYS.forEach(function(k){ out[k] = extraOut[k] ? extraOut[k].value : 0; });
   return out;
 }
 function shiftMealsDate(delta){
@@ -11701,14 +11772,15 @@ function mealSlotDetailHtml(date, slot){
 // 参考值(20g)的，所以这里饱和脂肪这一条比的是"饱和脂肪+反式脂肪"两者相加对这20g的占比，跟真实
 // 标签的算法一致；反式脂肪单独那一行因此没有自己的条图/目标，只显示克数（真实标签上反式脂肪也
 // 从来不单独标百分比，这不是遗漏）。
-// 目前只做了这10项核心营养素——钙/铁/钾等维生素矿物质虽然 NUTRI_DV_REFERENCE 里已经有官方参考
-// 值，但三餐记录（state.mealLogs 里每条的 nutrition 字段）目前只汇总这10项核心营养素，并没有把
-// 每份食物的维生素矿物质含量一起带进三餐记录里加总——把这些也做进来是个更大的改动（需要从库存/
-// 食谱/USDA一路把 nutrition_extra 带到每条三餐记录里，还要处理不同食物用不同单位标注同一种维生
-// 素这种食谱那边早就遇到过的问题），这次先不做，等 Lynn 确认要不要扩展到维生素矿物质再动。
+// 9.155：钙/铁/钾/维生素D 这四项已经从库存/食谱/USDA/套餐一路带进每条三餐记录里加总了（见
+// scaleNutritionExtraCore/recomputeMealsetLogItemNutrition/saveMealLogEntry），下面直接按
+// NUTRI_DV_REFERENCE 给目标值、样式跟其余10项完全一样（含超标变红），接在同一个列表最后。维生素
+// A/C/E/B12、镁、锌 NUTRI_DV_REFERENCE 里虽然也有参考值，但这次只做 Lynn 确认要的这四项强制项，
+// 没有被这次改动带进三餐记录的加总里，不在这里出现。自定(自定义热量)条目本来就没有来源，不带
+// nutrition_extra，对这四项的贡献自然是0，跟其余没记录来源的旧数据一样处理。
 function dailyNutrientTargets(budget){
   var macroG = budget!=null ? macroGramsForBudget(budget, state.weightPlan.macroPreset) : null;
-  return {
+  var targets = {
     calories: budget,
     fat: macroG ? macroG.fat : 75,
     saturated_fat: 20,
@@ -11719,12 +11791,16 @@ function dailyNutrientTargets(budget){
     cholesterol: 300,
     sodium: 2300
   };
+  NUTRI_EXTRA_CORE_KEYS.forEach(function(k){ targets[k] = NUTRI_DV_REFERENCE[k].amount; });
+  return targets;
 }
-var DAILY_NUTRIENT_BAR_ORDER = ['calories','fat','saturated_fat','trans_fat','carbs','fiber','sugar','protein','cholesterol','sodium'];
+var DAILY_NUTRIENT_BAR_ORDER = ['calories','fat','saturated_fat','trans_fat','carbs','fiber','sugar','protein','cholesterol','sodium'].concat(NUTRI_EXTRA_CORE_KEYS);
 function dailyNutrientBarsHtml(totals, budget){
   var targets = dailyNutrientTargets(budget);
   var labels = nutriLabels();
   var units = nutriUnits();
+  var extraDefs = nutriExtraDefs();
+  NUTRI_EXTRA_CORE_KEYS.forEach(function(k){ labels[k] = t(extraDefs[k].labelKey); units[k] = NUTRI_DV_REFERENCE[k].unit; });
   var rows = DAILY_NUTRIENT_BAR_ORDER.map(function(key){
     var actual = Math.round(totals[key]||0);
     var unit = units[key];
@@ -11816,6 +11892,20 @@ function computeScaledNutrition(baseNutrition, baseAmount, newAmount){
   var factor = newAmount/baseAmount;
   var out = {};
   NUTRI_KEYS.forEach(function(k){ out[k] = (baseNutrition[k]==null) ? null : baseNutrition[k]*factor; });
+  return out;
+}
+// README 9.155: same linear rescaling as computeScaledNutrition, for a mealLog entry's
+// nutrition_extra (维生素D/钾/钙/铁) - kept alongside it so editing an entry's amount
+// (saveMealLogEntryEdit) doesn't leave the vitamin/mineral side stale while the core macros
+// rescale correctly.
+function computeScaledNutritionExtra(baseExtra, baseAmount, newAmount){
+  if(!baseAmount || newAmount==null || isNaN(newAmount) || newAmount<0) return baseExtra||{};
+  var factor = newAmount/baseAmount;
+  var out = {};
+  Object.keys(baseExtra||{}).forEach(function(k){
+    var e = baseExtra[k];
+    if(e) out[k] = {unit:e.unit, value:e.value*factor};
+  });
   return out;
 }
 // Same rows/markup as nutritionFactsBoxHtml's tier-1 section, minus the basis line and tier-2
@@ -11986,6 +12076,7 @@ function saveMealLogEntryEdit(){
     var newAmt = parseAmountInput(ee.amountText);
     if(!newAmt || newAmt<=0){ showToast(t('weightEntryInvalid')); return; }
     if(m.amount){
+      m.nutrition_extra = computeScaledNutritionExtra(m.nutrition_extra, m.amount, newAmt);
       m.nutrition = computeScaledNutrition(m.nutrition, m.amount, newAmt);
       // README 9.136: a linked inventory deduction gets rescaled by the same delta, so editing
       // the amount after logging keeps the earlier stock deduction consistent with what's now
@@ -12049,7 +12140,11 @@ function editMealsetLogSubItem(entryId, idx){
 }
 function resumeMealsetEntryNutrition(m){
   m.nutrition = emptyNutrition();
-  (m.subItems||[]).forEach(function(x){ m.nutrition = addNutrition(m.nutrition, x.nutrition||emptyNutrition()); });
+  m.nutrition_extra = {};
+  (m.subItems||[]).forEach(function(x){
+    m.nutrition = addNutrition(m.nutrition, x.nutrition||emptyNutrition());
+    m.nutrition_extra = addNutritionExtraCore(m.nutrition_extra, x.nutrition_extra||{});
+  });
 }
 function confirmEditMealsetLogSubItem(entryId, idx){
   var amount = parseAmountInput(document.getElementById('ing-amount').value);
@@ -12081,7 +12176,9 @@ function confirmEditMealsetLogSubItem(entryId, idx){
   }
   si.amount = amount;
   si.unit = unit;
-  si.nutrition = recomputeMealsetLogItemNutrition(si);
+  var computed = recomputeMealsetLogItemNutrition(si);
+  si.nutrition = computed.nutrition;
+  si.nutrition_extra = computed.nutrition_extra;
   resumeMealsetEntryNutrition(m);
   saveMealLogs();
   closeModal();
@@ -12402,7 +12499,7 @@ function confirmEditMealsetDraftItem(idx){
   if(!amount || amount<=0){ showToast(state.lang==='zh'?'请输入用量':'Please enter an amount'); return; }
   var af = state.mealsUI.addFood;
   var it = af.mealsetLogItems[idx];
-  if(it){ it.amount=amount; it.unit=unit; it.nutrition = recomputeMealsetLogItemNutrition(it); }
+  if(it){ it.amount=amount; it.unit=unit; var computed = recomputeMealsetLogItemNutrition(it); it.nutrition = computed.nutrition; it.nutrition_extra = computed.nutrition_extra; }
   closeModal();
   render();
 }
@@ -12437,9 +12534,13 @@ function saveMealsetLogEntryFinal(){
   var af = state.mealsUI.addFood;
   var items = af.mealsetLogItems||[];
   var totalN = emptyNutrition();
-  items.forEach(function(it){ totalN = addNutrition(totalN, it.nutrition||emptyNutrition()); });
+  var totalExtra = {};
+  items.forEach(function(it){
+    totalN = addNutrition(totalN, it.nutrition||emptyNutrition());
+    totalExtra = addNutritionExtraCore(totalExtra, it.nutrition_extra||{});
+  });
   var subItems = items.map(function(it){
-    return {source_type:it.source_type, source_id:it.source_id, name:it.name, amount:it.amount, unit:it.unit, nutrition:it.nutrition};
+    return {source_type:it.source_type, source_id:it.source_id, name:it.name, amount:it.amount, unit:it.unit, nutrition:it.nutrition, nutrition_extra:it.nutrition_extra||{}};
   });
   var anyDeducted = false;
   items.forEach(function(it, idx){
@@ -12457,7 +12558,7 @@ function saveMealsetLogEntryFinal(){
   if(anyDeducted) saveItems();
   var entry = {
     id: uid(), date: af.date, slot: af.slot, name: af.mealsetSourceName||'', amount:null, unit:'',
-    nutrition: totalN, created_at: nowLocalIso(),
+    nutrition: totalN, nutrition_extra: totalExtra, created_at: nowLocalIso(),
     source_type: 'mealset', source_id: af.mealsetSourceMealsetId||null,
     subItems: subItems
   };
@@ -12775,7 +12876,7 @@ async function pickUsdaFoodForMeal(fdcId){
   render();
   try{
     var detail = await usdaFetchFoodDetail(fdcId);
-    af.picked = {type:'usda', name:detail.description, nutrition:detail.nutrition, fdcId:fdcId};
+    af.picked = {type:'usda', name:detail.description, nutrition:detail.nutrition, nutrition_extra:detail.nutrition_extra||{}, fdcId:fdcId};
     af.amountText = '100';
     af.step = 'amount';
   }catch(e){
@@ -13005,7 +13106,7 @@ function addFoodAmountBodyHtml(af){
 function saveMealLogEntry(){
   var af = state.mealsUI.addFood;
   var p = af.picked;
-  var nutrition, name, amount, unit, deductItemId=null, deductAmount=null, deductUnit=null;
+  var nutrition, nutritionExtra={}, name, amount, unit, deductItemId=null, deductAmount=null, deductUnit=null;
   if(p.type==='recipe'){
     var r = state.recipes.find(function(x){ return x.id===p.id; });
     var totalN = calcRecipeNutrition(r);
@@ -13014,11 +13115,19 @@ function saveMealLogEntry(){
       if(!grams || grams<=0 || !totalN.per100g){ showToast(t('weightEntryInvalid')); return; }
       var gramsFactor = grams/100;
       nutrition = {}; NUTRI_KEYS.forEach(function(k){ nutrition[k]=(totalN.per100g[k]||0)*gramsFactor; });
+      NUTRI_EXTRA_CORE_KEYS.forEach(function(k){
+        var e = (totalN.extraPer100g||{})[k];
+        if(e) nutritionExtra[k] = {unit:e.unit, value:e.value*gramsFactor};
+      });
       name = r.name; amount = grams; unit = 'g';
     } else {
       var servings = parseAmountInput(af.amountText);
       if(!servings || servings<=0){ showToast(t('weightEntryInvalid')); return; }
       nutrition = {}; NUTRI_KEYS.forEach(function(k){ nutrition[k]=(totalN.perServing[k]||0)*servings; });
+      NUTRI_EXTRA_CORE_KEYS.forEach(function(k){
+        var e = (totalN.extraPerServing||{})[k];
+        if(e) nutritionExtra[k] = {unit:e.unit, value:e.value*servings};
+      });
       name = r.name; amount = servings; unit = t('servingsUnit');
     }
   } else if(p.type==='usda'){
@@ -13026,6 +13135,12 @@ function saveMealLogEntry(){
     if(!amt || amt<=0){ showToast(t('weightEntryInvalid')); return; }
     var factor2 = amt/100;
     nutrition = {}; NUTRI_KEYS.forEach(function(k){ nutrition[k]=(p.nutrition[k]||0)*factor2; });
+    NUTRI_EXTRA_CORE_KEYS.forEach(function(k){
+      var e = (p.nutrition_extra||{})[k];
+      if(!e || e.value==null) return;
+      var norm = extraToNaturalUnit(k, Number(e.value)*factor2, e.unit);
+      if(norm) nutritionExtra[k] = norm;
+    });
     name = p.name; amount = amt; unit = 'g';
   } else {
     var amt2 = parseAmountInput(af.amountText);
@@ -13039,6 +13154,7 @@ function saveMealLogEntry(){
     if(used == null) used = countBasisMatch(src, amt2, unitPicked);
     if(used == null){ showToast(t('unitConversionUnavailable')); return; }
     nutrition = scaleNutrition(src.nutrition, basisInfo, used);
+    nutritionExtra = scaleNutritionExtraCore(src.nutrition_extra, basisInfo, used);
     name = p.type==='item' ? itemDisplayNameRaw(src) : (p.type==='offquick' ? p.name : src.name);
     amount = amt2; unit = unitPicked;
     if(p.type==='item' && af.deduct){
@@ -13048,7 +13164,7 @@ function saveMealLogEntry(){
   }
   var entry = {
     id: uid(), date: af.date, slot: af.slot, name: name, amount: amount, unit: unit,
-    nutrition: nutrition, created_at: nowLocalIso(),
+    nutrition: nutrition, nutrition_extra: nutritionExtra, created_at: nowLocalIso(),
     // README 9.136: lets the meal log entry detail page (openMealLogEntryDetail) know what this
     // was actually logged from, so it can offer "查看食谱/食品详情" (only when the source still
     // exists) and so re-scaling the amount later has something principled behind it. Entries
