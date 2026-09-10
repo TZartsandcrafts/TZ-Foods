@@ -528,6 +528,15 @@
   .date-nav-label{ font-size:16px; font-weight:600; color:var(--cocoa); }
   .meals-calorie-num{ font-size:32px; font-weight:700; color:var(--almond); }
   .macro-view-dot{ width:7px; height:7px; border-radius:50%; background:var(--line); cursor:pointer; }
+  /* README 9.154: 三餐页四餐标签行 - 每个标签两行(餐名/该餐热量)，选中态用 --fresh 深绿底+白字，
+     未选中态是米色底，跟宏量条图/日营养详情条图统一用的深绿/米色是同一套配色语言。 */
+  .meal-tabs{ display:flex; gap:8px; margin:14px 0 4px; }
+  .meal-tab{ flex:1; text-align:center; padding:9px 4px; border-radius:12px; background:var(--cream); cursor:pointer; -webkit-tap-highlight-color:transparent; }
+  .meal-tab.active{ background:var(--fresh); }
+  .meal-tab .mt-name{ font-size:14px; font-weight:600; color:var(--cocoa); }
+  .meal-tab.active .mt-name{ color:#fff; }
+  .meal-tab .mt-cal{ font-size:11.5px; color:var(--deep-caramel); margin-top:2px; }
+  .meal-tab.active .mt-cal{ color:rgba(255,255,255,0.85); }
   .macro-view-dot.active{ background:var(--almond); }
   .macro-view-slide{ animation-duration:.28s; animation-timing-function:cubic-bezier(.25,.7,.4,1); animation-fill-mode:both; }
   @keyframes macroSlideInRight{ from{ transform:translateX(28px); opacity:0; } to{ transform:translateX(0); opacity:1; } }
@@ -868,7 +877,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.153';
+var BUILD_VERSION = '9.154';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2365,6 +2374,7 @@ var I18N = {
     mealSlot_breakfast:'早餐', mealSlot_lunch:'午餐', mealSlot_dinner:'晚餐', mealSlot_snack:'零食',
     noMealLoggedHint:'还没有记录', addFoodBtn:'添加食物', deleteMealLogConfirm:'删除这条记录？',
     macroOverLabel:'超标', addFoodSearchPh:'搜索库存/食谱/食材，或输入英文查USDA',
+    dailyNutrientDetailLabel:'当日营养摄入详情', nutriTargetNotSet:'未设置目标',
     sourceInventory:'库存', sourceRecipe:'食谱', sourceExternal:'外部食材库', sourceMealset:'套餐', sourceScan:'扫描',
     tabCustom:'自定', usdaOnlySearchPh:'搜索 USDA 食物数据库（英文）',
     mealScanNotInInventoryTitle:'库存里没有这个食品', mealScanNotInInventoryMsg:'要不要顺便添加到库存？',
@@ -2656,6 +2666,7 @@ var I18N = {
     mealSlot_breakfast:'Breakfast', mealSlot_lunch:'Lunch', mealSlot_dinner:'Dinner', mealSlot_snack:'Snacks',
     noMealLoggedHint:'Nothing logged yet', addFoodBtn:'Add Food', deleteMealLogConfirm:'Delete this entry?',
     macroOverLabel:'over', addFoodSearchPh:'Search inventory/recipes/ingredients, or an English term for USDA',
+    dailyNutrientDetailLabel:'Daily Nutrient Detail', nutriTargetNotSet:'No target set',
     sourceInventory:'Inventory', sourceRecipe:'Recipe', sourceExternal:'External Ingredients', sourceMealset:'Mealset', sourceScan:'Scan',
     tabCustom:'Custom', usdaOnlySearchPh:'Search the USDA food database',
     mealScanNotInInventoryTitle:'Not in your inventory', mealScanNotInInventoryMsg:"Want to add it to your inventory while you're at it?",
@@ -11224,9 +11235,6 @@ function setMealSlotVisible(slot, val){
   saveSettings();
   render();
 }
-function mealsUIDefaults(){
-  if(!state.mealsUI || !state.mealsUI.date) state.mealsUI = {date: todayStr(), macroView:'pie', addFood:null};
-}
 function mealLogsForDate(date){ return state.mealLogs.filter(function(m){ return m.date===date; }); }
 function mealLogsForSlot(date, slot){ return mealLogsForDate(date).filter(function(m){ return m.slot===slot; }); }
 function sumMealNutrition(list){
@@ -11579,6 +11587,19 @@ function tickFastingTimer(){
   if(remEl) remEl.innerHTML = fd.belowHtml;
 }
 
+// README 9.154: Lynn 重新设计了三餐页的排版（自上而下）：月历/热量配额、宏量图不变；四餐从"各占
+// 一段、上下堆叠、全部同时展开"改成"标签横排（两行：餐名+该餐热量），点哪个标签下面就显示哪一餐
+// 的详情列表"——mealSlotTabsHtml 画标签行，mealSlotDetailHtml 只画当前选中那一餐的列表（不再
+// 带 section-title 头，因为餐名已经在标签上了）；再往下新增"当日营养摄入详情"，见
+// dailyNutrientBarsHtml 自己的注释。state.mealsUI.selectedSlot 记的是当前选中哪一餐，
+// mealsUIDefaults 负责在它缺失、或者对应那一餐已经在"三餐设置"里被隐藏时兜底选第一个可见的餐。
+function mealsUIDefaults(){
+  if(!state.mealsUI || !state.mealsUI.date) state.mealsUI = {date: todayStr(), macroView:'pie', addFood:null};
+  var visible = MEAL_SLOTS.filter(function(s){ return state.visibleMealSlots.indexOf(s)!==-1; });
+  if(!state.mealsUI.selectedSlot || visible.indexOf(state.mealsUI.selectedSlot)===-1){
+    state.mealsUI.selectedSlot = visible[0] || MEAL_SLOTS[0];
+  }
+}
 function renderMeals(){
   mealsUIDefaults();
   var date = state.mealsUI.date;
@@ -11602,12 +11623,14 @@ function renderMeals(){
   '</div>';
 
   var macroWidget = budget!=null ? macroWidgetHtml(totals, budget) : '';
-  var slotsHtml = MEAL_SLOTS.filter(function(slot){ return state.visibleMealSlots.indexOf(slot)!==-1; }).map(function(slot){ return mealSlotSectionHtml(date, slot); }).join('');
+  var tabsHtml = mealSlotTabsHtml(date);
+  var detailHtml = mealSlotDetailHtml(date, state.mealsUI.selectedSlot);
+  var nutrientBars = dailyNutrientBarsHtml(totals, budget);
 
   return '' +
   '<div class="topbar"><div><h1>🍽️ '+t('mealsTitle')+'</h1></div>'+menuButtonHtml('meals', true)+'</div>'+
   '<div class="content">'+
-    fastingCardHtml() + dateNav + calorieCard + macroWidget + slotsHtml +
+    fastingCardHtml() + dateNav + calorieCard + macroWidget + tabsHtml + detailHtml + nutrientBars +
   '</div>'+
   bottomNav();
 }
@@ -11616,22 +11639,22 @@ function renderMealsSidebarContent(){
     '<div class="sidebar-item" onclick="navigate(\'mealsHistory\')">'+t('mealsHistoryBtn')+'</div>'+
     '<div class="sidebar-item" onclick="navigate(\'fastingHistory\')">'+t('fastingHistoryBtn')+'</div>';
 }
-
-// README 9.149: Lynn - remove the right-side "x" delete button, remove the shared white/cream
-// card background behind the whole slot's list (was a .form-group wrapper - one big card holding
-// every row), and lay each row out as name-on-its-own-line/left, then amount+calories stacked
-// underneath/right, matching how 库存 entries are just individual cards sitting directly on the
-// page's own background rather than grouped inside one bigger shared box. Uses .item-card itself
-// (not .list-row) as the visible content, deliberately - it's the exact class 库存 cards use, so
-// "look like 库存 entries" comes for free, AND the swipe gesture engine's touchstart handler
-// specifically looks for a `.item-card` child inside `.item-card-swipe` to animate (see
-// initItemSwipeGestures / closeItemSwipeRow) - a .list-row in that slot would silently never
-// slide at all. .item-card is already flex-direction:column with an 8px gap, which happens to be
-// exactly the two-block stack (name, then the amount+calories block) this layout needs, with no
-// extra layout CSS required beyond right-aligning that second block. Delete moves to the same
-// left-swipe-to-reveal gesture 库存/usage-log entries already use (.item-swipe-actions) - reused
-// as-is, generic and keyed purely by data-item-id. Tapping the row still opens the entry's edit/
-// detail page, unchanged.
+function mealSlotTabsHtml(date){
+  var visible = MEAL_SLOTS.filter(function(s){ return state.visibleMealSlots.indexOf(s)!==-1; });
+  var selected = state.mealsUI.selectedSlot;
+  var tabs = visible.map(function(slot){
+    var cal = Math.round(sumMealNutrition(mealLogsForSlot(date, slot)).calories||0);
+    return '<div class="meal-tab'+(slot===selected?' active':'')+'" onclick="switchMealsSlotTab('+aj(slot)+')">'+
+      '<div class="mt-name">'+t('mealSlot_'+slot)+'</div>'+
+      '<div class="mt-cal">'+cal+' kcal</div>'+
+    '</div>';
+  }).join('');
+  return '<div class="meal-tabs">'+tabs+'</div>';
+}
+function switchMealsSlotTab(slot){
+  state.mealsUI.selectedSlot = slot;
+  render();
+}
 // README 9.150: Lynn's clarification on 9.149's layout - name and the amount/calories block stay
 // in ONE horizontal row (not two stacked blocks): the name sits on the left, vertically centered
 // against the row's height; calories (top line) and weight/quantity (bottom line) stack on the
@@ -11641,9 +11664,11 @@ function renderMealsSidebarContent(){
 // plain centered horizontal row here, same shape .list-row normally uses, just kept on
 // .item-card specifically so the swipe gesture engine still finds it (see this function's
 // earlier comment on why .list-row can't be used for that).
-function mealSlotSectionHtml(date, slot){
+// README 9.154: no longer prints its own section-title header - the meal-slot tab above it
+// already shows the name and that slot's calorie total, so repeating both right below the tabs
+// would just be the same two numbers twice in a row.
+function mealSlotDetailHtml(date, slot){
   var logs = mealLogsForSlot(date, slot);
-  var slotCal = Math.round(sumMealNutrition(logs).calories||0);
   var rows = logs.map(function(m){
     var amountLine = (m.source_type==='mealset') ? ((m.subItems||[]).length+(state.lang==='zh'?' 项':' items')) : (m.amount!=null ? (fmtNum(m.amount,1)+esc(m.unit)) : '');
     return '<div class="item-card-swipe" data-item-id="'+esc(m.id)+'">'+
@@ -11659,8 +11684,74 @@ function mealSlotSectionHtml(date, slot){
       '</div>'+
     '</div>';
   }).join('');
-  return '<div class="section-title">'+t('mealSlot_'+slot)+(slotCal ? (' · '+slotCal+' kcal') : '')+'</div>'+
-    (rows || '<p class="hint" style="margin:0 0 14px;">'+t('noMealLoggedHint')+'</p>');
+  return '<div class="form-group" style="padding-top:6px;">'+(rows || '<p class="hint" style="margin:0;">'+t('noMealLoggedHint')+'</p>')+'</div>';
+}
+// README 9.154: 每日营养摄入详情——按营养标签顺序（跟 NUTRI_TIER1_ROWS 这个 app 自己一直用的
+// 营养标签行顺序一致：脂肪/饱和脂肪/反式脂肪/碳水/膳食纤维/总糖/蛋白质/胆固醇/钠，热量另外放在
+// 最前面）把当天四餐加总后的核心营养素，做成跟宏量营养素条图同一套视觉语言的进度条：底色统一
+// 米色（--cream），未超标用深绿（--fresh），超标用深红（--danger）。
+// 目标值来源分两种：热量/脂肪/碳水/蛋白质优先用这个人自己在"饮食计划"里设的个性化目标（复用
+// macroWidgetHtml 同一个 macroGramsForBudget），没设饮食计划(budget为null)时，脂肪退回加拿大
+// 卫生部《每日参考值表》(Table of Daily Values，2022版，"一般人群"栏，跟 NUTRI_DV_REFERENCE 那
+// 一份维生素矿物质用的是同一份官方标准)里的75g，碳水/蛋白质则没有退回值可用——因为加拿大营养
+// 标签本来就不给总碳水/蛋白质标百分比每日参考值，这两项在没设饮食计划时条图会显示"未设置目标"
+// （空米色条，参照 Lynn 给的 MyNetDiary 截图里 Sat. Fat "limit not set" 那一行的处理方式）。
+// 胆固醇/钠/膳食纤维/总糖这四项没有"个性化"这一说，不管有没有设饮食计划，一律用该官方表的数值
+// (300mg/2300mg/28g/100g)。饱和脂肪比较特殊：加拿大标签上饱和脂肪+反式脂肪是合并算一个每日
+// 参考值(20g)的，所以这里饱和脂肪这一条比的是"饱和脂肪+反式脂肪"两者相加对这20g的占比，跟真实
+// 标签的算法一致；反式脂肪单独那一行因此没有自己的条图/目标，只显示克数（真实标签上反式脂肪也
+// 从来不单独标百分比，这不是遗漏）。
+// 目前只做了这10项核心营养素——钙/铁/钾等维生素矿物质虽然 NUTRI_DV_REFERENCE 里已经有官方参考
+// 值，但三餐记录（state.mealLogs 里每条的 nutrition 字段）目前只汇总这10项核心营养素，并没有把
+// 每份食物的维生素矿物质含量一起带进三餐记录里加总——把这些也做进来是个更大的改动（需要从库存/
+// 食谱/USDA一路把 nutrition_extra 带到每条三餐记录里，还要处理不同食物用不同单位标注同一种维生
+// 素这种食谱那边早就遇到过的问题），这次先不做，等 Lynn 确认要不要扩展到维生素矿物质再动。
+function dailyNutrientTargets(budget){
+  var macroG = budget!=null ? macroGramsForBudget(budget, state.weightPlan.macroPreset) : null;
+  return {
+    calories: budget,
+    fat: macroG ? macroG.fat : 75,
+    saturated_fat: 20,
+    carbs: macroG ? macroG.carbs : null,
+    fiber: 28,
+    sugar: 100,
+    protein: macroG ? macroG.protein : null,
+    cholesterol: 300,
+    sodium: 2300
+  };
+}
+var DAILY_NUTRIENT_BAR_ORDER = ['calories','fat','saturated_fat','trans_fat','carbs','fiber','sugar','protein','cholesterol','sodium'];
+function dailyNutrientBarsHtml(totals, budget){
+  var targets = dailyNutrientTargets(budget);
+  var labels = nutriLabels();
+  var units = nutriUnits();
+  var rows = DAILY_NUTRIENT_BAR_ORDER.map(function(key){
+    var actual = Math.round(totals[key]||0);
+    var unit = units[key];
+    if(key==='trans_fat'){
+      return '<div style="margin-bottom:11px;"><div style="display:flex;justify-content:space-between;font-size:13px;"><span>'+labels.trans_fat+'</span><span class="hint">'+actual+unit+'</span></div></div>';
+    }
+    var compareActual = (key==='saturated_fat') ? actual+Math.round(totals.trans_fat||0) : actual;
+    var target = targets[key];
+    if(target==null){
+      return '<div style="margin-bottom:11px;">'+
+        '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span>'+labels[key]+'</span><span class="hint">'+actual+unit+'</span></div>'+
+        '<div style="height:8px;background:var(--cream);border-radius:4px;"></div>'+
+        '<div class="hint" style="font-size:11.5px;margin-top:3px;">'+t('nutriTargetNotSet')+'</div>'+
+      '</div>';
+    }
+    var pct = target>0 ? Math.round(compareActual/target*100) : 0;
+    var over = compareActual>target;
+    var barPct = Math.min(pct,100);
+    var rightText = over ? (t('caloriesOverLabel')+' '+(compareActual-target)+unit) : (t('caloriesRemainingLabel')+' '+(target-compareActual)+unit);
+    return '<div style="margin-bottom:11px;">'+
+      '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span>'+labels[key]+'</span><span class="hint">'+actual+unit+', '+pct+'%</span></div>'+
+      '<div style="height:8px;background:var(--cream);border-radius:4px;overflow:hidden;"><div style="height:100%;width:'+barPct+'%;background:'+(over?'var(--danger)':'var(--fresh)')+';"></div></div>'+
+      '<div class="hint" style="font-size:11.5px;margin-top:3px;text-align:right;">'+rightText+'</div>'+
+    '</div>';
+  }).join('');
+  return '<div class="section-title">'+t('dailyNutrientDetailLabel')+'</div>'+
+    '<div class="form-group">'+rows+'</div>';
 }
 function deleteMealLogFromSwipe(id){ closeItemSwipeRow(id); deleteMealLog(id); }
 // README 9.139: a 套餐 log entry can carry many inventory deductions at once (one per
