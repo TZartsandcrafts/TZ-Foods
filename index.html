@@ -868,7 +868,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.152';
+var BUILD_VERSION = '9.153';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -1996,6 +1996,163 @@ var FRESH_PRODUCE_REFERENCE = [
     nutrition:{calories:230,fat:17.1,saturated_fat:7.43,trans_fat:0,cholesterol:69,sodium:56,carbs:0,fiber:0,sugar:0,protein:17.9},
     nutrition_extra:{calcium:{value:9,unit:'mg'},iron:{value:1.66,unit:'mg'},potassium:{value:249,unit:'mg'},magnesium:{value:23,unit:'mg'},zinc:{value:3.32,unit:'mg'},vitamin_b12:{value:2.5,unit:'mcg'}} }
 ];
+
+// README 9.153: 运动 MET 参考表 - 数据来源同 FRESH_PRODUCE_REFERENCE 的思路，本地内嵌，
+// 不接外部 API：MET（代谢当量）值是相对稳定的运动生理学常数（源自《身体活动纲要》Compendium
+// of Physical Activities 这套研究界标准参考表），不像品牌食品那样需要覆盖成千上万种、
+// 还在不断变化的商品，日常会用到的运动种类是有限的，完全可以本地静态表覆盖，离线可用。
+// 消耗热量 = met × 体重(kg) × 时长(小时)，见 calcExerciseCalories()。
+var EXERCISE_MET_REFERENCE = [
+  {id:'walk_very_slow', category_zh:'步行', category_en:'Walking', name_zh:'走路，慢速漫步（<3.2 km/h）', name_en:'Walking, strolling, very slow (<2.0 mph)', met:2.0},
+  {id:'walk_2_0mph', category_zh:'步行', category_en:'Walking', name_zh:'走路，2.0 mph（3.2 km/h），平地', name_en:'Walking, 2.0 mph (3.2 km/h), level', met:2.8},
+  {id:'walk_2_5mph', category_zh:'步行', category_en:'Walking', name_zh:'走路，2.5 mph（4.0 km/h），平地', name_en:'Walking, 2.5 mph (4.0 km/h), level', met:3.0},
+  {id:'walk_2_8_3_2mph', category_zh:'步行', category_en:'Walking', name_zh:'走路，2.8–3.2 mph（4.5–5.2 km/h），中等配速', name_en:'Walking, 2.8–3.2 mph (4.5–5.2 km/h), moderate pace', met:3.5},
+  {id:'walk_3_0mph_nothing', category_zh:'步行', category_en:'Walking', name_zh:'走路，3.0 mph（4.8 km/h），不负重', name_en:'Walking, 3.0 mph (4.8 km/h), not carrying anything', met:3.3},
+  {id:'walk_3_5mph_brisk', category_zh:'步行', category_en:'Walking', name_zh:'走路，3.5 mph（5.6 km/h），健走/快走', name_en:'Walking, 3.5 mph (5.6 km/h), brisk, firm surface', met:4.3},
+  {id:'walk_4_0mph', category_zh:'步行', category_en:'Walking', name_zh:'走路，4.0 mph（6.4 km/h），非常快走', name_en:'Walking, 4.0 mph (6.4 km/h), very brisk', met:5.0},
+  {id:'walk_4_5mph', category_zh:'步行', category_en:'Walking', name_zh:'走路，4.5 mph（7.2 km/h），极速走', name_en:'Walking, 4.5 mph (7.2 km/h), very very brisk', met:7.0},
+  {id:'walk_uphill_light', category_zh:'步行', category_en:'Walking', name_zh:'走路，上坡 1–5% 坡度', name_en:'Walking, uphill, 1–5% grade', met:6.0},
+  {id:'walk_uphill_steep', category_zh:'步行', category_en:'Walking', name_zh:'走路，上坡 >5% 坡度', name_en:'Walking, uphill, >5% grade', met:8.0},
+  {id:'walk_carrying_load', category_zh:'步行', category_en:'Walking', name_zh:'走路，负重 10–20kg 物品', name_en:'Walking, carrying a 10–20kg load', met:5.0},
+  {id:'walk_dog', category_zh:'步行', category_en:'Walking', name_zh:'遛狗', name_en:'Walking the dog', met:3.0},
+  {id:'race_walking', category_zh:'步行', category_en:'Walking', name_zh:'竞走', name_en:'Race walking', met:6.5},
+  {id:'walk_treadmill_incline', category_zh:'步行', category_en:'Walking', name_zh:'走路机，坡度行走', name_en:'Treadmill walking, with incline', met:6.0},
+  {id:'jog_general', category_zh:'跑步', category_en:'Running', name_zh:'慢跑（一般）', name_en:'Jogging, general', met:7.0},
+  {id:'run_4mph', category_zh:'跑步', category_en:'Running', name_zh:'跑步，4 mph（约15分/公里）', name_en:'Running, 4 mph (15 min/mile)', met:6.0},
+  {id:'run_5mph', category_zh:'跑步', category_en:'Running', name_zh:'跑步，5 mph（约7.5分/公里）', name_en:'Running, 5 mph (12 min/mile)', met:8.3},
+  {id:'run_5_2mph', category_zh:'跑步', category_en:'Running', name_zh:'跑步，5.2 mph', name_en:'Running, 5.2 mph', met:9.0},
+  {id:'run_6mph', category_zh:'跑步', category_en:'Running', name_zh:'跑步，6 mph（约6.2分/公里）', name_en:'Running, 6 mph (10 min/mile)', met:9.8},
+  {id:'run_6_7mph', category_zh:'跑步', category_en:'Running', name_zh:'跑步，6.7 mph', name_en:'Running, 6.7 mph', met:10.5},
+  {id:'run_7mph', category_zh:'跑步', category_en:'Running', name_zh:'跑步，7 mph（约5.3分/公里）', name_en:'Running, 7 mph (8.5 min/mile)', met:11.0},
+  {id:'run_7_5mph', category_zh:'跑步', category_en:'Running', name_zh:'跑步，7.5 mph', name_en:'Running, 7.5 mph', met:11.5},
+  {id:'run_8mph', category_zh:'跑步', category_en:'Running', name_zh:'跑步，8 mph（约4.7分/公里）', name_en:'Running, 8 mph (7.5 min/mile)', met:11.8},
+  {id:'run_8_6mph', category_zh:'跑步', category_en:'Running', name_zh:'跑步，8.6 mph', name_en:'Running, 8.6 mph', met:12.3},
+  {id:'run_9mph', category_zh:'跑步', category_en:'Running', name_zh:'跑步，9 mph（约4.2分/公里）', name_en:'Running, 9 mph (6.5 min/mile)', met:12.8},
+  {id:'run_10mph', category_zh:'跑步', category_en:'Running', name_zh:'跑步，10 mph（约3.7分/公里）', name_en:'Running, 10 mph (6 min/mile)', met:14.5},
+  {id:'run_11mph', category_zh:'跑步', category_en:'Running', name_zh:'跑步，11 mph', name_en:'Running, 11 mph', met:16.0},
+  {id:'run_12mph', category_zh:'跑步', category_en:'Running', name_zh:'跑步，12 mph（约3分/公里）', name_en:'Running, 12 mph (5 min/mile)', met:19.0},
+  {id:'run_13mph', category_zh:'跑步', category_en:'Running', name_zh:'跑步，13 mph', name_en:'Running, 13 mph', met:19.8},
+  {id:'run_14mph', category_zh:'跑步', category_en:'Running', name_zh:'跑步，14 mph', name_en:'Running, 14 mph', met:23.0},
+  {id:'run_cross_country', category_zh:'跑步', category_en:'Running', name_zh:'跑步，越野', name_en:'Running, cross-country', met:9.0},
+  {id:'run_trail', category_zh:'跑步', category_en:'Running', name_zh:'跑步，山径越野跑', name_en:'Trail running', met:9.5},
+  {id:'run_upstairs', category_zh:'跑步', category_en:'Running', name_zh:'跑步，上楼梯', name_en:'Running, up stairs', met:15.0},
+  {id:'run_in_place', category_zh:'跑步', category_en:'Running', name_zh:'原地跑', name_en:'Running, in place', met:8.0},
+  {id:'cycle_leisure', category_zh:'骑行', category_en:'Cycling', name_zh:'骑行，休闲（<10 mph）', name_en:'Cycling, leisure, <10 mph', met:4.0},
+  {id:'cycle_10_12mph', category_zh:'骑行', category_en:'Cycling', name_zh:'骑行，10–11.9 mph，轻度', name_en:'Cycling, 10–11.9 mph, light effort', met:6.0},
+  {id:'cycle_12_14mph', category_zh:'骑行', category_en:'Cycling', name_zh:'骑行，12–13.9 mph，中等', name_en:'Cycling, 12–13.9 mph, moderate effort', met:8.0},
+  {id:'cycle_14_16mph', category_zh:'骑行', category_en:'Cycling', name_zh:'骑行，14–15.9 mph，较强', name_en:'Cycling, 14–15.9 mph, vigorous effort', met:10.0},
+  {id:'cycle_16_19mph', category_zh:'骑行', category_en:'Cycling', name_zh:'骑行，16–19 mph，快速/竞速', name_en:'Cycling, 16–19 mph, racing/fast', met:12.0},
+  {id:'cycle_20mph_plus', category_zh:'骑行', category_en:'Cycling', name_zh:'骑行，>20 mph，竞速', name_en:'Cycling, >20 mph, racing', met:15.8},
+  {id:'cycle_mountain', category_zh:'骑行', category_en:'Cycling', name_zh:'山地自行车', name_en:'Mountain biking, general', met:8.5},
+  {id:'cycle_bmx', category_zh:'骑行', category_en:'Cycling', name_zh:'BMX自行车', name_en:'BMX biking', met:8.5},
+  {id:'cycle_commute', category_zh:'骑行', category_en:'Cycling', name_zh:'骑行通勤', name_en:'Cycling, commuting to work/school', met:6.8},
+  {id:'cycle_uphill', category_zh:'骑行', category_en:'Cycling', name_zh:'骑行，上坡，较强', name_en:'Cycling, uphill, vigorous', met:12.0},
+  {id:'stationary_light', category_zh:'骑行', category_en:'Cycling', name_zh:'动感单车/健身车，轻度', name_en:'Stationary bike, light effort', met:5.5},
+  {id:'stationary_moderate', category_zh:'骑行', category_en:'Cycling', name_zh:'动感单车/健身车，中等', name_en:'Stationary bike, moderate effort', met:7.0},
+  {id:'stationary_vigorous', category_zh:'骑行', category_en:'Cycling', name_zh:'动感单车/健身车，较强', name_en:'Stationary bike, vigorous effort', met:10.5},
+  {id:'stationary_very_vigorous', category_zh:'骑行', category_en:'Cycling', name_zh:'动感单车课程（Spin Class）', name_en:'Stationary bike, very vigorous (spin class)', met:12.5},
+  {id:'swim_leisure', category_zh:'游泳', category_en:'Swimming', name_zh:'游泳，休闲', name_en:'Swimming, leisurely, general', met:6.0},
+  {id:'swim_freestyle_slow', category_zh:'游泳', category_en:'Swimming', name_zh:'游泳，自由泳，轻/中等强度', name_en:'Swimming, freestyle laps, light/moderate effort', met:5.8},
+  {id:'swim_freestyle_fast', category_zh:'游泳', category_en:'Swimming', name_zh:'游泳，自由泳，快速/较强', name_en:'Swimming, freestyle laps, fast/vigorous effort', met:10.0},
+  {id:'swim_backstroke', category_zh:'游泳', category_en:'Swimming', name_zh:'游泳，仰泳', name_en:'Swimming, backstroke, general', met:4.8},
+  {id:'swim_breaststroke', category_zh:'游泳', category_en:'Swimming', name_zh:'游泳，蛙泳', name_en:'Swimming, breaststroke, general', met:10.3},
+  {id:'swim_butterfly', category_zh:'游泳', category_en:'Swimming', name_zh:'游泳，蝶泳', name_en:'Swimming, butterfly, general', met:13.8},
+  {id:'swim_sidestroke', category_zh:'游泳', category_en:'Swimming', name_zh:'游泳，侧泳', name_en:'Swimming, sidestroke, general', met:7.0},
+  {id:'swim_treading_moderate', category_zh:'游泳', category_en:'Swimming', name_zh:'游泳，踩水，中等强度', name_en:'Swimming, treading water, moderate effort', met:3.5},
+  {id:'swim_treading_vigorous', category_zh:'游泳', category_en:'Swimming', name_zh:'游泳，踩水，较强/快速', name_en:'Swimming, treading water, vigorous effort', met:9.8},
+  {id:'water_aerobics', category_zh:'游泳', category_en:'Swimming', name_zh:'水中健身操', name_en:'Water aerobics', met:5.3},
+  {id:'synchronized_swimming', category_zh:'游泳', category_en:'Swimming', name_zh:'花样游泳', name_en:'Synchronized swimming', met:8.0},
+  {id:'weights_light', category_zh:'力量训练', category_en:'Strength Training', name_zh:'器械/自由重量训练，轻/中等强度', name_en:'Weight lifting, light/moderate effort', met:3.5},
+  {id:'weights_vigorous', category_zh:'力量训练', category_en:'Strength Training', name_zh:'器械/自由重量训练，较强（举重/健美）', name_en:'Weight lifting, vigorous effort (powerlifting/bodybuilding)', met:6.0},
+  {id:'circuit_training', category_zh:'力量训练', category_en:'Strength Training', name_zh:'循环训练（器械间快速切换）', name_en:'Circuit training, general', met:8.0},
+  {id:'calisthenics_moderate', category_zh:'力量训练', category_en:'Strength Training', name_zh:'徒手训练，中等强度（俯卧撑/仰卧起坐）', name_en:'Calisthenics, moderate effort', met:3.8},
+  {id:'calisthenics_vigorous', category_zh:'力量训练', category_en:'Strength Training', name_zh:'徒手训练，较强强度', name_en:'Calisthenics, vigorous effort', met:8.0},
+  {id:'resistance_bands', category_zh:'力量训练', category_en:'Strength Training', name_zh:'弹力带训练，轻度', name_en:'Resistance band training, light effort', met:3.0},
+  {id:'home_gym_general', category_zh:'力量训练', category_en:'Strength Training', name_zh:'家庭器械训练（一般）', name_en:'Home gym, free weights, general', met:5.0},
+  {id:'crossfit', category_zh:'力量训练', category_en:'Strength Training', name_zh:'CrossFit 风格训练', name_en:'CrossFit-style WOD', met:8.0},
+  {id:'kettlebell', category_zh:'力量训练', category_en:'Strength Training', name_zh:'壶铃训练', name_en:'Kettlebell training', met:8.0},
+  {id:'pilates_general', category_zh:'力量训练', category_en:'Strength Training', name_zh:'普拉提，一般强度', name_en:'Pilates, general', met:3.0},
+  {id:'pilates_advanced', category_zh:'力量训练', category_en:'Strength Training', name_zh:'普拉提，进阶/强力（Power Pilates）', name_en:'Pilates, advanced/power', met:4.0},
+  {id:'hiit_general', category_zh:'有氧与HIIT', category_en:'Cardio & HIIT', name_zh:'高强度间歇训练（HIIT）', name_en:'HIIT, general', met:8.0},
+  {id:'aerobics_low', category_zh:'有氧与HIIT', category_en:'Cardio & HIIT', name_zh:'有氧操，低冲击', name_en:'Aerobics, low impact', met:5.0},
+  {id:'aerobics_high', category_zh:'有氧与HIIT', category_en:'Cardio & HIIT', name_zh:'有氧操，高冲击', name_en:'Aerobics, high impact', met:7.3},
+  {id:'step_aerobics', category_zh:'有氧与HIIT', category_en:'Cardio & HIIT', name_zh:'踏板操（Step Aerobics）', name_en:'Step aerobics, general', met:8.5},
+  {id:'jazzercise', category_zh:'有氧与HIIT', category_en:'Cardio & HIIT', name_zh:'爵士健身操（Jazzercise）', name_en:'Jazzercise', met:6.0},
+  {id:'elliptical_moderate', category_zh:'有氧与HIIT', category_en:'Cardio & HIIT', name_zh:'椭圆机，中等强度', name_en:'Elliptical trainer, moderate effort', met:5.0},
+  {id:'elliptical_vigorous', category_zh:'有氧与HIIT', category_en:'Cardio & HIIT', name_zh:'椭圆机，较强强度', name_en:'Elliptical trainer, vigorous effort', met:8.0},
+  {id:'rowing_machine_light', category_zh:'有氧与HIIT', category_en:'Cardio & HIIT', name_zh:'划船机，轻度', name_en:'Rowing machine, light effort', met:3.5},
+  {id:'rowing_machine_moderate', category_zh:'有氧与HIIT', category_en:'Cardio & HIIT', name_zh:'划船机，中等强度', name_en:'Rowing machine, moderate effort', met:7.0},
+  {id:'rowing_machine_vigorous', category_zh:'有氧与HIIT', category_en:'Cardio & HIIT', name_zh:'划船机，较强强度', name_en:'Rowing machine, vigorous effort', met:8.5},
+  {id:'stair_stepper', category_zh:'有氧与HIIT', category_en:'Cardio & HIIT', name_zh:'踏步机（Stepper）', name_en:'Stair-climbing machine (stepper)', met:9.0},
+  {id:'stairs_up', category_zh:'有氧与HIIT', category_en:'Cardio & HIIT', name_zh:'爬楼梯，上楼', name_en:'Stair climbing, up, general', met:8.0},
+  {id:'stairs_down', category_zh:'有氧与HIIT', category_en:'Cardio & HIIT', name_zh:'爬楼梯，下楼', name_en:'Stair climbing, down', met:3.0},
+  {id:'boxing_sparring', category_zh:'有氧与HIIT', category_en:'Cardio & HIIT', name_zh:'拳击，实战对打', name_en:'Boxing, sparring', met:7.8},
+  {id:'boxing_bag', category_zh:'有氧与HIIT', category_en:'Cardio & HIIT', name_zh:'拳击，打沙袋', name_en:'Boxing, punching bag', met:5.5},
+  {id:'kickboxing', category_zh:'有氧与HIIT', category_en:'Cardio & HIIT', name_zh:'搏击操（Kickboxing）', name_en:'Kickboxing', met:10.0},
+  {id:'spin_class', category_zh:'有氧与HIIT', category_en:'Cardio & HIIT', name_zh:'室内单车课（Spin/Cycling Class）', name_en:'Indoor cycling/spin class', met:8.5},
+  {id:'jump_rope_slow', category_zh:'跳绳', category_en:'Jump Rope', name_zh:'跳绳，慢速（<100次/分钟）', name_en:'Jump rope, slow pace (<100 skips/min)', met:8.8},
+  {id:'jump_rope_moderate', category_zh:'跳绳', category_en:'Jump Rope', name_zh:'跳绳，中速（100–120次/分钟）', name_en:'Jump rope, moderate pace (100–120 skips/min)', met:10.0},
+  {id:'jump_rope_fast', category_zh:'跳绳', category_en:'Jump Rope', name_zh:'跳绳，快速（120–160次/分钟）', name_en:'Jump rope, fast pace (120–160 skips/min)', met:11.8},
+  {id:'jump_rope_very_fast', category_zh:'跳绳', category_en:'Jump Rope', name_zh:'跳绳，极快（>160次/分钟）', name_en:'Jump rope, very fast pace (>160 skips/min)', met:12.3},
+  {id:'yoga_hatha', category_zh:'瑜伽与拉伸', category_en:'Yoga & Stretching', name_zh:'瑜伽，哈他瑜伽（Hatha）', name_en:'Yoga, Hatha', met:2.5},
+  {id:'yoga_power', category_zh:'瑜伽与拉伸', category_en:'Yoga & Stretching', name_zh:'瑜伽，流瑜伽/力量瑜伽（Vinyasa/Power）', name_en:'Yoga, power/vinyasa', met:4.0},
+  {id:'yoga_hot', category_zh:'瑜伽与拉伸', category_en:'Yoga & Stretching', name_zh:'瑜伽，热瑜伽（Bikram）', name_en:'Yoga, hot/Bikram', met:5.0},
+  {id:'stretching_mild', category_zh:'瑜伽与拉伸', category_en:'Yoga & Stretching', name_zh:'拉伸，轻度', name_en:'Stretching, mild, general', met:2.3},
+  {id:'tai_chi_general', category_zh:'瑜伽与拉伸', category_en:'Yoga & Stretching', name_zh:'太极拳，一般', name_en:'Tai Chi, general', met:3.0},
+  {id:'tai_chi_advanced', category_zh:'瑜伽与拉伸', category_en:'Yoga & Stretching', name_zh:'太极拳，进阶/武术强度', name_en:'Tai Chi, advanced/martial arts intensity', met:4.0},
+  {id:'qigong', category_zh:'瑜伽与拉伸', category_en:'Yoga & Stretching', name_zh:'气功', name_en:'Qigong', met:1.8},
+  {id:'basketball_game', category_zh:'球类与竞技运动', category_en:'Sports', name_zh:'篮球，正式比赛', name_en:'Basketball, game, competitive', met:8.0},
+  {id:'basketball_shoot', category_zh:'球类与竞技运动', category_en:'Sports', name_zh:'篮球，投篮/半场', name_en:'Basketball, shooting around', met:4.5},
+  {id:'soccer_competitive', category_zh:'球类与竞技运动', category_en:'Sports', name_zh:'足球，正式比赛', name_en:'Soccer, competitive', met:10.0},
+  {id:'soccer_casual', category_zh:'球类与竞技运动', category_en:'Sports', name_zh:'足球，休闲', name_en:'Soccer, casual', met:7.0},
+  {id:'tennis_singles', category_zh:'球类与竞技运动', category_en:'Sports', name_zh:'网球，单打', name_en:'Tennis, singles', met:8.0},
+  {id:'tennis_doubles', category_zh:'球类与竞技运动', category_en:'Sports', name_zh:'网球，双打', name_en:'Tennis, doubles', met:6.0},
+  {id:'badminton_competitive', category_zh:'球类与竞技运动', category_en:'Sports', name_zh:'羽毛球，正式比赛', name_en:'Badminton, competitive', met:7.0},
+  {id:'badminton_casual', category_zh:'球类与竞技运动', category_en:'Sports', name_zh:'羽毛球，休闲', name_en:'Badminton, casual', met:4.5},
+  {id:'table_tennis', category_zh:'球类与竞技运动', category_en:'Sports', name_zh:'乒乓球', name_en:'Table tennis', met:4.0},
+  {id:'volleyball_competitive', category_zh:'球类与竞技运动', category_en:'Sports', name_zh:'排球，正式比赛', name_en:'Volleyball, competitive', met:4.0},
+  {id:'volleyball_beach', category_zh:'球类与竞技运动', category_en:'Sports', name_zh:'沙滩排球', name_en:'Volleyball, beach', met:8.0},
+  {id:'golf_carrying', category_zh:'球类与竞技运动', category_en:'Sports', name_zh:'高尔夫，自己背球杆', name_en:'Golf, carrying clubs', met:4.8},
+  {id:'golf_cart', category_zh:'球类与竞技运动', category_en:'Sports', name_zh:'高尔夫，用球车', name_en:'Golf, using cart', met:3.5},
+  {id:'baseball_softball', category_zh:'球类与竞技运动', category_en:'Sports', name_zh:'棒球/垒球', name_en:'Baseball/softball', met:5.0},
+  {id:'football_touch', category_zh:'球类与竞技运动', category_en:'Sports', name_zh:'橄榄球，touch/flag', name_en:'Football, touch/flag', met:8.0},
+  {id:'football_competitive', category_zh:'球类与竞技运动', category_en:'Sports', name_zh:'橄榄球，正式比赛', name_en:'Football, competitive', met:9.0},
+  {id:'ice_skating', category_zh:'球类与竞技运动', category_en:'Sports', name_zh:'滑冰', name_en:'Ice skating, general', met:7.0},
+  {id:'roller_skating', category_zh:'球类与竞技运动', category_en:'Sports', name_zh:'轮滑/滑轮鞋', name_en:'Roller skating/blading, general', met:7.5},
+  {id:'rock_climbing', category_zh:'球类与竞技运动', category_en:'Sports', name_zh:'攀岩', name_en:'Rock climbing, general', met:8.0},
+  {id:'bowling', category_zh:'球类与竞技运动', category_en:'Sports', name_zh:'保龄球', name_en:'Bowling', met:3.0},
+  {id:'martial_arts', category_zh:'球类与竞技运动', category_en:'Sports', name_zh:'武术（柔道/空手道/跆拳道等）', name_en:'Martial arts, general (judo/karate/taekwondo)', met:10.3},
+  {id:'fencing', category_zh:'球类与竞技运动', category_en:'Sports', name_zh:'击剑', name_en:'Fencing', met:6.0},
+  {id:'handball', category_zh:'球类与竞技运动', category_en:'Sports', name_zh:'手球', name_en:'Handball, general', met:12.0},
+  {id:'squash', category_zh:'球类与竞技运动', category_en:'Sports', name_zh:'壁球', name_en:'Squash', met:12.0},
+  {id:'racquetball', category_zh:'球类与竞技运动', category_en:'Sports', name_zh:'短网拍壁球（Racquetball），正式比赛', name_en:'Racquetball, competitive', met:7.0},
+  {id:'frisbee', category_zh:'球类与竞技运动', category_en:'Sports', name_zh:'飞盘', name_en:'Frisbee, general', met:3.0},
+  {id:'skateboarding', category_zh:'球类与竞技运动', category_en:'Sports', name_zh:'滑板', name_en:'Skateboarding, general', met:5.0},
+  {id:'trampoline', category_zh:'球类与竞技运动', category_en:'Sports', name_zh:'蹦床', name_en:'Trampoline, recreational', met:3.5},
+  {id:'hula_hoop', category_zh:'球类与竞技运动', category_en:'Sports', name_zh:'呼啦圈', name_en:'Hula hooping', met:4.0},
+  {id:'obstacle_race', category_zh:'球类与竞技运动', category_en:'Sports', name_zh:'障碍训练赛（Spartan/Tough Mudder类型）', name_en:'Obstacle course race training', met:10.0},
+  {id:'dance_social', category_zh:'舞蹈', category_en:'Dance', name_zh:'跳舞，社交/一般', name_en:'Dancing, general/social', met:4.5},
+  {id:'dance_ballet', category_zh:'舞蹈', category_en:'Dance', name_zh:'跳舞，芭蕾/现代舞', name_en:'Dancing, ballet/modern, general', met:6.0},
+  {id:'dance_zumba', category_zh:'舞蹈', category_en:'Dance', name_zh:'跳舞，尊巴（Zumba）等快节奏有氧舞蹈', name_en:'Dancing, aerobic/fast (Zumba-style)', met:6.5},
+  {id:'dance_disco_folk', category_zh:'舞蹈', category_en:'Dance', name_zh:'跳舞，迪斯科/排舞/民族舞', name_en:'Dancing, disco/line/folk', met:5.5},
+  {id:'ballroom_slow', category_zh:'舞蹈', category_en:'Dance', name_zh:'交谊舞，慢速（华尔兹/狐步）', name_en:'Ballroom dancing, slow (waltz/foxtrot)', met:3.0},
+  {id:'ballroom_fast', category_zh:'舞蹈', category_en:'Dance', name_zh:'交谊舞，快速（牛仔舞/萨尔萨）', name_en:'Ballroom dancing, fast (jive/salsa)', met:5.5},
+  {id:'hiking_cross_country', category_zh:'徒步与登山', category_en:'Hiking & Climbing', name_zh:'徒步，越野', name_en:'Hiking, cross-country', met:6.0},
+  {id:'hiking_uphill_pack', category_zh:'徒步与登山', category_en:'Hiking & Climbing', name_zh:'徒步，负重上坡', name_en:'Hiking, uphill with pack', met:7.8},
+  {id:'backpacking', category_zh:'徒步与登山', category_en:'Hiking & Climbing', name_zh:'背包旅行（负重徒步）', name_en:'Backpacking, general', met:7.0},
+  {id:'mountain_climbing', category_zh:'徒步与登山', category_en:'Hiking & Climbing', name_zh:'登山', name_en:'Mountain climbing, general', met:8.0},
+  {id:'rappelling', category_zh:'徒步与登山', category_en:'Hiking & Climbing', name_zh:'攀岩下降（Rappelling）', name_en:'Rappelling', met:8.0},
+  {id:'ski_downhill_light', category_zh:'冰雪运动', category_en:'Winter Sports', name_zh:'滑雪，高山滑雪，轻度', name_en:'Downhill skiing, light effort', met:5.3},
+  {id:'ski_downhill_vigorous', category_zh:'冰雪运动', category_en:'Winter Sports', name_zh:'滑雪，高山滑雪，较强', name_en:'Downhill skiing, vigorous effort', met:8.0},
+  {id:'snowboarding', category_zh:'冰雪运动', category_en:'Winter Sports', name_zh:'单板滑雪', name_en:'Snowboarding, general', met:5.3},
+  {id:'ski_cross_country', category_zh:'冰雪运动', category_en:'Winter Sports', name_zh:'越野滑雪', name_en:'Cross-country skiing, general', met:9.0},
+  {id:'snow_shoeing', category_zh:'冰雪运动', category_en:'Winter Sports', name_zh:'雪地徒步（Snowshoeing）', name_en:'Snowshoeing', met:8.0},
+  {id:'kayaking', category_zh:'水上运动', category_en:'Water Sports', name_zh:'皮划艇，中等强度', name_en:'Kayaking/canoeing, moderate effort', met:5.0},
+  {id:'rowing_outdoor', category_zh:'水上运动', category_en:'Water Sports', name_zh:'划船（户外），较强强度', name_en:'Rowing, outdoor, vigorous effort', met:8.5},
+  {id:'paddleboarding', category_zh:'水上运动', category_en:'Water Sports', name_zh:'桨板（SUP）', name_en:'Stand-up paddleboarding', met:6.0},
+  {id:'surfing', category_zh:'水上运动', category_en:'Water Sports', name_zh:'冲浪', name_en:'Surfing, general', met:3.0},
+  {id:'water_polo', category_zh:'水上运动', category_en:'Water Sports', name_zh:'水球', name_en:'Water polo', met:10.0},
+];
 // Matches typed name against name_zh/aliases_zh/name_en/aliases_en (trimmed, case-insensitive) -
 // used by both the item form and the external-ingredient modal (README 9.84) so the same
 // reference data is reachable from either entry point without maintaining two lookup paths.
@@ -2198,9 +2355,11 @@ var I18N = {
     waistEntryInvalid:'请填写日期和腰围', waistSavedToast:'已保存', deleteWaistConfirm:'删除这条腰围记录？',
     // exercise (锻炼)
     healthExerciseSection:'锻炼', logExerciseBtn:'记录锻炼', viewExerciseHistory:'锻炼历史', healthNoExerciseYet:'还没有锻炼记录',
-    editExerciseEntryTitle:'编辑锻炼记录', fieldExerciseType:'运动类型', fieldExerciseTypePh:'例如：跑步、力量训练',
+    editExerciseEntryTitle:'编辑锻炼记录', fieldExerciseType:'运动类型', fieldExerciseTypePh:'输入运动名称',
     fieldDurationMin:'时长（分钟）', fieldCaloriesBurned:'消耗热量 (kcal)',
     exerciseEntryInvalid:'请填写日期和运动类型', exerciseSavedToast:'已保存', deleteExerciseConfirm:'删除这条锻炼记录？',
+    chooseExercisePlaceholder:'选择运动', pickExerciseTitle:'选择运动', exerciseNotListedLink:'没找到？手动输入名称',
+    exerciseNeedWeightHint:'先在"个人信息"里填写体重，才能按这项运动自动算出消耗热量',
     back:'返回', prevDay:'前一天', nextDay:'后一天', todayLabel:'今天',
     caloriesRemainingLabel:'还可以吃', caloriesOverLabel:'超出',
     mealSlot_breakfast:'早餐', mealSlot_lunch:'午餐', mealSlot_dinner:'晚餐', mealSlot_snack:'零食',
@@ -2487,9 +2646,11 @@ var I18N = {
     waistEntryInvalid:'Please fill in date and waist', waistSavedToast:'Saved', deleteWaistConfirm:'Delete this waist record?',
     // exercise
     healthExerciseSection:'Exercise Log', logExerciseBtn:'Log Exercise', viewExerciseHistory:'Exercise History', healthNoExerciseYet:'No exercise records yet',
-    editExerciseEntryTitle:'Edit Exercise', fieldExerciseType:'Type', fieldExerciseTypePh:'e.g. Running, Strength training',
+    editExerciseEntryTitle:'Edit Exercise', fieldExerciseType:'Type', fieldExerciseTypePh:'Enter exercise name',
     fieldDurationMin:'Duration (min)', fieldCaloriesBurned:'Calories burned (kcal)',
     exerciseEntryInvalid:'Please fill in date and type', exerciseSavedToast:'Saved', deleteExerciseConfirm:'Delete this exercise record?',
+    chooseExercisePlaceholder:'Choose exercise', pickExerciseTitle:'Choose Exercise', exerciseNotListedLink:"Can't find it? Enter manually",
+    exerciseNeedWeightHint:'Add your weight in Personal Info first to auto-calculate calories for this exercise',
     back:'Back', prevDay:'Previous day', nextDay:'Next day', todayLabel:'Today',
     caloriesRemainingLabel:'Remaining', caloriesOverLabel:'Over',
     mealSlot_breakfast:'Breakfast', mealSlot_lunch:'Lunch', mealSlot_dinner:'Dinner', mealSlot_snack:'Snacks',
@@ -4183,6 +4344,8 @@ function render(){
     case 'bpHistory': html = renderBpHistory(); break;
     case 'waistHistory': html = renderWaistHistory(); break;
     case 'exerciseHistory': html = renderExerciseHistory(); break;
+    case 'exerciseLogForm': html = renderExerciseLogForm(); break;
+    case 'pickExercise': html = renderPickExercise(); break;
     default: html = renderHome();
   }
   app.innerHTML = html;
@@ -4193,7 +4356,7 @@ function bottomNav(){
   var isHome = (v==='home'||v==='itemForm'||v==='itemDetail'||v==='archive'||v==='stats'||v==='priceHistory'||v==='itemViewOnly'||v==='statFilteredList'||v==='usageLog'||v==='usageLogAdd'||v==='inventorySettings');
   var isRecipes = (v==='recipes'||v==='recipeForm'||v==='recipeDetail'||v==='pickInventory'||v==='pickExternal'||v==='pickRecipe'||v==='recipesSettings');
   var isMeals = (v==='meals'||v==='fastingHistory'||v==='mealsSettings'||v==='planSettings'||v==='macroPresetPicker'||v==='mealAddFood'||v==='mealLogEntryDetail');
-  var isHealth = (v==='health'||v==='bpHistory'||v==='waistHistory'||v==='exerciseHistory'||v==='weightHistory'||v==='healthSettings'||v==='personalInfo');
+  var isHealth = (v==='health'||v==='bpHistory'||v==='waistHistory'||v==='exerciseHistory'||v==='exerciseLogForm'||v==='pickExercise'||v==='weightHistory'||v==='healthSettings'||v==='personalInfo');
   return '' +
   (state.addMenuOpen ? ('<div class="add-menu-backdrop" onclick="closeAddMenu()"></div>'+addMenuFloatingOptionsHtml()) : '')+
   '<div class="bottom-nav">'+
@@ -4215,7 +4378,7 @@ function addMenuOptionsForCurrentSection(){
   var v = state.view;
   var isRecipes = (v==='recipes'||v==='recipeForm'||v==='recipeDetail'||v==='pickInventory'||v==='pickExternal'||v==='pickRecipe'||v==='recipesSettings');
   var isMeals = (v==='meals'||v==='fastingHistory'||v==='mealsHistory'||v==='mealsSettings'||v==='planSettings'||v==='macroPresetPicker'||v==='mealAddFood'||v==='mealLogEntryDetail');
-  var isHealth = (v==='health'||v==='bpHistory'||v==='waistHistory'||v==='exerciseHistory'||v==='weightHistory'||v==='healthSettings'||v==='personalInfo');
+  var isHealth = (v==='health'||v==='bpHistory'||v==='waistHistory'||v==='exerciseHistory'||v==='exerciseLogForm'||v==='pickExercise'||v==='weightHistory'||v==='healthSettings'||v==='personalInfo');
   if(isRecipes) return null; // signals "no menu - do the direct action instead"
   if(isMeals){
     // README 9.118: only offer meal slots the person has actually chosen to show on 三餐设置 -
@@ -4233,7 +4396,7 @@ function addMenuOptionsForCurrentSection(){
     {icon:'scale', label:t('logWeightBtn'), action:"openWeightLogModal(null)"},
     {icon:'ruler', label:t('logWaistBtn'), action:"openWaistLogModal(null)"},
     {icon:'droplet', label:t('logBpBtn'), action:"openBpLogModal(null)"},
-    {icon:'activity', label:t('logExerciseBtn'), action:"openExerciseLogModal(null)"}
+    {icon:'activity', label:t('logExerciseBtn'), action:"openExerciseLogForm(null,'health')"}
   ];
   return [
     {icon:'barcode', label:t('addItemPickerScan'), action:"navigate('scan')"},
@@ -4532,6 +4695,8 @@ function openSettings(fromView){
     if(state.view==='bpHistory') return {view:'health'};
     if(state.view==='waistHistory') return {view:'health'};
     if(state.view==='exerciseHistory') return {view:'health'};
+    if(state.view==='exerciseLogForm') return {view: state.exerciseLogUI.returnTo || 'health'};
+    if(state.view==='pickExercise') return {view:'exerciseLogForm'};
     if(state.view==='personalInfo') return {view:'healthSettings'};
     if(state.view==='planSettings') return {view:'mealsSettings'};
     if(state.view==='macroPresetPicker') return {view:'planSettings'};
@@ -13282,28 +13447,90 @@ function fmtExercise(e){
   if(e.caloriesBurned) parts.push(e.caloriesBurned+' kcal');
   return parts.join(' · ');
 }
-function openExerciseLogModal(id){
+// README 9.153: 消耗热量 = MET × 体重(kg) × 时长(小时) —— MET 值来自 EXERCISE_MET_REFERENCE，
+// 体重取健康模块里已经存着的最新体重（latestWeightKg，算 BMR 用的同一个数），没有体重记录或
+// 没选到带 MET 值的运动（自定义手动输入的情况）就返回 null，热量栏保持手动填写。
+function calcExerciseCalories(met, durationMin){
+  var weightKg = latestWeightKg();
+  if(!met || !weightKg || !durationMin) return null;
+  return Math.round(met * weightKg * (durationMin/60));
+}
+function exerciseName(e){ return state.lang==='zh' ? e.name_zh : e.name_en; }
+function exerciseCategoryLabel(e){ return state.lang==='zh' ? e.category_zh : e.category_en; }
+// README 9.153: "记录锻炼"原来是个只有几个输入框的弹窗，"运动类型"是自由文本框——现在运动类型
+// 改成从 EXERCISE_MET_REFERENCE（150 项，按纲要分类，区分配速/强度档位）里选。选项这么多，
+// 硬塞进弹窗里的下拉菜单不现实，所以这次连带把整个"记录锻炼"从弹窗升级成独立页面
+// （exerciseLogForm），选运动这一步也是独立页面（pickExercise/renderPickExercise）——这也是
+// 这次顺带定下、写进 README 界面设计约定的规矩：列表选项一旦长过大约1/3屏幕高度，就该用独立
+// 页面装，不能再用当前页面里的下拉菜单。
+// exerciseLogUI 字段：exerciseId（选中的 EXERCISE_MET_REFERENCE 条目 id，自定义手动输入运动
+// 名称时为 null）、met（对应 MET 值，自定义时为 null，此时热量只能手动填）、customMode（是否
+// 处于"手动输入运动名称"模式）、returnTo（保存/删除/返回后回到哪个页面——从"健康页"加号菜单
+// 进来就回 health，从"锻炼历史"进来就回 exerciseHistory，跟着 README 第九节"从哪里来回哪里
+// 去"的既有约定）。
+function openExerciseLogForm(id, returnTo){
   var existing = id ? state.exerciseLogs.find(function(e){ return e.id===id; }) : null;
   state.exerciseLogUI = existing ?
-    {id:id, date:existing.date, type:existing.type||'', durationMin:existing.durationMin||'', caloriesBurned:existing.caloriesBurned||'', note:existing.note||''} :
-    {id:null, date:todayStr(), type:'', durationMin:'', caloriesBurned:'', note:''};
-  renderExerciseLogModal();
+    {id:id, date:existing.date, type:existing.type||'', exerciseId:existing.exerciseId||null, met:existing.met||null,
+     durationMin:existing.durationMin||'', caloriesBurned:existing.caloriesBurned||'', note:existing.note||'',
+     customMode: !existing.exerciseId, returnTo: returnTo||'exerciseHistory'} :
+    {id:null, date:todayStr(), type:'', exerciseId:null, met:null, durationMin:'', caloriesBurned:'', note:'',
+     customMode:false, returnTo: returnTo||'exerciseHistory'};
+  navigate('exerciseLogForm');
 }
-function renderExerciseLogModal(){
+function renderExerciseLogForm(){
   var ui = state.exerciseLogUI;
-  showModal(ui.id ? t('editExerciseEntryTitle') : t('logExerciseBtn'),
+  var weightKg = latestWeightKg();
+  var typeFieldHtml;
+  if(ui.customMode){
+    typeFieldHtml = '<div class="field"><label>'+t('fieldExerciseType')+'</label>'+
+      '<input id="exercise-input-focus" type="text" autocapitalize="words" placeholder="'+t('fieldExerciseTypePh')+'" value="'+esc(ui.type)+'" oninput="exl_str(\'type\',this.value)"></div>';
+  } else {
+    var label = ui.type ? esc(ui.type)+(ui.met?(' · '+ui.met+' MET'):'') : t('chooseExercisePlaceholder');
+    typeFieldHtml = '<div class="field"><label>'+t('fieldExerciseType')+'</label>'+
+      '<div class="list-row" style="cursor:pointer;background:var(--cream);border-radius:11px;padding:12px 14px;border:none;" onclick="openPickExercise()"><span>'+label+'</span>'+ic('chevronRight',18)+'</div>'+
+      '<div class="hint" style="margin-top:6px;cursor:pointer;color:var(--fresh);" onclick="switchExerciseToCustom()">'+t('exerciseNotListedLink')+'</div>'+
+    '</div>';
+  }
+  return '' +
+  '<div class="page-header"><button class="back-btn" onclick="navigate('+aj(ui.returnTo)+')">'+ic('back',22)+'</button><h1>'+(ui.id?t('editExerciseEntryTitle'):t('logExerciseBtn'))+'</h1></div>'+
+  '<div class="content">'+
     '<div class="field"><label>'+t('fieldDate')+'</label><input type="date" value="'+esc(ui.date)+'" oninput="exl_str(\'date\',this.value)"></div>'+
-    '<div class="field"><label>'+t('fieldExerciseType')+'</label><input id="exercise-input-focus" type="text" placeholder="'+t('fieldExerciseTypePh')+'" value="'+esc(ui.type)+'" oninput="exl_str(\'type\',this.value)"></div>'+
-    '<div class="field"><label>'+t('fieldDurationMin')+'</label><input type="number" inputmode="numeric" placeholder="-" value="'+esc(ui.durationMin)+'" oninput="exl_str(\'durationMin\',this.value===\'\'?\'\':parseInt(this.value,10))"></div>'+
-    '<div class="field"><label>'+t('fieldCaloriesBurned')+'</label><input type="number" inputmode="numeric" placeholder="-" value="'+esc(ui.caloriesBurned)+'" oninput="exl_str(\'caloriesBurned\',this.value===\'\'?\'\':parseInt(this.value,10))"></div>'+
+    typeFieldHtml +
+    '<div class="field"><label>'+t('fieldDurationMin')+'</label><input type="number" inputmode="numeric" placeholder="-" value="'+esc(ui.durationMin)+'" oninput="exlDuration(this.value)"></div>'+
+    '<div class="field"><label>'+t('fieldCaloriesBurned')+'</label><input id="exercise-calories-input" type="number" inputmode="numeric" placeholder="-" value="'+esc(ui.caloriesBurned)+'" oninput="exl_str(\'caloriesBurned\',this.value===\'\'?\'\':parseInt(this.value,10))">'+
+      (ui.met && !weightKg ? '<div class="hint" style="margin-top:6px;">'+t('exerciseNeedWeightHint')+'</div>' : '')+
+    '</div>'+
     '<div class="field" style="margin-bottom:0;"><label>'+t('fieldNotes')+'</label><textarea placeholder="'+t('fieldNotesPh')+'" oninput="exl_str(\'note\',this.value)">'+esc(ui.note)+'</textarea></div>'+
     '<button class="btn btn-primary" style="margin-top:14px;" onclick="saveExerciseLogEntry()">'+t('save')+'</button>'+
-    (ui.id ? '<button class="btn btn-danger" style="margin-top:10px;width:100%;" onclick="deleteExerciseLogEntry('+aj(ui.id)+')">'+t('delete')+'</button>' : '')
-  );
+    (ui.id ? '<button class="btn btn-danger" style="margin-top:10px;width:100%;" onclick="deleteExerciseLogEntry('+aj(ui.id)+')">'+t('delete')+'</button>' : '')+
+  '</div>';
+}
+function switchExerciseToCustom(){
+  state.exerciseLogUI.customMode = true;
+  state.exerciseLogUI.exerciseId = null;
+  state.exerciseLogUI.met = null;
+  render();
   var el = document.getElementById('exercise-input-focus');
   if(el) el.focus();
 }
 function exl_str(field, val){ state.exerciseLogUI[field]=val; }
+// README 9.153: 时长一改，如果已经选好了带 MET 值的运动，直接按公式重新算一遍热量并覆盖填入——
+// 跟"数量/单位"那类实时联动字段一样，直接改这一个输入框的 DOM 值，不整页 render()，避免每敲
+//一个数字都重新渲染一次打断输入。如果用户选完运动、算出热量后又手动改了这个数字，后面再改
+// 时长还是会重新覆盖——这是有意的取舍（时长变了，原来那个热量数字就不对应了），不是bug。
+function exlDuration(val){
+  var ui = state.exerciseLogUI;
+  ui.durationMin = val===''?'':parseInt(val,10);
+  if(ui.met && ui.durationMin){
+    var cal = calcExerciseCalories(ui.met, ui.durationMin);
+    if(cal!=null){
+      ui.caloriesBurned = cal;
+      var calInput = document.getElementById('exercise-calories-input');
+      if(calInput) calInput.value = cal;
+    }
+  }
+}
 function saveExerciseLogEntry(){
   var ui = state.exerciseLogUI;
   if(!ui.date || !ui.type){ showToast(t('exerciseEntryInvalid')); return; }
@@ -13311,34 +13538,126 @@ function saveExerciseLogEntry(){
   var caloriesBurned = (ui.caloriesBurned===''||ui.caloriesBurned==null) ? null : ui.caloriesBurned;
   if(ui.id){
     var e = state.exerciseLogs.find(function(x){ return x.id===ui.id; });
-    e.date = ui.date; e.type = ui.type; e.durationMin = durationMin; e.caloriesBurned = caloriesBurned; e.note = ui.note;
+    e.date = ui.date; e.type = ui.type; e.exerciseId = ui.exerciseId; e.met = ui.met;
+    e.durationMin = durationMin; e.caloriesBurned = caloriesBurned; e.note = ui.note;
   } else {
-    state.exerciseLogs.push({id:uid(), date:ui.date, type:ui.type, durationMin:durationMin, caloriesBurned:caloriesBurned, note:ui.note});
+    state.exerciseLogs.push({id:uid(), date:ui.date, type:ui.type, exerciseId:ui.exerciseId, met:ui.met, durationMin:durationMin, caloriesBurned:caloriesBurned, note:ui.note});
   }
   saveExerciseLogs();
-  closeModal();
   showToast(t('exerciseSavedToast'));
-  render();
+  navigate(ui.returnTo);
 }
 function deleteExerciseLogEntry(id){
   showConfirmModal(t('deleteExerciseConfirm'), function(){
+    var returnTo = state.exerciseLogUI.returnTo;
     state.exerciseLogs = state.exerciseLogs.filter(function(x){ return x.id!==id; });
     saveExerciseLogs();
     closeModal();
-    render();
+    navigate(returnTo);
   }, {title:t('delete')});
+}
+// ---- 选运动独立页面 (README 9.153) - EXERCISE_MET_REFERENCE 有 150 项，不搜索时按纲要分类
+// 折叠展示（点分类展开/收起），搜索时不分类直接给一份扁平的匹配结果，跟 pickInventory 等既有
+// picker 页面同一套"sticky 搜索栏 + 下方结果区，搜索时只重绘结果区"结构，onExercisePickSearch
+// 沿用同一个防抖时长(200ms)约定 ----
+function openPickExercise(){
+  state.exercisePickSearch = '';
+  state.exercisePickExpanded = state.exercisePickExpanded || {};
+  navigate('pickExercise');
+}
+function getExerciseCategories(){
+  var order = [], seen = {};
+  EXERCISE_MET_REFERENCE.forEach(function(e){
+    if(!seen[e.category_zh]){ seen[e.category_zh]=true; order.push({zh:e.category_zh, en:e.category_en}); }
+  });
+  return order;
+}
+function toggleExerciseCategory(catZh){
+  state.exercisePickExpanded[catZh] = !state.exercisePickExpanded[catZh];
+  var c = document.getElementById('exercise-pick-list');
+  if(c) c.outerHTML = '<div id="exercise-pick-list">'+renderExercisePickListOnly()+'</div>';
+}
+function onExercisePickSearch(v){
+  state.exercisePickSearch = v;
+  clearTimeout(onExercisePickSearch._t);
+  onExercisePickSearch._t = setTimeout(function(){
+    var c = document.getElementById('exercise-pick-list');
+    if(c) c.outerHTML = '<div id="exercise-pick-list">'+renderExercisePickListOnly()+'</div>';
+  }, 200);
+}
+function exercisePickRowHtml(e){
+  return '<div class="picker-item" onclick="pickExerciseEntry('+aj(e.id)+')">'+
+    '<div><div class="pname">'+esc(exerciseName(e))+'</div><div class="pmeta">'+e.met+' MET</div></div>'+
+    ic('chevronRight',16)+
+  '</div>';
+}
+function renderExercisePickListOnly(){
+  var q = (state.exercisePickSearch||'').trim().toLowerCase();
+  if(q){
+    var matches = EXERCISE_MET_REFERENCE.filter(function(e){
+      return e.name_zh.toLowerCase().indexOf(q)!==-1 || e.name_en.toLowerCase().indexOf(q)!==-1;
+    });
+    if(!matches.length) return '<div class="empty-state">'+ic('search',32)+'<p>'+(state.lang==='zh'?'没有找到匹配的运动':'No matching exercise found')+'</p></div>';
+    return matches.map(exercisePickRowHtml).join('');
+  }
+  var cats = getExerciseCategories();
+  return cats.map(function(cat){
+    var expanded = !!state.exercisePickExpanded[cat.zh];
+    var items = EXERCISE_MET_REFERENCE.filter(function(e){ return e.category_zh===cat.zh; });
+    var label = state.lang==='zh' ? cat.zh : cat.en;
+    return '<div>'+
+      '<div class="list-row" style="cursor:pointer;font-weight:700;color:var(--fresh);" onclick="toggleExerciseCategory('+aj(cat.zh)+')">'+
+        '<span>'+esc(label)+' <span class="hint" style="font-weight:400;">('+items.length+')</span></span>'+
+        ic('chevronRight',18,'style="transform:rotate('+(expanded?'90':'0')+'deg);transition:transform .15s;"')+
+      '</div>'+
+      (expanded ? items.map(exercisePickRowHtml).join('') : '')+
+    '</div>';
+  }).join('');
+}
+function renderPickExercise(){
+  return '' +
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'exerciseLogForm\')">'+ic('back',22)+'</button><h1>'+t('pickExerciseTitle')+'</h1></div>'+
+  '<div class="content" style="padding-bottom:70px;">'+
+    '<div class="pick-sticky-search" id="pick-exercise-sticky">'+
+      searchBarHtml(state.exercisePickSearch||'', t('searchPlaceholder'), 'onExercisePickSearch', null, true)+
+    '</div>'+
+    '<div id="exercise-pick-list">'+renderExercisePickListOnly()+'</div>'+
+    '<div class="hint" style="text-align:center;padding:14px;cursor:pointer;color:var(--fresh);" onclick="switchExerciseToCustomFromPicker()">'+t('exerciseNotListedLink')+'</div>'+
+  '</div>';
+}
+function pickExerciseEntry(id){
+  var ex = EXERCISE_MET_REFERENCE.find(function(e){ return e.id===id; });
+  if(!ex) return;
+  var ui = state.exerciseLogUI;
+  ui.exerciseId = id;
+  ui.met = ex.met;
+  ui.type = exerciseName(ex);
+  ui.customMode = false;
+  if(ui.durationMin){
+    var cal = calcExerciseCalories(ex.met, ui.durationMin);
+    if(cal!=null) ui.caloriesBurned = cal;
+  }
+  navigate('exerciseLogForm');
+}
+function switchExerciseToCustomFromPicker(){
+  state.exerciseLogUI.customMode = true;
+  state.exerciseLogUI.exerciseId = null;
+  state.exerciseLogUI.met = null;
+  navigate('exerciseLogForm');
+  var el = document.getElementById('exercise-input-focus');
+  if(el) el.focus();
 }
 function renderExerciseHistory(){
   var logs = sortedExerciseLogs().slice().reverse();
   var rows = logs.map(function(e){
-    return '<div class="list-row" onclick="openExerciseLogModal('+aj(e.id)+')" style="cursor:pointer;">'+
+    return '<div class="list-row" onclick="openExerciseLogForm('+aj(e.id)+',\'exerciseHistory\')" style="cursor:pointer;">'+
       '<div class="row-label">'+esc(fmtDateDots(e.date))+(e.note?('<div class="hint" style="margin-top:2px;">'+esc(e.note)+'</div>'):'')+'</div>'+
       '<div>'+fmtExercise(e)+'</div>'+
     '</div>';
   }).join('') || '<div class="empty-state">'+ic('activity',36)+'<p>'+t('healthNoExerciseYet')+'</p></div>';
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'health\')">'+ic('back',22)+'</button><h1>'+t('viewExerciseHistory')+'</h1>'+
-    '<button class="icon-btn" onclick="openExerciseLogModal(null)">'+ic('plus',20)+'</button>'+
+    '<button class="icon-btn" onclick="openExerciseLogForm(null,\'exerciseHistory\')">'+ic('plus',20)+'</button>'+
   '</div>'+
   '<div class="content">'+rows+'</div>';
 }
