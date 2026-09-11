@@ -880,7 +880,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.158';
+var BUILD_VERSION = '9.160';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -11889,8 +11889,7 @@ function mealSlotMacroWidgetHtml(date, slot, budget){
   var animPending = !!state.mealsUI.mealMacroAnimPending;
   state.mealsUI.mealMacroAnimPending = false;
   var slideAnim = state.mealsUI.mealMacroSlideDir==='left' ? 'macroSlideInLeft' : 'macroSlideInRight';
-  return '<div class="section-title" style="margin-top:16px;">'+t('mealMacroShareLabel')+'</div>'+
-    '<div class="form-group meal-macro-widget-swipe-area" onclick="toggleMealMacroView()" style="cursor:pointer;">'+
+  return '<div class="form-group meal-macro-widget-swipe-area" onclick="toggleMealMacroView()" style="cursor:pointer;">'+
       '<div class="macro-view-slide" style="'+(animPending ? ('animation-name:'+slideAnim+';') : '')+'">'+inner+'</div>'+
       '<div style="display:flex;justify-content:center;gap:7px;margin-top:12px;">'+
         '<span class="macro-view-dot '+(view==='pie'?'active':'')+'" onclick="event.stopPropagation();setMealMacroView(\'pie\')"></span>'+
@@ -12852,11 +12851,11 @@ function mealScanDeclineAddToInventory(code){
 function addFoodLocalSearchBodyHtml(af){
   var ph = af.tab==='recipe' ? t('recipeSearchPlaceholder') : t('searchPlaceholder');
   var resultsHtml = af.tab==='recipe' ? addFoodRecipeResultsHtml(searchRecipeFoods(af.query)) : addFoodInventoryResultsHtml(searchInventoryFoods(af.query));
-  return '<div class="meal-add-search-sticky"><input id="add-food-search-input" type="text" autocapitalize="none" placeholder="'+esc(ph)+'" value="'+esc(af.query)+'" oninput="onAddFoodQueryInput(this.value)" style="width:100%;box-sizing:border-box;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);"></div>'+
+  return '<div class="meal-add-search-sticky"><input id="add-food-search-input" type="text" autocapitalize="none" autofocus placeholder="'+esc(ph)+'" value="'+esc(af.query)+'" oninput="onAddFoodQueryInput(this.value)" style="width:100%;box-sizing:border-box;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);"></div>'+
     '<div id="add-food-local-results">'+resultsHtml+'</div>';
 }
 function addFoodUsdaSearchBodyHtml(af){
-  return '<div class="meal-add-search-sticky"><input id="add-food-search-input" type="text" autocapitalize="none" placeholder="'+t('usdaOnlySearchPh')+'" value="'+esc(af.query)+'" oninput="onAddFoodQueryInput(this.value)" style="width:100%;box-sizing:border-box;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);"></div>'+
+  return '<div class="meal-add-search-sticky"><input id="add-food-search-input" type="text" autocapitalize="none" autofocus placeholder="'+t('usdaOnlySearchPh')+'" value="'+esc(af.query)+'" oninput="onAddFoodQueryInput(this.value)" style="width:100%;box-sizing:border-box;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);"></div>'+
     '<div id="add-food-usda-results"></div>';
 }
 function addFoodRecipeResultsHtml(local){
@@ -13103,7 +13102,7 @@ function setAddFoodAmountUnit(u){
 // external ingredient's nutrition_extra fields being left out entirely when not filled in.
 function customMealFieldsHtml(af){
   return '' +
-    '<div class="field"><label>'+t('quickCalLabel')+'</label><input type="number" inputmode="decimal" placeholder="'+t('requiredPh')+'" value="'+esc(af.customCalories||'')+'" oninput="af_str(\'customCalories\',this.value)"></div>'+
+    '<div class="field"><label>'+t('quickCalLabel')+'</label><input type="number" inputmode="decimal" autofocus placeholder="'+t('requiredPh')+'" value="'+esc(af.customCalories||'')+'" oninput="af_str(\'customCalories\',this.value)"></div>'+
     '<div class="field"><label>'+t('fieldMealCarbs')+'</label><input type="number" inputmode="decimal" placeholder="'+t('optionalPh')+'" value="'+esc(af.customCarbs||'')+'" oninput="af_str(\'customCarbs\',this.value)"></div>'+
     '<div class="field"><label>'+t('fieldMealProtein')+'</label><input type="number" inputmode="decimal" placeholder="'+t('optionalPh')+'" value="'+esc(af.customProtein||'')+'" oninput="af_str(\'customProtein\',this.value)"></div>'+
     '<div class="field"><label>'+t('fieldMealFat')+'</label><input type="number" inputmode="decimal" placeholder="'+t('optionalPh')+'" value="'+esc(af.customFat||'')+'" oninput="af_str(\'customFat\',this.value)"></div>'+
@@ -13193,15 +13192,19 @@ function onAddFoodAmountInput(val){
 // README 9.148: this page's amount input sits inside the 'mealAddFood' view the whole time -
 // picking a food and switching units are both just internal step/state changes within that same
 // view, not a real navigate() to a new one. focusAutofocusElementOnce's own [autofocus] handling
-// is keyed on state.view (see its comment) specifically so it does NOT refire on every re-render
-// of a view the person is already sitting on - which means it never refires here either, since
-// the view name never changes across these steps. So this field never had Lynn's usual "land
-// ready to type over" treatment at all: not on first picking a food, and not on switching units
-// (which became a real problem once 9.147 started leaving an actual converted number in the
-// field instead of leaving it blank - a filled-in number the person can't immediately overwrite
-// is exactly the "click in / double-tap / delete first" friction she's ruled out everywhere
-// else). Called directly, right after render(), from every place that lands on or changes this
-// field - not routed through the generic mechanism - since none of them are a state.view change.
+// used to be keyed on state.view alone (see its comment), which never refires on a re-render of
+// a view the person is already sitting on - so this field never got Lynn's usual "land ready to
+// type over" treatment: not on first picking a food, and not on switching units (a real problem
+// once 9.147 started leaving an actual converted number in the field instead of leaving it
+// blank - a filled-in number the person can't immediately overwrite is exactly the "click in /
+// double-tap / delete first" friction she's ruled out everywhere else).
+// 9.159 made that key step-aware (af.tab/af.step now fold into it - see autofocusTrackingKey),
+// so the generic mechanism DOES now refire when this page first lands on the amount step
+// (picking a food from any of 库存/食谱/USDA) and `#af-amount-input` also just carries a plain
+// `autofocus` attribute for that path, same as any other page's field. This function stays for
+// the one case the step-based key still can't see on its own: switching units WITHOUT leaving
+// the amount step (setAddFoodAmountUnit) - af.step never changes there, so it's still called
+// directly, right after render(), rather than relying on the generic mechanism to notice.
 function focusAddFoodAmountInput(){
   var el = document.getElementById('af-amount-input');
   if(!el) return;
@@ -13232,11 +13235,11 @@ function addFoodAmountBodyHtml(af){
         '<div class="tag-option '+(af.amountUnit==='g'?'active':'')+'" onclick="setAddFoodAmountUnit(\'g\')">g</div>'+
       '</div></div>'+
       (af.amountUnit==='g' ?
-        '<div class="field"><label>'+t('fieldMealAmount')+' (g)</label><input type="text" id="af-amount-input" placeholder="-" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>'
+        '<div class="field"><label>'+t('fieldMealAmount')+' (g)</label><input type="text" id="af-amount-input" autofocus placeholder="-" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>'
         :
-        '<div class="field"><label>'+t('servingsEatenLabel')+'</label><input type="text" id="af-amount-input" placeholder="1" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>'))
+        '<div class="field"><label>'+t('servingsEatenLabel')+'</label><input type="text" id="af-amount-input" autofocus placeholder="1" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>'))
       :
-      ('<div class="field"><label>'+t('servingsEatenLabel')+'</label><input type="text" id="af-amount-input" placeholder="1" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>');
+      ('<div class="field"><label>'+t('servingsEatenLabel')+'</label><input type="text" id="af-amount-input" autofocus placeholder="1" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>');
   }
   // README 9.108: an inventory item's amount can be entered in ANY unit that item itself
   // tracks stock in (its own primary/secondary units and pack specs, plus same-family weight/
@@ -13253,7 +13256,11 @@ function addFoodAmountBodyHtml(af){
   var itemUnitField = '';
   if(isItem && itemSrc){
     var itemUnits = orderedUnitOptionsForItem(itemSrc);
-    if(!af.amountUnit) af.amountUnit = itemUnits[0] || itemSrc.primary_unit || 'g';
+    // README 9.159: g first if this item tracks it at all - same "default to g" preference as
+    // the recipe tab's canUseGrams branch (9.157) and USDA (which only ever offers g). Only
+    // falls back to itemUnits' own order (food's own unit first) when g genuinely isn't one of
+    // this item's usable units at all.
+    if(!af.amountUnit) af.amountUnit = itemUnits.indexOf('g')!==-1 ? 'g' : (itemUnits[0] || itemSrc.primary_unit || 'g');
     itemUnitField = itemUnits.length>1 ?
       ('<div class="field"><label>'+t('fieldMealAmountUnit')+'</label><div class="tag-select" style="flex-wrap:wrap;">'+
         itemUnits.map(function(u){ return '<div class="tag-option '+(af.amountUnit===u?'active':'')+'" onclick="setAddFoodAmountUnit(\''+u+'\')">'+esc(u)+'</div>'; }).join('')+
@@ -13265,7 +13272,7 @@ function addFoodAmountBodyHtml(af){
       recipeAmountField
       :
       itemUnitField+
-      '<div class="field"><label>'+t('fieldMealAmount')+((isItem||p.type==='offquick') ? (' ('+esc(af.amountUnit||'g')+')') : ' (g)')+'</label><input type="text" id="af-amount-input" placeholder="-" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>'+
+      '<div class="field"><label>'+t('fieldMealAmount')+((isItem||p.type==='offquick') ? (' ('+esc(af.amountUnit||'g')+')') : ' (g)')+'</label><input type="text" id="af-amount-input" autofocus placeholder="-" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>'+
       // README 9.132: defaults ON for a direct inventory pick now (was off) - Lynn: "直接吃库存
       //食材也算消耗，要扣". Only inventory items ever show this row at all; recipe/USDA/external
       // picks have nothing in stock to deduct from.
@@ -15199,9 +15206,25 @@ function deleteRecipeSub(groupId, sub){
 // keyboard on those would be actively disruptive, not helpful. _lastAutofocusedView tracks which
 // view last got its autofocus applied; a repeat render() of the SAME view is a no-op here.
 var _lastAutofocusedView = null;
+// README 9.159: mealAddFood is one single state.view for its entire lifetime (库存/食谱/USDA/
+// 自定 tabs, plus the amount-entry step within a tab) - switching tabs or moving into the amount
+// step never changes state.view itself, so the plain state.view-equality check above always saw
+// "same view as last time" and silently skipped autofocus on every one of those transitions,
+// even though each one lands on a brand new empty input that should grab the keyboard. Folds
+// af.tab/af.step into the tracking key just for this one view so each tab switch and each
+// step transition counts as "new" again; every other view's behavior (state.view alone) is
+// unchanged.
+function autofocusTrackingKey(){
+  if(state.view==='mealAddFood' && state.mealsUI && state.mealsUI.addFood){
+    var af = state.mealsUI.addFood;
+    return 'mealAddFood:'+af.tab+':'+af.step+':'+(af.mealsetPhase||'');
+  }
+  return state.view;
+}
 function focusAutofocusElementOnce(){
-  if(state.view === _lastAutofocusedView) return;
-  _lastAutofocusedView = state.view;
+  var key = autofocusTrackingKey();
+  if(key === _lastAutofocusedView) return;
+  _lastAutofocusedView = key;
   var app = document.getElementById('app');
   var el = app && app.querySelector('[autofocus]');
   if(!el) return;
