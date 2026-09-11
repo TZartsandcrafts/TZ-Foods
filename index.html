@@ -877,7 +877,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.156';
+var BUILD_VERSION = '9.157';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -11871,9 +11871,17 @@ function dailyNutrientBarsHtml(totals, budget){
     var actual = Math.round(totals[key]||0);
     var unit = units[key];
     if(key==='trans_fat'){
+      // README 9.157: every other row ends with a caption line (超出/还可以吃 X 或"未设置目标")
+      // before its margin-bottom kicks in, which is what actually sets each row's real height -
+      // trans fat never had one (it has no standalone %/target of its own, see the big comment
+      // above), so its block was shorter than every neighboring row and the gap on either side
+      // of it visually didn't match the rest of the list. An empty caption line with the exact
+      // same font-size/margin-top keeps the row heights - and so the spacing - uniform without
+      // actually showing any text here.
       return '<div style="margin-bottom:11px;">'+
         '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span>'+labels.trans_fat+'</span><span class="hint">'+actual+unit+'</span></div>'+
         '<div style="height:8px;background:var(--cream);border-radius:4px;"></div>'+
+        '<div class="hint" style="font-size:11.5px;margin-top:3px;">&nbsp;</div>'+
       '</div>';
     }
     var compareActual = (key==='saturated_fat') ? actual+Math.round(totals.trans_fat||0) : actual;
@@ -12929,14 +12937,10 @@ function pickLocalFoodForMeal(type, id){
     af.amountText = '1';
     // README 9.145: this was the one branch here that never reset amountUnit, unlike the
     // 'item' branch right above it - so picking a recipe right after having picked something
-    // else (an inventory item, or a PREVIOUS recipe whose unit was switched to g) carried that
-    // leftover unit straight into this brand new pick. addFoodAmountBodyHtml's own
-    // `if(isRecipe && !af.amountUnit) af.amountUnit = 'servings'` default never got a chance to
-    // fire, because the stale value was already truthy - so a fresh recipe pick could silently
-    // open on 克数(g) instead of the expected 份数(servings), with amountText still '1' meaning
-    // "1g" rather than "1份" until the person noticed and re-typed it. Resetting to null here,
-    // same as 'item' does, guarantees every fresh pick gets addFoodAmountBodyHtml's real default
-    // instead of whatever the previous pick happened to leave behind.
+    // else (an inventory item, or a PREVIOUS recipe whose unit was switched to something else)
+    // carried that leftover unit straight into this brand new pick. Resetting to null here,
+    // same as 'item' does, guarantees every fresh pick gets addFoodAmountBodyHtml's real
+    // default (see 9.157 there) instead of whatever the previous pick happened to leave behind.
     af.amountUnit = null;
   } else {
     var ing = state.ingredients.find(function(x){ return x.id===id; });
@@ -13124,7 +13128,12 @@ function addFoodAmountBodyHtml(af){
   // calcRecipeNutrition's per100g, which is null without cooked_weight).
   var recipe = isRecipe ? state.recipes.find(function(x){ return x.id===p.id; }) : null;
   var canUseGrams = isRecipe && recipe && recipe.cooked_weight;
-  if(isRecipe && !af.amountUnit) af.amountUnit = 'servings';
+  // README 9.157: defaults to g (Lynn's preference - matches how 库存/USDA picks already
+  // default to weight) whenever the recipe actually supports it; a recipe with no
+  // 成品总重量(cooked_weight) can't convert grams back to a fraction of itself (see
+  // canUseGrams above), so those still default to 份数(servings) since that's the only unit
+  // actually offered.
+  if(isRecipe && !af.amountUnit) af.amountUnit = canUseGrams ? 'g' : 'servings';
   var recipeAmountField = '';
   if(isRecipe){
     recipeAmountField = canUseGrams ?
