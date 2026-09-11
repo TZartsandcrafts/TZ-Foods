@@ -19,6 +19,7 @@
     --cream-2:#EFE1CC;
     --caramel-light:#D9A566;
     --almond:#C08552;
+    --almond-bg:#F3E3D1;
     --deep-caramel:#8B5A2B;
     --cocoa:#4A2E1E;
     --cocoa-2:#3A2216;
@@ -27,8 +28,10 @@
     --warn-bg:#F5E3D4;
     --danger:#8C2F1E;
     --danger-bg:#F7DCD3;
+    --danger-light:#C97862;
     --fresh:#6B7A3D;
     --fresh-bg:#E9EDDC;
+    --fresh-light:#9BAE6D;
     --usedup:#9C8A78;
     --usedup-bg:#EDE7DE;
     --line:#E3D2B4;
@@ -877,7 +880,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.157';
+var BUILD_VERSION = '9.158';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2322,7 +2325,7 @@ var I18N = {
     mealsTitle:'三餐', healthTitle:'健康',
     healthWeightSection:'体重', healthPlanSection:'饮食计划', weightChartEmptyHint:'记录至少两次体重后这里会显示趋势图',
     healthNoWeightYet:'还没有体重记录', logWeightBtn:'记录体重', viewWeightHistory:'体重历史',
-    dailyCalorieBudgetLabel:'每日热量预算', macroDistLabel:'宏量营养素分布', targetDateLabel:'预计达成日期',
+    dailyCalorieBudgetLabel:'每日热量预算', macroDistLabel:'宏量营养素分布', targetDateLabel:'预计达成日期', mealMacroShareLabel:'这一餐的宏量占比',
     healthPlanIncompleteHint:'填写个人信息和目标体重后，这里会自动算出每日热量预算', planSettingsBtn:'计划设置', personalInfoBtn:'个人信息',
     editWeightEntryTitle:'编辑体重记录', fieldWeight:'体重', fieldDate:'日期',
     weightEntryInvalid:'请填写日期和体重', weightSavedToast:'已保存', deleteWeightConfirm:'删除这条体重记录？',
@@ -2614,7 +2617,7 @@ var I18N = {
     mealsTitle:'Meals', healthTitle:'Health',
     healthWeightSection:'Weight', healthPlanSection:'Diet Plan', weightChartEmptyHint:'Log at least two entries to see a trend chart',
     healthNoWeightYet:'No weight logged yet', logWeightBtn:'Log Weight', viewWeightHistory:'Weight History',
-    dailyCalorieBudgetLabel:'Daily Calorie Budget', macroDistLabel:'Macronutrient Distribution', targetDateLabel:'Projected Target Date',
+    dailyCalorieBudgetLabel:'Daily Calorie Budget', macroDistLabel:'Macronutrient Distribution', targetDateLabel:'Projected Target Date', mealMacroShareLabel:"This Meal's Macro Share",
     healthPlanIncompleteHint:'Fill in your personal info and goal weight to see your daily calorie budget here', planSettingsBtn:'Plan Settings', personalInfoBtn:'Personal Info',
     editWeightEntryTitle:'Edit Weight Entry', fieldWeight:'Weight', fieldDate:'Date',
     weightEntryInvalid:'Please fill in a date and weight', weightSavedToast:'Saved', deleteWeightConfirm:'Delete this weight entry?',
@@ -5020,6 +5023,27 @@ document.addEventListener('selectstart', function(e){
     startX = null;
     if(Math.abs(dx)>40 && Math.abs(dx)>Math.abs(dy)*1.5){
       setMacroView(state.mealsUI.macroView==='bar' ? 'pie' : 'bar');
+    }
+  }, {passive:true});
+})();
+
+// README 9.157: mealSlotMacroWidgetHtml's own swipe area - can't reuse
+// initMacroWidgetSwipe/.macro-widget-swipe-area above since that handler hardcodes
+// setMacroView (the whole-day widget's toggle), which would silently flip the DAY chart
+// instead of this meal's when someone swiped on the meal-level one.
+(function initMealMacroWidgetSwipe(){
+  var startX=null, startY=null;
+  document.addEventListener('touchstart', function(e){
+    var wrap = e.target.closest ? e.target.closest('.meal-macro-widget-swipe-area') : null;
+    if(!wrap){ startX=null; return; }
+    startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+  }, {passive:true});
+  document.addEventListener('touchend', function(e){
+    if(startX==null) return;
+    var dx = e.changedTouches[0].clientX-startX, dy = e.changedTouches[0].clientY-startY;
+    startX = null;
+    if(Math.abs(dx)>40 && Math.abs(dx)>Math.abs(dy)*1.5){
+      setMealMacroView(state.mealsUI.mealMacroView==='bar' ? 'pie' : 'bar');
     }
   }, {passive:true});
 })();
@@ -11465,6 +11489,20 @@ function setMacroView(v){
 function toggleMacroView(){
   setMacroView(state.mealsUI.macroView==='bar' ? 'pie' : 'bar');
 }
+// README 9.157: same pie<->bar toggle as setMacroView/toggleMacroView above, kept on its own
+// state keys (mealMacroView/mealMacroSlideDir/mealMacroAnimPending) so switching the per-meal
+// widget (mealSlotMacroWidgetHtml) never affects, or is affected by, the whole-day one right
+// above it on the same page.
+function setMealMacroView(v){
+  var order = {pie:0, bar:1};
+  state.mealsUI.mealMacroSlideDir = order[v] > order[state.mealsUI.mealMacroView||'pie'] ? 'right' : 'left';
+  state.mealsUI.mealMacroView = v;
+  state.mealsUI.mealMacroAnimPending = true;
+  render();
+}
+function toggleMealMacroView(){
+  setMealMacroView(state.mealsUI.mealMacroView==='bar' ? 'pie' : 'bar');
+}
 
 /* ---- 轻断食 (intermittent fasting timer) - README 9.102, extended 9.105 ----
    state.activeFast holds the in-progress fast (or null): {startedAt, targetHours}, both stored
@@ -11755,12 +11793,13 @@ function renderMeals(){
   var macroWidget = budget!=null ? macroWidgetHtml(totals, budget) : '';
   var tabsHtml = mealSlotTabsHtml(date);
   var detailHtml = mealSlotDetailHtml(date, state.mealsUI.selectedSlot);
+  var mealMacroWidget = mealSlotMacroWidgetHtml(date, state.mealsUI.selectedSlot, budget);
   var nutrientBars = dailyNutrientBarsHtml(totals, budget);
 
   return '' +
   '<div class="topbar"><div><h1>🍽️ '+t('mealsTitle')+'</h1></div>'+menuButtonHtml('meals', true)+'</div>'+
   '<div class="content">'+
-    fastingCardHtml() + dateNav + calorieCard + macroWidget + tabsHtml + detailHtml + nutrientBars +
+    fastingCardHtml() + dateNav + calorieCard + macroWidget + tabsHtml + detailHtml + mealMacroWidget + nutrientBars +
   '</div>'+
   bottomNav();
 }
@@ -11820,6 +11859,44 @@ function mealSlotDetailHtml(date, slot){
     '</div>';
   }).join('');
   return '<div style="padding-top:6px;">'+(rows || '<p class="hint" style="margin:0;">'+t('noMealLoggedHint')+'</p>')+'</div>';
+}
+// README 9.157: shows this ONE meal's own carbs/protein/fat as a share of the same daily macro
+// targets the whole-day widget (macroWidgetHtml) above already uses - e.g. "this lunch alone
+// used 40% of today's protein target" - not a re-normalized 100% breakdown of just this meal's
+// own calories, which would look identical in shape to the day-total pie and be easy to
+// misread as the day's actual totals. Reuses that same pie/bar toggle component
+// (macroPieHtml/macroBarHtml) with a lighter three-color palette (--fresh-light/--danger-light/
+// --caramel-light, one visible shade lighter than the day-total widget's --fresh/--danger/
+// --almond) so the two widgets are never visually identical even at a glance, and its own
+// pie<->bar toggle state (state.mealsUI.mealMacroView, see setMealMacroView) so switching one
+// doesn't affect the other. Lives right under mealSlotDetailHtml's item list (same slot,
+// nothing shown until that meal has at least one item logged, matching Lynn's ask that this
+// only appears for whichever meal tab is currently selected - same as the item list itself).
+function mealSlotMacroWidgetHtml(date, slot, budget){
+  if(budget==null) return '';
+  var totals = sumMealNutrition(mealLogsForSlot(date, slot));
+  var actualG = { carbs: Math.round(totals.carbs||0), protein: Math.round(totals.protein||0), fat: Math.round(totals.fat||0) };
+  if(actualG.carbs*4+actualG.protein*4+actualG.fat*9 <= 0.5) return '';
+  var targetG = macroGramsForBudget(budget, state.weightPlan.macroPreset);
+  var pieColors = {carbs:'var(--fresh-light)', protein:'var(--danger-light)', fat:'var(--caramel-light)'};
+  var barColors = {
+    carbs:{color:'var(--fresh-light)', track:'var(--fresh-bg)'},
+    protein:{color:'var(--danger-light)', track:'var(--danger-bg)'},
+    fat:{color:'var(--caramel-light)', track:'var(--cream)'}
+  };
+  var view = state.mealsUI.mealMacroView || 'pie';
+  var inner = view==='bar' ? macroBarHtml(actualG, targetG, barColors) : macroPieHtml(actualG, targetG, pieColors);
+  var animPending = !!state.mealsUI.mealMacroAnimPending;
+  state.mealsUI.mealMacroAnimPending = false;
+  var slideAnim = state.mealsUI.mealMacroSlideDir==='left' ? 'macroSlideInLeft' : 'macroSlideInRight';
+  return '<div class="section-title" style="margin-top:16px;">'+t('mealMacroShareLabel')+'</div>'+
+    '<div class="form-group meal-macro-widget-swipe-area" onclick="toggleMealMacroView()" style="cursor:pointer;">'+
+      '<div class="macro-view-slide" style="'+(animPending ? ('animation-name:'+slideAnim+';') : '')+'">'+inner+'</div>'+
+      '<div style="display:flex;justify-content:center;gap:7px;margin-top:12px;">'+
+        '<span class="macro-view-dot '+(view==='pie'?'active':'')+'" onclick="event.stopPropagation();setMealMacroView(\'pie\')"></span>'+
+        '<span class="macro-view-dot '+(view==='bar'?'active':'')+'" onclick="event.stopPropagation();setMealMacroView(\'bar\')"></span>'+
+      '</div>'+
+    '</div>';
 }
 // README 9.154: 每日营养摄入详情——按营养标签顺序（跟 NUTRI_TIER1_ROWS 这个 app 自己一直用的
 // 营养标签行顺序一致：脂肪/饱和脂肪/反式脂肪/碳水/膳食纤维/总糖/蛋白质/钠，热量另外放在
@@ -12343,9 +12420,14 @@ function macroWidgetHtml(totals, budget){
 // (e.g. one macro at 90% of calories), and Lynn specifically didn't want the labels chasing
 // that; "roughly where this macro generally lands" is good enough here, same as MyNetDiary's
 // own layout doesn't seem to re-derive theirs per meal either.
-function macroPieHtml(actualG, targetG){
+function macroPieHtml(actualG, targetG, colors){
   var totalCal = actualG.carbs*4+actualG.protein*4+actualG.fat*9;
   if(totalCal<=0.5) return '<p class="hint" style="text-align:center;margin:6px 0;">'+t('noMealLoggedHint')+'</p>';
+  // README 9.157: colors is optional - mealSlotMacroWidgetHtml (this meal's own share of the
+  // daily macro targets, shown under that meal's item list) passes a lighter palette so it
+  // never looks identical to this same chart used for the whole day's totals above it; every
+  // other caller keeps the original dark set by leaving this unset.
+  colors = colors || {carbs:'var(--fresh)', protein:'var(--danger)', fat:'var(--almond)'};
   // Same three colors the bar view uses (see its own comment) so pie and bar always agree:
   // carbs = fresh green, protein = expired brick red, fat = almond (the app's general accent
   // color, since fat has no natural badge partner the way the other two do).
@@ -12356,9 +12438,9 @@ function macroPieHtml(actualG, targetG){
   // the svg-vs-legend gap more room too. Same fixed-position idea as before (see 9.143's
   // comment) - only the actual numbers moved, not the underlying logic.
   var slices = [
-    {label:t('macroCarbs'), grams:actualG.carbs, target:targetG.carbs, val:actualG.carbs*4, fill:'var(--fresh)', labelX:156, labelY:26, anchor:'middle'},
-    {label:t('macroProtein'), grams:actualG.protein, target:targetG.protein, val:actualG.protein*4, fill:'var(--danger)', labelX:95, labelY:184, anchor:'middle'},
-    {label:t('macroFat'), grams:actualG.fat, target:targetG.fat, val:actualG.fat*9, fill:'var(--almond)', labelX:34, labelY:26, anchor:'middle'}
+    {label:t('macroCarbs'), grams:actualG.carbs, target:targetG.carbs, val:actualG.carbs*4, fill:colors.carbs, labelX:156, labelY:26, anchor:'middle'},
+    {label:t('macroProtein'), grams:actualG.protein, target:targetG.protein, val:actualG.protein*4, fill:colors.protein, labelX:95, labelY:184, anchor:'middle'},
+    {label:t('macroFat'), grams:actualG.fat, target:targetG.fat, val:actualG.fat*9, fill:colors.fat, labelX:34, labelY:26, anchor:'middle'}
   ];
   var cx=95, cy=97, r=54, startAngle=-90, paths='';
   slices.forEach(function(s){
@@ -12392,16 +12474,24 @@ function macroPieHtml(actualG, targetG){
     '<div>'+legend+'</div>'+
   '</div>';
 }
-function macroBarHtml(actualG, targetG){
+function macroBarHtml(actualG, targetG, colors){
   // Each row pairs a dark fill with its own light "track" color (instead of one shared grey
   // groove for all three rows) - carbs' track is the same pale green as the "未过期" badge,
   // protein's is the pale brick-red of the "已过期" badge, fat's is the app's own cream page
   // background - the same light/dark pairing the pie's colors used to use, just applied to the
   // bar's fill/track instead of the pie's fill/legend now that the pie itself went dark.
+  // README 9.157: colors is optional - see macroPieHtml's own comment on the same parameter;
+  // the "over target" fill always stays var(--danger) regardless of this override, since that's
+  // a warning color, not part of the light/dark theming this parameter controls.
+  colors = colors || {
+    carbs:{color:'var(--fresh)', track:'var(--fresh-bg)'},
+    protein:{color:'var(--danger)', track:'var(--danger-bg)'},
+    fat:{color:'var(--almond)', track:'var(--cream)'}
+  };
   var rows = [
-    {label:t('macroCarbs'), actual:actualG.carbs, target:targetG.carbs, color:'var(--fresh)', track:'var(--fresh-bg)'},
-    {label:t('macroProtein'), actual:actualG.protein, target:targetG.protein, color:'var(--danger)', track:'var(--danger-bg)'},
-    {label:t('macroFat'), actual:actualG.fat, target:targetG.fat, color:'var(--almond)', track:'var(--cream)'}
+    {label:t('macroCarbs'), actual:actualG.carbs, target:targetG.carbs, color:colors.carbs.color, track:colors.carbs.track},
+    {label:t('macroProtein'), actual:actualG.protein, target:targetG.protein, color:colors.protein.color, track:colors.protein.track},
+    {label:t('macroFat'), actual:actualG.fat, target:targetG.fat, color:colors.fat.color, track:colors.fat.track}
   ];
   return rows.map(function(r){
     var pct = r.target>0 ? Math.round(r.actual/r.target*100) : 0;
