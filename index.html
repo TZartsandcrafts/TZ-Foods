@@ -885,7 +885,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.166';
+var BUILD_VERSION = '9.167';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -5015,24 +5015,9 @@ document.addEventListener('selectstart', function(e){
   }, {passive:true});
 })();
 
-(function initMacroWidgetSwipe(){
-  var startX=null, startY=null;
-  document.addEventListener('touchstart', function(e){
-    var wrap = e.target.closest ? e.target.closest('.macro-widget-swipe-area') : null;
-    if(!wrap){ startX=null; return; }
-    startX = e.touches[0].clientX; startY = e.touches[0].clientY;
-  }, {passive:true});
-  document.addEventListener('touchend', function(e){
-    if(startX==null) return;
-    var dx = e.changedTouches[0].clientX-startX, dy = e.changedTouches[0].clientY-startY;
-    startX = null;
-    if(Math.abs(dx)>40 && Math.abs(dx)>Math.abs(dy)*1.5){
-      setMacroView(state.mealsUI.macroView==='bar' ? 'pie' : 'bar');
-    }
-  }, {passive:true});
-})();
-
-// README 9.157: mealSlotMacroWidgetHtml's own swipe area - can't reuse
+// README 9.167: 顶部宏量卡（今日总量）改成固定展示三色环，不再需要饼图/条图切换，原来这段
+// 划动切换手势(initMacroWidgetSwipe)跟着 macroWidgetHtml 一起去掉了。每餐那个"这一餐的宏量
+// 占比"（下面的 initMealMacroWidgetSwipe）保持不变，继续支持划动切换饼图/条图。
 // initMacroWidgetSwipe/.macro-widget-swipe-area above since that handler hardcodes
 // setMacroView (the whole-day widget's toggle), which would silently flip the DAY chart
 // instead of this meal's when someone swiped on the meal-level one.
@@ -11474,26 +11459,9 @@ function pickMealsCalendarDate(d){
   setMealsDate(d);
   render();
 }
-// pie is view index 0, bar is view index 1 - direction is purely a function of which way that
-// index moves, regardless of whether it was a dot tap or a swipe that triggered the change, so
-// the two ways of switching views always animate consistently.
-function setMacroView(v){
-  var order = {pie:0, bar:1};
-  state.mealsUI.macroSlideDir = order[v] > order[state.mealsUI.macroView||'pie'] ? 'right' : 'left';
-  state.mealsUI.macroView = v;
-  // README 9.118: one-shot flag consumed by macroWidgetHtml below - see its own comment for why
-  // this exists (fixes the chart replaying its slide-in animation on every unrelated re-render,
-  // e.g. opening/closing the FAB menu, not just an actual pie<->bar switch).
-  state.mealsUI.macroAnimPending = true;
-  render();
-}
-// README: clicking anywhere within the macro card's border toggles pie<->bar - the main way
-// to switch views now (the dots and the swipe gesture both still work too, just no longer the
-// only way). Dots call event.stopPropagation() so tapping one doesn't also trigger this and
-// immediately toggle back.
-function toggleMacroView(){
-  setMacroView(state.mealsUI.macroView==='bar' ? 'pie' : 'bar');
-}
+// README 9.167: setMacroView/toggleMacroView（顶部"今日总量"宏量卡的饼图/条图切换）已随
+// macroWidgetHtml 改成固定三色环一起删掉了——顶部宏量卡不再支持切换，这两个函数没有调用方了。
+// 下面 setMealMacroView/toggleMealMacroView（每餐那个"这一餐的宏量占比"）继续保留，行为不变。
 // README 9.157: same pie<->bar toggle as setMacroView/toggleMacroView above, kept on its own
 // state keys (mealMacroView/mealMacroSlideDir/mealMacroAnimPending) so switching the per-meal
 // widget (mealSlotMacroWidgetHtml) never affects, or is affected by, the whole-day one right
@@ -11767,7 +11735,7 @@ function tickFastingTimer(){
 // dailyNutrientBarsHtml 自己的注释。state.mealsUI.selectedSlot 记的是当前选中哪一餐，
 // mealsUIDefaults 负责在它缺失、或者对应那一餐已经在"三餐设置"里被隐藏时兜底选第一个可见的餐。
 function mealsUIDefaults(){
-  if(!state.mealsUI || !state.mealsUI.date) state.mealsUI = {date: todayStr(), macroView:'pie', addFood:null};
+  if(!state.mealsUI || !state.mealsUI.date) state.mealsUI = {date: todayStr(), addFood:null};
   var visible = MEAL_SLOTS.filter(function(s){ return state.visibleMealSlots.indexOf(s)!==-1; });
   if(!state.mealsUI.selectedSlot || visible.indexOf(state.mealsUI.selectedSlot)===-1){
     state.mealsUI.selectedSlot = visible[0] || MEAL_SLOTS[0];
@@ -12435,43 +12403,77 @@ function deleteMealsetLogSubItem(entryId, idx){
    swipe listener is event-delegated at the document level (matching every other swipe gesture
    in this file, e.g. initItemLongPress) rather than attached per-render, so it keeps working
    across re-renders without needing to be re-initialized. */
+// README 9.167: Lynn 效果图确认——顶部这个"今日总量"宏量卡要改成固定展示三色环（carbs/
+// protein/fat 三段颜色代表各自占当天总热量的百分比，加起来100%，算法跟原来饼图的百分比完全
+// 一样，只是画法从"扇形"换成"环形描边"），不再需要点/划切换饼图和条图——原来的
+// macro-widget-swipe-area 划动手势、toggleMacroView 点击切换、上面两个圆点，这次一起去掉了。
+// 每餐那个"这一餐的宏量占比"（mealSlotMacroWidgetHtml）不受影响，继续保留饼图/条图切换。
 function macroWidgetHtml(totals, budget){
   var targetG = macroGramsForBudget(budget, state.weightPlan.macroPreset);
   var actualG = { carbs: Math.round(totals.carbs||0), protein: Math.round(totals.protein||0), fat: Math.round(totals.fat||0) };
-  var view = state.mealsUI.macroView || 'pie';
-  var inner = view==='bar' ? macroBarHtml(actualG, targetG) : macroPieHtml(actualG, targetG);
-  // slideDir is set right before this render by setMacroView (view order is pie->bar left to
-  // right, so switching to 'bar' slides the new content in from the right and switching back to
-  // 'pie' slides it in from the left) - a real CSS transition instead of the content just
-  // popping into place, which is what made the swipe/dot-tap feel like a jump rather than a
-  // slide. Keyed on `view` in the animation-name (not a persistent transform) so it replays
-  // every time the view actually changes but does nothing on unrelated re-renders of this page.
-  // README 9.118: that last part wasn't actually true before this fix - render() rebuilds the
-  // WHOLE current view's HTML from scratch on every state change (tapping the FAB, closing it,
-  // anything), which recreates this div as a brand-new DOM node every time regardless of what
-  // triggered the render, and a brand-new node with animation-name set replays the keyframe
-  // animation from scratch - that's what made the chart visibly slide-and-snap-back on every
-  // +/x tap even though macroView never changed. macroAnimPending is a one-shot flag set only by
-  // setMacroView itself and consumed (read then cleared) right here, so the animation only
-  // actually plays on the one render that immediately follows a real pie<->bar switch.
-  var animPending = !!state.mealsUI.macroAnimPending;
-  state.mealsUI.macroAnimPending = false;
-  var slideAnim = state.mealsUI.macroSlideDir==='left' ? 'macroSlideInLeft' : 'macroSlideInRight';
-  // README 9.161: used to be its own "宏量营养素分布" section-title + standalone .form-group
-  // card; now nested inside renderMeals' single merged top card (see that function's own
-  // comment) right below the calorie total, separated purely by margin (no divider line, per
-  // Lynn's follow-up) - the swipe/tap-to-toggle behavior (macro-widget-swipe-area, onclick) is
-  // unchanged, only the background/border that used to make this look like its own separate
-  // card is gone.
-  // README 9.165: 这个组件以前接在合并卡片里热量卡下面，margin-top:14px 是用来跟上面的热量
-  // 卡拉开距离的；现在两栏并排、宏量卡自己是独立一张卡片，这个间距靠卡片自己的 padding 就够了。
-  return '<div class="macro-widget-swipe-area" onclick="toggleMacroView()" style="cursor:pointer;">'+
-      '<div class="macro-view-slide" style="'+(animPending ? ('animation-name:'+slideAnim+';') : '')+'">'+inner+'</div>'+
-      '<div style="display:flex;justify-content:center;gap:7px;margin-top:12px;">'+
-        '<span class="macro-view-dot '+(view==='pie'?'active':'')+'" onclick="event.stopPropagation();setMacroView(\'pie\')"></span>'+
-        '<span class="macro-view-dot '+(view==='bar'?'active':'')+'" onclick="event.stopPropagation();setMacroView(\'bar\')"></span>'+
+  return macroRingHtml(actualG, targetG);
+}
+// README 9.164: 图例（色点+名字+"实际/目标g"+摄入进度色条）原来写在 macroPieHtml 内部；9.167
+// 新增的 macroRingHtml 需要同一份图例，所以拆成这个共用函数，两边都调用它，不重复维护两份
+// 一样的图例代码。传入 items:[{label, grams, target, fill}]，色条超过目标时整条变
+// var(--danger)，轨道色统一用 var(--cream)，跟 macroBarHtml/dailyNutrientBarsHtml 的超标逻辑
+// 保持一致。
+function macroLegendRowsHtml(items){
+  return items.map(function(s){
+    var pct = s.target>0 ? Math.round(s.grams/s.target*100) : 0;
+    var over = s.grams>s.target;
+    var barPct = Math.min(pct,100);
+    return '<div style="margin-bottom:10px;">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;font-size:13.5px;margin-bottom:4px;">'+
+        '<span style="display:flex;align-items:center;gap:6px;">'+
+          '<span style="width:9px;height:9px;border-radius:50%;background:'+s.fill+';display:inline-block;flex-shrink:0;"></span>'+
+          '<span style="font-weight:700;color:'+s.fill+';">'+s.label+'</span>'+
+        '</span>'+
+        '<span class="hint">'+s.grams+'g / '+s.target+'g</span>'+
+      '</div>'+
+      '<div style="height:6px;background:var(--cream);border-radius:3px;overflow:hidden;">'+
+        '<div style="height:100%;width:'+barPct+'%;background:'+(over?'var(--danger)':s.fill)+';"></div>'+
       '</div>'+
     '</div>';
+  }).join('');
+}
+// README 9.167: 三色环——每一段的弧长比例就是这个宏量占当天总热量的百分比（carbs*4/protein*4/
+// fat*9 各自除以三者之和），三段加起来正好画满一整圈，跟原来饼图的百分比算法完全一样，只是用
+// stroke-dasharray/dashoffset 描边画环，不是从圆心画扇形。画法跟已有的热量环（renderMeals 里
+// calorieCard 那个）同一套：整个 svg 用 transform:rotate(-90deg) 让起点在12点方向，每一段的
+// dashoffset 是"前面几段弧长之和"的负值，让它们首尾相接、顺时针排列、不重叠。圈中间摆的是今天
+// 摄入的总热量数字，纯展示，不是新计算。colors 参数可选，跟 macroPieHtml 一样默认给深色盘。
+function macroRingHtml(actualG, targetG, colors){
+  var totalCal = actualG.carbs*4+actualG.protein*4+actualG.fat*9;
+  if(totalCal<=0.5) return '<p class="hint" style="text-align:center;margin:6px 0;">'+t('noMealLoggedHint')+'</p>';
+  colors = colors || {carbs:'var(--fresh)', protein:'var(--danger)', fat:'var(--almond)'};
+  var segs = [
+    {label:t('macroCarbs'), grams:actualG.carbs, target:targetG.carbs, val:actualG.carbs*4, fill:colors.carbs},
+    {label:t('macroProtein'), grams:actualG.protein, target:targetG.protein, val:actualG.protein*4, fill:colors.protein},
+    {label:t('macroFat'), grams:actualG.fat, target:targetG.fat, val:actualG.fat*9, fill:colors.fat}
+  ];
+  var r=62, circumference=2*Math.PI*r, cursor=0, arcs='';
+  segs.forEach(function(s){
+    var frac = s.val/totalCal;
+    if(frac>0.002){
+      var arcLen = circumference*frac;
+      var dashArray = arcLen.toFixed(2)+' '+(circumference-arcLen).toFixed(2);
+      var dashOffset = (-cursor*circumference).toFixed(2);
+      arcs += '<circle cx="75" cy="75" r="'+r+'" fill="none" stroke="'+s.fill+'" stroke-width="13" stroke-dasharray="'+dashArray+'" stroke-dashoffset="'+dashOffset+'"/>';
+    }
+    cursor += frac;
+  });
+  var ring = '<div style="position:relative;width:150px;height:150px;margin:0 auto;">'+
+    '<svg viewBox="0 0 150 150" width="150" height="150" style="transform:rotate(-90deg);">'+
+      '<circle cx="75" cy="75" r="'+r+'" fill="none" stroke="var(--cream)" stroke-width="13"/>'+
+      arcs+
+    '</svg>'+
+    '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">'+
+      '<div style="font-size:20px;font-weight:700;color:var(--cocoa);">'+Math.round(totalCal)+'</div>'+
+      '<div class="hint" style="font-size:11px;margin-top:2px;">kcal</div>'+
+    '</div>'+
+  '</div>';
+  return '<div>'+ring+'<div style="margin-top:12px;">'+macroLegendRowsHtml(segs)+'</div></div>';
 }
 // README 9.143: the pie's slices are each macro's share of TODAY'S calories (adds up to 100%
 // across the 3 of them), but the legend text also used to show that same-looking percentage
@@ -12490,6 +12492,8 @@ function macroWidgetHtml(totals, budget){
 // (e.g. one macro at 90% of calories), and Lynn specifically didn't want the labels chasing
 // that; "roughly where this macro generally lands" is good enough here, same as MyNetDiary's
 // own layout doesn't seem to re-derive theirs per meal either.
+// README 9.167: 只剩 mealSlotMacroWidgetHtml（"这一餐的宏量占比"）在用这个饼图了——顶部"今日
+// 总量"改用上面的 macroRingHtml。图例部分已经拆到共用的 macroLegendRowsHtml，这里不再自己拼。
 function macroPieHtml(actualG, targetG, colors){
   var totalCal = actualG.carbs*4+actualG.protein*4+actualG.fat*9;
   if(totalCal<=0.5) return '<p class="hint" style="text-align:center;margin:6px 0;">'+t('noMealLoggedHint')+'</p>';
@@ -12533,35 +12537,11 @@ function macroPieHtml(actualG, targetG, colors){
   var pctLabels = slices.map(function(s){
     return '<text x="'+s.labelX+'" y="'+s.labelY+'" text-anchor="'+s.anchor+'" font-size="20" font-weight="700" fill="'+s.fill+'">'+Math.round(s.val/totalCal*100)+'%</text>';
   }).join('');
-  // README 9.164: Lynn 效果图确认的样式——圈居中放在上面（原来是圈+图例左右并排），图例挪到
-  // 圈下面，每一行从"色点+文字一行到底"改成两行：上面一行是"色点+名字"配"实际/目标g"，下面
-  // 新加一条色条，用色条长度直观表示"这一项摄入量相对目标的进度"（不是新的数据来源，实际/目标
-  // 这两个数字本来就有，只是从纯文字数字多加一份"一眼看比例"的可视化）。色条超过目标时整条变
-  // var(--danger)，跟 macroBarHtml/dailyNutrientBarsHtml 超标变红的逻辑保持一致；轨道色统一用
-  // var(--cream)，不管调用方传的是日总量的深色盘还是 mealSlotMacroWidgetHtml 的浅色盘。
-  // 环上的百分比标签(pctLabels)位置/逻辑完全没动。
-  var legend = slices.map(function(s){
-    var pct = s.target>0 ? Math.round(s.grams/s.target*100) : 0;
-    var over = s.grams>s.target;
-    var barPct = Math.min(pct,100);
-    return '<div style="margin-bottom:10px;">'+
-      '<div style="display:flex;align-items:center;justify-content:space-between;font-size:13.5px;margin-bottom:4px;">'+
-        '<span style="display:flex;align-items:center;gap:6px;">'+
-          '<span style="width:9px;height:9px;border-radius:50%;background:'+s.fill+';display:inline-block;flex-shrink:0;"></span>'+
-          '<span style="font-weight:700;color:'+s.fill+';">'+s.label+'</span>'+
-        '</span>'+
-        '<span class="hint">'+s.grams+'g / '+s.target+'g</span>'+
-      '</div>'+
-      '<div style="height:6px;background:var(--cream);border-radius:3px;overflow:hidden;">'+
-        '<div style="height:100%;width:'+barPct+'%;background:'+(over?'var(--danger)':s.fill)+';"></div>'+
-      '</div>'+
-    '</div>';
-  }).join('');
   return '<div>'+
     '<div style="display:flex;justify-content:center;">'+
       '<svg viewBox="0 0 190 200" style="width:136px;height:143px;">'+paths+pctLabels+'</svg>'+
     '</div>'+
-    '<div style="margin-top:12px;">'+legend+'</div>'+
+    '<div style="margin-top:12px;">'+macroLegendRowsHtml(slices)+'</div>'+
   '</div>';
 }
 function macroBarHtml(actualG, targetG, colors){
