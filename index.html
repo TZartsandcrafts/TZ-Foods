@@ -880,7 +880,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.160';
+var BUILD_VERSION = '9.162';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -11776,13 +11776,21 @@ function renderMeals(){
   var budget = calcDailyCalorieBudget(date);
   var consumed = Math.round(totals.calories||0);
 
-  var dateNav = '<div class="date-nav-bar date-nav-swipe-area">'+
+  // README 9.161: date-nav/热量卡/宏量图这三块以前是各自独立的卡片（date-nav 甚至没有卡片背景，
+  // 直接摆在页面底色上），Lynn 要求合并成一张卡片，但左右划切日期、点日期开月历、点/划宏量图切
+  // 饼图条图这些行为都得原样保留——这三块各自的滑动/点击手势监听器（initMacroWidgetSwipe 那类）
+  // 都是用 closest('.date-nav-swipe-area')/closest('.macro-widget-swipe-area') 找目标元素的，不
+  // 是靠"这个元素是不是卡片的直接子元素"这种更脆弱的判断，所以这两个 class 只要还在，不管外面
+  // 又包了几层 div 都不影响——这次真正要做的只是去掉 date-nav 和宏量图各自的卡片背景/外边距，让
+  // 它们变成"同一张卡片里的一段"。段与段之间原本加了一条细分隔线，Lynn 反馈说不需要——看起来
+  // 该是一张卡片就行，只是纯粹用外边距留白隔开，不需要额外画一条线。
+  var dateNav = '<div class="date-nav-bar date-nav-swipe-area" style="margin-bottom:0;">'+
     '<button class="icon-btn" onclick="shiftMealsDate(-1)" aria-label="'+t('prevDay')+'">'+ic('back',18)+'</button>'+
     '<div class="date-nav-label" onclick="openMealsCalendar()" style="cursor:pointer;">'+(date===todayStr() ? t('todayLabel') : esc(fmtDateDots(date)))+'</div>'+
     '<button class="icon-btn" onclick="shiftMealsDate(1)" aria-label="'+t('nextDay')+'">'+ic('chevronRight',18)+'</button>'+
   '</div>';
 
-  var calorieCard = '<div class="form-group" style="text-align:center;">'+
+  var calorieCard = '<div style="text-align:center;margin-top:14px;">'+
     (budget!=null ?
       ('<div class="meals-calorie-num">'+consumed+' <span class="hint" style="font-size:15px;">/ '+budget+' kcal</span></div>'+
        '<div class="hint" style="margin-top:4px;">'+(consumed<=budget ? (t('caloriesRemainingLabel')+' '+(budget-consumed)) : (t('caloriesOverLabel')+' '+(consumed-budget)))+'</div>')
@@ -11791,6 +11799,7 @@ function renderMeals(){
   '</div>';
 
   var macroWidget = budget!=null ? macroWidgetHtml(totals, budget) : '';
+  var topCard = '<div class="form-group">'+dateNav+calorieCard+macroWidget+'</div>';
   var tabsHtml = mealSlotTabsHtml(date);
   var detailHtml = mealSlotDetailHtml(date, state.mealsUI.selectedSlot);
   var mealMacroWidget = mealSlotMacroWidgetHtml(date, state.mealsUI.selectedSlot, budget);
@@ -11799,7 +11808,7 @@ function renderMeals(){
   return '' +
   '<div class="topbar"><div><h1>🍽️ '+t('mealsTitle')+'</h1></div>'+menuButtonHtml('meals', true)+'</div>'+
   '<div class="content">'+
-    fastingCardHtml() + dateNav + calorieCard + macroWidget + tabsHtml + detailHtml + mealMacroWidget + nutrientBars +
+    fastingCardHtml() + topCard + tabsHtml + detailHtml + mealMacroWidget + nutrientBars +
   '</div>'+
   bottomNav();
 }
@@ -12393,8 +12402,13 @@ function macroWidgetHtml(totals, budget){
   var animPending = !!state.mealsUI.macroAnimPending;
   state.mealsUI.macroAnimPending = false;
   var slideAnim = state.mealsUI.macroSlideDir==='left' ? 'macroSlideInLeft' : 'macroSlideInRight';
-  return '<div class="section-title">'+t('macroDistLabel')+'</div>'+
-    '<div class="form-group macro-widget-swipe-area" id="macro-widget-container" onclick="toggleMacroView()" style="cursor:pointer;">'+
+  // README 9.161: used to be its own "宏量营养素分布" section-title + standalone .form-group
+  // card; now nested inside renderMeals' single merged top card (see that function's own
+  // comment) right below the calorie total, separated purely by margin (no divider line, per
+  // Lynn's follow-up) - the swipe/tap-to-toggle behavior (macro-widget-swipe-area, onclick) is
+  // unchanged, only the background/border that used to make this look like its own separate
+  // card is gone.
+  return '<div class="macro-widget-swipe-area" onclick="toggleMacroView()" style="cursor:pointer;margin-top:14px;">'+
       '<div class="macro-view-slide" style="'+(animPending ? ('animation-name:'+slideAnim+';') : '')+'">'+inner+'</div>'+
       '<div style="display:flex;justify-content:center;gap:7px;margin-top:12px;">'+
         '<span class="macro-view-dot '+(view==='pie'?'active':'')+'" onclick="event.stopPropagation();setMacroView(\'pie\')"></span>'+
