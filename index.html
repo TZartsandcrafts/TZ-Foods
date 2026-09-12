@@ -885,7 +885,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.168';
+var BUILD_VERSION = '9.170';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2378,7 +2378,7 @@ var I18N = {
     chooseExercisePlaceholder:'选择运动', pickExerciseTitle:'选择运动', exerciseNotListedLink:'没找到？手动输入名称',
     exerciseNeedWeightHint:'先在"个人信息"里填写体重，才能按这项运动自动算出消耗热量',
     back:'返回', prevDay:'前一天', nextDay:'后一天', todayLabel:'今天',
-    caloriesRemainingLabel:'还可以吃', caloriesOverLabel:'超出',
+    caloriesRemainingLabel:'还可以吃', caloriesOverLabel:'超出', caloriesRemainingShortLabel:'剩余', exerciseBurnedLabel:'锻炼消耗',
     mealSlot_breakfast:'早餐', mealSlot_lunch:'午餐', mealSlot_dinner:'晚餐', mealSlot_snack:'零食',
     noMealLoggedHint:'还没有记录', addFoodBtn:'添加食物', deleteMealLogConfirm:'删除这条记录？',
     macroOverLabel:'超标', addFoodSearchPh:'搜索库存/食谱/食材，或输入英文查USDA',
@@ -2670,7 +2670,7 @@ var I18N = {
     chooseExercisePlaceholder:'Choose exercise', pickExerciseTitle:'Choose Exercise', exerciseNotListedLink:"Can't find it? Enter manually",
     exerciseNeedWeightHint:'Add your weight in Personal Info first to auto-calculate calories for this exercise',
     back:'Back', prevDay:'Previous day', nextDay:'Next day', todayLabel:'Today',
-    caloriesRemainingLabel:'Remaining', caloriesOverLabel:'Over',
+    caloriesRemainingLabel:'Remaining', caloriesOverLabel:'Over', caloriesRemainingShortLabel:'Left', exerciseBurnedLabel:'Exercise Burned',
     mealSlot_breakfast:'Breakfast', mealSlot_lunch:'Lunch', mealSlot_dinner:'Dinner', mealSlot_snack:'Snacks',
     noMealLoggedHint:'Nothing logged yet', addFoodBtn:'Add Food', deleteMealLogConfirm:'Delete this entry?',
     macroOverLabel:'over', addFoodSearchPh:'Search inventory/recipes/ingredients, or an English term for USDA',
@@ -11783,6 +11783,20 @@ function renderMeals(){
   // 轨道色一致。这里只是换了个展示方式，budget/consumed/超标判断等计算逻辑一概没动。
   // README 9.165: 这块以前包在合并卡片里，外边距用 margin-top:14px 跟上面的 date-nav 拉开距离；
   // 现在单独占一张卡片(靠卡片自己的 padding 留白)，这个 margin-top 就不需要了，改成0。
+  // README 9.169: Lynn 又提了四点：
+  // 1. 环内"还可以吃"太长，改成"剩余"——新加了一个专门的 caloriesRemainingShortLabel，没有
+  //    直接改 caloriesRemainingLabel 本身，因为那个 key 还被 dailyNutrientBarsHtml（维生素/矿物
+  //    质那些条图）共用，改了会连带影响那边，那边不在这次调整范围内。
+  // 2. 环外上方的总热量数字从16px/常规加大加粗到18px/700，好让它在卡片里更醒目一点。
+  // 3. 环下方原来就是一行"120 kcal"，没有说明这是什么，这次加了"锻炼消耗"这个小标题，字号/
+  //    字重(18px/700)特意跟宏量卡上面"当日宏量"那个小标题保持一致，两张卡片视觉上呼应。
+  // 4. "锻炼消耗"+"xx kcal"这两行原来紧贴在环下面(margin-top:10px)，Lynn 觉得太挤，要往下挪、
+  //    大概对齐右边宏量卡图例的中段。这里用了 flex 布局：整个 calorieCard 套一层
+  //    height:100%+flex-column+justify-content:space-between，把"环那组"和"锻炼消耗那组"拆成
+  //    两个子元素，让浏览器自动把两组之间的空隙撑开——因为外层 .form-group 卡片已经靠
+  //    align-items:stretch 被撑到跟右边宏量卡一样高，这里的 space-between 会把多出来的高度
+  //    差都堆在这两组中间，效果上就是"锻炼消耗"那组往下移到卡片下半段，大致落在宏量卡图例
+  //    中间那行的高度附近，不再紧贴热量环。
   var calorieCard;
   if(budget!=null){
     var calOver = consumed>budget;
@@ -11791,19 +11805,24 @@ function renderMeals(){
     var calPct = budget>0 ? Math.min(consumed/budget,1) : 0;
     var calDashOffset = calCircumference*(1-calPct);
     var exerciseCal = Math.round(sumExerciseCaloriesForDate(date));
-    calorieCard = '<div style="text-align:center;">'+
-      '<div style="font-size:16px;color:var(--cocoa);margin-bottom:10px;">'+budget+' kcal</div>'+
-      '<div style="position:relative;width:150px;height:150px;margin:0 auto;">'+
-        '<svg viewBox="0 0 150 150" width="150" height="150" style="transform:rotate(-90deg);">'+
-          '<circle cx="75" cy="75" r="'+calR+'" fill="none" stroke="var(--cream)" stroke-width="11"/>'+
-          '<circle cx="75" cy="75" r="'+calR+'" fill="none" stroke="'+calRingColor+'" stroke-width="11" stroke-linecap="round" stroke-dasharray="'+calCircumference.toFixed(1)+'" stroke-dashoffset="'+calDashOffset.toFixed(1)+'"/>'+
-        '</svg>'+
-        '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">'+
-          '<div class="meals-calorie-num">'+consumed+'</div>'+
-          '<div class="hint" style="font-size:12px;margin-top:2px;">'+(calOver ? (t('caloriesOverLabel')+' '+(consumed-budget)) : (t('caloriesRemainingLabel')+' '+(budget-consumed)))+'</div>'+
+    calorieCard = '<div style="text-align:center;height:100%;display:flex;flex-direction:column;justify-content:space-between;">'+
+      '<div>'+
+        '<div style="font-size:18px;font-weight:700;color:var(--cocoa);margin-bottom:10px;">'+budget+' kcal</div>'+
+        '<div style="position:relative;width:150px;height:150px;margin:0 auto;">'+
+          '<svg viewBox="0 0 150 150" width="150" height="150" style="transform:rotate(-90deg);">'+
+            '<circle cx="75" cy="75" r="'+calR+'" fill="none" stroke="var(--cream)" stroke-width="11"/>'+
+            '<circle cx="75" cy="75" r="'+calR+'" fill="none" stroke="'+calRingColor+'" stroke-width="11" stroke-linecap="round" stroke-dasharray="'+calCircumference.toFixed(1)+'" stroke-dashoffset="'+calDashOffset.toFixed(1)+'"/>'+
+          '</svg>'+
+          '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">'+
+            '<div class="meals-calorie-num">'+consumed+'</div>'+
+            '<div class="hint" style="font-size:12px;margin-top:2px;">'+(calOver ? (t('caloriesOverLabel')+' '+(consumed-budget)) : (t('caloriesRemainingShortLabel')+' '+(budget-consumed)))+'</div>'+
+          '</div>'+
         '</div>'+
       '</div>'+
-      '<div style="font-size:16px;color:var(--cocoa);margin-top:10px;">'+exerciseCal+' kcal</div>'+
+      '<div>'+
+        '<div style="font-size:18px;font-weight:700;color:var(--cocoa);">'+t('exerciseBurnedLabel')+'</div>'+
+        '<div style="font-size:16px;color:var(--cocoa);margin-top:4px;">'+exerciseCal+' kcal</div>'+
+      '</div>'+
     '</div>';
   } else {
     calorieCard = '<div style="text-align:center;">'+
@@ -12477,7 +12496,7 @@ function macroRingHtml(actualG, targetG, colors){
     cursor += frac;
   });
   var pctOf = function(s){ return Math.round(s.val/totalCal*100); };
-  var title = '<div style="font-size:16px;color:var(--cocoa);margin-bottom:10px;text-align:center;">'+t('mealsMacroTodayLabel')+'</div>';
+  var title = '<div style="font-size:18px;font-weight:700;color:var(--cocoa);margin-bottom:10px;text-align:center;">'+t('mealsMacroTodayLabel')+'</div>';
   var ring = '<div style="position:relative;width:150px;height:150px;margin:0 auto;">'+
     '<svg viewBox="0 0 150 150" width="150" height="150" style="transform:rotate(-90deg);">'+
       '<circle cx="75" cy="75" r="'+r+'" fill="none" stroke="var(--cream)" stroke-width="11"/>'+
@@ -12555,11 +12574,16 @@ function macroPieHtml(actualG, targetG, colors){
   var pctLabels = slices.map(function(s){
     return '<text x="'+s.labelX+'" y="'+s.labelY+'" text-anchor="'+s.anchor+'" font-size="20" font-weight="700" fill="'+s.fill+'">'+Math.round(s.val/totalCal*100)+'%</text>';
   }).join('');
-  return '<div>'+
-    '<div style="display:flex;justify-content:center;">'+
-      '<svg viewBox="0 0 190 200" style="width:136px;height:143px;">'+paths+pctLabels+'</svg>'+
-    '</div>'+
-    '<div style="margin-top:12px;">'+macroLegendRowsHtml(slices)+'</div>'+
+  // README 9.170: 9.164 把这个函数的排版从"饼图在左、图例在右"改成"饼图居中在上、图例在下"，
+  // 当时是为了顶部"今日总量"那张卡；但这个函数一直是顶部卡和单餐卡共用的，所以那次改动其实是
+  // 误把单餐这边也一起带过去了。9.167 把顶部卡拆成专门的 macroRingHtml 之后，这个函数就只剩
+  // 单餐（mealSlotMacroWidgetHtml）在用了，Lynn 反馈单餐这边应该保持"原来"的并排布局——这里
+  // 改回饼图在左、图例在右，恢复成 9.164 之前、也是单餐一直应该有的样子。图例内容本身（色点+
+  // 名字+"实际/目标g"+摄入进度色条）不受影响，还是用共用的 macroLegendRowsHtml，只是外层容器
+  // 从纵向堆叠换回左右并排。
+  return '<div style="display:flex;align-items:center;justify-content:center;gap:20px;">'+
+    '<svg viewBox="0 0 190 200" style="width:136px;height:143px;flex-shrink:0;">'+paths+pctLabels+'</svg>'+
+    '<div style="flex:1;min-width:0;">'+macroLegendRowsHtml(slices)+'</div>'+
   '</div>';
 }
 function macroBarHtml(actualG, targetG, colors){
