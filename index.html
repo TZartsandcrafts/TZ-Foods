@@ -885,7 +885,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.167';
+var BUILD_VERSION = '9.168';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2327,7 +2327,7 @@ var I18N = {
   zh:{
     appName:'食法典', appSub:'库存 · 食谱 · 营养',
     navHome:'库存', navRecipes:'食谱', navScan:'扫码', navSettings:'设置', navMenu:'菜单', navMeals:'三餐', navHealth:'健康',
-    mealsTitle:'三餐', healthTitle:'健康',
+    mealsTitle:'三餐', healthTitle:'健康', mealsMacroTodayLabel:'当日宏量',
     healthWeightSection:'体重', healthPlanSection:'饮食计划', weightChartEmptyHint:'记录至少两次体重后这里会显示趋势图',
     healthNoWeightYet:'还没有体重记录', logWeightBtn:'记录体重', viewWeightHistory:'体重历史',
     dailyCalorieBudgetLabel:'每日热量预算', macroDistLabel:'宏量营养素分布', targetDateLabel:'预计达成日期', mealMacroShareLabel:'这一餐的宏量占比',
@@ -2619,7 +2619,7 @@ var I18N = {
   en:{
     appName:'Shi Fa Dian', appSub:'Inventory · Recipes · Nutrition',
     navHome:'Inventory', navRecipes:'Recipes', navScan:'Scan', navSettings:'Settings', navMenu:'Menu', navMeals:'Meals', navHealth:'Health',
-    mealsTitle:'Meals', healthTitle:'Health',
+    mealsTitle:'Meals', healthTitle:'Health', mealsMacroTodayLabel:"Today's Macros",
     healthWeightSection:'Weight', healthPlanSection:'Diet Plan', weightChartEmptyHint:'Log at least two entries to see a trend chart',
     healthNoWeightYet:'No weight logged yet', logWeightBtn:'Log Weight', viewWeightHistory:'Weight History',
     dailyCalorieBudgetLabel:'Daily Calorie Budget', macroDistLabel:'Macronutrient Distribution', targetDateLabel:'Projected Target Date', mealMacroShareLabel:"This Meal's Macro Share",
@@ -12443,6 +12443,19 @@ function macroLegendRowsHtml(items){
 // calorieCard 那个）同一套：整个 svg 用 transform:rotate(-90deg) 让起点在12点方向，每一段的
 // dashoffset 是"前面几段弧长之和"的负值，让它们首尾相接、顺时针排列、不重叠。圈中间摆的是今天
 // 摄入的总热量数字，纯展示，不是新计算。colors 参数可选，跟 macroPieHtml 一样默认给深色盘。
+// README 9.168: Lynn 确认的四点调整：
+// 1. 圈外的百分比标签必须放在 rotate(-90deg) 的 svg 外面——直接写在 svg 内的 <text> 会跟着整个
+//    svg 一起被转90度，字会横过来。所以这三个百分比是用绝对定位的普通 div 摆在外层容器里的，
+//    不是 svg 里的文字，位置固定在左上/右上/右下（跟热量环中心的总热量数字一样是"覆盖在环上面
+//    的普通DOM"，不是90度旋转坐标系里的东西）。
+// 2. 环的半径从62缩小到48（外层容器还是150x150，没变小），空出来的边距专门留给这三个百分比。
+// 3. 上面加了"当日宏量"这行小标题（16px/var(--cocoa)/margin-bottom:10px），字号、颜色、留白
+//    跟热量卡"总热量"那行数字（renderMeals 的 calorieCard）完全一样——这样两边的圈就能在同一条
+//    水平线上对齐，不是纯粹为了好看加的标题。
+// 4. 三个位置固定分配给三个宏量：右上=碳水(顺时针第一段，从12点开始往右下走)，右下=蛋白质
+//    (中间那段)，左上=脂肪(最后一段，绕回12点收尾)——这是固定位置，不是按每天实际弧度算出来的，
+//    跟 macroPieHtml 原来的"大概位置不跟着比例跑"是同一个思路（否则某天某个宏量占比很极端时，
+//    标签会跑到奇怪的地方）。
 function macroRingHtml(actualG, targetG, colors){
   var totalCal = actualG.carbs*4+actualG.protein*4+actualG.fat*9;
   if(totalCal<=0.5) return '<p class="hint" style="text-align:center;margin:6px 0;">'+t('noMealLoggedHint')+'</p>';
@@ -12452,28 +12465,33 @@ function macroRingHtml(actualG, targetG, colors){
     {label:t('macroProtein'), grams:actualG.protein, target:targetG.protein, val:actualG.protein*4, fill:colors.protein},
     {label:t('macroFat'), grams:actualG.fat, target:targetG.fat, val:actualG.fat*9, fill:colors.fat}
   ];
-  var r=62, circumference=2*Math.PI*r, cursor=0, arcs='';
+  var r=48, circumference=2*Math.PI*r, cursor=0, arcs='';
   segs.forEach(function(s){
     var frac = s.val/totalCal;
     if(frac>0.002){
       var arcLen = circumference*frac;
       var dashArray = arcLen.toFixed(2)+' '+(circumference-arcLen).toFixed(2);
       var dashOffset = (-cursor*circumference).toFixed(2);
-      arcs += '<circle cx="75" cy="75" r="'+r+'" fill="none" stroke="'+s.fill+'" stroke-width="13" stroke-dasharray="'+dashArray+'" stroke-dashoffset="'+dashOffset+'"/>';
+      arcs += '<circle cx="75" cy="75" r="'+r+'" fill="none" stroke="'+s.fill+'" stroke-width="11" stroke-dasharray="'+dashArray+'" stroke-dashoffset="'+dashOffset+'"/>';
     }
     cursor += frac;
   });
+  var pctOf = function(s){ return Math.round(s.val/totalCal*100); };
+  var title = '<div style="font-size:16px;color:var(--cocoa);margin-bottom:10px;text-align:center;">'+t('mealsMacroTodayLabel')+'</div>';
   var ring = '<div style="position:relative;width:150px;height:150px;margin:0 auto;">'+
     '<svg viewBox="0 0 150 150" width="150" height="150" style="transform:rotate(-90deg);">'+
-      '<circle cx="75" cy="75" r="'+r+'" fill="none" stroke="var(--cream)" stroke-width="13"/>'+
+      '<circle cx="75" cy="75" r="'+r+'" fill="none" stroke="var(--cream)" stroke-width="11"/>'+
       arcs+
     '</svg>'+
     '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">'+
       '<div style="font-size:20px;font-weight:700;color:var(--cocoa);">'+Math.round(totalCal)+'</div>'+
       '<div class="hint" style="font-size:11px;margin-top:2px;">kcal</div>'+
     '</div>'+
+    '<div style="position:absolute;top:4px;left:2px;font-size:12px;font-weight:700;color:'+segs[2].fill+';">'+pctOf(segs[2])+'%</div>'+
+    '<div style="position:absolute;top:4px;right:2px;font-size:12px;font-weight:700;color:'+segs[0].fill+';">'+pctOf(segs[0])+'%</div>'+
+    '<div style="position:absolute;bottom:4px;right:2px;font-size:12px;font-weight:700;color:'+segs[1].fill+';">'+pctOf(segs[1])+'%</div>'+
   '</div>';
-  return '<div>'+ring+'<div style="margin-top:12px;">'+macroLegendRowsHtml(segs)+'</div></div>';
+  return '<div>'+title+ring+'<div style="margin-top:12px;">'+macroLegendRowsHtml(segs)+'</div></div>';
 }
 // README 9.143: the pie's slices are each macro's share of TODAY'S calories (adds up to 100%
 // across the 3 of them), but the legend text also used to show that same-looking percentage
