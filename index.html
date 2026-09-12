@@ -245,9 +245,14 @@
     display:flex; flex-direction:column; align-items:center; gap:3px;
     color:#B79B78; background:none; border:none; cursor:pointer;
     padding:6px 10px; flex:1; font-size:11px; font-weight:500;
+    transition:font-size .15s ease, font-weight .15s ease, color .15s ease;
   }
   .nav-item i{ font-size:23px; }
-  .nav-item.active{ color:var(--deep-caramel); }
+  /* README 9.166: 选中态之前只变了颜色，四个标签点亮的时候不够突出——加大文字字号(11px→14px)、
+     加粗字重(500→700)，让选中的标签跟其余三个未选中的在视觉上一眼就能分辨出来，不只是颜色深浅
+     的区别。图标大小固定用px(见上面 .nav-item i)，不会跟着父元素字号变化，所以这里改字号只影响
+     文字，不会把图标也带大。 */
+  .nav-item.active{ color:var(--deep-caramel); font-size:14px; font-weight:700; }
   .nav-scan{
     width:64px; height:64px; border-radius:50%; background:var(--almond);
     display:flex; align-items:center; justify-content:center; color:#fff;
@@ -880,7 +885,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.165';
+var BUILD_VERSION = '9.166';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
