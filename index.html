@@ -880,7 +880,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.163';
+var BUILD_VERSION = '9.164';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -12505,15 +12505,35 @@ function macroPieHtml(actualG, targetG, colors){
   var pctLabels = slices.map(function(s){
     return '<text x="'+s.labelX+'" y="'+s.labelY+'" text-anchor="'+s.anchor+'" font-size="20" font-weight="700" fill="'+s.fill+'">'+Math.round(s.val/totalCal*100)+'%</text>';
   }).join('');
+  // README 9.164: Lynn 效果图确认的样式——圈居中放在上面（原来是圈+图例左右并排），图例挪到
+  // 圈下面，每一行从"色点+文字一行到底"改成两行：上面一行是"色点+名字"配"实际/目标g"，下面
+  // 新加一条色条，用色条长度直观表示"这一项摄入量相对目标的进度"（不是新的数据来源，实际/目标
+  // 这两个数字本来就有，只是从纯文字数字多加一份"一眼看比例"的可视化）。色条超过目标时整条变
+  // var(--danger)，跟 macroBarHtml/dailyNutrientBarsHtml 超标变红的逻辑保持一致；轨道色统一用
+  // var(--cream)，不管调用方传的是日总量的深色盘还是 mealSlotMacroWidgetHtml 的浅色盘。
+  // 环上的百分比标签(pctLabels)位置/逻辑完全没动。
   var legend = slices.map(function(s){
-    return '<div style="display:flex;align-items:center;gap:7px;margin-bottom:7px;">'+
-      '<span style="width:11px;height:11px;border-radius:50%;background:'+s.fill+';display:inline-block;flex-shrink:0;"></span>'+
-      '<span style="font-size:14.5px;font-weight:700;color:'+s.fill+';">'+s.label+' '+s.grams+'g / '+s.target+'g</span>'+
+    var pct = s.target>0 ? Math.round(s.grams/s.target*100) : 0;
+    var over = s.grams>s.target;
+    var barPct = Math.min(pct,100);
+    return '<div style="margin-bottom:10px;">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;font-size:13.5px;margin-bottom:4px;">'+
+        '<span style="display:flex;align-items:center;gap:6px;">'+
+          '<span style="width:9px;height:9px;border-radius:50%;background:'+s.fill+';display:inline-block;flex-shrink:0;"></span>'+
+          '<span style="font-weight:700;color:'+s.fill+';">'+s.label+'</span>'+
+        '</span>'+
+        '<span class="hint">'+s.grams+'g / '+s.target+'g</span>'+
+      '</div>'+
+      '<div style="height:6px;background:var(--cream);border-radius:3px;overflow:hidden;">'+
+        '<div style="height:100%;width:'+barPct+'%;background:'+(over?'var(--danger)':s.fill)+';"></div>'+
+      '</div>'+
     '</div>';
   }).join('');
-  return '<div style="display:flex;align-items:center;justify-content:center;gap:36px;">'+
-    '<svg viewBox="0 0 190 200" style="width:136px;height:143px;flex-shrink:0;">'+paths+pctLabels+'</svg>'+
-    '<div>'+legend+'</div>'+
+  return '<div>'+
+    '<div style="display:flex;justify-content:center;">'+
+      '<svg viewBox="0 0 190 200" style="width:136px;height:143px;">'+paths+pctLabels+'</svg>'+
+    '</div>'+
+    '<div style="margin-top:12px;">'+legend+'</div>'+
   '</div>';
 }
 function macroBarHtml(actualG, targetG, colors){
