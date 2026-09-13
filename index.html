@@ -892,7 +892,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.174';
+var BUILD_VERSION = '9.175';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -12505,7 +12505,11 @@ function macroRingHtml(actualG, targetG, colors){
   // 半圆，不是硬邦邦的直角。3) 去掉圈background的那圈米色(var(--cream))轨道——热量环留着米色
   // 底色是因为它是"进度条"语义(有已用/未用两部分)，但宏量环三段颜色本身就已经代表了100%，不需
   // 要再画一圈底色，直接把三色弧放在白色卡片(var(--card-bg))上更干净。
-  var r=48, circumference=2*Math.PI*r, cursor=0, arcs='', gap=6;
+  // README 9.175: Lynn 反馈间隙看起来还是连着/叠着的——问题不在算法，是圆角线帽(round)本身
+  // 会让每段颜色的两端各多凸出"线宽的一半"（这里线宽11，两端各凸出约5.5），之前 gap=6 比这个
+  // 凸出量还小，相邻两段圆头凸出的部分会互相盖过那点间隙，视觉上就看不出断开。gap 必须明显
+  // 大于线宽本身，两个圆头凸出之后中间才能留出真正看得见的空隙，这里把 gap 从 6 调到 18。
+  var r=48, circumference=2*Math.PI*r, cursor=0, arcs='', gap=18;
   segs.forEach(function(s){
     var frac = s.val/totalCal;
     if(frac>0.002){
