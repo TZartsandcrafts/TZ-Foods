@@ -892,7 +892,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.175';
+var BUILD_VERSION = '9.178';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2395,6 +2395,7 @@ var I18N = {
     mealScanNotInInventoryTitle:'库存里没有这个食品', mealScanNotInInventoryMsg:'要不要顺便添加到库存？',
     mealScanAddToInventoryBtn:'添加到库存', mealScanOneTimeBtn:'仅记录这一次',
     newMealsetBtn:'新建套餐', mealsetNoItemsHint:'还没有套餐，点击上方新建一个',
+    mealsetSearchPlaceholder:'搜索套餐名称', mealsetSearchNoResults:'没有匹配的套餐，换个关键词试试',
     mealsetFormTitleNew:'新建套餐', mealsetFormTitleEdit:'编辑套餐', mealsetNameLabel:'套餐名称',
     mealsetItemsEmptyHint:'还没有添加任何食材', addMealsetNested:'添加套餐（嵌套）',
     pickMealsetTitle:'选择套餐', mealsetMultiplierLabel:'份数（该套餐重复次数）',
@@ -2541,6 +2542,7 @@ var I18N = {
     freshRefFoundPrefix:'检测到「', freshRefFoundSuffix:'」的参考营养数据，点击填入', freshRefApplyBtn:'填入', freshRefAppliedToast:'已填入参考数据，可自行调整',
     usdaSearchLoading:'搜索中…', usdaSearchNoResults:'没有找到匹配结果，换个关键词试试',
     usdaSearchError:'搜索失败，请检查网络或稍后再试', usdaSearchApplyToast:'已填入 USDA 数据，可自行调整',
+    usdaTranslating:'翻译中…', usdaSavedSectionTitle:'常用', usdaFavoriteToggle:'收藏',
     usdaDataTypeFoundation:'官方实测', usdaDataTypeSRLegacy:'官方数据', usdaDataTypeBranded:'品牌食品',
     // recipe detail
     cookThis:'我做了这道菜', cookConfirmTitle:'确认扣减库存',
@@ -2687,6 +2689,7 @@ var I18N = {
     mealScanNotInInventoryTitle:'Not in your inventory', mealScanNotInInventoryMsg:"Want to add it to your inventory while you're at it?",
     mealScanAddToInventoryBtn:'Add to inventory', mealScanOneTimeBtn:'Just log this once',
     newMealsetBtn:'New mealset', mealsetNoItemsHint:'No mealsets yet — create one above',
+    mealsetSearchPlaceholder:'Search mealset name', mealsetSearchNoResults:'No matching mealsets, try a different keyword',
     mealsetFormTitleNew:'New mealset', mealsetFormTitleEdit:'Edit mealset', mealsetNameLabel:'Mealset name',
     mealsetItemsEmptyHint:'No items added yet', addMealsetNested:'Add a mealset (nested)',
     pickMealsetTitle:'Choose a mealset', mealsetMultiplierLabel:'Quantity (times to include)',
@@ -2825,6 +2828,7 @@ var I18N = {
     freshRefFoundPrefix:'Found reference nutrition for "', freshRefFoundSuffix:'" - tap to fill in', freshRefApplyBtn:'Fill in', freshRefAppliedToast:'Filled in - feel free to adjust',
     usdaSearchLoading:'Searching…', usdaSearchNoResults:'No matches found, try a different keyword',
     usdaSearchError:'Search failed, check your connection and try again', usdaSearchApplyToast:'Filled in USDA data - feel free to adjust',
+    usdaTranslating:'Translating…', usdaSavedSectionTitle:'Frequently used', usdaFavoriteToggle:'Favorite',
     usdaDataTypeFoundation:'USDA Lab-Tested', usdaDataTypeSRLegacy:'USDA Data', usdaDataTypeBranded:'Branded',
     cookThis:"I made this dish", cookConfirmTitle:'Confirm inventory deduction',
     recipeCookHistoryTitle:'Cooking History', recipeNeverCooked:'Not made yet', recipeCookedTimes:'Made {n} times',
@@ -3027,7 +3031,13 @@ async function loadAll(){
     storageGet('mealsets', []),
     // README 9.146: explicit "我做了这道菜" cook-event log - see recipeCookRecords' comment for
     // why this exists alongside the item-usage_log-derived history it already had.
-    storageGet('recipeCookLogs', [])
+    storageGet('recipeCookLogs', []),
+    // README 9.177: 三餐加食物 USDA tab 的"常用"缓存 - 每条记录着完整的营养数据（避免重复打
+    // /food-detail），加一个 starred 手动置顶标记。跟 pickFrequency 一样是本机独立数据，不
+    // 走 Firestore 同步 - 两位家庭成员各自的 USDA 搜索习惯没必要互相影响。
+    storageGet('usdaSaved', {}),
+    // README 9.178: 中文关键词 -> 英文翻译结果缓存，key是原始中文关键词。同样本机独立即可。
+    storageGet('usdaTranslationCache', {})
   ]);
   // README 9.125: categoryGroups is the new two-level (母分类/子分类) structure for inventory
   // categories, architecturally matching state.recipeCategoryGroups but without any color
@@ -3099,6 +3109,8 @@ async function loadAll(){
   state.pickFrequency = results[25] || {};
   state.mealsets = results[26] || [];
   state.recipeCookLogs = results[27] || [];
+  state.usdaSaved = results[28] || {};
+  state.usdaTranslationCache = results[29] || {};
   state.loaded = true;
 }
 // Old data shape had a single secondary_qty/secondary_unit/unit_ratio triplet per item. The
@@ -3202,6 +3214,8 @@ function saveMealLogs(){ return storageSet('mealLogs', state.mealLogs); }
 function saveMealsets(){ return storageSet('mealsets', state.mealsets); }
 function saveRecipeCookLogs(){ return storageSet('recipeCookLogs', state.recipeCookLogs); }
 function savePickFrequency(){ return storageSet('pickFrequency', state.pickFrequency); }
+function saveUsdaSaved(){ return storageSet('usdaSaved', state.usdaSaved); }
+function saveUsdaTranslationCache(){ return storageSet('usdaTranslationCache', state.usdaTranslationCache); }
 function bumpPickFrequency(kind, id){
   if(!id) return;
   var k = kind+':'+id;
@@ -12701,8 +12715,16 @@ function setMealAddFoodTab(tabId){
               // calls stopScan() itself), so switching away from the 扫描 tab needs its own
               // call to release the camera - safe no-op when nothing was scanning.
   var af = state.mealsUI.addFood;
-  af.tab = tabId; af.step = 'search'; af.picked = null; af.query = ''; af.mealsetPhase = null; af.mealsetLogItems = null; af.amountUnit = null;
+  // README 9.176: af.query is intentionally NOT reset here anymore. Lynn: 切库存/食谱/套餐/
+  // USDA这几个tab时想找的其实是同一个东西（比如"虾"，一开始以为在库存但其实要去食谱找），
+  // 之前每次切tab都清空关键词逼着重新打一遍。现在关键词跟着切tab走，本地tab(库存/食谱/套餐)
+  // 靠render()里各自的搜索函数用同一个af.query重新算结果；USDA tab没有同步搜索，切过去后
+  // 手动补一次搜索(见下面)。
+  af.tab = tabId; af.step = 'search'; af.picked = null; af.mealsetPhase = null; af.mealsetLogItems = null; af.amountUnit = null;
   render();
+  if(tabId==='usda' && af.query && af.query.trim().length>=2){
+    runAddFoodUsdaSearch(af.query.trim());
+  }
 }
 function mealAddFoodContentHtml(){
   var af = state.mealsUI.addFood;
@@ -12720,9 +12742,18 @@ function mealAddFoodContentHtml(){
 // README 9.139: 套餐 tab of 三餐加食物 - step 1 is just "which 套餐" (+ template management via
 // the edit-pencil / "+新建套餐", same list). Step 2 (mealsetDraftHtml) is the snapshot draft -
 // see buildMealsetLogItems for how a template turns into this flat, editable, per-log-only copy.
+// README 9.176: 套餐 tab 加了跟库存/食谱/USDA一样的关键词搜索框，一并纳入"切tab保留关键词"。
+// 之前套餐tab只有一个按pickFrequency排的固定列表，没有输入框。
 function mealsetTabListHtml(af){
+  return '<button class="btn btn-outline" style="width:100%;margin-bottom:10px;" onclick="openMealsetForm(null)">'+ic('plus',15)+' '+t('newMealsetBtn')+'</button>'+
+    '<div class="meal-add-search-sticky"><input id="add-food-search-input" type="text" autocapitalize="none" autofocus placeholder="'+esc(t('mealsetSearchPlaceholder'))+'" value="'+esc(af.query)+'" oninput="onAddFoodQueryInput(this.value)" style="width:100%;box-sizing:border-box;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);"></div>'+
+    '<div id="add-food-mealset-results">'+mealsetResultsHtml(af.query)+'</div>';
+}
+function mealsetResultsHtml(query){
   var list = state.mealsets.slice();
   sortByPickFrequency(list, function(m){ return 'mealset:'+m.id; });
+  var q = (query||'').trim().toLowerCase();
+  if(q) list = list.filter(function(m){ return (m.name||'').toLowerCase().indexOf(q)>=0; });
   var rows = list.map(function(m){
     var items = buildMealsetLogItems(m,1,[]);
     var cal = 0; items.forEach(function(it){ cal += (it.nutrition.calories||0); });
@@ -12731,8 +12762,8 @@ function mealsetTabListHtml(af){
       '<button class="icon-btn" onclick="event.stopPropagation();openMealsetForm('+aj(m.id)+')" aria-label="'+t('edit')+'">'+ic('edit',17)+'</button>'+
     '</div>';
   }).join('');
-  return '<button class="btn btn-outline" style="width:100%;margin-bottom:10px;" onclick="openMealsetForm(null)">'+ic('plus',15)+' '+t('newMealsetBtn')+'</button>'+
-    (rows || '<p class="hint">'+t('mealsetNoItemsHint')+'</p>');
+  if(rows) return rows;
+  return '<p class="hint">'+(q ? t('mealsetSearchNoResults') : t('mealsetNoItemsHint'))+'</p>';
 }
 function selectMealsetForLog(id){
   var m = state.mealsets.find(function(x){ return x.id===id; });
@@ -12994,8 +13025,11 @@ function addFoodLocalSearchBodyHtml(af){
     '<div id="add-food-local-results">'+resultsHtml+'</div>';
 }
 function addFoodUsdaSearchBodyHtml(af){
+  // README 9.177: 关键词为空时("浏览模式")直接把常用列表放在搜索框下面; 有关键词的话先占位
+  // 一个loading提示 - setMealAddFoodTab/onAddFoodQueryInput那边的异步搜索会把它填成真正结果。
+  var resultsHtml = (af.query||'').trim() ? '<p class="hint" style="padding:8px 0 0;">'+t('usdaSearchLoading')+'</p>' : usdaSavedListHtml();
   return '<div class="meal-add-search-sticky"><input id="add-food-search-input" type="text" autocapitalize="none" autofocus placeholder="'+t('usdaOnlySearchPh')+'" value="'+esc(af.query)+'" oninput="onAddFoodQueryInput(this.value)" style="width:100%;box-sizing:border-box;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);"></div>'+
-    '<div id="add-food-usda-results"></div>';
+    '<div id="add-food-usda-results">'+resultsHtml+'</div>';
 }
 function addFoodRecipeResultsHtml(local){
   if(!local.length) return '<p class="hint">'+t('noMealLoggedHint')+'</p>';
@@ -13119,36 +13153,199 @@ function sortByPickFrequency(list, keyFn){
   });
 }
 var addFoodUsdaTimer = null;
+var addFoodUsdaSearchSeq = 0; // 用来丢弃"用户又继续打字/切走了"之后才姗姗来迟的旧异步结果
 function onAddFoodQueryInput(val){
   var af = state.mealsUI.addFood;
   af.query = val;
+  if(af.tab==='mealset'){
+    // README 9.176: 套餐tab新加的关键词搜索，跟库存/食谱一样是本地同步过滤，不用等异步。
+    var msEl = document.getElementById('add-food-mealset-results');
+    if(msEl) msEl.innerHTML = mealsetResultsHtml(val);
+    return;
+  }
   if(af.tab==='usda'){
     clearTimeout(addFoodUsdaTimer);
+    addFoodUsdaSearchSeq++; // 让还在飞的旧请求的回调直接作废
     var usdaEl = document.getElementById('add-food-usda-results');
+    if(!usdaWorkerBase()){ if(usdaEl) usdaEl.innerHTML=''; return; }
+    var trimmed = val.trim();
+    if(trimmed.length<2){
+      // README 9.177: 关键词删空/太短了 - 回退显示"常用"列表，而不是留一片空白。
+      if(usdaEl) usdaEl.innerHTML = usdaSavedListHtml();
+      return;
+    }
     if(usdaEl) usdaEl.innerHTML = '';
-    if(!usdaWorkerBase() || val.trim().length<2) return;
-    addFoodUsdaTimer = setTimeout(function(){ runAddFoodUsdaSearch(val.trim()); }, 450);
+    addFoodUsdaTimer = setTimeout(function(){ runAddFoodUsdaSearch(trimmed); }, 450);
     return;
   }
   var localEl = document.getElementById('add-food-local-results');
   if(localEl) localEl.innerHTML = af.tab==='recipe' ? addFoodRecipeResultsHtml(searchRecipeFoods(val)) : addFoodInventoryResultsHtml(searchInventoryFoods(val));
 }
-async function runAddFoodUsdaSearch(q){
-  var el = document.getElementById('add-food-usda-results');
-  if(el) el.innerHTML = '<p class="hint" style="padding:8px 0 0;">'+t('usdaSearchLoading')+'</p>';
+// README 9.178: 中文关键词先经Worker用Gemini翻译成英文再查USDA - 结果直接采信，不做二次
+// 确认弹窗（Lynn: 先做1，以后发现频繁翻译错了再改成2）。同一个中文词翻译过一次之后缓存在
+// state.usdaTranslationCache里，下次同样的词不用再等翻译。
+function containsChinese(s){ return /[\u4e00-\u9fff]/.test(s||''); }
+async function resolveUsdaSearchTerm(raw){
+  if(!containsChinese(raw)) return raw;
+  var cache = state.usdaTranslationCache || (state.usdaTranslationCache = {});
+  if(cache[raw]) return cache[raw];
+  var base = usdaWorkerBase();
+  if(!base) return raw;
   try{
-    var results = await usdaSearchFoods(q);
-    var el2 = document.getElementById('add-food-usda-results');
-    if(!el2) return;
-    if(!results.length){ el2.innerHTML='<p class="hint">'+t('noMealLoggedHint')+'</p>'; return; }
-    el2.innerHTML = results.slice(0,20).map(function(f){
-      var sub = usdaDataTypeLabel(f.dataType)+(f.brandName?(' · '+esc(f.brandName)):'');
-      return '<div class="list-row" style="cursor:pointer;" onclick="pickUsdaFoodForMeal('+aj(f.fdcId)+')"><div class="row-label">'+esc(f.description)+'<div class="hint" style="margin-top:2px;">'+sub+'</div></div>'+ic('chevronRight',16)+'</div>';
-    }).join('');
+    var res = await fetch(base+'/translate-food-term?q='+encodeURIComponent(raw));
+    if(!res.ok) return raw;
+    var data = await res.json();
+    var translated = (data.translated||'').trim();
+    if(!translated) return raw;
+    cache[raw] = translated;
+    saveUsdaTranslationCache();
+    return translated;
   }catch(e){
-    var el3 = document.getElementById('add-food-usda-results');
-    if(el3) el3.innerHTML = '';
+    return raw; // 翻译失败就退回用原词去搜（大概率搜不到，但至少不报错）
   }
+}
+// README 9.177: 按关键词在本地已缓存过的USDA食物(state.usdaSaved)里做子串匹配 - Lynn: 搜索
+// 时优先搜索列表，列表没有再去USDA搜。匹配到的话直接展示，省一次网络请求。
+function searchUsdaSaved(term){
+  var q = (term||'').trim().toLowerCase();
+  if(!q) return [];
+  var saved = state.usdaSaved || {};
+  var list = Object.keys(saved).map(function(k){ return saved[k]; }).filter(function(f){
+    return (f.description||'').toLowerCase().indexOf(q)>=0 || (f.brandName||'').toLowerCase().indexOf(q)>=0;
+  });
+  sortUsdaSavedList(list);
+  return list;
+}
+// 手动收藏(starred)的排最前，其余按实际选用频率(state.pickFrequency['usda:'+fdcId])排 - Lynn
+// 选定的方案：两者结合。
+function sortUsdaSavedList(list){
+  list.sort(function(a,b){
+    var sa = a.starred?1:0, sb = b.starred?1:0;
+    if(sa!==sb) return sb-sa;
+    var fa = state.pickFrequency['usda:'+a.fdcId]||0, fb = state.pickFrequency['usda:'+b.fdcId]||0;
+    return fb-fa;
+  });
+}
+async function runAddFoodUsdaSearch(rawQuery){
+  var seq = ++addFoodUsdaSearchSeq;
+  var el = document.getElementById('add-food-usda-results');
+  if(el) el.innerHTML = '<p class="hint" style="padding:8px 0 0;">'+t(containsChinese(rawQuery)?'usdaTranslating':'usdaSearchLoading')+'</p>';
+  var term = await resolveUsdaSearchTerm(rawQuery);
+  if(seq!==addFoodUsdaSearchSeq) return; // 这段时间用户已经又打字了，这次结果作废
+
+  var localMatches = searchUsdaSaved(term);
+  if(localMatches.length){
+    renderUsdaResultRows(localMatches.map(function(f){
+      return {fdcId:f.fdcId, description:f.description, dataType:f.dataType, brandName:f.brandName};
+    }));
+    return;
+  }
+
+  var el2 = document.getElementById('add-food-usda-results');
+  if(el2) el2.innerHTML = '<p class="hint" style="padding:8px 0 0;">'+t('usdaSearchLoading')+'</p>';
+  try{
+    var results = await usdaSearchFoods(term);
+    if(seq!==addFoodUsdaSearchSeq) return;
+    if(!results.length){
+      var el3 = document.getElementById('add-food-usda-results');
+      if(el3) el3.innerHTML='<p class="hint">'+t('noMealLoggedHint')+'</p>';
+      return;
+    }
+    renderUsdaResultRows(results.slice(0,20));
+  }catch(e){
+    if(seq!==addFoodUsdaSearchSeq) return;
+    var el4 = document.getElementById('add-food-usda-results');
+    if(el4) el4.innerHTML = '';
+  }
+}
+// README 9.177: 记住当前#add-food-usda-results里实际展示的是哪份列表(不含星标状态),这样星标
+// 按钮点击后只需要重新套用星标状态刷新这几行,不用重新查一次USDA或重新翻译。
+var _lastUsdaDisplayList = [];
+function renderUsdaResultRows(list){
+  _lastUsdaDisplayList = list;
+  var el = document.getElementById('add-food-usda-results');
+  if(!el) return;
+  if(!list.length){ el.innerHTML = '<p class="hint">'+t('noMealLoggedHint')+'</p>'; return; }
+  el.innerHTML = list.map(usdaResultRowHtml).join('');
+}
+function usdaStarIconSvg(filled){
+  return '<svg width="18" height="18" viewBox="0 0 24 24" '+(filled?'fill="var(--caramel-light)" stroke="var(--caramel-light)"':'fill="none" stroke="currentColor"')+' stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l2.6 5.6 6.1.6-4.6 4.1 1.3 6-5.4-3.2-5.4 3.2 1.3-6-4.6-4.1 6.1-.6z"/></svg>';
+}
+function usdaResultRowHtml(f){
+  var saved = (state.usdaSaved||{})[f.fdcId];
+  var starred = !!(saved && saved.starred);
+  var sub = usdaDataTypeLabel(f.dataType)+(f.brandName?(' · '+esc(f.brandName)):'');
+  return '<div class="list-row">'+
+    '<div class="row-label" style="cursor:pointer;" onclick="pickUsdaFoodForMeal('+aj(f.fdcId)+')">'+esc(f.description)+'<div class="hint" style="margin-top:2px;">'+sub+'</div></div>'+
+    '<button class="icon-btn" onclick="event.stopPropagation();toggleUsdaFavorite('+aj(f.fdcId)+','+aj(f.description)+','+aj(f.dataType||null)+','+aj(f.brandName||null)+')" aria-label="'+t('usdaFavoriteToggle')+'">'+usdaStarIconSvg(starred)+'</button>'+
+  '</div>';
+}
+// README 9.177: USDA tab关键词为空时("浏览模式")在搜索框下面直接展示这份常用列表 - 手动
+// 收藏的置顶,其余按频率排,最多显示30条(已经是可滚动区域内的一部分,不需要额外的全屏选择器)。
+function usdaSavedListHtml(){
+  var saved = state.usdaSaved || {};
+  var list = Object.keys(saved).map(function(k){ return saved[k]; });
+  if(!list.length) return '';
+  sortUsdaSavedList(list);
+  list = list.slice(0,30);
+  _lastUsdaDisplayList = list.map(function(f){ return {fdcId:f.fdcId, description:f.description, dataType:f.dataType, brandName:f.brandName}; });
+  return '<p class="hint" style="margin:4px 2px 6px;">'+t('usdaSavedSectionTitle')+'</p>'+
+    list.map(function(f){ return usdaResultRowHtml(f); }).join('');
+}
+async function toggleUsdaFavorite(fdcId, description, dataType, brandName){
+  var saved = state.usdaSaved || (state.usdaSaved = {});
+  var existing = saved[fdcId];
+  if(existing){
+    existing.starred = !existing.starred;
+    saveUsdaSaved();
+    refreshUsdaDisplayedList();
+    return;
+  }
+  // 这条还没缓存过完整营养数据(比如直接从一次搜索结果里点星,还没打开过详情) - 先拉一次详情再存。
+  try{
+    var detail = await usdaFetchFoodDetail(fdcId);
+    saved[fdcId] = {
+      fdcId: fdcId,
+      description: detail.description || description || '',
+      dataType: dataType || detail.dataType || null,
+      brandName: brandName || detail.brandOwner || null,
+      nutrition: detail.nutrition,
+      nutrition_extra: detail.nutrition_extra || {},
+      starred: true
+    };
+    saveUsdaSaved();
+    refreshUsdaDisplayedList();
+  }catch(e){
+    showToast(t('usdaSearchError'));
+  }
+}
+function refreshUsdaDisplayedList(){
+  var af = state.mealsUI.addFood;
+  if(!af || af.tab!=='usda') return;
+  var el = document.getElementById('add-food-usda-results');
+  if(!el) return;
+  if(!af.query || !af.query.trim()){
+    el.innerHTML = usdaSavedListHtml();
+  } else if(_lastUsdaDisplayList.length){
+    el.innerHTML = _lastUsdaDisplayList.map(usdaResultRowHtml).join('');
+  }
+}
+// 每次成功拉到完整详情(包括直接点选/星标收藏两个入口)都顺手缓存下来,不管这次有没有真的存进
+// 一条三餐记录 - 单纯为了"下次再选到同一条能跳过网络请求"这件事,跟pickFrequency("只在真的
+// 存了之后才计数")是两回事,分开处理。
+function cacheUsdaFoodDetail(fdcId, detail){
+  var saved = state.usdaSaved || (state.usdaSaved = {});
+  var existing = saved[fdcId] || {};
+  saved[fdcId] = {
+    fdcId: fdcId,
+    description: detail.description || existing.description || '',
+    dataType: detail.dataType || existing.dataType || null,
+    brandName: detail.brandOwner || existing.brandName || null,
+    nutrition: detail.nutrition,
+    nutrition_extra: detail.nutrition_extra || {},
+    starred: existing.starred || false
+  };
+  saveUsdaSaved();
 }
 function pickLocalFoodForMeal(type, id){
   var af = state.mealsUI.addFood;
@@ -13180,6 +13377,16 @@ function pickLocalFoodForMeal(type, id){
 }
 async function pickUsdaFoodForMeal(fdcId){
   var af = state.mealsUI.addFood;
+  // README 9.177: 这条之前已经缓存过完整营养数据(用过/收藏过) - 直接跳过网络请求进入数量步骤。
+  var cached = (state.usdaSaved||{})[fdcId];
+  if(cached && cached.nutrition){
+    af.picked = {type:'usda', name:cached.description, nutrition:cached.nutrition, nutrition_extra:cached.nutrition_extra||{}, fdcId:fdcId};
+    af.amountText = '100';
+    af.step = 'amount';
+    render();
+    focusAddFoodAmountInput();
+    return;
+  }
   af.step = 'loading';
   render();
   try{
@@ -13187,6 +13394,7 @@ async function pickUsdaFoodForMeal(fdcId){
     af.picked = {type:'usda', name:detail.description, nutrition:detail.nutrition, nutrition_extra:detail.nutrition_extra||{}, fdcId:fdcId};
     af.amountText = '100';
     af.step = 'amount';
+    cacheUsdaFoodDetail(fdcId, detail);
   }catch(e){
     af.step = 'search';
     showToast(t('usdaSearchError'));
@@ -13507,6 +13715,9 @@ function saveMealLogEntry(){
   if(p.type==='recipe') bumpPickFrequency('recipe', p.id);
   else if(p.type==='item') bumpPickFrequency('inventory', p.id);
   else if(p.type==='external') bumpPickFrequency('external', p.id);
+  // README 9.177: USDA常用列表的排序依据 - 只在真的存成一条三餐记录时计数,跟"常用"列表本身
+  // 的缓存(见pickUsdaFoodForMeal/cacheUsdaFoodDetail)分开处理,不是搜索/浏览就算。
+  else if(p.type==='usda') bumpPickFrequency('usda', p.fdcId);
   showToast(t('mealLoggedToast'));
   navigate('meals');
 }
