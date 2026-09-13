@@ -538,7 +538,6 @@
      date-nav-label 这个class全站只有三餐页这一处在用，改这里不会影响别的页面。 */
   .date-nav-label{ font-size:18px; font-weight:700; color:var(--cocoa); }
   .meals-calorie-num{ font-size:32px; font-weight:700; color:var(--almond); }
-  .macro-view-dot{ width:7px; height:7px; border-radius:50%; background:var(--line); cursor:pointer; }
   /* README 9.154: 三餐页四餐标签行 - 每个标签两行(餐名/该餐热量)，选中态用 --fresh 深绿底+白字，
      未选中态是米色底，跟宏量条图/日营养详情条图统一用的深绿/米色是同一套配色语言。 */
   /* README 9.173: 餐名(mt-name)字号字重同步改成18px/700，跟上面日期导航标签、热量环/宏量圈的
@@ -554,10 +553,6 @@
   .meal-tab.active .mt-name{ color:#fff; }
   .meal-tab .mt-cal{ font-size:16px; color:var(--deep-caramel); margin-top:2px; }
   .meal-tab.active .mt-cal{ color:rgba(255,255,255,0.85); }
-  .macro-view-dot.active{ background:var(--almond); }
-  .macro-view-slide{ animation-duration:.28s; animation-timing-function:cubic-bezier(.25,.7,.4,1); animation-fill-mode:both; }
-  @keyframes macroSlideInRight{ from{ transform:translateX(28px); opacity:0; } to{ transform:translateX(0); opacity:1; } }
-  @keyframes macroSlideInLeft{ from{ transform:translateX(-28px); opacity:0; } to{ transform:translateX(0); opacity:1; } }
   .meals-cal-grid{ display:grid; grid-template-columns:repeat(7,1fr); gap:3px; text-align:center; }
   .meals-cal-weekday{ font-size:11.5px; color:var(--deep-caramel); padding:4px 0; }
   .meals-cal-day{ position:relative; padding:9px 0; border-radius:8px; font-size:14px; cursor:pointer; color:var(--cocoa); }
@@ -894,7 +889,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.180';
+var BUILD_VERSION = '9.181';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -5038,28 +5033,8 @@ document.addEventListener('selectstart', function(e){
   }, {passive:true});
 })();
 
-// README 9.167: 顶部宏量卡（今日总量）改成固定展示三色环，不再需要饼图/条图切换，原来这段
-// 划动切换手势(initMacroWidgetSwipe)跟着 macroWidgetHtml 一起去掉了。每餐那个"这一餐的宏量
-// 占比"（下面的 initMealMacroWidgetSwipe）保持不变，继续支持划动切换饼图/条图。
-// initMacroWidgetSwipe/.macro-widget-swipe-area above since that handler hardcodes
-// setMacroView (the whole-day widget's toggle), which would silently flip the DAY chart
-// instead of this meal's when someone swiped on the meal-level one.
-(function initMealMacroWidgetSwipe(){
-  var startX=null, startY=null;
-  document.addEventListener('touchstart', function(e){
-    var wrap = e.target.closest ? e.target.closest('.meal-macro-widget-swipe-area') : null;
-    if(!wrap){ startX=null; return; }
-    startX = e.touches[0].clientX; startY = e.touches[0].clientY;
-  }, {passive:true});
-  document.addEventListener('touchend', function(e){
-    if(startX==null) return;
-    var dx = e.changedTouches[0].clientX-startX, dy = e.changedTouches[0].clientY-startY;
-    startX = null;
-    if(Math.abs(dx)>40 && Math.abs(dx)>Math.abs(dy)*1.5){
-      setMealMacroView(state.mealsUI.mealMacroView==='bar' ? 'pie' : 'bar');
-    }
-  }, {passive:true});
-})();
+// README 9.181: 每餐"这一餐的宏量占比"的划动切换手势(initMealMacroWidgetSwipe)一起删掉了，
+// 理由见上面 setMealMacroView 那条注释——去掉大条图之后单餐这边只剩饼图，不再需要切换。
 
 // README 9.107: same left/right swipe delegation pattern as the macro widget above, this time
 // on the 三餐 date-nav row - swipe left (finger moving toward the "next" chevron) goes forward
@@ -11484,21 +11459,11 @@ function pickMealsCalendarDate(d){
 }
 // README 9.167: setMacroView/toggleMacroView（顶部"今日总量"宏量卡的饼图/条图切换）已随
 // macroWidgetHtml 改成固定三色环一起删掉了——顶部宏量卡不再支持切换，这两个函数没有调用方了。
-// 下面 setMealMacroView/toggleMealMacroView（每餐那个"这一餐的宏量占比"）继续保留，行为不变。
-// README 9.157: same pie<->bar toggle as setMacroView/toggleMacroView above, kept on its own
-// state keys (mealMacroView/mealMacroSlideDir/mealMacroAnimPending) so switching the per-meal
-// widget (mealSlotMacroWidgetHtml) never affects, or is affected by, the whole-day one right
-// above it on the same page.
-function setMealMacroView(v){
-  var order = {pie:0, bar:1};
-  state.mealsUI.mealMacroSlideDir = order[v] > order[state.mealsUI.mealMacroView||'pie'] ? 'right' : 'left';
-  state.mealsUI.mealMacroView = v;
-  state.mealsUI.mealMacroAnimPending = true;
-  render();
-}
-function toggleMealMacroView(){
-  setMealMacroView(state.mealsUI.mealMacroView==='bar' ? 'pie' : 'bar');
-}
+// README 9.181: 下面原来的 setMealMacroView/toggleMealMacroView（每餐"这一餐的宏量占比"的
+// 饼图/条图切换）也一起删掉了——Lynn反馈单餐这张大条图跟饼图右侧的小条图信息重复，去掉大条图
+// 后单餐这边只剩饼图一种展示，不再需要切换，两个函数和相关的滑动手势(见下方
+// initMealMacroWidgetSwipe原来的位置)、CSS(.macro-view-dot/.macro-view-slide/
+// @keyframes macroSlideIn*)一并删除。
 
 /* ---- 轻断食 (intermittent fasting timer) - README 9.102, extended 9.105 ----
    state.activeFast holds the in-progress fast (or null): {startedAt, targetHours}, both stored
@@ -11942,14 +11907,16 @@ function mealSlotDetailHtml(date, slot){
 // targets the whole-day widget (macroWidgetHtml) above already uses - e.g. "this lunch alone
 // used 40% of today's protein target" - not a re-normalized 100% breakdown of just this meal's
 // own calories, which would look identical in shape to the day-total pie and be easy to
-// misread as the day's actual totals. Reuses that same pie/bar toggle component
-// (macroPieHtml/macroBarHtml) with a lighter three-color palette (--fresh-light/--danger-light/
-// --caramel-light, one visible shade lighter than the day-total widget's --fresh/--danger/
-// --almond) so the two widgets are never visually identical even at a glance, and its own
-// pie<->bar toggle state (state.mealsUI.mealMacroView, see setMealMacroView) so switching one
-// doesn't affect the other. Lives right under mealSlotDetailHtml's item list (same slot,
-// nothing shown until that meal has at least one item logged, matching Lynn's ask that this
-// only appears for whichever meal tab is currently selected - same as the item list itself).
+// misread as the day's actual totals. Uses the same pie component (macroPieHtml) with a
+// lighter three-color palette (--fresh-light/--danger-light/--caramel-light, one visible shade
+// lighter than the day-total widget's --fresh/--danger/--almond) so the two widgets are never
+// visually identical even at a glance. Lives right under mealSlotDetailHtml's item list (same
+// slot, nothing shown until that meal has at least one item logged, matching Lynn's ask that
+// this only appears for whichever meal tab is currently selected - same as the item list
+// itself).
+// README 9.181: 去掉了饼图/条图切换——Lynn反馈单餐这张大条图(macroBarHtml)跟饼图右侧的小
+// 条图legend信息重复，只留饼图(macroPieHtml)一种展示，macroBarHtml已删除(见其原来的位置)，
+// 相关的view/dot/滑动动画state和DOM也一起清掉了。
 function mealSlotMacroWidgetHtml(date, slot, budget){
   if(budget==null) return '';
   var totals = sumMealNutrition(mealLogsForSlot(date, slot));
@@ -11957,23 +11924,7 @@ function mealSlotMacroWidgetHtml(date, slot, budget){
   if(actualG.carbs*4+actualG.protein*4+actualG.fat*9 <= 0.5) return '';
   var targetG = macroGramsForBudget(budget, state.weightPlan.macroPreset);
   var pieColors = {carbs:'var(--fresh-light)', protein:'var(--danger-light)', fat:'var(--caramel-light)'};
-  var barColors = {
-    carbs:{color:'var(--fresh-light)', track:'var(--fresh-bg)'},
-    protein:{color:'var(--danger-light)', track:'var(--danger-bg)'},
-    fat:{color:'var(--caramel-light)', track:'var(--cream)'}
-  };
-  var view = state.mealsUI.mealMacroView || 'pie';
-  var inner = view==='bar' ? macroBarHtml(actualG, targetG, barColors) : macroPieHtml(actualG, targetG, pieColors);
-  var animPending = !!state.mealsUI.mealMacroAnimPending;
-  state.mealsUI.mealMacroAnimPending = false;
-  var slideAnim = state.mealsUI.mealMacroSlideDir==='left' ? 'macroSlideInLeft' : 'macroSlideInRight';
-  return '<div class="form-group meal-macro-widget-swipe-area" onclick="toggleMealMacroView()" style="cursor:pointer;">'+
-      '<div class="macro-view-slide" style="'+(animPending ? ('animation-name:'+slideAnim+';') : '')+'">'+inner+'</div>'+
-      '<div style="display:flex;justify-content:center;gap:7px;margin-top:12px;">'+
-        '<span class="macro-view-dot '+(view==='pie'?'active':'')+'" onclick="event.stopPropagation();setMealMacroView(\'pie\')"></span>'+
-        '<span class="macro-view-dot '+(view==='bar'?'active':'')+'" onclick="event.stopPropagation();setMealMacroView(\'bar\')"></span>'+
-      '</div>'+
-    '</div>';
+  return '<div class="form-group">'+macroPieHtml(actualG, targetG, pieColors)+'</div>';
 }
 // README 9.154: 每日营养摄入详情——按营养标签顺序（跟 NUTRI_TIER1_ROWS 这个 app 自己一直用的
 // 营养标签行顺序一致：脂肪/饱和脂肪/反式脂肪/碳水/膳食纤维/总糖/蛋白质/钠，热量另外放在
@@ -12467,18 +12418,24 @@ function macroWidgetHtml(totals, budget){
 // 一样的图例代码。传入 items:[{label, grams, target, fill}]，色条超过目标时整条变
 // var(--danger)，轨道色统一用 var(--cream)，跟 macroBarHtml/dailyNutrientBarsHtml 的超标逻辑
 // 保持一致。
-function macroLegendRowsHtml(items){
+// README 9.181: 新增可选的 showPct 参数——Lynn反馈单餐宏量占比(macroPieHtml)这边的图例想在
+// "xxg / xxg"后面加一个百分比(占全天目标的百分比，算法就是本来就在算的pct，只是之前只用来
+// 决定进度条宽度、没有显示成文字)。只有 macroPieHtml 传 true 用到这个，macroRingHtml（当日
+// 总量卡的图例）不传，保持原样不受影响。百分比+超标文案的写法跟已删除的 macroBarHtml 保持
+// 一致（"(pct% 超标)"）。
+function macroLegendRowsHtml(items, showPct){
   return items.map(function(s){
     var pct = s.target>0 ? Math.round(s.grams/s.target*100) : 0;
     var over = s.grams>s.target;
     var barPct = Math.min(pct,100);
+    var pctText = showPct ? ' ('+pct+'%'+(over?(' '+t('macroOverLabel')):'')+')' : '';
     return '<div style="margin-bottom:10px;">'+
       '<div style="display:flex;align-items:center;justify-content:space-between;font-size:13.5px;margin-bottom:4px;">'+
         '<span style="display:flex;align-items:center;gap:6px;">'+
           '<span style="width:9px;height:9px;border-radius:50%;background:'+s.fill+';display:inline-block;flex-shrink:0;"></span>'+
           '<span style="font-weight:700;color:'+s.fill+';">'+s.label+'</span>'+
         '</span>'+
-        '<span class="hint">'+s.grams+'g / '+s.target+'g</span>'+
+        '<span class="hint">'+s.grams+'g / '+s.target+'g'+pctText+'</span>'+
       '</div>'+
       '<div style="height:6px;background:var(--cream);border-radius:3px;overflow:hidden;">'+
         '<div style="height:100%;width:'+barPct+'%;background:'+(over?'var(--danger)':s.fill)+';"></div>'+
@@ -12625,38 +12582,11 @@ function macroPieHtml(actualG, targetG, colors){
   // 从纵向堆叠换回左右并排。
   return '<div style="display:flex;align-items:center;justify-content:center;gap:20px;">'+
     '<svg viewBox="0 0 190 200" style="width:136px;height:143px;flex-shrink:0;">'+paths+pctLabels+'</svg>'+
-    '<div style="flex:1;min-width:0;">'+macroLegendRowsHtml(slices)+'</div>'+
+    '<div style="flex:1;min-width:0;">'+macroLegendRowsHtml(slices, true)+'</div>'+
   '</div>';
 }
-function macroBarHtml(actualG, targetG, colors){
-  // Each row pairs a dark fill with its own light "track" color (instead of one shared grey
-  // groove for all three rows) - carbs' track is the same pale green as the "未过期" badge,
-  // protein's is the pale brick-red of the "已过期" badge, fat's is the app's own cream page
-  // background - the same light/dark pairing the pie's colors used to use, just applied to the
-  // bar's fill/track instead of the pie's fill/legend now that the pie itself went dark.
-  // README 9.157: colors is optional - see macroPieHtml's own comment on the same parameter;
-  // the "over target" fill always stays var(--danger) regardless of this override, since that's
-  // a warning color, not part of the light/dark theming this parameter controls.
-  colors = colors || {
-    carbs:{color:'var(--fresh)', track:'var(--fresh-bg)'},
-    protein:{color:'var(--danger)', track:'var(--danger-bg)'},
-    fat:{color:'var(--almond)', track:'var(--cream)'}
-  };
-  var rows = [
-    {label:t('macroCarbs'), actual:actualG.carbs, target:targetG.carbs, color:colors.carbs.color, track:colors.carbs.track},
-    {label:t('macroProtein'), actual:actualG.protein, target:targetG.protein, color:colors.protein.color, track:colors.protein.track},
-    {label:t('macroFat'), actual:actualG.fat, target:targetG.fat, color:colors.fat.color, track:colors.fat.track}
-  ];
-  return rows.map(function(r){
-    var pct = r.target>0 ? Math.round(r.actual/r.target*100) : 0;
-    var over = r.actual>r.target;
-    var barPct = Math.min(pct,100);
-    return '<div style="margin-bottom:11px;">'+
-      '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span>'+r.label+'</span><span class="hint">'+r.actual+'g / '+r.target+'g ('+pct+'%'+(over?(' '+t('macroOverLabel')):'')+')</span></div>'+
-      '<div style="height:8px;background:'+r.track+';border-radius:4px;overflow:hidden;"><div style="height:100%;width:'+barPct+'%;background:'+(over?'var(--danger)':r.color)+';"></div></div>'+
-    '</div>';
-  }).join('');
-}
+// README 9.181: macroBarHtml（宏量条图，之前跟饼图切换用）已删除——mealSlotMacroWidgetHtml
+// 是它唯一的调用方，现在那边去掉切换只留饼图，这个函数没有调用方了。
 
 /* ---- add-food modal: local search (items/recipes/external ingredients, instant, in-memory)
    stacked above a debounced USDA search (reusing usdaSearchFoods/usdaFetchFoodDetail - the
