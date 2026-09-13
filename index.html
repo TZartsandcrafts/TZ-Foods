@@ -892,7 +892,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.178';
+var BUILD_VERSION = '9.179';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -13181,6 +13181,16 @@ function onAddFoodQueryInput(val){
   var localEl = document.getElementById('add-food-local-results');
   if(localEl) localEl.innerHTML = af.tab==='recipe' ? addFoodRecipeResultsHtml(searchRecipeFoods(val)) : addFoodInventoryResultsHtml(searchInventoryFoods(val));
 }
+// README 9.179: 给USDA相关的网络请求加超时保护 - 排查Lynn反馈的"USDA tab卡在搜索中不出结果"
+// 时发现，翻译请求或USDA搜索请求一旦因为网络原因迟迟不返回（既不成功也不报错），前面
+// await的代码会一直卡着不往下走，UI就会一直停在"翻译中/搜索中"这一帧，既不出结果也不报错。
+// 用Promise.race包一层超时，到时间还没返回就当失败处理，至少能让UI给个说法。
+function withTimeout(promise, ms){
+  return new Promise(function(resolve, reject){
+    var timer = setTimeout(function(){ reject(new Error('timeout')); }, ms);
+    promise.then(function(v){ clearTimeout(timer); resolve(v); }, function(e){ clearTimeout(timer); reject(e); });
+  });
+}
 // README 9.178: 中文关键词先经Worker用Gemini翻译成英文再查USDA - 结果直接采信，不做二次
 // 确认弹窗（Lynn: 先做1，以后发现频繁翻译错了再改成2）。同一个中文词翻译过一次之后缓存在
 // state.usdaTranslationCache里，下次同样的词不用再等翻译。
@@ -13192,7 +13202,9 @@ async function resolveUsdaSearchTerm(raw){
   var base = usdaWorkerBase();
   if(!base) return raw;
   try{
-    var res = await fetch(base+'/translate-food-term?q='+encodeURIComponent(raw));
+    // README 9.179: 8秒超时 - 翻译请求本身应该很快(小prompt+短输出)，明显更久大概率是请求
+    // 卡住了，不值得让用户一直等，退回用原词搜（大概率搜不到，但至少不会卡住不出结果）。
+    var res = await withTimeout(fetch(base+'/translate-food-term?q='+encodeURIComponent(raw)), 8000);
     if(!res.ok) return raw;
     var data = await res.json();
     var translated = (data.translated||'').trim();
@@ -13201,7 +13213,7 @@ async function resolveUsdaSearchTerm(raw){
     saveUsdaTranslationCache();
     return translated;
   }catch(e){
-    return raw; // 翻译失败就退回用原词去搜（大概率搜不到，但至少不报错）
+    return raw; // 翻译失败/超时就退回用原词去搜
   }
 }
 // README 9.177: 按关键词在本地已缓存过的USDA食物(state.usdaSaved)里做子串匹配 - Lynn: 搜索
@@ -13244,7 +13256,9 @@ async function runAddFoodUsdaSearch(rawQuery){
   var el2 = document.getElementById('add-food-usda-results');
   if(el2) el2.innerHTML = '<p class="hint" style="padding:8px 0 0;">'+t('usdaSearchLoading')+'</p>';
   try{
-    var results = await usdaSearchFoods(term);
+    // README 9.179: 同样的超时保护，套在真正打USDA的这次请求上（比翻译请求给多一点时间，
+    // 20秒 - USDA接口本身实测比翻译接口慢一些）。
+    var results = await withTimeout(usdaSearchFoods(term), 20000);
     if(seq!==addFoodUsdaSearchSeq) return;
     if(!results.length){
       var el3 = document.getElementById('add-food-usda-results');
@@ -13254,8 +13268,10 @@ async function runAddFoodUsdaSearch(rawQuery){
     renderUsdaResultRows(results.slice(0,20));
   }catch(e){
     if(seq!==addFoodUsdaSearchSeq) return;
+    // README 9.179: 之前这里失败/超时之后直接清空成一片空白，跟"卡住不动"从用户角度看不出
+    // 区别（都是没反应）。改成显示明确的错误提示，至少能看出"这次真的失败了"而不是还在等。
     var el4 = document.getElementById('add-food-usda-results');
-    if(el4) el4.innerHTML = '';
+    if(el4) el4.innerHTML = '<p class="hint">'+t('usdaSearchError')+'</p>';
   }
 }
 // README 9.177: 记住当前#add-food-usda-results里实际展示的是哪份列表(不含星标状态),这样星标
