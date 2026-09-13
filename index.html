@@ -889,7 +889,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.182';
+var BUILD_VERSION = '9.184';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -13230,6 +13230,27 @@ function usdaResultRowHtml(f){
     '<button class="icon-btn" onclick="event.stopPropagation();toggleUsdaFavorite('+aj(f.fdcId)+','+aj(f.description)+','+aj(f.dataType||null)+','+aj(f.brandName||null)+')" aria-label="'+t('usdaFavoriteToggle')+'">'+usdaStarIconSvg(starred)+'</button>'+
   '</div>';
 }
+// README 9.184: "常用"列表专用的行样式 - 跟普通搜索结果行(usdaResultRowHtml)内容一样(名称/
+// 子标题/收藏星标)，但外面多包一层跟三餐已添加条目(mealSlotDetailHtml)完全一样的
+// .item-card-swipe/.item-swipe-actions结构，复用同一套左划手势引擎(initItemSwipeGestures是
+// 靠.item-card-swipe这个class做事件委托的，不挑列表来源)，加一个删除按钮。Lynn:
+// 常用列表里加进来的条目要能手动删掉，跟三餐已添加条目的删除键操作一样，但这里删除不用二次
+// 确认——删的只是本机"常用"列表里的这一条缓存(state.usdaSaved)，不影响USDA那边的数据，
+// 真要用的话下次搜索/选中还是能重新查到。data-item-id前面加"usda:"前缀，跟其它列表(库存条目
+// 用的是自己的uuid)的id空间分开，避免万一撞车。
+function usdaSavedRowHtml(f){
+  var starred = !!f.starred;
+  var sub = usdaDataTypeLabel(f.dataType)+(f.brandName?(' · '+esc(f.brandName)):'');
+  return '<div class="item-card-swipe" data-item-id="usda:'+esc(f.fdcId)+'">'+
+    '<div class="item-swipe-actions">'+
+      '<button class="swipe-action-btn action-delete" onclick="event.stopPropagation();removeUsdaSavedFromSwipe('+aj(f.fdcId)+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button>'+
+    '</div>'+
+    '<div class="item-card" style="flex-direction:row;align-items:center;justify-content:space-between;gap:10px;border-left:none;box-shadow:none;border:1px solid var(--line);padding:15px 16px;margin-bottom:0;" onclick="pickUsdaFoodForMeal('+aj(f.fdcId)+')">'+
+      '<div style="flex:1;min-width:0;"><div class="row-label">'+esc(f.description)+'</div><div class="hint" style="margin-top:2px;">'+sub+'</div></div>'+
+      '<button class="icon-btn" onclick="event.stopPropagation();toggleUsdaFavorite('+aj(f.fdcId)+','+aj(f.description)+','+aj(f.dataType||null)+','+aj(f.brandName||null)+')" aria-label="'+t('usdaFavoriteToggle')+'">'+usdaStarIconSvg(starred)+'</button>'+
+    '</div>'+
+  '</div>';
+}
 // README 9.177: USDA tab关键词为空时("浏览模式")在搜索框下面直接展示这份常用列表 - 手动
 // 收藏的置顶,其余按频率排,最多显示30条(已经是可滚动区域内的一部分,不需要额外的全屏选择器)。
 function usdaSavedListHtml(){
@@ -13240,7 +13261,18 @@ function usdaSavedListHtml(){
   list = list.slice(0,30);
   _lastUsdaDisplayList = list.map(function(f){ return {fdcId:f.fdcId, description:f.description, dataType:f.dataType, brandName:f.brandName}; });
   return '<p class="hint" style="margin:4px 2px 6px;">'+t('usdaSavedSectionTitle')+'</p>'+
-    list.map(function(f){ return usdaResultRowHtml(f); }).join('');
+    list.map(function(f){ return usdaSavedRowHtml(f); }).join('');
+}
+// README 9.184: 从"常用"列表左划删除 - 直接从state.usdaSaved里删掉这一条缓存(星标状态、
+// 缓存的营养数据一起没了)，不需要showConfirmModal二次确认(对照deleteMealLogFromSwipe那些
+// 真正会丢数据的删除，这里删的只是本机一份缓存/收藏标记，USDA那边的原始数据完全不受影响，
+// 下次重新搜到/选中还是能正常查到，风险比那些低得多)。删完直接重新渲染#add-food-usda-results
+// (复用refreshUsdaDisplayedList，跟星标切换后刷新走的是同一条路径)。
+function removeUsdaSavedFromSwipe(fdcId){
+  closeItemSwipeRow('usda:'+fdcId);
+  if(state.usdaSaved) delete state.usdaSaved[fdcId];
+  saveUsdaSaved();
+  refreshUsdaDisplayedList();
 }
 async function toggleUsdaFavorite(fdcId, description, dataType, brandName){
   var saved = state.usdaSaved || (state.usdaSaved = {});
@@ -13337,6 +13369,7 @@ async function pickUsdaFoodForMeal(fdcId){
     focusAddFoodAmountInput();
     return;
   }
+  iosKeepKeyboardOpenDuringAsync();
   af.step = 'loading';
   render();
   try{
@@ -13351,6 +13384,7 @@ async function pickUsdaFoodForMeal(fdcId){
   }
   render();
   focusAddFoodAmountInput();
+  removeIosKeyboardKeepalive();
 }
 function backToAddFoodSearch(){
   var af = state.mealsUI.addFood;
@@ -13390,7 +13424,11 @@ function setAddFoodAmountUnit(u){
     focusAddFoodAmountInput();
     return;
   }
-  af.amountUnit = u; af.amountText=''; render();
+  // README 9.183: 库存/USDA/offquick 这几种 pick 切换单位时，以前会把 af.amountText 清空 -
+  // Lynn 反馈如果已经输入了数量，切换单位不应该清空，只需要重新选中(方便直接覆盖输入)并弹出
+  // 键盘即可，不清空重填。focusAddFoodAmountInput 本身在 el.value 非空时已经会 select() 全选，
+  // 所以这里去掉 af.amountText='' 就够了，不需要额外处理。
+  af.amountUnit = u; render();
   focusAddFoodAmountInput();
 }
 // README 9.132: 自定 tab - MyNetDiary's "Quick Calories" equivalent (see the screenshots Lynn
@@ -13507,6 +13545,39 @@ function focusAddFoodAmountInput(){
   if(!el) return;
   el.focus();
   if(el.value && el.select){ try{ el.select(); }catch(e){} }
+}
+// README 9.183: iOS Safari 只在"可信用户手势"这个同步窗口内才会为程序化 .focus() 弹出软键盘
+// (跟 addStep 那边的说明是同一条规则) - pickUsdaFoodForMeal 点进一条真正的(未缓存过的) USDA
+// 搜索结果时，中间隔了一次 await 网络请求(拉取该食物的营养详情)才能进到数量步骤，这个 await
+// 已经跳出了点击手势的窗口，所以后面对数量输入框的 focus()只能选中文字光标，键盘弹不出来
+// (Lynn反馈的"只选中了数量栏，没有一起弹出键盘")。这里在发起请求前，同步 focus 一个不可见的
+// 占位输入框把键盘"占"住不收起；只要键盘全程没有真正失焦过，请求结束后把 focus 转到真正的
+// 数量输入框上，键盘会跟着留在屏幕上，不需要重新触发手势。已经命中本地缓存(state.usdaSaved)
+// 的分支中途没有 await，本来就还在手势窗口内，不需要这个处理。
+function iosKeepKeyboardOpenDuringAsync(){
+  var el = document.getElementById('ios-keyboard-keepalive');
+  if(!el){
+    el = document.createElement('input');
+    el.id = 'ios-keyboard-keepalive';
+    el.type = 'text';
+    el.setAttribute('inputmode','decimal');
+    el.style.position = 'fixed';
+    el.style.top = '0';
+    el.style.left = '0';
+    el.style.opacity = '0';
+    el.style.height = '1px';
+    el.style.width = '1px';
+    el.style.border = 'none';
+    el.style.padding = '0';
+    el.style.fontSize = '16px'; // 16px 防止 iOS 因为字号太小而自动放大页面
+    el.style.pointerEvents = 'none';
+    document.body.appendChild(el);
+  }
+  el.focus();
+}
+function removeIosKeyboardKeepalive(){
+  var el = document.getElementById('ios-keyboard-keepalive');
+  if(el && el.parentNode) el.parentNode.removeChild(el);
 }
 function addFoodAmountBodyHtml(af){
   var p = af.picked;
