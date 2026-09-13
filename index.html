@@ -889,7 +889,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.181';
+var BUILD_VERSION = '9.182';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2382,7 +2382,7 @@ var I18N = {
     chooseExercisePlaceholder:'选择运动', pickExerciseTitle:'选择运动', exerciseNotListedLink:'没找到？手动输入名称',
     exerciseNeedWeightHint:'先在"个人信息"里填写体重，才能按这项运动自动算出消耗热量',
     back:'返回', prevDay:'前一天', nextDay:'后一天', todayLabel:'今天',
-    caloriesRemainingLabel:'还可以吃', caloriesOverLabel:'超出', caloriesRemainingShortLabel:'剩余', exerciseBurnedLabel:'锻炼消耗',
+    caloriesOverLabel:'超出', caloriesRemainingShortLabel:'剩余', exerciseBurnedLabel:'锻炼消耗',
     mealSlot_breakfast:'早餐', mealSlot_lunch:'午餐', mealSlot_dinner:'晚餐', mealSlot_snack:'零食',
     noMealLoggedHint:'还没有记录', addFoodBtn:'添加食物', deleteMealLogConfirm:'删除这条记录？',
     macroOverLabel:'超标', addFoodSearchPh:'搜索库存/食谱/食材，或输入英文查USDA',
@@ -2676,7 +2676,7 @@ var I18N = {
     chooseExercisePlaceholder:'Choose exercise', pickExerciseTitle:'Choose Exercise', exerciseNotListedLink:"Can't find it? Enter manually",
     exerciseNeedWeightHint:'Add your weight in Personal Info first to auto-calculate calories for this exercise',
     back:'Back', prevDay:'Previous day', nextDay:'Next day', todayLabel:'Today',
-    caloriesRemainingLabel:'Remaining', caloriesOverLabel:'Over', caloriesRemainingShortLabel:'Left', exerciseBurnedLabel:'Exercise Burned',
+    caloriesOverLabel:'Over', caloriesRemainingShortLabel:'Left', exerciseBurnedLabel:'Exercise Burned',
     mealSlot_breakfast:'Breakfast', mealSlot_lunch:'Lunch', mealSlot_dinner:'Dinner', mealSlot_snack:'Snacks',
     noMealLoggedHint:'Nothing logged yet', addFoodBtn:'Add Food', deleteMealLogConfirm:'Delete this entry?',
     macroOverLabel:'over', addFoodSearchPh:'Search inventory/recipes/ingredients, or an English term for USDA',
@@ -11772,9 +11772,11 @@ function renderMeals(){
   // README 9.165: 这块以前包在合并卡片里，外边距用 margin-top:14px 跟上面的 date-nav 拉开距离；
   // 现在单独占一张卡片(靠卡片自己的 padding 留白)，这个 margin-top 就不需要了，改成0。
   // README 9.169: Lynn 又提了四点：
-  // 1. 环内"还可以吃"太长，改成"剩余"——新加了一个专门的 caloriesRemainingShortLabel，没有
-  //    直接改 caloriesRemainingLabel 本身，因为那个 key 还被 dailyNutrientBarsHtml（维生素/矿物
-  //    质那些条图）共用，改了会连带影响那边，那边不在这次调整范围内。
+  // 1. 环内"还可以吃"太长，改成"剩余"——新加了一个专门的 caloriesRemainingShortLabel，当时
+  //    没有直接改 caloriesRemainingLabel 本身，因为那个 key 还被 dailyNutrientBarsHtml（维生素/
+  //    矿物质那些条图）共用（9.181起 dailyNutrientBarsHtml 那边也统一改成用
+  //    caloriesRemainingShortLabel 了，caloriesRemainingLabel 这个key因此已经删掉，全站"还可以
+  //    吃"统一成"剩余"）。
   // 2. 环外上方的总热量数字从16px/常规加大加粗到18px/700，好让它在卡片里更醒目一点。
   // 3. 环下方原来就是一行"120 kcal"，没有说明这是什么，这次加了"锻炼消耗"这个小标题，字号/
   //    字重(18px/700)特意跟宏量卡上面"当日宏量"那个小标题保持一致，两张卡片视觉上呼应。
@@ -12001,7 +12003,7 @@ function dailyNutrientBarsHtml(totals, budget){
     var pct = target>0 ? Math.round(compareActual/target*100) : 0;
     var over = compareActual>target;
     var barPct = Math.min(pct,100);
-    var rightText = over ? (t('caloriesOverLabel')+' '+(compareActual-target)+unit) : (t('caloriesRemainingLabel')+' '+(target-compareActual)+unit);
+    var rightText = over ? (t('caloriesOverLabel')+' '+(compareActual-target)+unit) : (t('caloriesRemainingShortLabel')+' '+(target-compareActual)+unit);
     return '<div style="margin-bottom:11px;">'+
       '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span>'+labels[key]+'</span><span class="hint">'+actual+unit+', '+pct+'%</span></div>'+
       '<div style="height:8px;background:var(--cream);border-radius:4px;overflow:hidden;"><div style="height:100%;width:'+barPct+'%;background:'+(over?'var(--danger)':'var(--fresh)')+';"></div></div>'+
@@ -14427,7 +14429,7 @@ function renderHealth(){
   return '' +
   '<div class="topbar"><div><h1>⚖️ '+t('healthTitle')+'</h1></div>'+menuButtonHtml('health', true)+'</div>'+
   '<div class="content">'+
-    weightCard + bpCard + waistCard + exerciseCard +
+    weightCard + exerciseCard + bpCard + waistCard +
   '</div>'+
   bottomNav();
 }
