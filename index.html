@@ -889,7 +889,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.185';
+var BUILD_VERSION = '9.188';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2405,17 +2405,17 @@ var I18N = {
     copyNoDeductHint:'复制不会重复扣减库存；移动不会改变已扣减的库存。',
     mealMovedToast:'已移动', mealCopiedToast:'已复制',
     servingsEatenLabel:'份数', deductFromInventoryLabel:'同时从库存扣减', servingsUnit:'份',
-    fieldMealAmount:'重量', fieldMealAmountUnit:'单位',
+    fieldMealAmount:'重量', fieldMealAmountUnit:'单位', fieldMealSlot:'加到哪一餐',
     mealLoggedToast:'已记录', mealsHistoryBtn:'历史',
     remainingQtyLabel:'剩余', remainingApproxLabel:'剩余约',
     consumeWholeUnitLabel:'按份消耗', consumeWholeUnitHint:'开启后，取用/食谱只能整份增减这份食材（如整桶泡面），不能按克/毫升记录',
     searchPlaceholder:'搜索食品名称 / 品牌', clearSearchBtn:'清空',
     recipeSearchPlaceholder:'搜索食谱名称 / 分类 / 食材',
     filterAll:'全部',
-    filterWholeCategory:'该分类下全部',
-    // Recipe sidebar's own "whole category" label - kept as a separate key from
-    // filterWholeCategory (which the inventory sidebar still uses) since only the recipe
-    // sidebar's copy changes to a plain '全部' here; weight/size/background stay as-is.
+    // README 9.188: filterWholeCategory("该分类下全部")这个key不再用了——库存sidebar点母分类
+    // 名字本身现在直接筛选整个分类，不需要额外一行文字来做这件事了(见catGroupsHtml的注释)。
+    // filterWholeCategoryRecipe留着：食谱sidebar那边还是原来的"展开后一行'全部'"这个设计，
+    // 这次改动只涉及库存。
     filterWholeCategoryRecipe:'全部',
     sortLabel:'排序', sortExpiry:'过期', sortName:'名称', sortPurchase:'购买', sortCreated:'录入',
     emptyInventory:'库存还是空的', emptyInventoryHint:'点击下方按钮扫码或手动添加第一件食材吧',
@@ -2699,13 +2699,12 @@ var I18N = {
     copyNoDeductHint:"Copying won't deduct inventory again; moving won't change any inventory already deducted.",
     mealMovedToast:'Moved', mealCopiedToast:'Copied',
     servingsEatenLabel:'Servings', deductFromInventoryLabel:'Also deduct from inventory', servingsUnit:'serving(s)',
-    fieldMealAmount:'Weight', fieldMealAmountUnit:'Unit',
+    fieldMealAmount:'Weight', fieldMealAmountUnit:'Unit', fieldMealSlot:'Add to meal',
     mealLoggedToast:'Logged', mealsHistoryBtn:'History',
     remainingQtyLabel:'Remaining',
     searchPlaceholder:'Search name / brand', clearSearchBtn:'Clear',
     recipeSearchPlaceholder:'Search recipes / category / ingredients',
     filterAll:'All',
-    filterWholeCategory:'All in this category',
     filterWholeCategoryRecipe:'All',
     sortLabel:'Sort', sortExpiry:'Expiry', sortName:'Name', sortPurchase:'Purchase date', sortCreated:'Date added',
     emptyInventory:'Your pantry is empty', emptyInventoryHint:'Tap below to scan or manually add your first item',
@@ -4223,6 +4222,34 @@ function countBasisMatch(src, amount, unit){
 // cycle guard for the 'recipe' ingredient branch below - callers never pass it explicitly
 // (every existing call site in this file calls calcRecipeNutrition(recipe) with just the one
 // argument), it only gets populated by this function's own recursive call into a sub-recipe.
+// README 9.187: 抽出来的单条库存/外部食材(非食谱食材)行营养贡献计算——calcRecipeNutrition的
+// 实时计算分支、refreshRecipeIngredientSnapshots捕获快照两处都要算"给定这一行的amount/unit和
+// 它此刻指向的食材，这一行对总营养的贡献是多少"这同一件事，抽出来避免两边逻辑分叉、以后改一处
+// 忘了改另一处。返回null表示这个单位换算不出结果(比如单位对不上)，调用方自己决定要不要警告。
+function computeIngredientRowContribution(ri, src){
+  var perBasis = src.nutrition || emptyNutrition();
+  var basisInfo = ingredientBasisInfo(src);
+  var used = amountToBasisUnits(ri.amount, ri.unit, ri.source_type==='inventory'?src:null);
+  if(used == null) used = countBasisMatch(src, ri.amount, ri.unit);
+  if(used == null) return null;
+  var nutrition = scaleNutrition(perBasis, basisInfo, used);
+  var basisAmount = used.type==='volume' ? basisInfo.volumeAmount : basisInfo.weightAmount;
+  if(basisAmount == null) basisAmount = used.type==='volume' ? basisInfo.weightAmount : basisInfo.volumeAmount;
+  if(basisAmount == null) basisAmount = 100;
+  var factor = used.value/basisAmount;
+  var extra = src.nutrition_extra || {};
+  var nutritionExtra = {};
+  var extraSkippedKeys = [];
+  NUTRI_EXTRA_CORE_KEYS.concat(NUTRI_EXTRA_OPTIONAL_KEYS).forEach(function(k){
+    var e = extra[k];
+    if(!e || e.value==null) return;
+    var scaled = Number(e.value)*factor;
+    var norm = extraToNaturalUnit(k, scaled, e.unit);
+    if(norm) nutritionExtra[k] = norm;
+    else extraSkippedKeys.push(k);
+  });
+  return {nutrition:nutrition, nutrition_extra:nutritionExtra, extraSkippedKeys:extraSkippedKeys};
+}
 function calcRecipeNutrition(recipe, visited){
   visited = visited || [];
   var total = emptyNutrition();
@@ -4288,35 +4315,37 @@ function calcRecipeNutrition(recipe, visited){
       return;
     }
     var src = getIngredientSource(ri);
-    if(!src){ warnings.push(ri.name_snapshot||'?'); return; }
-    var perBasis = src.nutrition || emptyNutrition();
-    var basisInfo = ingredientBasisInfo(src);
-    var used = amountToBasisUnits(ri.amount, ri.unit, ri.source_type==='inventory'?src:null);
-    if(used == null) used = countBasisMatch(src, ri.amount, ri.unit);
-    if(used == null){ warnings.push(src.name); return; }
-    total = addNutrition(total, scaleNutrition(perBasis, basisInfo, used));
-    var basisAmount = used.type==='volume' ? basisInfo.volumeAmount : basisInfo.weightAmount;
-    if(basisAmount == null) basisAmount = used.type==='volume' ? basisInfo.weightAmount : basisInfo.volumeAmount;
-    if(basisAmount == null) basisAmount = 100;
-    var factor = used.value/basisAmount;
-    var extra = src.nutrition_extra || {};
+    // README 9.187: 库存/外部食材被删除后，跟9.134给"食谱作为食材"做的事一样，用上次保存这道
+    // 食谱时留的快照(ri.snapshot)顶上，不再直接警告+从总营养里剔除——删除的是库存里的这条食材
+    // 记录，不应该反过来改动已经用它算过的这道食谱的热量。只在食材彻底找不到(被删了)时才用
+    // 快照；食材还在、只是这一行的单位换算不出来(比如单位改了/对不上)，还是照旧警告，不用
+        // 快照掩盖这个真实存在的问题——这跟食谱类食材的快照只在"子食谱被删除"时顶上是同一个原则。
+    var contribution, contribName;
+    if(src){
+      contribution = computeIngredientRowContribution(ri, src);
+      if(!contribution){ warnings.push(src.name); return; }
+      contribName = src.name;
+    } else if(ri.snapshot){
+      contribution = {nutrition:ri.snapshot.nutrition, nutrition_extra:ri.snapshot.nutrition_extra||{}, extraSkippedKeys:[]};
+      contribName = ri.snapshot.name || ri.name_snapshot || '?';
+    } else {
+      warnings.push(ri.name_snapshot||'?'); return;
+    }
+    total = addNutrition(total, contribution.nutrition);
     // Every contribution gets normalized to that nutrient's natural absolute unit up front
     // (extraToNaturalUnit - mg/mcg directly, %DV via NUTRI_DV_REFERENCE, vitamin D's IU via
     // vitaminDToMcg), so mixed-unit ingredients for the same nutrient just add up normally
     // instead of needing to match the first contribution's unit. Only falls through to the
     // exclude-and-warn path for vitamin A/E's IU, which has no reliable conversion - see
     // vitaminDToMcg's comment.
-    NUTRI_EXTRA_CORE_KEYS.concat(NUTRI_EXTRA_OPTIONAL_KEYS).forEach(function(k){
-      var e = extra[k];
-      if(!e || e.value==null) return;
-      var scaled = Number(e.value)*factor;
-      var norm = extraToNaturalUnit(k, scaled, e.unit);
-      if(norm){
-        if(!extraTotals[k]) extraTotals[k] = {unit:norm.unit, value:0};
-        extraTotals[k].value += norm.value;
-      } else {
-        extraWarnings.push(t(nutriExtraDefs()[k].labelKey)+'('+src.name+')');
-      }
+    Object.keys(contribution.nutrition_extra).forEach(function(k){
+      var e = contribution.nutrition_extra[k];
+      if(!extraTotals[k]) extraTotals[k] = {unit:e.unit, value:0};
+      if(extraTotals[k].unit !== e.unit){ extraWarnings.push(t(nutriExtraDefs()[k].labelKey)+'('+contribName+')'); return; }
+      extraTotals[k].value += e.value;
+    });
+    (contribution.extraSkippedKeys||[]).forEach(function(k){
+      extraWarnings.push(t(nutriExtraDefs()[k].labelKey)+'('+contribName+')');
     });
   });
   // extra oil
@@ -4513,18 +4542,12 @@ function addMenuOptionsForCurrentSection(){
   var isMeals = (v==='meals'||v==='fastingHistory'||v==='mealsHistory'||v==='mealsSettings'||v==='planSettings'||v==='macroPresetPicker'||v==='mealAddFood'||v==='mealLogEntryDetail');
   var isHealth = (v==='health'||v==='bpHistory'||v==='waistHistory'||v==='exerciseHistory'||v==='exerciseLogForm'||v==='pickExercise'||v==='weightHistory'||v==='healthSettings'||v==='personalInfo');
   if(isRecipes) return null; // signals "no menu - do the direct action instead"
-  if(isMeals){
-    // README 9.118: only offer meal slots the person has actually chosen to show on 三餐设置 -
-    // a hidden slot has nowhere to add food into via the FAB, matching how its section is
-    // omitted from the page itself.
-    var slotOptions = {
-      breakfast: {icon:'spoon', label:t('mealSlot_breakfast'), action:"openAddFoodPage(state.mealsUI.date,'breakfast')"},
-      lunch: {icon:'spoon', label:t('mealSlot_lunch'), action:"openAddFoodPage(state.mealsUI.date,'lunch')"},
-      dinner: {icon:'spoon', label:t('mealSlot_dinner'), action:"openAddFoodPage(state.mealsUI.date,'dinner')"},
-      snack: {icon:'spoon', label:t('mealSlot_snack'), action:"openAddFoodPage(state.mealsUI.date,'snack')"}
-    };
-    return MEAL_SLOTS.filter(function(s){ return state.visibleMealSlots.indexOf(s)!==-1; }).map(function(s){ return slotOptions[s]; });
-  }
+  // README 9.186: 三餐页底部导航+以前弹出"早/午/晚/加餐"四个按钮，跟三餐页顶部本来就有的各餐
+  // tab高亮做的是同一件事(选哪一餐)，被反馈重复。改成跟食谱tab一样返回null，交给onNavScanTap
+  // 直接跳去选食物页——选哪一餐这一步挪到了选完食物之后的数量+单位调整页(见
+  // addFoodAmountBodyHtml新加的mealSlotPickerTabsHtml这一行)，默认高亮点+当时顶部tab选中的
+  // 那一餐，还能在那边改选，最终存去的是那边选的，不是打开这个页面那一刻顶部tab显示的那个。
+  if(isMeals) return null;
   if(isHealth) return [
     {icon:'scale', label:t('logWeightBtn'), action:"openWeightLogModal(null)"},
     {icon:'ruler', label:t('logWaistBtn'), action:"openWaistLogModal(null)"},
@@ -4540,7 +4563,13 @@ function addMenuOptionsForCurrentSection(){
 function onNavScanTap(){
   if(state.addMenuOpen){ closeAddMenu(); return; }
   var opts = addMenuOptionsForCurrentSection();
-  if(opts===null){ openRecipeForm(null); return; }
+  if(opts===null){
+    var v = state.view;
+    var isMeals = (v==='meals'||v==='fastingHistory'||v==='mealsHistory'||v==='mealsSettings'||v==='planSettings'||v==='macroPresetPicker'||v==='mealAddFood'||v==='mealLogEntryDetail');
+    if(isMeals) openAddFoodPage(state.mealsUI.date, state.mealsUI.selectedSlot);
+    else openRecipeForm(null);
+    return;
+  }
   state.addMenuOpen = true;
   render();
 }
@@ -5912,7 +5941,6 @@ function renderHomeSidebarContent(){
     var expanded = !!state.home.expandedCategoryGroups[g.id];
     var groupActive = state.home.categoryGroup===g.id && !state.home.categorySub;
     var hasSubs = g.subs && g.subs.length;
-    var wholeGroupItem = '<div class="sidebar-item '+(groupActive?'active':'')+'" style="font-weight:600;" onclick="sidebarSetHomeCategoryFilter('+aj(g.id)+',null)">'+t('filterWholeCategory')+'</div>';
     var subItems = (g.subs||[]).map(function(s){
       var active = state.home.categoryGroup===g.id && state.home.categorySub===s;
       var subCount = subCounts[g.id+'\u0001'+s];
@@ -5922,7 +5950,11 @@ function renderHomeSidebarContent(){
         '</div>';
     }).join('');
     var groupCount = catCounts[g.id];
-    var rowClick = hasSubs ? ('toggleHomeSidebarCategoryGroup('+aj(g.id)+')') : ('sidebarSetHomeCategoryFilter('+aj(g.id)+',null)');
+    // README 9.188: 有子分类时，点母分类名字本身现在直接筛选"该分类下全部"（跟没有子分类的行为
+    // 一致），不再需要额外挤出一行"该分类下全部"来做这件事——Lynn反馈这行字有点多余，点母分类
+    // 名称本来就该是这个意思。展开/收起子分类列表这个动作单独挪到了chevron自己身上（点chevron
+    // 展开/收起，不筛选；点名字筛选，不展开/收起），两个操作各自绑自己的onclick，互不干扰。
+    var rowClick = 'sidebarSetHomeCategoryFilter('+aj(g.id)+',null)';
     // README 9.127: a group with no subs has nothing to expand, so it no longer pays for the
     // chevron-having group-header's extra inner padding (8px on top of the header's own 10px) -
     // it renders as a single plain .sidebar-item row instead, same compact height as every
@@ -5939,14 +5971,14 @@ function renderHomeSidebarContent(){
       '</div>';
     }
     return '<div class="sidebar-group">'+
-      '<div class="sidebar-group-header" style="display:flex;align-items:center;" onclick="'+rowClick+'">'+
-        '<span class="sidebar-item '+(groupActive && !hasSubs?'active':'')+'" style="flex:1;padding:8px 4px;display:flex;align-items:center;justify-content:space-between;gap:6px;min-width:0;">'+
+      '<div class="sidebar-group-header" style="display:flex;align-items:center;">'+
+        '<span class="sidebar-item '+(groupActive?'active':'')+'" style="flex:1;padding:8px 4px;display:flex;align-items:center;justify-content:space-between;gap:6px;min-width:0;" onclick="'+rowClick+'">'+
           '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(g.name)+'</span>'+
           (groupCount ? '<span class="sidebar-item-count">'+groupCount+'</span>' : '')+
         '</span>'+
-        (hasSubs ? ic('chevronRight',16,'style="transform:rotate('+(expanded?'90':'0')+'deg);transition:transform .15s;display:block;padding:6px;color:var(--deep-caramel);flex-shrink:0;box-sizing:content-box;"') : '')+
+        ic('chevronRight',16,'onclick="event.stopPropagation();toggleHomeSidebarCategoryGroup('+aj(g.id)+')" style="transform:rotate('+(expanded?'90':'0')+'deg);transition:transform .15s;display:block;padding:6px;color:var(--deep-caramel);flex-shrink:0;box-sizing:content-box;cursor:pointer;"')+
       '</div>'+
-      (expanded ? '<div class="sidebar-subs">'+wholeGroupItem+subItems+'</div>' : '')+
+      (expanded ? '<div class="sidebar-subs">'+subItems+'</div>' : '')+
     '</div>';
   }).join('');
   var catHtml = sidebarSectionTitleHtml('fieldCategory', 'category', catOpen) +
@@ -10914,28 +10946,41 @@ function stripEmptyIngredientGroups(list){
   }
   return out;
 }
-// README 9.134: called right before a recipe is persisted (saveRecipeForm) - refreshes
-// ri.snapshot for every recipe-sourced ingredient row whose source recipe still exists, so
-// calcRecipeNutrition always has something to fall back on if that source is deleted later (see
-// its 9.134 comment). Deliberately only touches rows whose source is currently resolvable -
-// leaves an existing snapshot alone if the source has ALREADY been deleted (nothing fresher to
-// capture), and intentionally does NOT recurse into further-nested sub-recipes' own ingredient
-// snapshots, since calcRecipeNutrition's live-or-snapshot fallback happens at every level
-// independently - a sub-recipe refreshes its own rows' snapshots when IT is saved.
+// README 9.134/9.187: 保存食谱前刷新每一行食材的ri.snapshot——食谱类食材(source_type==='recipe')
+// 存的是子食谱当时的完整计算结果(见calcRecipeNutrition的9.134注释)；库存/外部食材
+// (source_type是'inventory'/'external')存的是这一行当时算出来的营养贡献本身(见
+// computeIngredientRowContribution)。两种食材各自的源(子食谱/库存条目)如果之后被删除，
+// calcRecipeNutrition都能退回来用这份快照，不会让删除动作反过来改变已经用它算过的这道食谱的
+// 营养/热量——删除食材只影响库存数量，不该影响已经添加了这个食材的食谱的计算结果。
+// 只在源眼下还能找到、而且这一行确实能算出结果时才刷新——源已经不在了/换算不出来就跳过，保留
+// 现成的旧快照，没有更新鲜的数据可捕捉，也不用一个null去覆盖掉本来还能用的快照。
 function refreshRecipeIngredientSnapshots(recipe){
   (recipe.ingredients||[]).forEach(function(ri){
-    if(ri.type==='group' || ri.source_type!=='recipe') return;
-    var subRecipe = state.recipes.find(function(r){ return r.id===ri.source_id; });
-    if(!subRecipe) return;
-    var result = calcRecipeNutrition(subRecipe, [subRecipe.id]);
+    if(ri.type==='group') return;
+    if(ri.source_type==='recipe'){
+      var subRecipe = state.recipes.find(function(r){ return r.id===ri.source_id; });
+      if(!subRecipe) return;
+      var result = calcRecipeNutrition(subRecipe, [subRecipe.id]);
+      ri.snapshot = {
+        total: result.total,
+        extraTotal: result.extraTotal,
+        warnings: result.warnings,
+        extraWarnings: result.extraWarnings,
+        servings: subRecipe.servings,
+        cooked_weight: subRecipe.cooked_weight,
+        name: subRecipe.name,
+        captured_at: nowLocalIso()
+      };
+      return;
+    }
+    var src = getIngredientSource(ri);
+    if(!src) return;
+    var contribution = computeIngredientRowContribution(ri, src);
+    if(!contribution) return;
     ri.snapshot = {
-      total: result.total,
-      extraTotal: result.extraTotal,
-      warnings: result.warnings,
-      extraWarnings: result.extraWarnings,
-      servings: subRecipe.servings,
-      cooked_weight: subRecipe.cooked_weight,
-      name: subRecipe.name,
+      nutrition: contribution.nutrition,
+      nutrition_extra: contribution.nutrition_extra,
+      name: src.name,
       captured_at: nowLocalIso()
     };
   });
@@ -13648,34 +13693,42 @@ function addFoodAmountBodyHtml(af){
     // falls back to itemUnits' own order (food's own unit first) when g genuinely isn't one of
     // this item's usable units at all.
     if(!af.amountUnit) af.amountUnit = itemUnits.indexOf('g')!==-1 ? 'g' : (itemUnits[0] || itemSrc.primary_unit || 'g');
+    // README 9.186: 单位选择器这次从一排"药丸"标签(tag-select)改成跟重量输入框长得一样的下拉框
+    // (原生<select>，套用.field select现成的样式，不需要额外写CSS)——Lynn反馈原来那种平铺展示
+    // 所有单位的样式占地方太大，改成下拉之后跟重量输入框可以并排放。只有一个可选单位时还是不
+    // 显示这个选择器(沿用"有备选项才做下拉"的老规则)，靠重量输入框旁边的"(g)"文字说明单位。
     itemUnitField = itemUnits.length>1 ?
-      ('<div class="field"><label>'+t('fieldMealAmountUnit')+'</label><div class="tag-select" style="flex-wrap:wrap;">'+
-        itemUnits.map(function(u){ return '<div class="tag-option '+(af.amountUnit===u?'active':'')+'" onclick="setAddFoodAmountUnit(\''+u+'\')">'+esc(u)+'</div>'; }).join('')+
-      '</div></div>') : '';
+      ('<div class="field"><label>'+t('fieldMealAmountUnit')+'</label><select onchange="setAddFoodAmountUnit(this.value)">'+
+        itemUnits.map(function(u){ return '<option value="'+esc(u)+'" '+(af.amountUnit===u?'selected':'')+'>'+esc(u)+'</option>'; }).join('')+
+      '</select></div>') : '';
   }
-  // README 9.185: 库存条目原来在选餐列表第二行显示的"数量/位置/保质期"信息，这次挪到这里——
-  // 同一产品有多个批次时做成一个下拉框(9.184里跟Lynn确认过：批次和位置捆在一起选，如实反映
-  // 库存实际的批次-位置对应关系，不做成两个可以随意组合的独立下拉)，默认选中项由
+  // README 9.185/9.186: 库存条目原来在选餐列表第二行显示的"数量/位置/保质期"信息，这次挪到
+  // 这里——同一产品有多个批次时做成一个下拉框(9.184里跟Lynn确认过：批次和位置捆在一起选，如实
+  // 反映库存实际的批次-位置对应关系，不做成两个可以随意组合的独立下拉)，默认选中项由
   // pickLocalFoodForMeal/defaultBatchForGroup算好(最早到期优先，同一天打平的话优先选这个产品
   // 上次被选中的位置)；只有一个批次的话没什么可选的，就用纯文字展示同样这几项信息，不做成
-  // 下拉框（保持"有备选项才做下拉"的原则）。
+  // 下拉框（保持"有备选项才做下拉"的原则）。9.186: 缺失的项(没设置保质期/没设置位置)直接整项
+  // 不显示，包括它的字段名——Lynn反馈"保质期至 未设置"这种看着比不显示还难受；有值的项也只显示
+  // 值本身，不带"位置"这个字段名前缀(比如直接显示"食柜"，不是"位置 食柜")。
   var batchField = '';
   if(isItem && p.batchIds && p.batchIds.length){
     var batchItems = p.batchIds.map(function(bid){ return state.items.find(function(x){ return x.id===bid; }); }).filter(function(x){ return x && !x.archived; });
+    var batchInfoParts = function(it){
+      var parts = [];
+      if(it.expiry_date) parts.push(esc(fmtDateDots(it.expiry_date)));
+      if(it.location) parts.push(esc(it.location));
+      parts.push(esc(qtyDisplay(it)));
+      return parts.join(' · ');
+    };
     if(batchItems.length>1){
       batchField = '<div class="field"><label>'+t('fieldExpiry')+' / '+t('fieldLocation')+'</label>'+
-        '<select onchange="setAddFoodBatch(this.value)" style="width:100%;box-sizing:border-box;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);background:var(--card-bg);color:var(--cocoa);">'+
+        '<select onchange="setAddFoodBatch(this.value)">'+
         batchItems.map(function(it){
-          var exp = it.expiry_date ? fmtDateDots(it.expiry_date) : t('unset');
-          var loc = it.location || t('unset');
-          var label = exp+' · '+loc+' · '+qtyDisplay(it);
-          return '<option value="'+esc(it.id)+'" '+(it.id===p.id?'selected':'')+'>'+esc(label)+'</option>';
+          return '<option value="'+esc(it.id)+'" '+(it.id===p.id?'selected':'')+'>'+batchInfoParts(it)+'</option>';
         }).join('')+
         '</select></div>';
     } else if(batchItems.length===1){
-      var only = batchItems[0];
-      var expOnly = only.expiry_date ? fmtDateDots(only.expiry_date) : t('unset');
-      batchField = '<p class="hint" style="margin:-6px 0 14px;">'+t('fieldExpiry')+' '+esc(expOnly)+' · '+t('fieldLocation')+' '+esc(only.location||t('unset'))+' · '+esc(qtyDisplay(only))+'</p>';
+      batchField = '<p class="hint" style="margin:-6px 0 14px;">'+batchInfoParts(batchItems[0])+'</p>';
     }
   }
   return '' +
@@ -13684,19 +13737,49 @@ function addFoodAmountBodyHtml(af){
     (isRecipe ?
       recipeAmountField
       :
-      itemUnitField+
-      '<div class="field"><label>'+t('fieldMealAmount')+((isItem||p.type==='offquick') ? (' ('+esc(af.amountUnit||'g')+')') : ' (g)')+'</label><input type="text" id="af-amount-input" autofocus placeholder="-" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>'+
+      // README 9.186: 重量输入框和单位选择框这次改成左右并排一行(field-row)，不再上下堆叠——
+      // Lynn反馈重量这一栏本来就用不到一整行宽度，改成下拉之后单位框也不需要占一整行，正好
+      // 并排。只有一个可选单位时itemUnitField是空字符串，这一行里就只剩重量框自己撑满，不会
+      // 露出空白的另一栏。
+      '<div class="field-row">'+
+        '<div class="field"><label>'+t('fieldMealAmount')+((isItem||p.type==='offquick') ? (' ('+esc(af.amountUnit||'g')+')') : ' (g)')+'</label><input type="text" id="af-amount-input" autofocus placeholder="-" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>'+
+        itemUnitField+
+      '</div>'+
       // README 9.132: defaults ON for a direct inventory pick now (was off) - Lynn: "直接吃库存
       //食材也算消耗，要扣". Only inventory items ever show this row at all; recipe/USDA/external
       // picks have nothing in stock to deduct from.
       (isItem ? ('<div class="list-row"><div class="row-label">'+t('deductFromInventoryLabel')+'</div><label class="switch"><input type="checkbox" '+(af.deduct?'checked':'')+' onchange="af_bool(\'deduct\',this.checked)"><span class="switch-slider"></span></label></div>') : '')
     )+
+    // README 9.186: 三餐页底部导航+和顶部各餐tab两套"选哪一餐"的入口重复——这次把+改成直接进
+    // 选食物流程(不再弹出选哪餐的按钮，见addMenuOptionsForCurrentSection/onNavScanTap)，选完
+    // 食物进到这个数量+单位调整页后，在重量输入框下方补一行跟三餐页顶部一样的餐次tab，进来的
+    // 时候是从哪个餐次tab点的+就默认高亮哪个(af.slot初始值)，这里还能改选成别的餐——最终点
+    // "保存"存去的是这里高亮的那个，不是打开这个页面时那个，这样既不用重复点两次"选哪一餐"，
+    // 也不会因为忘了切页面顶部的tab而加错到当前正在看的那一餐。
+    '<div class="field"><label>'+t('fieldMealSlot')+'</label>'+mealSlotPickerTabsHtml(af.slot)+'</div>'+
     // README 9.137: live nutrition preview, right here at the point of choosing how much - see
     // computeAddFoodPreviewNutrition. Shows a dash placeholder (mealEntryNutritionPreviewHtml's
     // own null-handling) until the typed amount resolves to a usable number.
     '<div id="add-food-nutrition-preview" style="margin-top:6px;">'+mealEntryNutritionPreviewHtml(computeAddFoodPreviewNutrition(af))+'</div>'+
     '<button class="btn btn-outline" style="margin-top:14px;width:100%;" onclick="backToAddFoodSearch()">'+t('back')+'</button>'+
     '<button class="btn btn-primary" style="margin-top:10px;width:100%;" onclick="saveMealLogEntry()">'+t('save')+'</button>';
+}
+// README 9.186: 数量+单位调整页里新增的"选哪一餐"tab行 - 样式复用三餐页顶部mealSlotTabsHtml
+// 那一套(.meal-tabs/.meal-tab)，只是不显示每餐已有的kcal小计(这里是"我要加到哪一餐"的选择器，
+// 不是"看哪一餐"的浏览器，不需要那个数字)，只显示三餐设置里选中要展示的那几餐，跟三餐页顶部
+// 完全一致。
+function mealSlotPickerTabsHtml(selectedSlot){
+  var visible = MEAL_SLOTS.filter(function(s){ return state.visibleMealSlots.indexOf(s)!==-1; });
+  var tabs = visible.map(function(slot){
+    return '<div class="meal-tab'+(slot===selectedSlot?' active':'')+'" onclick="setAddFoodTargetSlot('+aj(slot)+')">'+
+      '<div class="mt-name">'+t('mealSlot_'+slot)+'</div>'+
+    '</div>';
+  }).join('');
+  return '<div class="meal-tabs" style="margin-top:6px;">'+tabs+'</div>';
+}
+function setAddFoodTargetSlot(slot){
+  state.mealsUI.addFood.slot = slot;
+  render();
 }
 function saveMealLogEntry(){
   var af = state.mealsUI.addFood;
@@ -13794,6 +13877,10 @@ function saveMealLogEntry(){
   // 的缓存(见pickUsdaFoodForMeal/cacheUsdaFoodDetail)分开处理,不是搜索/浏览就算。
   else if(p.type==='usda') bumpPickFrequency('usda', p.fdcId);
   showToast(t('mealLoggedToast'));
+  // README 9.186: 保存之后把三餐页顶部高亮的tab也切到刚存进去的那一餐——如果是在数量页把默认
+  // 餐次改成了别的(比如从午餐tab点+进来，改选了晚餐)，回到三餐页正好能立刻看到刚加的这条，
+  // 而不是还停在午餐、看不到自己刚加的东西、以为没存上。
+  state.mealsUI.selectedSlot = af.slot;
   navigate('meals');
 }
 
