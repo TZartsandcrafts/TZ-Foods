@@ -889,7 +889,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.191';
+var BUILD_VERSION = '9.192';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -5076,6 +5076,10 @@ document.addEventListener('selectstart', function(e){
 // a day, swipe right goes back a day, on top of the existing prev/next buttons and the "tap the
 // date to open the calendar" gesture (tapping the label itself doesn't trigger this, since a
 // tap has ~0px of horizontal movement and never crosses the 40px threshold below).
+// README 9.192: the logic here didn't change - .date-nav-swipe-area just now wraps a bigger
+// chunk of markup (see renderMeals: dateNav + summarySection, i.e. the date row plus the
+// calorie-ring and macro-ring cards below it), so this same handler now also fires when the
+// swipe starts anywhere in those two cards, not just on the date row itself.
 (function initDateNavSwipe(){
   var startX=null, startY=null;
   document.addEventListener('touchstart', function(e){
@@ -11806,7 +11810,15 @@ function renderMeals(){
   // 单栏，热量卡自己占一整行、独立成一张卡片（跟合并布局之前的原始样式一致）。左右划切日期、
   // 点日期开月历、点/划宏量图切换饼图/条图这些手势一概没动——.date-nav-swipe-area/
   // .macro-widget-swipe-area 这两个 class 还留在原来的元素上，只是外面套的卡片容器变了。
-  var dateNav = '<div class="date-nav-bar date-nav-swipe-area" style="margin-bottom:0;">'+
+  // README 9.192: .date-nav-swipe-area 这个手势触发范围原本只包在 date-nav-bar 这一行（上下
+  // 箭头+日期文字）上，Lynn 要求把下面热量环/宏量环两张卡片所在的整块区域也一起纳入"左右划切
+  // 日期"的手势范围——不用改 initDateNavSwipe 里的手势逻辑本身（还是 closest('.date-nav-swipe-
+  // area') 找目标元素，dx>40 且横向明显大于纵向才触发 shiftMealsDate），只需要把这个 class 从
+  // date-nav-bar 这一层挪到外面新包的一层容器上，让它把 dateNav+summarySection 一起罩住即可。
+  // 宏量卡内部原来的 macro-widget-swipe-area 手势（划动切换饼图/条图）在 9.181 已经整个删掉了，
+  // 所以这里不存在跟旧手势抢touch事件的问题；日期文字上的"点击开月历"用的是 onclick 点击事件，
+  // 跟这里 touchstart/touchend 判断横向位移的划动手势也不冲突，原有点击热区、点击行为都不受影响。
+  var dateNav = '<div class="date-nav-bar" style="margin-bottom:0;">'+
     '<button class="icon-btn" onclick="shiftMealsDate(-1)" aria-label="'+t('prevDay')+'">'+ic('back',18)+'</button>'+
     '<div class="date-nav-label" onclick="openMealsCalendar()" style="cursor:pointer;">'+(date===todayStr() ? t('todayLabel') : esc(fmtDateDots(date)))+'</div>'+
     '<button class="icon-btn" onclick="shiftMealsDate(1)" aria-label="'+t('nextDay')+'">'+ic('chevronRight',18)+'</button>'+
@@ -11886,7 +11898,9 @@ function renderMeals(){
       '<div class="form-group" style="flex:1;margin:0;display:flex;flex-direction:column;justify-content:space-between;">'+macroWidget+'</div>'+
     '</div>')
     : ('<div class="form-group" style="margin-top:14px;">'+calorieCard+'</div>');
-  var topCard = dateNav + summarySection;
+  // README 9.192: 新包一层 .date-nav-swipe-area 容器，把 dateNav 那一行和下面的热量卡/宏量卡
+  // (summarySection) 一起罩进划动手势的触发范围——见上面 dateNav 定义处的详细注释。
+  var topCard = '<div class="date-nav-swipe-area">'+dateNav+summarySection+'</div>';
   var tabsHtml = mealSlotTabsHtml(date);
   var detailHtml = mealSlotDetailHtml(date, state.mealsUI.selectedSlot);
   var mealMacroWidget = mealSlotMacroWidgetHtml(date, state.mealsUI.selectedSlot, budget);
