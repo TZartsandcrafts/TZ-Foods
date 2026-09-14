@@ -889,7 +889,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.188';
+var BUILD_VERSION = '9.189';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2405,7 +2405,7 @@ var I18N = {
     copyNoDeductHint:'复制不会重复扣减库存；移动不会改变已扣减的库存。',
     mealMovedToast:'已移动', mealCopiedToast:'已复制',
     servingsEatenLabel:'份数', deductFromInventoryLabel:'同时从库存扣减', servingsUnit:'份',
-    fieldMealAmount:'重量', fieldMealAmountUnit:'单位', fieldMealSlot:'加到哪一餐',
+    fieldMealAmount:'数量', fieldMealAmountUnit:'单位', fieldMealSlot:'加到', fieldBatch:'批次',
     mealLoggedToast:'已记录', mealsHistoryBtn:'历史',
     remainingQtyLabel:'剩余', remainingApproxLabel:'剩余约',
     consumeWholeUnitLabel:'按份消耗', consumeWholeUnitHint:'开启后，取用/食谱只能整份增减这份食材（如整桶泡面），不能按克/毫升记录',
@@ -2699,7 +2699,7 @@ var I18N = {
     copyNoDeductHint:"Copying won't deduct inventory again; moving won't change any inventory already deducted.",
     mealMovedToast:'Moved', mealCopiedToast:'Copied',
     servingsEatenLabel:'Servings', deductFromInventoryLabel:'Also deduct from inventory', servingsUnit:'serving(s)',
-    fieldMealAmount:'Weight', fieldMealAmountUnit:'Unit', fieldMealSlot:'Add to meal',
+    fieldMealAmount:'Amount', fieldMealAmountUnit:'Unit', fieldMealSlot:'Add to', fieldBatch:'Batch',
     mealLoggedToast:'Logged', mealsHistoryBtn:'History',
     remainingQtyLabel:'Remaining',
     searchPlaceholder:'Search name / brand', clearSearchBtn:'Clear',
@@ -13702,14 +13702,17 @@ function addFoodAmountBodyHtml(af){
         itemUnits.map(function(u){ return '<option value="'+esc(u)+'" '+(af.amountUnit===u?'selected':'')+'>'+esc(u)+'</option>'; }).join('')+
       '</select></div>') : '';
   }
-  // README 9.185/9.186: 库存条目原来在选餐列表第二行显示的"数量/位置/保质期"信息，这次挪到
-  // 这里——同一产品有多个批次时做成一个下拉框(9.184里跟Lynn确认过：批次和位置捆在一起选，如实
-  // 反映库存实际的批次-位置对应关系，不做成两个可以随意组合的独立下拉)，默认选中项由
+  // README 9.185/9.186/9.189: 库存条目原来在选餐列表第二行显示的"数量/位置/保质期"信息，这次
+  // 挪到这里——同一产品有多个批次时做成一个下拉框(9.184里跟Lynn确认过：批次和位置捆在一起选，
+  // 如实反映库存实际的批次-位置对应关系，不做成两个可以随意组合的独立下拉)，默认选中项由
   // pickLocalFoodForMeal/defaultBatchForGroup算好(最早到期优先，同一天打平的话优先选这个产品
   // 上次被选中的位置)；只有一个批次的话没什么可选的，就用纯文字展示同样这几项信息，不做成
   // 下拉框（保持"有备选项才做下拉"的原则）。9.186: 缺失的项(没设置保质期/没设置位置)直接整项
   // 不显示，包括它的字段名——Lynn反馈"保质期至 未设置"这种看着比不显示还难受；有值的项也只显示
-  // 值本身，不带"位置"这个字段名前缀(比如直接显示"食柜"，不是"位置 食柜")。
+  // 值本身，不带"位置"这个字段名前缀(比如直接显示"食柜"，不是"位置 食柜")。9.189: 这个字段的
+  // 标题从"保质期至 / 位置"两个字段名拼起来，简化成一个更通用的"批次"——Lynn纯排版上的要求；
+  // 单批次的纯文字展示原来没有标题，这次也一并加上"批次"这个标题，跟多批次下拉框保持一致，
+  // 不再是"有的有标题、有的没有"。
   var batchField = '';
   if(isItem && p.batchIds && p.batchIds.length){
     var batchItems = p.batchIds.map(function(bid){ return state.items.find(function(x){ return x.id===bid; }); }).filter(function(x){ return x && !x.archived; });
@@ -13721,16 +13724,22 @@ function addFoodAmountBodyHtml(af){
       return parts.join(' · ');
     };
     if(batchItems.length>1){
-      batchField = '<div class="field"><label>'+t('fieldExpiry')+' / '+t('fieldLocation')+'</label>'+
+      batchField = '<div class="field"><label>'+t('fieldBatch')+'</label>'+
         '<select onchange="setAddFoodBatch(this.value)">'+
         batchItems.map(function(it){
           return '<option value="'+esc(it.id)+'" '+(it.id===p.id?'selected':'')+'>'+batchInfoParts(it)+'</option>';
         }).join('')+
         '</select></div>';
     } else if(batchItems.length===1){
-      batchField = '<p class="hint" style="margin:-6px 0 14px;">'+batchInfoParts(batchItems[0])+'</p>';
+      batchField = '<div class="field"><label>'+t('fieldBatch')+'</label><p class="hint" style="margin:0;">'+batchInfoParts(batchItems[0])+'</p></div>';
     }
   }
+  // README 9.189: "加到哪一餐"这个字段(名字+餐次tab)排版调整——标签简化成"加到"，餐次tab里的
+  // 字号从原来.mt-name的18px改小到16px、跟食物/食材名称那行(p style="font-weight:600")的字号
+  // 对齐(inline style覆盖.mt-name本来的font-size，三餐页顶部自己的tab不受影响，那边没传这个
+  // inline style)；整块从"数量/单位"下面、"同时从库存扣减"下面，挪到"数量/单位"下面、"同时从
+  // 库存扣减"上面——纯排版调整，选中哪一餐/保存去哪一餐的功能完全不变。
+  var mealSlotField = '<div class="field"><label>'+t('fieldMealSlot')+'</label>'+mealSlotPickerTabsHtml(af.slot)+'</div>';
   return '' +
     '<p style="font-weight:600;margin-bottom:14px;">'+esc(p.name)+'</p>'+
     batchField+
@@ -13740,23 +13749,20 @@ function addFoodAmountBodyHtml(af){
       // README 9.186: 重量输入框和单位选择框这次改成左右并排一行(field-row)，不再上下堆叠——
       // Lynn反馈重量这一栏本来就用不到一整行宽度，改成下拉之后单位框也不需要占一整行，正好
       // 并排。只有一个可选单位时itemUnitField是空字符串，这一行里就只剩重量框自己撑满，不会
-      // 露出空白的另一栏。
+      // 露出空白的另一栏。9.189: 标签从"重量"改成更通用的"数量"——单位不一定是重量单位(可以是
+      // ml/件/份等)，"数量"更准确，纯文案调整。
       '<div class="field-row">'+
         '<div class="field"><label>'+t('fieldMealAmount')+((isItem||p.type==='offquick') ? (' ('+esc(af.amountUnit||'g')+')') : ' (g)')+'</label><input type="text" id="af-amount-input" autofocus placeholder="-" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>'+
         itemUnitField+
-      '</div>'+
+      '</div>'
+    )+
+    mealSlotField+
+    (isItem ?
       // README 9.132: defaults ON for a direct inventory pick now (was off) - Lynn: "直接吃库存
       //食材也算消耗，要扣". Only inventory items ever show this row at all; recipe/USDA/external
       // picks have nothing in stock to deduct from.
-      (isItem ? ('<div class="list-row"><div class="row-label">'+t('deductFromInventoryLabel')+'</div><label class="switch"><input type="checkbox" '+(af.deduct?'checked':'')+' onchange="af_bool(\'deduct\',this.checked)"><span class="switch-slider"></span></label></div>') : '')
-    )+
-    // README 9.186: 三餐页底部导航+和顶部各餐tab两套"选哪一餐"的入口重复——这次把+改成直接进
-    // 选食物流程(不再弹出选哪餐的按钮，见addMenuOptionsForCurrentSection/onNavScanTap)，选完
-    // 食物进到这个数量+单位调整页后，在重量输入框下方补一行跟三餐页顶部一样的餐次tab，进来的
-    // 时候是从哪个餐次tab点的+就默认高亮哪个(af.slot初始值)，这里还能改选成别的餐——最终点
-    // "保存"存去的是这里高亮的那个，不是打开这个页面时那个，这样既不用重复点两次"选哪一餐"，
-    // 也不会因为忘了切页面顶部的tab而加错到当前正在看的那一餐。
-    '<div class="field"><label>'+t('fieldMealSlot')+'</label>'+mealSlotPickerTabsHtml(af.slot)+'</div>'+
+      ('<div class="list-row"><div class="row-label">'+t('deductFromInventoryLabel')+'</div><label class="switch"><input type="checkbox" '+(af.deduct?'checked':'')+' onchange="af_bool(\'deduct\',this.checked)"><span class="switch-slider"></span></label></div>')
+      : '')+
     // README 9.137: live nutrition preview, right here at the point of choosing how much - see
     // computeAddFoodPreviewNutrition. Shows a dash placeholder (mealEntryNutritionPreviewHtml's
     // own null-handling) until the typed amount resolves to a usable number.
@@ -13764,15 +13770,17 @@ function addFoodAmountBodyHtml(af){
     '<button class="btn btn-outline" style="margin-top:14px;width:100%;" onclick="backToAddFoodSearch()">'+t('back')+'</button>'+
     '<button class="btn btn-primary" style="margin-top:10px;width:100%;" onclick="saveMealLogEntry()">'+t('save')+'</button>';
 }
-// README 9.186: 数量+单位调整页里新增的"选哪一餐"tab行 - 样式复用三餐页顶部mealSlotTabsHtml
+// README 9.186/9.189: 数量+单位调整页里"选哪一餐"tab行 - 样式复用三餐页顶部mealSlotTabsHtml
 // 那一套(.meal-tabs/.meal-tab)，只是不显示每餐已有的kcal小计(这里是"我要加到哪一餐"的选择器，
 // 不是"看哪一餐"的浏览器，不需要那个数字)，只显示三餐设置里选中要展示的那几餐，跟三餐页顶部
-// 完全一致。
+// 完全一致。9.189: 餐名文字这里用inline style把字号从.mt-name本来的18px改小到16px，跟这个
+// 页面上"食物/食材名称"那行(font-weight:600，走的是body默认字号)对齐——纯排版调整，只影响这个
+// 选择器自己，三餐页顶部自己那份tab(mealSlotTabsHtml)没有传这个inline style，字号不受影响。
 function mealSlotPickerTabsHtml(selectedSlot){
   var visible = MEAL_SLOTS.filter(function(s){ return state.visibleMealSlots.indexOf(s)!==-1; });
   var tabs = visible.map(function(slot){
     return '<div class="meal-tab'+(slot===selectedSlot?' active':'')+'" onclick="setAddFoodTargetSlot('+aj(slot)+')">'+
-      '<div class="mt-name">'+t('mealSlot_'+slot)+'</div>'+
+      '<div class="mt-name" style="font-size:16px;">'+t('mealSlot_'+slot)+'</div>'+
     '</div>';
   }).join('');
   return '<div class="meal-tabs" style="margin-top:6px;">'+tabs+'</div>';
