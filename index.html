@@ -906,7 +906,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.198';
+var BUILD_VERSION = '9.199';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -14296,8 +14296,14 @@ function addFoodAmountBodyHtml(af){
     // computeAddFoodPreviewNutrition. Shows a dash placeholder (mealEntryNutritionPreviewHtml's
     // own null-handling) until the typed amount resolves to a usable number.
     '<div id="add-food-nutrition-preview" style="margin-top:6px;">'+mealEntryNutritionPreviewHtml(computeAddFoodPreviewNutrition(af))+'</div>'+
-    '<button class="btn btn-outline" style="margin-top:14px;width:100%;" onclick="backToAddFoodSearch()">'+t('back')+'</button>'+
-    '<button class="btn btn-primary" style="margin-top:10px;width:100%;" onclick="saveMealLogEntry()">'+t('save')+'</button>';
+    // README 9.199: 返回+保存原来是上下堆叠两个整宽按钮——返回键其实有右划返回手势可以用，
+    // 单独占一整行有点浪费，Lynn要求跟保存键改成同一行左右并排（返回在左、保存在右），返回键
+    // 本身还留着（备用/给不习惯手势的场景），只是不再单独占一行。纯排版调整，两个按钮各自的
+    // 点击行为(backToAddFoodSearch/saveMealLogEntry)完全不变。
+    '<div style="display:flex;gap:10px;margin-top:14px;">'+
+      '<button class="btn btn-outline" style="flex:1;" onclick="backToAddFoodSearch()">'+t('back')+'</button>'+
+      '<button class="btn btn-primary" style="flex:1;" onclick="saveMealLogEntry()">'+t('save')+'</button>'+
+    '</div>';
 }
 // README 9.186/9.189: 数量+单位调整页里"选哪一餐"tab行 - 样式复用三餐页顶部mealSlotTabsHtml
 // 那一套(.meal-tabs/.meal-tab)，只是不显示每餐已有的kcal小计(这里是"我要加到哪一餐"的选择器，
