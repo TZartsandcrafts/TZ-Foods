@@ -112,10 +112,17 @@
   }
   .meal-add-tabs::-webkit-scrollbar{ display:none; }
   .meal-add-tab{
-    flex-shrink:0; padding:12px 14px 10px; font-size:14.5px; color:var(--almond);
+    position:relative; flex-shrink:0; padding:12px 14px 10px; font-size:14.5px; color:var(--almond);
     border-bottom:2px solid transparent; white-space:nowrap; cursor:pointer;
   }
   .meal-add-tab.active{ color:var(--deep-caramel); font-weight:600; border-bottom-color:var(--deep-caramel); }
+  /* README 9.193: 跨tab统一搜索命中提示 - 当前没选中、但这个tab里也搜到匹配结果时，标签文字
+     右上角加一个小圆点，跟"active"用的下划线是两套独立的视觉信号，不会互相干扰(active tab
+     自己不需要再显示这个点，它的结果已经直接展示在屏幕上了，见mealAddTabsBarHtml的判断)。 */
+  .meal-add-tab.has-match::after{
+    content:''; position:absolute; top:9px; right:3px; width:6px; height:6px;
+    border-radius:50%; background:var(--deep-caramel);
+  }
   /* README 9.134: sticky search box within a tab's content (separate sticky layer stacked below
      .meal-add-tabs, offset synced by JS in syncMealAddSearchOffset since it has to sit below
      BOTH .page-header and .meal-add-tabs, whose combined height isn't expressible in plain CSS
@@ -889,7 +896,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.192';
+var BUILD_VERSION = '9.193';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2389,6 +2396,8 @@ var I18N = {
     dailyNutrientDetailLabel:'当日营养摄入详情', nutriTargetNotSet:'未设置目标',
     sourceInventory:'库存', sourceRecipe:'食谱', sourceExternal:'外部食材库', sourceMealset:'套餐', sourceScan:'扫描',
     tabCustom:'自定', usdaOnlySearchPh:'搜索 USDA 食物数据库（英文）',
+    quickAddClearBtn:'清空', quickAddConfirmBtn:'添加',
+    quickAddPartialToast:'已添加{n}项，部分条目已失效未添加', quickAddFailedToast:'添加失败，请重试',
     mealScanNotInInventoryTitle:'库存里没有这个食品', mealScanNotInInventoryMsg:'要不要顺便添加到库存？',
     mealScanAddToInventoryBtn:'添加到库存', mealScanOneTimeBtn:'仅记录这一次',
     newMealsetBtn:'新建套餐', mealsetNoItemsHint:'还没有套餐，点击上方新建一个',
@@ -2683,6 +2692,8 @@ var I18N = {
     dailyNutrientDetailLabel:'Daily Nutrient Detail', nutriTargetNotSet:'No target set',
     sourceInventory:'Inventory', sourceRecipe:'Recipe', sourceExternal:'External Ingredients', sourceMealset:'Mealset', sourceScan:'Scan',
     tabCustom:'Custom', usdaOnlySearchPh:'Search the USDA food database',
+    quickAddClearBtn:'Clear', quickAddConfirmBtn:'Add',
+    quickAddPartialToast:'{n} items added; some entries were no longer valid and were skipped', quickAddFailedToast:'Failed to add, please try again',
     mealScanNotInInventoryTitle:'Not in your inventory', mealScanNotInInventoryMsg:"Want to add it to your inventory while you're at it?",
     mealScanAddToInventoryBtn:'Add to inventory', mealScanOneTimeBtn:'Just log this once',
     newMealsetBtn:'New mealset', mealsetNoItemsHint:'No mealsets yet — create one above',
@@ -3037,7 +3048,18 @@ async function loadAll(){
     // README 9.185: 三餐加食物-库存tab，每个产品(itemGroupKey：名称+品牌+条码)各自记住"上次
     // 选的位置/单位"，用来给数量+单位调整页里的批次和单位下拉框选默认值。跟pickFrequency/
     // usdaSaved一样是本机独立数据，不走Firestore同步。
-    storageGet('mealAddItemPrefs', {})
+    storageGet('mealAddItemPrefs', {}),
+    // README 9.193: 三餐加食物-食谱/外部食材tab各自记住"上次填的数量+单位"，用来在选餐列表里
+    // 直接显示预计热量+提供快速勾选（见quickAddPreviewNumbersHtml这一组函数）。跟
+    // mealAddItemPrefs同样是本机独立数据。库存tab的"上次数量"改成直接并进已有的
+    // mealAddItemPrefs（新增一个amount字段），不需要单独再开一份存储；USDA的"上次数量"同理
+    // 并进已有的usdaSaved（新增lastAmount字段）；这里单独开的这份只服务食谱/外部食材两类。
+    storageGet('mealAddLastAmount', {}),
+    // README 9.193: 套餐tab的"上次用量"记的是整份套餐上次实际记录时用的那份食材清单(每项的
+    // source_type/source_id/amount/unit)，不是单个数字——套餐本来就是多项食材的组合，没有
+    // 单一的"数量"概念。快速勾选时用这份清单原样重新计算营养(recomputeMealsetLogItemNutrition)
+    // 再记一条新的三餐记录，不需要重新打开套餐草稿页面挨个调整。
+    storageGet('mealsetLastItems', {})
   ]);
   // README 9.125: categoryGroups is the new two-level (母分类/子分类) structure for inventory
   // categories, architecturally matching state.recipeCategoryGroups but without any color
@@ -3112,6 +3134,8 @@ async function loadAll(){
   state.usdaSaved = results[28] || {};
   state.usdaTranslationCache = results[29] || {};
   state.mealAddItemPrefs = results[30] || {};
+  state.mealAddLastAmount = results[31] || {};
+  state.mealsetLastItems = results[32] || {};
   state.loaded = true;
 }
 // Old data shape had a single secondary_qty/secondary_unit/unit_ratio triplet per item. The
@@ -3218,6 +3242,8 @@ function savePickFrequency(){ return storageSet('pickFrequency', state.pickFrequ
 function saveUsdaSaved(){ return storageSet('usdaSaved', state.usdaSaved); }
 function saveUsdaTranslationCache(){ return storageSet('usdaTranslationCache', state.usdaTranslationCache); }
 function saveMealAddItemPrefs(){ return storageSet('mealAddItemPrefs', state.mealAddItemPrefs); }
+function saveMealAddLastAmount(){ return storageSet('mealAddLastAmount', state.mealAddLastAmount); }
+function saveMealsetLastItems(){ return storageSet('mealsetLastItems', state.mealsetLastItems); }
 function bumpPickFrequency(kind, id){
   if(!id) return;
   var k = kind+':'+id;
@@ -12672,12 +12698,14 @@ function macroPieHtml(actualG, targetG, colors){
 // Lynn's 6-tab spec and they're both "something I already have saved locally", unlike 食谱
 // (computed nutrition) or USDA (external database).
 function openAddFoodPage(date, slot){
-  state.mealsUI.addFood = {date:date, slot:slot, tab:'inventory', step:'search', query:'', picked:null, amountText:'', deduct:true};
+  state.mealsUI.addFood = {date:date, slot:slot, tab:'inventory', step:'search', query:'', picked:null, amountText:'', deduct:true, quickPicks:{}, matchTabs:null};
   navigate('mealAddFood');
 }
-function renderMealAddFood(){
-  var af = state.mealsUI.addFood;
-  var tabs = [
+// README 9.193: tabs数组抽成独立函数(mealAddTabsList)——renderMealAddFood整页渲染、
+// refreshMealAddTabsBar单独刷新tab条这两处都要用同一份tab列表，抽出来避免以后改tab列表
+// (加/删/改名某个tab)只改了一处、另一处忘了跟着改。
+function mealAddTabsList(){
+  return [
     {id:'inventory', label:t('sourceInventory')},
     {id:'recipe', label:t('sourceRecipe')},
     {id:'mealset', label:t('sourceMealset')},
@@ -12685,13 +12713,53 @@ function renderMealAddFood(){
     {id:'scan', label:t('sourceScan')},
     {id:'custom', label:t('tabCustom')}
   ];
+}
+// README 9.193: af.matchTabs是evaluateCrossTabSearch算出来的"当前关键词在哪些tab里有匹配"
+// 列表(库存/食谱/套餐/USDA四个之一)——当前tab自己不需要点，它的结果已经直接展示在屏幕上了。
+function mealAddTabsBarHtml(af){
+  return mealAddTabsList().map(function(tb){
+    var isMatch = af.matchTabs && tb.id!==af.tab && af.matchTabs.indexOf(tb.id)!==-1;
+    return '<div class="meal-add-tab '+(af.tab===tb.id?'active':'')+(isMatch?' has-match':'')+'" onclick="setMealAddFoodTab('+aj(tb.id)+')">'+esc(tb.label)+'</div>';
+  }).join('');
+}
+// README 9.193: 输入过程中命中不止一个tab、但决定留在当前tab(没有触发setMealAddFoodTab切换)
+// 时，用这个只重画tab条本身(不碰下面的搜索结果区域)，避免因为要更新小圆点提示而牵连一次整页
+// render()把正在打字的输入框整个换掉、打断输入。
+function refreshMealAddTabsBar(){
+  var af = state.mealsUI.addFood;
+  var wrap = document.querySelector('.meal-add-tabs');
+  if(!wrap || !af) return;
+  wrap.innerHTML = mealAddTabsBarHtml(af);
+}
+// README 9.193: 选餐列表里支持直接勾选快速添加(见quickAddCheckboxHtml)——勾选的东西记在
+// af.quickPicks里，可以跨tab累积(比如库存tab勾了一个、切到食谱tab再勾一个)，攒够了统一点
+// 底部悬浮条的"添加"一次性批量记录，见confirmQuickAddSelection。qaCount>0时才显示这条悬浮条。
+function renderMealAddFood(){
+  var af = state.mealsUI.addFood;
   var title = t('mealSlot_'+af.slot) || t('addFoodBtn');
+  var qaCount = Object.keys(af.quickPicks||{}).length;
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="mealAddFoodBack()">'+ic('back',22)+'</button><h1>'+esc(title)+'</h1></div>'+
-  '<div class="meal-add-tabs">'+
-    tabs.map(function(tb){ return '<div class="meal-add-tab '+(af.tab===tb.id?'active':'')+'" onclick="setMealAddFoodTab('+aj(tb.id)+')">'+esc(tb.label)+'</div>'; }).join('')+
-  '</div>'+
-  '<div class="content" id="meal-add-food-content">'+mealAddFoodContentHtml()+'</div>';
+  '<div class="meal-add-tabs">'+mealAddTabsBarHtml(af)+'</div>'+
+  '<div class="content" id="meal-add-food-content">'+mealAddFoodContentHtml()+'</div>'+
+  (qaCount ? quickAddActionBarHtml(qaCount) : '');
+}
+function quickAddActionBarHtml(count){
+  return '<div class="bulk-action-bar">'+
+    '<button class="btn btn-outline" onclick="clearQuickAddSelection()">'+t('quickAddClearBtn')+'</button>'+
+    '<button class="btn btn-primary" onclick="confirmQuickAddSelection()">'+t('quickAddConfirmBtn')+' · '+t('bulkSelectedCount').replace('{n}', count)+'</button>'+
+  '</div>';
+}
+function clearQuickAddSelection(){
+  state.mealsUI.addFood.quickPicks = {};
+  render();
+}
+function toggleQuickPick(key){
+  var af = state.mealsUI.addFood;
+  af.quickPicks = af.quickPicks || {};
+  if(af.quickPicks[key]) delete af.quickPicks[key];
+  else af.quickPicks[key] = true;
+  render();
 }
 // README 9.139: the page-header back button used to always go straight to 三餐 - now checks
 // whether we're mid-套餐-log-draft first, in which case "back" should return to the 套餐 list
@@ -12724,6 +12792,12 @@ function setMealAddFoodTab(tabId){
   if(tabId==='usda' && af.query && af.query.trim().length>=2){
     runAddFoodUsdaSearch(af.query.trim());
   }
+  // README 9.193: 跨tab统一搜索(evaluateCrossTabSearch)在用户打字过程中也会调这个函数把tab
+  // 切过去——上面的render()把整个内容区(包括原来聚焦的搜索输入框)换掉了，光标/键盘都会跟着丢，
+  // 这里补一次聚焦+把光标定位到文字末尾，让用户能不中断地在新tab的输入框里接着往下打字。手动
+  // 点tab切换时这个副作用无害(顶多是键盘重新弹出来，不影响操作)。
+  var inp = document.getElementById('add-food-search-input');
+  if(inp){ inp.focus(); var len = inp.value.length; try{ inp.setSelectionRange(len,len); }catch(e){} }
 }
 function mealAddFoodContentHtml(){
   var af = state.mealsUI.addFood;
@@ -12753,12 +12827,30 @@ function mealsetResultsHtml(query){
   sortByPickFrequency(list, function(m){ return 'mealset:'+m.id; });
   var q = (query||'').trim().toLowerCase();
   if(q) list = list.filter(function(m){ return (m.name||'').toLowerCase().indexOf(q)>=0; });
+  var quickPicks = currentQuickPicks();
   var rows = list.map(function(m){
-    var items = buildMealsetLogItems(m,1,[]);
-    var cal = 0; items.forEach(function(it){ cal += (it.nutrition.calories||0); });
+    var qa = computeQuickAddForMealset(m.id);
+    var key = 'mealset:'+m.id;
+    var subtitle, rightHtml;
+    // README 9.193: 有"上次用量"记录时，左边小字只显示项数(避免跟右边刚显示的热量重复出现
+    // 两个不同的数字造成误解)，热量+快速勾选挪到右边；没有记录过的套餐还是老样子，左边显示
+    // 模板默认(1倍量)算出来的热量+项数，右边只保留编辑按钮，跟9.185之前完全一样。
+    if(qa){
+      subtitle = qa.items.length + (state.lang==='zh'?' 项':' items');
+      rightHtml = '<div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">'+
+        '<div style="text-align:right;"><div style="font-size:15px;font-weight:600;color:var(--cocoa);">'+Math.round(qa.calories)+' kcal</div></div>'+
+        quickAddCheckboxHtml(key, !!quickPicks[key])+
+        '<button class="icon-btn" onclick="event.stopPropagation();openMealsetForm('+aj(m.id)+')" aria-label="'+t('edit')+'">'+ic('edit',17)+'</button>'+
+      '</div>';
+    } else {
+      var items0 = buildMealsetLogItems(m,1,[]);
+      var cal0 = 0; items0.forEach(function(it){ cal0 += (it.nutrition.calories||0); });
+      subtitle = Math.round(cal0)+' kcal · '+(m.items||[]).length+(state.lang==='zh'?' 项':' items');
+      rightHtml = '<button class="icon-btn" onclick="event.stopPropagation();openMealsetForm('+aj(m.id)+')" aria-label="'+t('edit')+'">'+ic('edit',17)+'</button>';
+    }
     return '<div class="list-row">'+
-      '<div class="row-label" style="cursor:pointer;" onclick="selectMealsetForLog('+aj(m.id)+')">'+esc(m.name)+'<div class="hint" style="margin-top:2px;">'+Math.round(cal)+' kcal · '+(m.items||[]).length+(state.lang==='zh'?' 项':' items')+'</div></div>'+
-      '<button class="icon-btn" onclick="event.stopPropagation();openMealsetForm('+aj(m.id)+')" aria-label="'+t('edit')+'">'+ic('edit',17)+'</button>'+
+      '<div class="row-label" style="cursor:pointer;flex:1;min-width:0;" onclick="selectMealsetForLog('+aj(m.id)+')">'+esc(m.name)+'<div class="hint" style="margin-top:2px;">'+subtitle+'</div></div>'+
+      rightHtml+
     '</div>';
   }).join('');
   if(rows) return rows;
@@ -12869,9 +12961,13 @@ function confirmSaveMealsetLogEntry(){
   closeModal();
   saveMealsetLogEntryFinal();
 }
-function saveMealsetLogEntryFinal(){
-  var af = state.mealsUI.addFood;
-  var items = af.mealsetLogItems||[];
+// README 9.193: 从saveMealsetLogEntryFinal里抽出来的公用部分(算总营养、扣库存、生成
+// mealLog条目并保存)——套餐草稿页确认保存、跟下面新加的"快速添加"批量流程(commitOneQuickPick
+// 的mealset分支)都要走这同一段逻辑，抽出来避免两边各写一遍、以后改一处忘了改另一处。顺手把这
+// 次实际保存用的食材清单记成这个套餐的"上次用量"(state.mealsetLastItems)，只留source_type/
+// source_id/amount/unit这几项身份信息，不存营养数据本身——下次快速添加时用
+// recomputeMealsetLogItemNutrition现算，营养标签中途改过的话也能用上最新数据。
+function commitMealsetLogEntry(date, slot, mealsetId, mealsetName, items){
   var totalN = emptyNutrition();
   var totalExtra = {};
   items.forEach(function(it){
@@ -12893,20 +12989,31 @@ function saveMealsetLogEntryFinal(){
       subItems[idx].deductItemId = item.id;
       subItems[idx].deductAmount = it.amount;
       subItems[idx].deductUnit = it.unit;
-      pushMealUsageLog(item, it.amount, it.unit, entryId, subItems[idx].id, af.slot, af.date, ts);
+      pushMealUsageLog(item, it.amount, it.unit, entryId, subItems[idx].id, slot, date, ts);
       anyDeducted = true;
     }
   });
   if(anyDeducted) saveItems();
   var entry = {
-    id: entryId, date: af.date, slot: af.slot, name: af.mealsetSourceName||'', amount:null, unit:'',
+    id: entryId, date: date, slot: slot, name: mealsetName||'', amount:null, unit:'',
     nutrition: totalN, nutrition_extra: totalExtra, created_at: ts,
-    source_type: 'mealset', source_id: af.mealsetSourceMealsetId||null,
+    source_type: 'mealset', source_id: mealsetId||null,
     subItems: subItems
   };
   state.mealLogs.push(entry);
   saveMealLogs();
-  if(af.mealsetSourceMealsetId) bumpPickFrequency('mealset', af.mealsetSourceMealsetId);
+  if(mealsetId){
+    bumpPickFrequency('mealset', mealsetId);
+    state.mealsetLastItems = state.mealsetLastItems || {};
+    state.mealsetLastItems[mealsetId] = items.map(function(it){ return {source_type:it.source_type, source_id:it.source_id, amount:it.amount, unit:it.unit}; });
+    saveMealsetLastItems();
+  }
+  return entry;
+}
+function saveMealsetLogEntryFinal(){
+  var af = state.mealsUI.addFood;
+  var items = af.mealsetLogItems||[];
+  commitMealsetLogEntry(af.date, af.slot, af.mealsetSourceMealsetId, af.mealsetSourceName, items);
   af.mealsetPhase = null;
   af.mealsetLogItems = null;
   showToast(t('mealLoggedToast'));
@@ -13030,10 +13137,129 @@ function addFoodUsdaSearchBodyHtml(af){
   return '<div class="meal-add-search-sticky"><input id="add-food-search-input" type="text" autocapitalize="none" autofocus placeholder="'+t('usdaOnlySearchPh')+'" value="'+esc(af.query)+'" oninput="onAddFoodQueryInput(this.value)" style="width:100%;box-sizing:border-box;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);"></div>'+
     '<div id="add-food-usda-results">'+resultsHtml+'</div>';
 }
+// ===================== README 9.193: 快速勾选添加 =====================
+// 选餐列表原来"点进去→填数量→保存"这一套流程对"这次吃的跟上次一样"的情况来说太绕了——这一组
+// 函数给库存/食谱/套餐/USDA四个tab各自的搜索结果行加上"上次数量+预计热量"的展示，以及一个可以
+// 直接在列表里勾选的圆圈；勾上的东西攒在state.mealsUI.addFood.quickPicks里(可以跨tab累积)，
+// 最后统一点悬浮条上的"添加"按钮一次性记录完(见confirmQuickAddSelection)，不需要再逐条进详情
+// 页。一个食物/食谱/套餐/USDA食品只有真的成功保存过至少一次之后才会有"上次数量"，第一次挑选
+// 还是走原来点进详情页填数量的老路——写完之后这条记录会分别存进state.mealAddItemPrefs(库存,
+// 复用9.185已有的"上次位置/单位"那份，这次多加一个amount字段)、state.mealAddLastAmount(食谱/
+// 外部食材新开的一份)、state.usdaSaved的对应条目(复用已有的常用缓存，加一个lastAmount字段)、
+// state.mealsetLastItems(套餐新开的一份，记的是整份食材清单而不是单个数字，见下面的说明)。
+//
+// 库存：same-groupKey的产品无论换了哪个具体批次都算"同一个东西"，所以上次数量按groupKey记，
+// 不是按某个具体批次的id——这样即使上次那批已经吃完了，只要还有同名同品牌同条码的新批次在库存
+// 里，"上次数量"依然认得出来、还能继续快速勾选。
+function computeQuickAddNutritionForInventoryGroup(groupKey){
+  var groupItems = itemsInGroupKeySorted(groupKey);
+  if(!groupItems.length) return null;
+  var prefs = (state.mealAddItemPrefs||{})[groupKey];
+  if(!prefs || !prefs.amount || prefs.amount<=0) return null;
+  var chosen = defaultBatchForGroup(groupItems, prefs.location) || groupItems[0];
+  var unit = prefs.unit || 'g';
+  var used = amountToBasisUnits(prefs.amount, unit, chosen);
+  if(used==null) used = countBasisMatch(chosen, prefs.amount, unit);
+  if(used==null) return null;
+  return {
+    amount: prefs.amount, unit: unit, chosen: chosen,
+    nutrition: scaleNutrition(chosen.nutrition, ingredientBasisInfo(chosen), used),
+    nutrition_extra: scaleNutritionExtraCore(chosen.nutrition_extra, ingredientBasisInfo(chosen), used)
+  };
+}
+function computeQuickAddNutritionForExternal(ingId){
+  var ing = state.ingredients.find(function(x){ return x.id===ingId; });
+  if(!ing) return null;
+  var last = (state.mealAddLastAmount||{})['external:'+ingId];
+  if(!last || !last.amount) return null;
+  var basisInfo = ingredientBasisInfo(ing);
+  var used = amountToBasisUnits(last.amount, last.unit, null);
+  if(used==null) used = countBasisMatch(ing, last.amount, last.unit);
+  if(used==null) return null;
+  return {
+    amount: last.amount, unit: last.unit, ing: ing,
+    nutrition: scaleNutrition(ing.nutrition, basisInfo, used),
+    nutrition_extra: scaleNutritionExtraCore(ing.nutrition_extra, basisInfo, used)
+  };
+}
+// 食谱的"上次数量"记的是份数还是克数(af.amountUnit的原始值'servings'/'g')，不是翻译过的展示
+// 文字，避免中英文切换语言之后这份记忆对不上号——展示的时候再按当前语言现翻(见quickAddRightHtml)。
+function computeQuickAddNutritionForRecipe(recipeId){
+  var r = state.recipes.find(function(x){ return x.id===recipeId; });
+  if(!r) return null;
+  var last = (state.mealAddLastAmount||{})['recipe:'+recipeId];
+  if(!last || !last.amount) return null;
+  var totalN = calcRecipeNutrition(r);
+  var nutrition = {}, nutritionExtra = {};
+  if(last.unit==='g'){
+    if(!totalN.per100g) return null;
+    var factor = last.amount/100;
+    NUTRI_KEYS.forEach(function(k){ nutrition[k]=(totalN.per100g[k]||0)*factor; });
+    NUTRI_EXTRA_CORE_KEYS.forEach(function(k){ var e=(totalN.extraPer100g||{})[k]; if(e) nutritionExtra[k]={unit:e.unit, value:e.value*factor}; });
+  } else {
+    NUTRI_KEYS.forEach(function(k){ nutrition[k]=(totalN.perServing[k]||0)*last.amount; });
+    NUTRI_EXTRA_CORE_KEYS.forEach(function(k){ var e=(totalN.extraPerServing||{})[k]; if(e) nutritionExtra[k]={unit:e.unit, value:e.value*last.amount}; });
+  }
+  return {amount:last.amount, unit:last.unit, recipe:r, nutrition:nutrition, nutrition_extra:nutritionExtra};
+}
+function computeQuickAddNutritionForUsda(fdcId){
+  var f = (state.usdaSaved||{})[fdcId];
+  if(!f || !f.lastAmount) return null;
+  var factor = f.lastAmount/100;
+  var nutrition = {}; NUTRI_KEYS.forEach(function(k){ nutrition[k]=(f.nutrition[k]||0)*factor; });
+  var nutritionExtra = {};
+  NUTRI_EXTRA_CORE_KEYS.forEach(function(k){
+    var e = (f.nutrition_extra||{})[k];
+    if(!e || e.value==null) return;
+    var norm = extraToNaturalUnit(k, Number(e.value)*factor, e.unit);
+    if(norm) nutritionExtra[k] = norm;
+  });
+  return {amount:f.lastAmount, unit:'g', food:f, nutrition:nutrition, nutrition_extra:nutritionExtra};
+}
+// 套餐没有单一的"数量"概念(是一堆食材的组合)，"上次用量"记的是整份食材清单(每项的
+// source_type/source_id/amount/unit)，营养现算(recomputeMealsetLogItemNutrition)而不是把
+// 上次算出来的数存死——这样如果期间食材本身的营养标签改过，快速添加用的还是最新数据。
+function computeQuickAddForMealset(mealsetId){
+  var m = state.mealsets.find(function(x){ return x.id===mealsetId; });
+  if(!m) return null;
+  var lastItems = (state.mealsetLastItems||{})[mealsetId];
+  if(!lastItems || !lastItems.length) return null;
+  var items = lastItems.map(function(li){
+    var computed = recomputeMealsetLogItemNutrition(li);
+    return {id:uid(), source_type:li.source_type, source_id:li.source_id, name:mealsetItemDisplayName(li), amount:li.amount, unit:li.unit, nutrition:computed.nutrition, nutrition_extra:computed.nutrition_extra};
+  });
+  var totalCal = 0;
+  items.forEach(function(it){ totalCal += (it.nutrition.calories||0); });
+  return {items:items, calories:totalCal, mealset:m};
+}
+// 右侧"XX kcal / 数量单位"这两行小字 - 库存/食谱/外部食材/USDA四类都是单一数字+单位，套餐单独
+// 处理(见mealsetResultsHtml，只显示总热量，没有单一的数量单位可展示)。
+function quickAddPreviewNumbersHtml(amount, unit, calories){
+  var unitLabel = unit==='servings' ? t('servingsUnit') : esc(unit);
+  return '<div style="text-align:right;line-height:1.3;">'+
+    '<div style="font-size:15px;font-weight:600;color:var(--cocoa);">'+Math.round(calories||0)+' kcal</div>'+
+    '<div class="hint" style="font-size:12.5px;margin-top:1px;">'+fmtAmount(amount,unit)+unitLabel+'</div>'+
+  '</div>';
+}
+function quickAddCheckboxHtml(key, checked){
+  return '<div class="bulk-checkbox '+(checked?'checked':'')+'" style="margin-top:0;" onclick="event.stopPropagation();toggleQuickPick('+aj(key)+')">'+(checked?ic('check',14):'')+'</div>';
+}
+function quickAddRightHtml(key, amount, unit, calories, checked){
+  return '<div style="display:flex;align-items:center;gap:10px;flex-shrink:0;">'+quickAddPreviewNumbersHtml(amount,unit,calories)+quickAddCheckboxHtml(key,checked)+'</div>';
+}
+function currentQuickPicks(){ return (state.mealsUI.addFood && state.mealsUI.addFood.quickPicks) || {}; }
+// ===================== / 快速勾选添加 helpers =====================
 function addFoodRecipeResultsHtml(local){
   if(!local.length) return '<p class="hint">'+t('noMealLoggedHint')+'</p>';
+  var quickPicks = currentQuickPicks();
   return local.map(function(r){
-    return '<div class="list-row" style="cursor:pointer;" onclick="pickLocalFoodForMeal('+aj(r.type)+','+aj(r.id)+')"><div class="row-label">'+esc(r.label)+(r.sub?'<div class="hint" style="margin-top:2px;">'+esc(r.sub)+'</div>':'')+'</div>'+ic('chevronRight',16)+'</div>';
+    var qa = computeQuickAddNutritionForRecipe(r.id);
+    var key = 'recipe:'+r.id;
+    var right = qa ? quickAddRightHtml(key, qa.amount, qa.unit, qa.nutrition.calories, !!quickPicks[key]) : ic('chevronRight',16);
+    return '<div class="list-row">'+
+      '<div class="row-label" style="cursor:pointer;flex:1;min-width:0;" onclick="pickLocalFoodForMeal('+aj(r.type)+','+aj(r.id)+')">'+esc(r.label)+(r.sub?'<div class="hint" style="margin-top:2px;">'+esc(r.sub)+'</div>':'')+'</div>'+
+      right+
+    '</div>';
   }).join('');
 }
 // README 9.138: 库存 tab's results now group same-product batches the exact same way the recipe
@@ -13051,16 +13277,26 @@ function addFoodRecipeResultsHtml(local){
 function addFoodInventoryResultsHtml(data){
   if(!data.groups.length && !data.externals.length) return '<p class="hint">'+t('noMealLoggedHint')+'</p>';
   var groupsHtml = data.groups.map(function(gr){ return addFoodInventoryRowHtml(gr); }).join('');
+  var quickPicks = currentQuickPicks();
   var externalsHtml = data.externals.map(function(ing){
-    return '<div class="list-row" style="cursor:pointer;" onclick="pickLocalFoodForMeal(\'external\','+aj(ing.id)+')"><div class="row-label">'+esc(ing.name)+'<div class="hint" style="margin-top:2px;">'+esc(t('sourceExternal'))+'</div></div>'+ic('chevronRight',16)+'</div>';
+    var qa = computeQuickAddNutritionForExternal(ing.id);
+    var key = 'external:'+ing.id;
+    var right = qa ? quickAddRightHtml(key, qa.amount, qa.unit, qa.nutrition.calories, !!quickPicks[key]) : ic('chevronRight',16);
+    return '<div class="list-row">'+
+      '<div class="row-label" style="cursor:pointer;flex:1;min-width:0;" onclick="pickLocalFoodForMeal(\'external\','+aj(ing.id)+')">'+esc(ing.name)+'<div class="hint" style="margin-top:2px;">'+esc(t('sourceExternal'))+'</div></div>'+
+      right+
+    '</div>';
   }).join('');
   return groupsHtml + externalsHtml;
 }
 function addFoodInventoryRowHtml(gr){
   var badge = gr.items.length>1 ? '<span class="dup-badge">'+gr.items.length+'</span>' : '';
-  return '<div class="list-row" style="cursor:pointer;" onclick="pickLocalFoodForMeal(\'item\','+aj(gr.key)+')">'+
-    '<div class="row-label">'+itemDisplayName(gr.rep)+badge+'</div>'+
-    ic('chevronRight',16)+
+  var qa = computeQuickAddNutritionForInventoryGroup(gr.key);
+  var key = 'inventory:'+gr.key;
+  var right = qa ? quickAddRightHtml(key, qa.amount, qa.unit, qa.nutrition.calories, !!currentQuickPicks()[key]) : ic('chevronRight',16);
+  return '<div class="list-row">'+
+    '<div class="row-label" style="cursor:pointer;flex:1;min-width:0;" onclick="pickLocalFoodForMeal(\'item\','+aj(gr.key)+')">'+itemDisplayName(gr.rep)+badge+'</div>'+
+    right+
   '</div>';
 }
 // README 9.132: unlike the old combined search (which required at least a typed query before
@@ -13120,11 +13356,68 @@ function sortByPickFrequency(list, keyFn){
     return fb - fa;
   });
 }
+// README 9.193: 跨tab统一搜索——库存/食谱/套餐/USDA(仅搜本地"常用"缓存，不联网)这四个tab，
+// 不管当前停在哪个tab打字，都实时算一遍"这个关键词在其它几个tab里是不是也有(甚至更好的)匹配"，
+// 有需要就自动把tab切过去，省得用户自己来回试。四个tab各自的"有没有匹配"判断，直接复用它们
+// 自己本来就有的同步搜索函数(searchInventoryFoods/searchRecipeFoods/state.mealsets自身的名字
+// 过滤/searchUsdaSaved)，不重新发明一套匹配逻辑，也不产生任何额外的网络请求——USDA真正联网
+// 搜索的时机/防抖逻辑完全不受这个功能影响，见下面对af.tab==='usda'分支的说明。
+var MEAL_ADD_CROSS_TAB_ORDER = ['inventory','recipe','mealset','usda'];
+function crossTabMatchInfo(query){
+  var q = (query||'').trim();
+  var info = {counts:{}, exact:{}};
+  if(!q) return info;
+  var qlower = q.toLowerCase();
+  var invData = searchInventoryFoods(q);
+  info.counts.inventory = invData.groups.length + invData.externals.length;
+  info.exact.inventory = invData.groups.some(function(gr){ return itemDisplayNameRaw(gr.rep).toLowerCase()===qlower; })
+    || invData.externals.some(function(ing){ return (ing.name||'').toLowerCase()===qlower; });
+
+  var recList = searchRecipeFoods(q);
+  info.counts.recipe = recList.length;
+  info.exact.recipe = recList.some(function(r){ return (r.label||'').toLowerCase()===qlower; });
+
+  var msList = state.mealsets.filter(function(m){ return (m.name||'').toLowerCase().indexOf(qlower)>=0; });
+  info.counts.mealset = msList.length;
+  info.exact.mealset = msList.some(function(m){ return (m.name||'').toLowerCase()===qlower; });
+
+  var usdaList = searchUsdaSaved(q);
+  info.counts.usda = usdaList.length;
+  info.exact.usda = usdaList.some(function(f){ return (f.description||'').toLowerCase()===qlower || (f.brandName||'').toLowerCase()===qlower; });
+  return info;
+}
+// 返回true表示已经切过tab了(切tab的setMealAddFoodTab内部已经完整render+补聚焦，调用方不用
+// 再自己刷新任何东西)；返回false表示留在原地(要么哪个tab都没匹配，要么当前tab本来就是最该
+// 呆的那个)，调用方还需要照常继续走各自tab原有的结果刷新逻辑。
+// 判定规则(Lynn确认过)：不止一个tab有匹配时，优先跳到"精确同名匹配"(大小写不敏感，整词
+// 相等，不是子串)的那个tab；如果没有任何一个是精确匹配，就跳到按库存→食谱→套餐→USDA这个
+// 固定顺序从左到右数第一个有任意匹配的tab。只有一个tab匹配时这条规则自然收敛成"跳到那一个"。
+function evaluateCrossTabSearch(af, query){
+  var q = (query||'').trim();
+  if(!q){ af.matchTabs = null; return false; }
+  var info = crossTabMatchInfo(q);
+  var matching = MEAL_ADD_CROSS_TAB_ORDER.filter(function(tb){ return info.counts[tb]>0; });
+  af.matchTabs = matching;
+  if(!matching.length) return false;
+  var exact = matching.filter(function(tb){ return info.exact[tb]; });
+  var target = exact.length ? exact[0] : matching[0];
+  if(target!==af.tab){
+    setMealAddFoodTab(target);
+    return true;
+  }
+  return false;
+}
 var addFoodUsdaTimer = null;
 var addFoodUsdaSearchSeq = 0; // 用来丢弃"用户又继续打字/切走了"之后才姗姗来迟的旧异步结果
 function onAddFoodQueryInput(val){
   var af = state.mealsUI.addFood;
   af.query = val;
+  if(af.tab==='inventory' || af.tab==='recipe' || af.tab==='mealset' || af.tab==='usda'){
+    if(evaluateCrossTabSearch(af, val)) return; // 已经切tab完成了，这里不用再做别的
+    refreshMealAddTabsBar(); // 留在原地，但matchTabs可能变了，小圆点提示需要跟着刷新
+  } else {
+    af.matchTabs = null;
+  }
   if(af.tab==='mealset'){
     // README 9.176: 套餐tab新加的关键词搜索，跟库存/食谱一样是本地同步过滤，不用等异步。
     var msEl = document.getElementById('add-food-mealset-results');
@@ -13259,9 +13552,15 @@ function usdaResultRowHtml(f){
   var saved = (state.usdaSaved||{})[f.fdcId];
   var starred = !!(saved && saved.starred);
   var sub = usdaDataTypeLabel(f.dataType)+(f.brandName?(' · '+esc(f.brandName)):'');
+  var qa = (saved && saved.lastAmount) ? computeQuickAddNutritionForUsda(f.fdcId) : null;
+  var key = 'usda:'+f.fdcId;
   return '<div class="list-row">'+
-    '<div class="row-label" style="cursor:pointer;" onclick="pickUsdaFoodForMeal('+aj(f.fdcId)+')">'+esc(f.description)+'<div class="hint" style="margin-top:2px;">'+sub+'</div></div>'+
-    '<button class="icon-btn" onclick="event.stopPropagation();toggleUsdaFavorite('+aj(f.fdcId)+','+aj(f.description)+','+aj(f.dataType||null)+','+aj(f.brandName||null)+')" aria-label="'+t('usdaFavoriteToggle')+'">'+usdaStarIconSvg(starred)+'</button>'+
+    '<div class="row-label" style="cursor:pointer;flex:1;min-width:0;" onclick="pickUsdaFoodForMeal('+aj(f.fdcId)+')">'+esc(f.description)+'<div class="hint" style="margin-top:2px;">'+sub+'</div></div>'+
+    '<div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">'+
+      (qa ? quickAddPreviewNumbersHtml(qa.amount, qa.unit, qa.nutrition.calories) : '')+
+      (qa ? quickAddCheckboxHtml(key, !!currentQuickPicks()[key]) : '')+
+      '<button class="icon-btn" onclick="event.stopPropagation();toggleUsdaFavorite('+aj(f.fdcId)+','+aj(f.description)+','+aj(f.dataType||null)+','+aj(f.brandName||null)+')" aria-label="'+t('usdaFavoriteToggle')+'">'+usdaStarIconSvg(starred)+'</button>'+
+    '</div>'+
   '</div>';
 }
 // README 9.184: "常用"列表专用的行样式 - 跟普通搜索结果行(usdaResultRowHtml)内容一样(名称/
@@ -13275,13 +13574,19 @@ function usdaResultRowHtml(f){
 function usdaSavedRowHtml(f){
   var starred = !!f.starred;
   var sub = usdaDataTypeLabel(f.dataType)+(f.brandName?(' · '+esc(f.brandName)):'');
+  var qa = f.lastAmount ? computeQuickAddNutritionForUsda(f.fdcId) : null;
+  var key = 'usda:'+f.fdcId;
   return '<div class="item-card-swipe" data-item-id="usda:'+esc(f.fdcId)+'">'+
     '<div class="item-swipe-actions">'+
       '<button class="swipe-action-btn action-delete" onclick="event.stopPropagation();removeUsdaSavedFromSwipe('+aj(f.fdcId)+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button>'+
     '</div>'+
     '<div class="item-card" style="flex-direction:row;align-items:center;justify-content:space-between;gap:10px;border-left:none;box-shadow:none;border:1px solid var(--line);padding:15px 16px;margin-bottom:0;" onclick="pickUsdaFoodForMeal('+aj(f.fdcId)+')">'+
       '<div style="flex:1;min-width:0;"><div class="row-label">'+esc(f.description)+'</div><div class="hint" style="margin-top:2px;">'+sub+'</div></div>'+
-      '<button class="icon-btn" onclick="event.stopPropagation();toggleUsdaFavorite('+aj(f.fdcId)+','+aj(f.description)+','+aj(f.dataType||null)+','+aj(f.brandName||null)+')" aria-label="'+t('usdaFavoriteToggle')+'">'+usdaStarIconSvg(starred)+'</button>'+
+      '<div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">'+
+        (qa ? quickAddPreviewNumbersHtml(qa.amount, qa.unit, qa.nutrition.calories) : '')+
+        (qa ? quickAddCheckboxHtml(key, !!currentQuickPicks()[key]) : '')+
+        '<button class="icon-btn" onclick="event.stopPropagation();toggleUsdaFavorite('+aj(f.fdcId)+','+aj(f.description)+','+aj(f.dataType||null)+','+aj(f.brandName||null)+')" aria-label="'+t('usdaFavoriteToggle')+'">'+usdaStarIconSvg(starred)+'</button>'+
+      '</div>'+
     '</div>'+
   '</div>';
 }
@@ -13825,6 +14130,12 @@ function saveMealLogEntry(){
         if(e) nutritionExtra[k] = {unit:e.unit, value:e.value*gramsFactor};
       });
       name = r.name; amount = grams; unit = 'g';
+      // README 9.193: 记住这次是按克数记的、具体多少克 - 下次这个食谱在选餐列表里出现的时候，
+      // 就能直接显示预计热量+提供快速勾选(见computeQuickAddNutritionForRecipe)。存的是原始
+      // 数值+'g'这个稳定的unit标记，不是本地化过的展示文字，换语言不会读错。
+      state.mealAddLastAmount = state.mealAddLastAmount || {};
+      state.mealAddLastAmount['recipe:'+p.id] = {amount: grams, unit: 'g'};
+      saveMealAddLastAmount();
     } else {
       var servings = parseAmountInput(af.amountText);
       if(!servings || servings<=0){ showToast(t('weightEntryInvalid')); return; }
@@ -13834,6 +14145,9 @@ function saveMealLogEntry(){
         if(e) nutritionExtra[k] = {unit:e.unit, value:e.value*servings};
       });
       name = r.name; amount = servings; unit = t('servingsUnit');
+      state.mealAddLastAmount = state.mealAddLastAmount || {};
+      state.mealAddLastAmount['recipe:'+p.id] = {amount: servings, unit: 'servings'};
+      saveMealAddLastAmount();
     }
   } else if(p.type==='usda'){
     var amt = parseAmountInput(af.amountText);
@@ -13847,6 +14161,15 @@ function saveMealLogEntry(){
       if(norm) nutritionExtra[k] = norm;
     });
     name = p.name; amount = amt; unit = 'g';
+    // README 9.193: USDA的"上次数量"直接并进已有的state.usdaSaved缓存(每条USDA食品本来就有
+    // 一条缓存记录了)，加一个lastAmount字段，不用单独再开一份存储。理论上pickUsdaFoodForMeal
+    // 选中时就应该已经缓存过这条食品的营养数据了，这里保险起见兜底建一条。
+    state.usdaSaved = state.usdaSaved || {};
+    if(!state.usdaSaved[p.fdcId]){
+      state.usdaSaved[p.fdcId] = {fdcId:p.fdcId, description:p.name, dataType:p.dataType||null, brandName:p.brandName||null, nutrition:p.nutrition, nutrition_extra:p.nutrition_extra||{}, starred:false};
+    }
+    state.usdaSaved[p.fdcId].lastAmount = amt;
+    saveUsdaSaved();
   } else {
     var amt2 = parseAmountInput(af.amountText);
     if(!amt2 || amt2<=0){ showToast(t('weightEntryInvalid')); return; }
@@ -13866,14 +14189,20 @@ function saveMealLogEntry(){
       var res = deductFromItem(src, amt2, unitPicked);
       if(res.ok){ deductItemId=src.id; deductAmount=amt2; deductUnit=unitPicked; saveItems(); }
     }
-    // README 9.185: 保存成功后顺手记一下这个产品这次用的位置+单位，下次同一个产品再加进三餐
-    // 时，数量+单位调整页的批次下拉/单位默认值就能带出这份"上次选过"的记忆（按产品分别记，
-    // 不是全局共用一份）。只在真的存了之后才记，跟pickFrequency"只在真的存了之后才计数"是
-    // 同一个原则，半途而废的选择不算数。
+    // README 9.185/9.193: 保存成功后顺手记一下这次用的位置/单位/数量，下次这个产品(库存条目
+    // 按groupKey记，同产品换了个新批次也认得出)或外部食材再在选餐列表里出现时，就能直接显示
+    // 预计热量+提供快速勾选(见computeQuickAddNutritionForInventoryGroup/...ForExternal)，也
+    // 能给数量+单位调整页的批次下拉/单位默认值带出这份记忆。只在真的存了之后才记，跟
+    // pickFrequency"只在真的存了之后才计数"是同一个原则，半途而废的选择不算数。offquick(扫描
+    // 一次性记录)本身不是任何库/表里的固定条目，没有"下次搜索时还能找到它"这回事，不记。
     if(p.type==='item' && p.groupKey){
       state.mealAddItemPrefs = state.mealAddItemPrefs || {};
-      state.mealAddItemPrefs[p.groupKey] = {location: src.location||'', unit: unitPicked};
+      state.mealAddItemPrefs[p.groupKey] = {location: src.location||'', unit: unitPicked, amount: amt2};
       saveMealAddItemPrefs();
+    } else if(p.type==='external'){
+      state.mealAddLastAmount = state.mealAddLastAmount || {};
+      state.mealAddLastAmount['external:'+p.id] = {amount: amt2, unit: unitPicked};
+      saveMealAddLastAmount();
     }
   }
   var entry = {
@@ -13910,6 +14239,94 @@ function saveMealLogEntry(){
   state.mealsUI.selectedSlot = af.slot;
   navigate('meals');
 }
+// ===================== README 9.193: 快速勾选添加 - 批量确认 =====================
+// 把af.quickPicks里攒的每一条('inventory:'+groupKey / 'recipe:'+id / 'external:'+id /
+// 'usda:'+fdcId / 'mealset:'+id这几种key之一)按各自的"上次数量"记一条三餐记录，逻辑上是
+// saveMealLogEntry/saveMealsetLogEntryFinal的简化版——不用再经过数量+单位调整页，直接拿
+// state.mealAddItemPrefs/state.mealAddLastAmount/state.usdaSaved/state.mealsetLastItems里
+// 记的"上次数量"现算营养、写记录。返回true/false表示这一条有没有成功记上(比如库存产品期间
+// 被整个删掉了会返回false)，confirmQuickAddSelection会把失败的条目汇总提示一下、不悄悄丢掉。
+function commitOneQuickPick(af, key){
+  var idx = key.indexOf(':');
+  if(idx<0) return false;
+  var kind = key.slice(0, idx), id = key.slice(idx+1);
+  if(kind==='inventory'){
+    var qa = computeQuickAddNutritionForInventoryGroup(id);
+    if(!qa) return false;
+    var chosen = qa.chosen;
+    var entry = {
+      id: uid(), date: af.date, slot: af.slot, name: itemDisplayNameRaw(chosen), amount: qa.amount, unit: qa.unit,
+      nutrition: qa.nutrition, nutrition_extra: qa.nutrition_extra, created_at: nowLocalIso(),
+      source_type: 'inventory', source_id: chosen.id
+    };
+    var res = deductFromItem(chosen, qa.amount, qa.unit);
+    if(res && res.ok){ entry.deductItemId=chosen.id; entry.deductAmount=qa.amount; entry.deductUnit=qa.unit; saveItems(); }
+    state.mealLogs.push(entry);
+    if(entry.deductItemId){ pushMealUsageLog(chosen, qa.amount, qa.unit, entry.id, null, af.slot, af.date, entry.created_at); saveItems(); }
+    saveMealLogs();
+    bumpPickFrequency('inventory', chosen.id);
+    return true;
+  }
+  if(kind==='recipe'){
+    var qaR = computeQuickAddNutritionForRecipe(id);
+    if(!qaR) return false;
+    state.mealLogs.push({
+      id: uid(), date: af.date, slot: af.slot, name: qaR.recipe.name,
+      amount: qaR.amount, unit: qaR.unit==='g' ? 'g' : t('servingsUnit'),
+      nutrition: qaR.nutrition, nutrition_extra: qaR.nutrition_extra, created_at: nowLocalIso(),
+      source_type: 'recipe', source_id: id
+    });
+    saveMealLogs();
+    bumpPickFrequency('recipe', id);
+    return true;
+  }
+  if(kind==='external'){
+    var qaE = computeQuickAddNutritionForExternal(id);
+    if(!qaE) return false;
+    state.mealLogs.push({
+      id: uid(), date: af.date, slot: af.slot, name: qaE.ing.name, amount: qaE.amount, unit: qaE.unit,
+      nutrition: qaE.nutrition, nutrition_extra: qaE.nutrition_extra, created_at: nowLocalIso(),
+      source_type: 'external', source_id: id
+    });
+    saveMealLogs();
+    bumpPickFrequency('external', id);
+    return true;
+  }
+  if(kind==='usda'){
+    var qaU = computeQuickAddNutritionForUsda(id);
+    if(!qaU) return false;
+    state.mealLogs.push({
+      id: uid(), date: af.date, slot: af.slot, name: qaU.food.description, amount: qaU.amount, unit: 'g',
+      nutrition: qaU.nutrition, nutrition_extra: qaU.nutrition_extra, created_at: nowLocalIso(),
+      source_type: 'usda', source_id: id
+    });
+    saveMealLogs();
+    bumpPickFrequency('usda', id);
+    return true;
+  }
+  if(kind==='mealset'){
+    var qaM = computeQuickAddForMealset(id);
+    if(!qaM) return false;
+    commitMealsetLogEntry(af.date, af.slot, id, qaM.mealset.name, qaM.items);
+    return true;
+  }
+  return false;
+}
+function confirmQuickAddSelection(){
+  var af = state.mealsUI.addFood;
+  var keys = Object.keys(af.quickPicks||{});
+  if(!keys.length) return;
+  var okCount = 0, failCount = 0;
+  keys.forEach(function(key){
+    if(commitOneQuickPick(af, key)) okCount++; else failCount++;
+  });
+  af.quickPicks = {};
+  if(!okCount){ showToast(t('quickAddFailedToast')); render(); return; }
+  state.mealsUI.selectedSlot = af.slot;
+  showToast(failCount ? t('quickAddPartialToast').replace('{n}', okCount) : t('mealLoggedToast'));
+  navigate('meals');
+}
+// ===================== / 快速勾选添加 - 批量确认 =====================
 
 /* ---- history ---- */
 function renderMealsHistory(){
