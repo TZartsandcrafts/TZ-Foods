@@ -488,6 +488,12 @@
   .inline-dd-option{ padding:12px 14px; font-size:15px; color:var(--cocoa); border-top:1px solid var(--line); cursor:pointer; background:var(--card-bg); }
   .inline-dd-option:active{ background:var(--cream); }
   .inline-dd-option.active{ color:var(--almond); font-weight:600; }
+  /* README 9.198: .inline-dd-option-custom是"自定义单位记忆"这几个下拉框专用的修饰 - 只有
+     带删除×的这几行才需要flex布局把×推到最右边，其它普通下拉框(不带删除功能的)保持原来的
+     纯文字block样式，不受影响。 */
+  .inline-dd-option-custom{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .inline-dd-option-delete{ display:flex; align-items:center; justify-content:center; padding:3px; margin:-3px; color:#B79B78; flex-shrink:0; }
+  .inline-dd-option-delete:active{ color:var(--deep-caramel); }
   .inline-dd-wrap.compact .inline-dd-trigger{ height:30px; padding:0 8px; font-size:13px; border-radius:8px; }
   .inline-dd-wrap.compact .inline-dd-trigger.open{ border-radius:8px 8px 0 0; }
   .inline-dd-wrap.compact .inline-dd-list{ border-radius:0 0 8px 8px; max-height:150px; }
@@ -900,7 +906,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.196';
+var BUILD_VERSION = '9.198';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -6247,7 +6253,7 @@ function toggleUnitDropdown(key){
   state.itemFormUI.openUnitDropdown = (state.itemFormUI.openUnitDropdown===key) ? null : key;
   render();
 }
-function inlineDropdownHtml(key, currentValue, options, selectFnName, placeholderText, extraClass){
+function inlineDropdownHtml(key, currentValue, options, selectFnName, placeholderText, extraClass, deleteFnName){
   var isOpen = state.itemFormUI.openUnitDropdown === key;
   var matched = options.find(function(opt){ return ((typeof opt==='object')?opt.value:opt) === currentValue; });
   var currentLabel = matched ? ((typeof matched==='object') ? matched.label : matched) : currentValue;
@@ -6256,17 +6262,42 @@ function inlineDropdownHtml(key, currentValue, options, selectFnName, placeholde
   var trigger = '<div class="inline-dd-trigger'+(isOpen?' open':'')+'" onclick="toggleUnitDropdown('+aj(key)+')"><span>'+label+'</span>'+
       ic('chevronRight',14,'style="transform:rotate('+(isOpen?'90':'0')+'deg);transition:transform .15s;flex-shrink:0;"')+
     '</div>';
+  // README 9.198: opt.custom+deleteFnName这两个都有才画删除"×"——只有state.units里那些用户自己
+  // 打字加进来的"自定义单位"才会被标成custom:true(见customUnitOptions)，g/kg/ml/件这些内置
+  // 固定单位永远不受影响、删不掉。点×会调deleteFnName(key,val)，用event.stopPropagation()防止
+  // 顺带触发同一行外层的选中(selectFnName)。
   var listHtml = isOpen ? ('<div class="inline-dd-list">'+options.map(function(opt){
     var val = (typeof opt==='object') ? opt.value : opt;
     var lbl = (typeof opt==='object') ? opt.label : opt;
-    return '<div class="inline-dd-option '+(val===currentValue?'active':'')+'" onclick="'+selectFnName+'('+aj(key)+','+aj(val)+')">'+esc(lbl)+'</div>';
+    var isCustom = !!(deleteFnName && typeof opt==='object' && opt.custom);
+    var delBtn = isCustom ? ('<span class="inline-dd-option-delete" onclick="event.stopPropagation();'+deleteFnName+'('+aj(key)+','+aj(val)+')">'+ic('x',13)+'</span>') : '';
+    return '<div class="inline-dd-option'+(val===currentValue?' active':'')+(isCustom?' inline-dd-option-custom':'')+'" onclick="'+selectFnName+'('+aj(key)+','+aj(val)+')">'+
+      '<span class="inline-dd-option-label">'+esc(lbl)+'</span>'+delBtn+
+    '</div>';
   }).join('')+'</div>') : '';
   return '<div class="inline-dd-wrap'+(extraClass?(' '+extraClass):'')+'">'+trigger+listHtml+'</div>';
 }
+// README 9.198: state.units(自定义单位记忆列表)在库存数量单位/多包装单位/营养标签基准单位这
+// 三处下拉框里共用同一份数据——统一在这里转成{value,label,custom:true}这样的选项对象，
+// custom:true是给inlineDropdownHtml识别"这条允许被删除"用的标记，内置固定单位(不经过这个
+// 函数的那些)不带这个标记，删不掉。
+function customUnitOptions(excludeList){
+  return (state.units||[]).filter(function(u){ return (excludeList||[]).indexOf(u)===-1; })
+    .map(function(u){ return {value:u, label:u, custom:true}; });
+}
+// README 9.198: Bug修复——之前"自定义单位"一旦打错字确认了，就永远留在这份全局记忆列表里，
+// 没有任何地方能删掉或改掉它(只能眼睁睁看着下拉框里一直有这一条)。这个删除只影响"以后弹出的
+// 选项列表里还显不显示这一条"，不会动到已经用了这个单位的食材本身的数据——那些食材的unit字段
+// 就是存的这个字符串，跟这份"记忆"列表是不是还留着它没关系，该怎么显示还怎么显示。
+function deleteGlobalUnit(key, val){
+  state.units = (state.units||[]).filter(function(u){ return u!==val; });
+  saveUnits();
+  render();
+}
 /* ---- quantity groups: primary unit + any number of extra "also counted in" units ---- */
 function unitSelectOptions(currentUnit){
-  var opts = UNIT_OPTIONS.concat((state.units||[]).filter(function(u){ return UNIT_OPTIONS.indexOf(u)===-1; }));
-  if(currentUnit && opts.indexOf(currentUnit)===-1) opts = opts.concat([currentUnit]);
+  var opts = UNIT_OPTIONS.concat(customUnitOptions(UNIT_OPTIONS));
+  if(currentUnit && !opts.some(function(o){ return (typeof o==='object'?o.value:o)===currentUnit; })) opts = opts.concat([currentUnit]);
   return opts;
 }
 function addGlobalUnitIfNew(u){
@@ -6324,7 +6355,7 @@ function qtyGroupUnitFieldHtml(idx){
       'oninput="onQtyUnitCustomInput('+aj(idx)+',this.value)" onblur="onQtyUnitCustomBlur('+aj(idx)+',this.value)">';
   }
   var opts = unitSelectOptions(current).concat([{value:'__custom__', label:t('unitCustomOption')}]);
-  return inlineDropdownHtml(key, current, opts, 'onQtyUnitDropdownPick', t('unitPickPlaceholder'));
+  return inlineDropdownHtml(key, current, opts, 'onQtyUnitDropdownPick', t('unitPickPlaceholder'), null, 'deleteGlobalUnit');
 }
 function onQtyUnitDropdownPick(key, val){
   var idx = key==='primary' ? null : parseInt(key.slice(3),10);
@@ -6411,10 +6442,10 @@ function packUnitFieldHtml(idx){
     return '<input type="text" id="customunit-'+key+'" value="'+esc(current)+'" placeholder="'+t('fieldUnitCustomPh')+'" '+
       'oninput="onPackUnitCustomInput('+aj(idx)+',this.value)" onblur="onPackUnitCustomBlur('+aj(idx)+',this.value)">';
   }
-  var opts = PACK_UNIT_BASE_OPTIONS.concat((state.units||[]).filter(function(u){ return PACK_UNIT_BASE_OPTIONS.indexOf(u)===-1; }));
-  if(current && opts.indexOf(current)===-1) opts = opts.concat([current]);
+  var opts = PACK_UNIT_BASE_OPTIONS.concat(customUnitOptions(PACK_UNIT_BASE_OPTIONS));
+  if(current && !opts.some(function(o){ return (typeof o==='object'?o.value:o)===current; })) opts = opts.concat([current]);
   opts = opts.concat([{value:'__custom__', label:t('unitCustomOption')}]);
-  return inlineDropdownHtml(key, current, opts, 'onPackUnitDropdownPick', t('unitPickPlaceholder'));
+  return inlineDropdownHtml(key, current, opts, 'onPackUnitDropdownPick', t('unitPickPlaceholder'), null, 'deleteGlobalUnit');
 }
 function qtyGroupSpecRowHtml(idx, isLast){
   var packAmt = packAmountValue(idx);
@@ -7056,7 +7087,7 @@ function nutriFieldsHtml(draftPath){
       '<span class="nf-input-unit">'+units[row.key]+'</span>'+
     '</span></div>';
   }).join('');
-  return '<div class="nutrition-facts nutrition-facts-edit">'+basisRowHtml+calHtml+rowsHtml+'</div>';
+  return basisRowHtml+calHtml+rowsHtml;
 }
 // A single "每___ [单位]" basis row, one for a weight amount (g/kg) and one for a volume amount
 // (ml/l/tsp/tbsp/cup) - see migrateNutritionBasis for why there are two. Both are optional and
@@ -7179,9 +7210,13 @@ function onNutriBasisUnitCustomBlur(kind, val){
   state.itemFormUI.customUnitEditing[nutriBasisDropdownKey(kind)] = false;
   render();
 }
-// The weight row's dropdown only ever offers g/kg (plus any custom unit already saved on this
-// specific field) and the volume row only offers ml/l/tsp/tbsp/cup - kept strictly separate so
-// picking a unit in one row can't accidentally end up in the other row's slot.
+// The weight row's dropdown offers g/kg plus any custom unit already saved on this specific
+// field, and the volume row offers ml/l/tsp/tbsp/cup plus its own current custom value - kept
+// strictly separate so picking a unit in one row can't accidentally end up in the other row's
+// slot. README 9.198: both rows also now surface the shared state.units "自定义单位记忆"
+// list (same one the 数量 section's own unit picker reads from/writes to) so a custom unit
+// typed once anywhere shows up as a pick here too, instead of having to be retyped from
+// scratch every time - see customUnitOptions()/deleteGlobalUnit().
 function nutriBasisUnitFieldHtml(kind){
   var baseOptions = kind==='weight' ? NUTRI_WEIGHT_UNITS : NUTRI_VOLUME_UNITS;
   var current = state.itemFormUI[nutriBasisUnitKey(kind)] || (kind==='weight' ? 'g' : 'ml');
@@ -7190,10 +7225,10 @@ function nutriBasisUnitFieldHtml(kind){
     return '<input type="text" id="customunit-'+key+'" class="nf-basis-input" style="width:74px;" value="'+esc(current)+'" placeholder="'+t('fieldUnitCustomPh')+'" '+
       'oninput="onNutriBasisUnitCustomInput('+aj(kind)+',this.value)" onblur="onNutriBasisUnitCustomBlur('+aj(kind)+',this.value)">';
   }
-  var opts = baseOptions.slice();
-  if(current && opts.indexOf(current)===-1) opts = opts.concat([current]);
+  var opts = baseOptions.concat(customUnitOptions(baseOptions));
+  if(current && !opts.some(function(o){ return (typeof o==='object'?o.value:o)===current; })) opts = opts.concat([current]);
   opts = opts.concat([{value:'__custom__', label:t('unitCustomOption')}]);
-  return '<div style="width:90px;">'+inlineDropdownHtml(key, current, opts, 'onNutriBasisUnitSelectChange', null, 'compact')+'</div>';
+  return '<div style="width:90px;">'+inlineDropdownHtml(key, current, opts, 'onNutriBasisUnitSelectChange', null, 'compact', 'deleteGlobalUnit')+'</div>';
 }
 function setPriceCurrency(c){ state.itemDraft.price_currency = c; render(); }
 function onPriceCurrencyPick(key, val){
@@ -7227,16 +7262,23 @@ function nutriExtraRowHtml(key){
   '</span></div>'+
   (hint ? '<div class="nf-conversion-hint-row">'+hint+'</div>' : '');
 }
+// README 9.198: 原来这两个分组(维生素/矿物质)各自是单独一个.nutrition-facts-edit白色卡片，
+// 跟上面"营养标签"核心字段的卡片是分开的三块；Lynn要求"更多营养信息"直接合并进营养标签里，
+// 变成同一块连续卡片——现在这两个函数只返回各自的toggle行+字段行，不再自己包一层
+// .nutrition-facts-edit外壳，外壳统一挪到renderItemForm里三段内容一起包一次。
 function nutriExtraFieldsHtml(){
-  return nutriExtraGroupHtml('vitamins', t('nutriGroupVitamins'), NUTRI_VITAMIN_KEYS) +
-         nutriExtraGroupHtml('minerals', t('nutriGroupMinerals'), NUTRI_MINERAL_KEYS);
+  return nutriExtraGroupHtml('minerals', t('nutriGroupMinerals'), NUTRI_MINERAL_KEYS) +
+         nutriExtraGroupHtml('vitamins', t('nutriGroupVitamins'), NUTRI_VITAMIN_KEYS);
 }
 function nutriExtraGroupHtml(groupKey, label, keys){
-  var expanded = !!(state.itemFormUI['nutriExpanded_'+groupKey]);
+  // README 9.198: 默认展开——之前这两个分组默认是收起的(!!undefined===false)，得手动点开才能
+  // 看到里面已经填了什么；现在改成"没有被明确收起过就展开"(只有真的点击收起过、值为false才
+  // 收起)，合并进营养标签之后打开食材编辑页第一眼就能看到完整内容，不用再多点一次。
+  var expanded = state.itemFormUI['nutriExpanded_'+groupKey] !== false;
   var toggleRow = '<div class="nf-toggle-row" onclick="toggleNutriExtraGroup('+aj(groupKey)+')"><span>'+label+'</span>'+
     ic('chevronRight',15,'style="transform:rotate('+(expanded?'90':'0')+'deg);transition:transform .15s;"')+'</div>';
-  if(!expanded) return '<div class="nutrition-facts nutrition-facts-edit">'+toggleRow+'</div>';
-  return '<div class="nutrition-facts nutrition-facts-edit">'+toggleRow+keys.map(nutriExtraRowHtml).join('')+'</div>';
+  if(!expanded) return toggleRow;
+  return toggleRow+keys.map(nutriExtraRowHtml).join('');
 }
 function toggleNutriExtraGroup(groupKey){
   var k = 'nutriExpanded_'+groupKey;
@@ -7319,9 +7361,10 @@ function renderItemForm(){
       '<div id="item-nutrition-photo-status" class="hint" style="margin:-6px 0 10px;"></div>'
     ) : '')+
     freshProduceSuggestionCardHtml()+
-    nutriFieldsHtml(d)+
-    '<div class="section-title">'+t('sectionNutritionMore')+'</div>'+
-    nutriExtraFieldsHtml()+
+    '<div class="nutrition-facts nutrition-facts-edit">'+
+      nutriFieldsHtml(d)+
+      nutriExtraFieldsHtml()+
+    '</div>'+
     '<div class="btn-row" style="margin-top:8px;">'+
       '<button class="btn btn-outline" onclick="cancelItemForm()">'+t('cancel')+'</button>'+
       '<button class="btn btn-primary" onclick="saveItemForm()">'+t('save')+'</button>'+
@@ -13959,14 +14002,31 @@ function setAddFoodBatch(itemId){
 // sent). Only calories is required; everything else (carbs/protein/fat/name) is optional and
 // simply omitted from the logged nutrition rather than defaulted to 0, same spirit as an
 // external ingredient's nutrition_extra fields being left out entirely when not filled in.
+// README 9.197: 自定tab这几个数字/文字输入框，原来填完一项要自己手动点下一项才能继续填，
+// Lynn要求做成"填完一项，光标自动跳到下一项"的链式体验。iOS的数字键盘(inputmode="decimal")
+// 默认是不带回车键的九宫格，但设了enterkeyhint属性之后Safari会在这种数字键盘右下角也画出一个
+// 带文字提示("下一项"/"完成")的回车键——点这个键会照常在没有<form>包裹的输入框上触发一次
+// keydown且event.key==='Enter'，用这个事件把焦点手动挪到下一个字段即可，不需要真的用<form>。
+// 最后一个字段(名称)是"完成"，只收起键盘，不自动帮忙点保存——名称本来就是可选项，链式填完最后
+// 一步交回给用户自己确认再点"保存"，比自动提交更保险。
 function customMealFieldsHtml(af){
   return '' +
-    '<div class="field"><label>'+t('quickCalLabel')+'</label><input type="number" inputmode="decimal" autofocus placeholder="'+t('requiredPh')+'" value="'+esc(af.customCalories||'')+'" oninput="af_str(\'customCalories\',this.value)"></div>'+
-    '<div class="field"><label>'+t('fieldMealCarbs')+'</label><input type="number" inputmode="decimal" placeholder="'+t('optionalPh')+'" value="'+esc(af.customCarbs||'')+'" oninput="af_str(\'customCarbs\',this.value)"></div>'+
-    '<div class="field"><label>'+t('fieldMealProtein')+'</label><input type="number" inputmode="decimal" placeholder="'+t('optionalPh')+'" value="'+esc(af.customProtein||'')+'" oninput="af_str(\'customProtein\',this.value)"></div>'+
-    '<div class="field"><label>'+t('fieldMealFat')+'</label><input type="number" inputmode="decimal" placeholder="'+t('optionalPh')+'" value="'+esc(af.customFat||'')+'" oninput="af_str(\'customFat\',this.value)"></div>'+
-    '<div class="field"><label>'+t('fieldMealName')+'</label><input type="text" autocapitalize="words" placeholder="'+t('optionalPh')+'" value="'+esc(af.customName||'')+'" oninput="af_str(\'customName\',this.value)"></div>'+
+    '<div class="field"><label>'+t('quickCalLabel')+'</label><input type="number" inputmode="decimal" id="custom-field-calories" enterkeyhint="next" autofocus placeholder="'+t('requiredPh')+'" value="'+esc(af.customCalories||'')+'" oninput="af_str(\'customCalories\',this.value)" onkeydown="focusNextCustomField(event,\'custom-field-carbs\')"></div>'+
+    '<div class="field"><label>'+t('fieldMealCarbs')+'</label><input type="number" inputmode="decimal" id="custom-field-carbs" enterkeyhint="next" placeholder="'+t('optionalPh')+'" value="'+esc(af.customCarbs||'')+'" oninput="af_str(\'customCarbs\',this.value)" onkeydown="focusNextCustomField(event,\'custom-field-protein\')"></div>'+
+    '<div class="field"><label>'+t('fieldMealProtein')+'</label><input type="number" inputmode="decimal" id="custom-field-protein" enterkeyhint="next" placeholder="'+t('optionalPh')+'" value="'+esc(af.customProtein||'')+'" oninput="af_str(\'customProtein\',this.value)" onkeydown="focusNextCustomField(event,\'custom-field-fat\')"></div>'+
+    '<div class="field"><label>'+t('fieldMealFat')+'</label><input type="number" inputmode="decimal" id="custom-field-fat" enterkeyhint="next" placeholder="'+t('optionalPh')+'" value="'+esc(af.customFat||'')+'" oninput="af_str(\'customFat\',this.value)" onkeydown="focusNextCustomField(event,\'custom-field-name\')"></div>'+
+    '<div class="field"><label>'+t('fieldMealName')+'</label><input type="text" id="custom-field-name" enterkeyhint="done" autocapitalize="words" placeholder="'+t('optionalPh')+'" value="'+esc(af.customName||'')+'" oninput="af_str(\'customName\',this.value)" onkeydown="focusNextCustomField(event,null)"></div>'+
     '<button class="btn btn-primary" style="margin-top:14px;width:100%;" onclick="saveCustomMealLogEntry()">'+t('save')+'</button>';
+}
+function focusNextCustomField(event, nextId){
+  if(event.key!=='Enter') return;
+  event.preventDefault();
+  if(nextId){
+    var el = document.getElementById(nextId);
+    if(el){ el.focus(); if(el.select) try{ el.select(); }catch(e){} }
+  } else if(event.target && event.target.blur){
+    event.target.blur();
+  }
 }
 function saveCustomMealLogEntry(){
   var af = state.mealsUI.addFood;
