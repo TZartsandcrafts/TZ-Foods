@@ -132,6 +132,10 @@
     top:0; /* refined precisely by JS after each render, see syncMealAddSearchOffset() */
     margin:-16px -18px 0; padding:16px 18px 12px;
   }
+  /* README 9.196: 这个输入框是纯inline style手写的(不是走.search-bar那一套现成组件，那边本来
+     就已经设了outline:none)，一直没设这个属性，所以聚焦时会露出浏览器原生的蓝色outline方框——
+     Lynn反馈的截图。只去掉这个默认outline，autofocus/输入事件等其它行为完全不受影响。 */
+  #add-food-search-input{ outline:none; }
 
   .content{ padding:16px 18px 24px; }
   .home-sticky-controls{
@@ -896,7 +900,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.193';
+var BUILD_VERSION = '9.196';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2398,6 +2402,7 @@ var I18N = {
     tabCustom:'自定', usdaOnlySearchPh:'搜索 USDA 食物数据库（英文）',
     quickAddClearBtn:'清空', quickAddConfirmBtn:'添加',
     quickAddPartialToast:'已添加{n}项，部分条目已失效未添加', quickAddFailedToast:'添加失败，请重试',
+    usdaContinueSearchLabel:'没找到想要的？继续搜索 USDA 数据库',
     mealScanNotInInventoryTitle:'库存里没有这个食品', mealScanNotInInventoryMsg:'要不要顺便添加到库存？',
     mealScanAddToInventoryBtn:'添加到库存', mealScanOneTimeBtn:'仅记录这一次',
     newMealsetBtn:'新建套餐', mealsetNoItemsHint:'还没有套餐，点击上方新建一个',
@@ -2694,6 +2699,7 @@ var I18N = {
     tabCustom:'Custom', usdaOnlySearchPh:'Search the USDA food database',
     quickAddClearBtn:'Clear', quickAddConfirmBtn:'Add',
     quickAddPartialToast:'{n} items added; some entries were no longer valid and were skipped', quickAddFailedToast:'Failed to add, please try again',
+    usdaContinueSearchLabel:"Can't find it? Search the USDA database",
     mealScanNotInInventoryTitle:'Not in your inventory', mealScanNotInInventoryMsg:"Want to add it to your inventory while you're at it?",
     mealScanAddToInventoryBtn:'Add to inventory', mealScanOneTimeBtn:'Just log this once',
     newMealsetBtn:'New mealset', mealsetNoItemsHint:'No mealsets yet — create one above',
@@ -3059,7 +3065,12 @@ async function loadAll(){
     // source_type/source_id/amount/unit)，不是单个数字——套餐本来就是多项食材的组合，没有
     // 单一的"数量"概念。快速勾选时用这份清单原样重新计算营养(recomputeMealsetLogItemNutrition)
     // 再记一条新的三餐记录，不需要重新打开套餐草稿页面挨个调整。
-    storageGet('mealsetLastItems', {})
+    storageGet('mealsetLastItems', {}),
+    // README 9.194: 食谱/套餐(模板食材、草稿页临时加食材)三处共用的"从库存选食材"选择器，各自
+    // 产品(itemGroupKey)记一份"上次选的批次位置/单位/数量"，用来给详情页的批次下拉/单位下拉/
+    // 数量输入框带出默认值——跟三餐"直接吃"用的mealAddItemPrefs是两份独立的记忆，同一个食材做菜
+    // 放多少跟直接吃多少往往不是一回事，不合并。
+    storageGet('recipeIngPrefs', {})
   ]);
   // README 9.125: categoryGroups is the new two-level (母分类/子分类) structure for inventory
   // categories, architecturally matching state.recipeCategoryGroups but without any color
@@ -3136,6 +3147,7 @@ async function loadAll(){
   state.mealAddItemPrefs = results[30] || {};
   state.mealAddLastAmount = results[31] || {};
   state.mealsetLastItems = results[32] || {};
+  state.recipeIngPrefs = results[33] || {};
   state.loaded = true;
 }
 // Old data shape had a single secondary_qty/secondary_unit/unit_ratio triplet per item. The
@@ -3244,6 +3256,7 @@ function saveUsdaTranslationCache(){ return storageSet('usdaTranslationCache', s
 function saveMealAddItemPrefs(){ return storageSet('mealAddItemPrefs', state.mealAddItemPrefs); }
 function saveMealAddLastAmount(){ return storageSet('mealAddLastAmount', state.mealAddLastAmount); }
 function saveMealsetLastItems(){ return storageSet('mealsetLastItems', state.mealsetLastItems); }
+function saveRecipeIngPrefs(){ return storageSet('recipeIngPrefs', state.recipeIngPrefs); }
 function bumpPickFrequency(kind, id){
   if(!id) return;
   var k = kind+':'+id;
@@ -4484,6 +4497,19 @@ function navigate(view, params){
   // blur() call above didn't finish dismissing the keyboard before this point, the viewport
   // shrinking back on the next frame can still shove the scroll position around after we set it.
   requestAnimationFrame(function(){ window.scrollTo(0, targetScrollY); });
+}
+// README 9.196: 三餐加食物页(mealAddFood)内部不少"点一下切换到下一步"的操作(选中一条食物进入
+// 数量页、选中一个套餐进入草稿编辑页、点"从库存选食材"的一行进入批次/数量详情页等)都不是走
+// navigate()换一个全新的view，而是留在同一个view里改一下内部的step/phase再调render() -
+// navigate()本身那套"离开列表页时记住滚动位置、进新页面重置到顶部"的逻辑完全不会触发，导致
+// 如果这一步之前列表已经往下滚了一段(比如从一个较长的搜索结果列表里选了靠后的一条)，新渲染出来
+// 的"名称+批次/数量/单位"这些表单内容还是停在原来的滚动位置，人在屏幕外看不见，得自己往下划才
+// 能看到——Lynn反馈的这个bug。跟navigate()末尾同一套"双重保险"写法：一次同步的+一次
+// requestAnimationFrame里再顶一次(防的是键盘收起动画在下一帧才真正完成、把刚设好的滚动位置又
+// 带跑了这个已知的iOS Safari坑，navigate()自己那段注释里也提到过)。
+function scrollAppToTop(){
+  window.scrollTo(0, 0);
+  requestAnimationFrame(function(){ window.scrollTo(0, 0); });
 }
 function render(){
   var app = document.getElementById('app');
@@ -9776,12 +9802,14 @@ function pickerBackView(){
 }
 function renderPickInventory(){
   return '' +
-  '<div class="page-header"><button class="back-btn" onclick="navigate('+aj(pickerBackView())+')">'+ic('back',22)+'</button><h1>'+t('pickFromInventory')+'</h1></div>'+
+  '<div class="page-header"><button class="back-btn" onclick="pickInventoryBack()">'+ic('back',22)+'</button><h1>'+t('pickFromInventory')+'</h1></div>'+
   '<div class="content">'+
-    '<div class="pick-sticky-search" id="pick-inventory-sticky">'+
-      searchBarHtml(state.pickSearch||'', t('searchPlaceholder'), 'onPickSearch', null, true)+
-    '</div>'+
-    '<div id="pick-list">'+renderPickInventoryListOnly()+'</div>'+
+    (state.pickInvDetail ? pickInventoryDetailHtml() : ('' +
+      '<div class="pick-sticky-search" id="pick-inventory-sticky">'+
+        searchBarHtml(state.pickSearch||'', t('searchPlaceholder'), 'onPickSearch', null, true)+
+      '</div>'+
+      '<div id="pick-list">'+renderPickInventoryListOnly()+'</div>'
+    ))+
   '</div>';
 }
 function onPickSearch(v){
@@ -9797,12 +9825,20 @@ function onPickSearch(v){
     c.outerHTML = '<div id="pick-list">'+html+'</div>';
   }, 200);
 }
-// Same "collapse same product's separate batches into one row" idea as the inventory list
-// itself (itemGroupKey/representativeGroupItem, reused as-is) - picking a recipe ingredient
-// shouldn't require scrolling past N near-identical rows for the same product bought N times.
-// A group only expands into its individual batches on tap; picking always resolves to one
-// specific item id (a recipe ingredient links to one exact batch, so a multi-batch group can't
-// itself be "picked" - only its expanded children can).
+// README 9.194: 参照三餐加食物-库存tab(9.185起)的做法整套搬过来——同一产品(名称+品牌+条码)
+// 不管有多少个批次，搜索结果列表里始终只显示一行(品牌+名称，多批次时名字后面跟一个数字小圆点
+// 提示"还有好几批"，样式复用库存主列表分组行/三餐tab同款的.dup-badge)，不再支持点开展开看
+// 每个批次。具体选哪个批次、填多少数量、用什么单位，统一挪到点进这一行之后的详情页
+// (pickInventoryDetailHtml)——那边有批次下拉框(默认选中项算法跟三餐一样，见
+// defaultBatchForGroup：最早到期优先，同一天打平的话优先选这个产品上次选过的位置)、单位下拉框
+// (记住上次选的单位)、数量输入框(预填上次填过的数量)。这些"上次选的批次位置/单位/数量"记在
+// state.recipeIngPrefs里，跟三餐"直接吃"用的state.mealAddItemPrefs是两份独立的记忆——同一个
+// 食材"做菜时一般放多少"和"直接吃的时候吃多少"往往不是一回事，不合并。
+// 排列顺序也从"只按最早到期排"改成先按"这个产品被选作食材的频率"排(常用的排前面，逻辑跟三餐/
+// 库存首页的sortByPickFrequency一样)，组内批次仍按到期日排序。这套排列/记忆用的是
+// recipeIngItem这个统一的键空间，食谱、套餐模板食材、套餐草稿临时加食材三个入口(共用同一个
+// renderPickInventory/state.view==='pickInventory'||'mealsetPickInventory')共用同一份数据——
+// 同一个产品不管在哪个场景选，"常用"和"上次用量"的记忆都是相通的。
 function renderPickInventoryListOnly(){
   var list = getPickInventoryList();
   if(!list.length) return '<div class="empty-state">'+ic('search',32)+'<p>'+(state.lang==='zh'?'没有找到食材':'No items found')+'</p></div>';
@@ -9812,65 +9848,136 @@ function renderPickInventoryListOnly(){
     if(!groupMap[k]){ groupMap[k] = []; groupOrder.push(k); }
     groupMap[k].push(it);
   });
-  return groupOrder.map(function(k){
-    var group = groupMap[k];
-    return group.length===1 ? pickInventoryRowHtml(group[0]) : pickInventoryGroupHtml(k, group);
-  }).join('');
+  var groups = groupOrder.map(function(k){ return {key:k, items:groupMap[k], rep:representativeGroupItem(groupMap[k])}; });
+  sortByPickFrequency(groups, function(gr){ return 'recipeIngItem:'+gr.key; });
+  return groups.map(function(gr){ return pickInventoryRowHtml(gr); }).join('');
 }
-function pickInventoryRowHtml(it){
-  var expiryText = it.expiry_date ? (t('fieldExpiry')+' '+fmtDateDots(it.expiry_date)) : '';
-  return '<div class="picker-item" onclick="pickInventoryItem('+aj(it.id)+')">'+
-    '<div><div class="pname">'+itemDisplayName(it)+'</div><div class="pmeta">'+qtyDisplay(it)+(it.location?' · '+esc(it.location):'')+(expiryText?' · '+esc(expiryText):'')+'</div></div>'+
+function pickInventoryRowHtml(gr){
+  var badge = gr.items.length>1 ? '<span class="dup-badge">'+gr.items.length+'</span>' : '';
+  return '<div class="picker-item" onclick="openPickInventoryDetail('+aj(gr.key)+')">'+
+    '<div class="pname">'+itemDisplayName(gr.rep)+badge+'</div>'+
     ic('chevronRight',18)+
   '</div>';
 }
-function pickInventoryGroupHtml(key, group){
-  var rep = representativeGroupItem(group);
-  var expanded = !!(state.pickExpandedGroups && state.pickExpandedGroups[key]);
-  var expiryText = rep.expiry_date ? (t('fieldExpiry')+' '+fmtDateDots(rep.expiry_date)) : '';
-  var batchCountText = group.length+(state.lang==='zh'?'个批次':' batches');
-  // Same product split across more than one location (e.g. after moving part of a batch - see
-  // performLocationMove) is a real, expected shape now, not just a data-entry accident - showing
-  // just the representative batch's single location here would misleadingly suggest every batch
-  // in this collapsed group lives in the same place. Only fall back to a plain location name
-  // when every batch in the group genuinely agrees on one.
-  var distinctLocations = [];
-  group.forEach(function(it){
-    var loc = it.location || '';
-    if(distinctLocations.indexOf(loc) === -1) distinctLocations.push(loc);
-  });
-  var locationText = (distinctLocations.length===1 && distinctLocations[0])
-    ? distinctLocations[0]
-    : (distinctLocations.length>1 ? (state.lang==='zh' ? ('分布于'+distinctLocations.length+'个位置') : ('across '+distinctLocations.length+' locations')) : '');
-  var header = '<div class="picker-item" onclick="togglePickInventoryGroup('+aj(key)+')">'+
-    '<div><div class="pname">'+itemDisplayName(rep)+'</div><div class="pmeta">'+batchCountText+(locationText?' · '+esc(locationText):'')+(expiryText?' · '+esc(expiryText):'')+'</div></div>'+
-    ic('chevronRight',18,'style="transform:rotate('+(expanded?'90':'0')+'deg);transition:transform .15s;flex-shrink:0;"')+
-  '</div>';
-  if(!expanded) return header;
-  var childrenHtml = group.map(function(it){
-    var et = it.expiry_date ? (t('fieldExpiry')+' '+fmtDateDots(it.expiry_date)) : '';
-    return '<div class="picker-item picker-item-child" onclick="event.stopPropagation();pickInventoryItem('+aj(it.id)+')">'+
-      '<div><div class="pmeta">'+qtyDisplay(it)+(it.location?' · '+esc(it.location):'')+(et?' · '+esc(et):'')+'</div></div>'+
-      ic('chevronRight',16)+
-    '</div>';
-  }).join('');
-  return header + childrenHtml;
+function openPickInventoryDetail(groupKey){
+  var groupItems = itemsInGroupKeySorted(groupKey);
+  if(!groupItems.length) return;
+  var prefs = (state.recipeIngPrefs||{})['inventory:'+groupKey] || {};
+  var chosen = defaultBatchForGroup(groupItems, prefs.location) || groupItems[0];
+  var unitOpts = recipeUnitOptionsForItem(chosen);
+  var unit = (prefs.unit && unitOpts.indexOf(prefs.unit)!==-1) ? prefs.unit : (unitOpts.indexOf('g')!==-1 ? 'g' : (unitOpts[0]||chosen.primary_unit||'g'));
+  state.pickInvDetail = {
+    groupKey: groupKey,
+    batchIds: groupItems.map(function(x){ return x.id; }),
+    chosenId: chosen.id,
+    unit: unit,
+    amountText: prefs.amount ? String(prefs.amount) : ''
+  };
+  render();
+  scrollAppToTop();
+  focusPickInventoryAmountInput();
 }
-function togglePickInventoryGroup(key){
-  state.pickExpandedGroups = state.pickExpandedGroups || {};
-  state.pickExpandedGroups[key] = !state.pickExpandedGroups[key];
-  var c = document.getElementById('pick-list');
-  if(c) c.outerHTML = '<div id="pick-list">'+renderPickInventoryListOnly()+'</div>';
+function pickInventoryDetailHtml(){
+  var d = state.pickInvDetail;
+  var batchItems = d.batchIds.map(function(bid){ return state.items.find(function(x){ return x.id===bid; }); }).filter(function(x){ return x && !x.archived; });
+  // 极端情况：打开详情页之后，这批(甚至整个产品)在别处被删掉了——不崩，给个提示退回列表。
+  if(!batchItems.length){
+    return '<p class="hint">'+(state.lang==='zh'?'这个食材已经不在库存里了':'This item is no longer in stock')+'</p>'+
+      '<button class="btn btn-outline" style="margin-top:14px;width:100%;" onclick="pickInventoryBack()">'+t('back')+'</button>';
+  }
+  var chosen = batchItems.filter(function(x){ return x.id===d.chosenId; })[0] || batchItems[0];
+  d.chosenId = chosen.id;
+  var batchInfoParts = function(it){
+    var parts = [];
+    if(it.expiry_date) parts.push(esc(fmtDateDots(it.expiry_date)));
+    if(it.location) parts.push(esc(it.location));
+    parts.push(esc(qtyDisplay(it)));
+    return parts.join(' · ');
+  };
+  var batchField;
+  if(batchItems.length>1){
+    batchField = '<div class="field"><label>'+t('fieldBatch')+'</label>'+
+      '<select onchange="setPickInvBatch(this.value)">'+
+      batchItems.map(function(it){ return '<option value="'+esc(it.id)+'" '+(it.id===chosen.id?'selected':'')+'>'+batchInfoParts(it)+'</option>'; }).join('')+
+      '</select></div>';
+  } else {
+    batchField = '<div class="field" style="margin-bottom:14px;"><p class="hint" style="margin:0;">'+batchInfoParts(chosen)+'</p></div>';
+  }
+  var unitOpts = recipeUnitOptionsForItem(chosen);
+  if(d.unit && unitOpts.indexOf(d.unit)===-1) d.unit = null;
+  if(!d.unit) d.unit = unitOpts.indexOf('g')!==-1 ? 'g' : (unitOpts[0]||chosen.primary_unit||'g');
+  var unitField = unitOpts.length>1 ?
+    ('<div class="field"><label>'+t('ingUnitLabel')+'</label><select onchange="setPickInvUnit(this.value)">'+
+      unitOpts.map(function(u){ return '<option value="'+esc(u)+'" '+(d.unit===u?'selected':'')+'>'+esc(u)+'</option>'; }).join('')+
+    '</select></div>') : '';
+  return '' +
+    '<p style="font-weight:600;margin-bottom:14px;">'+esc(itemDisplayNameRaw(chosen))+'</p>'+
+    batchField+
+    '<div class="field-row">'+
+      '<div class="field"><label>'+t('ingAmountLabel')+(unitOpts.length<=1?(' ('+esc(d.unit)+')'):'')+'</label><input type="text" id="pick-inv-amount-input" autofocus placeholder="'+t('ingAmountPh')+'" value="'+esc(d.amountText)+'" oninput="setPickInvAmount(this.value)"></div>'+
+      unitField+
+    '</div>'+
+    '<button class="btn btn-outline" style="margin-top:14px;width:100%;" onclick="pickInventoryBack()">'+t('back')+'</button>'+
+    '<button class="btn btn-primary" style="margin-top:10px;width:100%;" onclick="confirmPickInventoryDetail()">'+t('add')+'</button>';
 }
-function pickInventoryItem(id){
-  var it = state.items.find(function(i){ return i.id===id; });
-  if(!it) return;
-  var unitOpts = recipeUnitOptionsForItem(it);
-  showModal(itemDisplayNameRaw(it),
-    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" id="ing-amount" autofocus placeholder="'+t('ingAmountPh')+'"></div>'+
-    '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u,idx){ return '<div class="tag-option '+(idx===0?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+u+'</div>'; }).join('')+'</div></div>'+
-    '<button class="btn btn-primary" onclick="confirmAddIngredient(\'inventory\','+aj(id)+','+aj(it.name)+')">'+t('add')+'</button>'
-  );
+function setPickInvAmount(v){ if(state.pickInvDetail) state.pickInvDetail.amountText = v; }
+function setPickInvUnit(u){ if(state.pickInvDetail) state.pickInvDetail.unit = u; }
+function setPickInvBatch(id){
+  if(!state.pickInvDetail) return;
+  state.pickInvDetail.chosenId = id;
+  // 换了批次，单位先清空回退到"这批g优先"的默认规则重新算 - 理论上同产品各批次单位配置应该
+  // 一样，但保险起见跟addFoodAmountBodyHtml的9.185注释是同一个道理。
+  state.pickInvDetail.unit = null;
+  render();
+}
+function focusPickInventoryAmountInput(){
+  var el = document.getElementById('pick-inv-amount-input');
+  if(!el) return;
+  el.focus();
+  if(el.value && el.select){ try{ el.select(); }catch(e){} }
+}
+function pickInventoryBack(){
+  if(state.pickInvDetail){ state.pickInvDetail = null; render(); scrollAppToTop(); return; }
+  navigate(pickerBackView());
+}
+function confirmPickInventoryDetail(){
+  var d = state.pickInvDetail;
+  if(!d) return;
+  var amount = parseAmountInput(d.amountText);
+  if(!amount || amount<=0){ showToast(state.lang==='zh'?'请输入用量':'Please enter an amount'); return; }
+  var chosen = state.items.find(function(x){ return x.id===d.chosenId; });
+  if(!chosen){ showToast(state.lang==='zh'?'这个批次已经不在库存里了':'This batch is no longer in stock'); state.pickInvDetail=null; render(); return; }
+  var unit = d.unit;
+  var name = itemDisplayNameRaw(chosen);
+  // README 9.194: 记住这个产品这次选的位置/单位/数量，同时给"常用排列"计一次频率 - 只有真的
+  // 点了"添加"才算数，跟pickFrequency"只在真的存了之后才计数"是同一个原则。
+  state.recipeIngPrefs = state.recipeIngPrefs || {};
+  state.recipeIngPrefs['inventory:'+d.groupKey] = {location: chosen.location||'', unit: unit, amount: amount};
+  saveRecipeIngPrefs();
+  bumpPickFrequency('recipeIngItem', d.groupKey);
+  state.pickInvDetail = null;
+  commitPickedInventoryIngredient(chosen.id, name, amount, unit);
+}
+// README 9.194: 从confirmAddIngredient"库存来源"这条分支单独抽出来的提交逻辑——原来是从modal
+// 里的#ing-amount/#ing-unit-pills这两个DOM元素读值，现在数量/单位是从上面的详情页
+// state.pickInvDetail直接算好传进来的，不用再依赖那两个已经不存在的modal元素。食谱/套餐模板/
+// 套餐草稿三种目的地的分支逻辑跟confirmAddIngredient原来对'inventory'这个sourceType的处理
+// 完全一样，照抄过来；confirmAddIngredient本身还留着给"食谱作为食材"(sourceType='recipe')那
+// 条路用，不受影响。
+function commitPickedInventoryIngredient(id, name, amount, unit){
+  var isMealsetCtx = (state.view==='mealsetPickInventory');
+  if(isMealsetCtx){
+    if(state.mealsetPickerMode==='draft'){
+      addRawItemToMealsetDraftLog('inventory', id, name, amount, unit);
+      navigate('mealAddFood');
+      return;
+    }
+    var mlist = state.mealsetDraft.items || (state.mealsetDraft.items=[]);
+    mlist.push({id:uid(), source_type:'inventory', source_id:id, name_snapshot:name, amount:amount, unit:unit});
+    navigate('mealsetForm');
+    return;
+  }
+  addIngredientToRecipe('inventory', id, name, amount, unit);
 }function selectPillIn(el, containerId){
   var c = document.getElementById(containerId);
   Array.prototype.forEach.call(c.children, function(ch){ ch.classList.remove('active'); });
@@ -10313,11 +10420,11 @@ function saveExternalIngredientEdit(){
 // createExternalIngredientAndAdd/pickerBackView which draft to write into and where "back" goes.
 // Always set explicitly on entry (never left over from a previous visit) so the two modes can't
 // bleed into each other.
-function goMealsetPickInventory(){ state.pickSearch=''; state.mealsetPickerMode='template'; navigate('mealsetPickInventory'); }
+function goMealsetPickInventory(){ state.pickSearch=''; state.pickInvDetail=null; state.mealsetPickerMode='template'; navigate('mealsetPickInventory'); }
 function goMealsetPickExternal(){ state.pickSearch=''; state.mealsetPickerMode='template'; navigate('mealsetPickExternal'); }
 function goMealsetPickRecipe(){ state.pickSearch=''; state.mealsetPickerMode='template'; navigate('mealsetPickRecipe'); }
 function goMealsetPickMealset(){ state.pickSearch=''; state.mealsetPickerMode='template'; navigate('mealsetPickMealset'); }
-function goMealsetDraftPickInventory(){ state.pickSearch=''; state.mealsetPickerMode='draft'; navigate('mealsetPickInventory'); }
+function goMealsetDraftPickInventory(){ state.pickSearch=''; state.pickInvDetail=null; state.mealsetPickerMode='draft'; navigate('mealsetPickInventory'); }
 function goMealsetDraftPickExternal(){ state.pickSearch=''; state.mealsetPickerMode='draft'; navigate('mealsetPickExternal'); }
 function goMealsetDraftPickRecipe(){ state.pickSearch=''; state.mealsetPickerMode='draft'; navigate('mealsetPickRecipe'); }
 // Adds one ad hoc leaf item straight to the in-progress 套餐 log draft (af.mealsetLogItems) -
@@ -10929,7 +11036,7 @@ function removeRecipePhoto(){
 // groupIdx (position of a {type:'group'} marker in state.recipeDraft.ingredients) records which
 // group block's button was tapped, so addIngredientToRecipe knows where to insert once the
 // picker flow (and possibly the amount/unit modal after it) finishes - see its own comment.
-function goPickInventory(groupIdx){ state.pickSearch=''; state.recipeFormUI.activeIngredientGroupIdx = groupIdx; navigate('pickInventory'); }
+function goPickInventory(groupIdx){ state.pickSearch=''; state.pickInvDetail=null; state.recipeFormUI.activeIngredientGroupIdx = groupIdx; navigate('pickInventory'); }
 function goPickExternal(groupIdx){ state.pickSearch=''; state.recipeFormUI.activeIngredientGroupIdx = groupIdx; navigate('pickExternal'); }
 function goPickRecipe(groupIdx){ state.pickSearch=''; state.recipeFormUI.activeIngredientGroupIdx = groupIdx; navigate('pickRecipe'); }
 // README 9.133: was an unconditional discard - an accidental edge-swipe (or a deliberate tap on
@@ -12789,6 +12896,7 @@ function setMealAddFoodTab(tabId){
   // 手动补一次搜索(见下面)。
   af.tab = tabId; af.step = 'search'; af.picked = null; af.mealsetPhase = null; af.mealsetLogItems = null; af.amountUnit = null;
   render();
+  scrollAppToTop();
   if(tabId==='usda' && af.query && af.query.trim().length>=2){
     runAddFoodUsdaSearch(af.query.trim());
   }
@@ -12865,6 +12973,7 @@ function selectMealsetForLog(id){
   af.mealsetSourceMealsetId = m.id;
   af.mealsetPhase = 'draft';
   render();
+  scrollAppToTop();
 }
 // README 9.139: draft is a plain copy (buildMealsetLogItems already snapshots everything, incl.
 // resolved names/nutrition) - editing amounts/deleting rows here only touches af.mealsetLogItems,
@@ -13508,12 +13617,23 @@ async function runAddFoodUsdaSearch(rawQuery){
 
   var localMatches = searchUsdaSaved(term);
   if(localMatches.length){
+    // README 9.195: 本地"常用"列表里有匹配，还是照旧优先展示(不占用网络请求)——但这之前一旦
+    // 命中本地缓存就直接return了，如果这条缓存的不是真正想要的、USDA数据库里其实还有别的更
+    // 合适的结果，用户没有任何办法能让它去真的联网搜索(Lynn反馈:搜"egg"因为本地常用列表里已经
+    // 有一条"Egg, whole, cooked, fried"，就再也搜不到USDA数据库里其它符合"egg"的条目了)。这次
+    // 在列表下面额外加一条"继续搜索USDA数据库"的入口(continueUsdaLiveSearch)，term这里已经
+    // 翻译好了，直接存下来传过去，不用再翻译一次。
     renderUsdaResultRows(localMatches.map(function(f){
       return {fdcId:f.fdcId, description:f.description, dataType:f.dataType, brandName:f.brandName};
-    }));
+    }), term);
     return;
   }
-
+  await runUsdaLiveSearch(term, seq);
+}
+// README 9.195: 从runAddFoodUsdaSearch里"真正打一次USDA在线数据库"这部分抽出来的独立函数——
+// 本地常用列表一个匹配都没有时(原有流程)、跟本地常用列表已经有匹配、但用户点了"继续搜索USDA
+// 数据库"手动要求联网时(见下面continueUsdaLiveSearch)，两处共用同一份联网搜索逻辑。
+async function runUsdaLiveSearch(term, seq){
   var el2 = document.getElementById('add-food-usda-results');
   if(el2) el2.innerHTML = '<p class="hint" style="padding:8px 0 0;">'+t('usdaSearchLoading')+'</p>';
   try{
@@ -13521,29 +13641,48 @@ async function runAddFoodUsdaSearch(rawQuery){
     // 20秒 - USDA接口本身实测比翻译接口慢一些）。
     var results = await withTimeout(usdaSearchFoods(term), 20000);
     if(seq!==addFoodUsdaSearchSeq) return;
-    if(!results.length){
-      var el3 = document.getElementById('add-food-usda-results');
-      if(el3) el3.innerHTML='<p class="hint">'+t('noMealLoggedHint')+'</p>';
-      return;
-    }
+    // 联网结果没有continueTerm这个参数——已经是真联网搜出来的了，不需要再显示"继续搜索"入口；
+    // results为空时renderUsdaResultRows/usdaResultRowsWithContinueHtml自己会显示空状态提示。
     renderUsdaResultRows(results.slice(0,20));
   }catch(e){
     if(seq!==addFoodUsdaSearchSeq) return;
     // README 9.179: 之前这里失败/超时之后直接清空成一片空白，跟"卡住不动"从用户角度看不出
     // 区别（都是没反应）。改成显示明确的错误提示，至少能看出"这次真的失败了"而不是还在等。
+    _lastUsdaDisplayList = []; _lastUsdaContinueTerm = null;
     var el4 = document.getElementById('add-food-usda-results');
     if(el4) el4.innerHTML = '<p class="hint">'+t('usdaSearchError')+'</p>';
   }
 }
+// README 9.195: 本地常用列表命中匹配、但用户明确表示"不是这条，我要真的搜USDA数据库"时调用——
+// term是runAddFoodUsdaSearch里已经翻译过的最终检索词，直接复用，不用再走一次中译英。用新的
+// seq把addFoodUsdaSearchSeq往前推一格，这样如果这次网络请求还没回来用户就已经又打字触发了新
+// 一轮搜索，这次的结果会被runUsdaLiveSearch里现成的seq比对逻辑正常丢弃。
+function continueUsdaLiveSearch(term){
+  var seq = ++addFoodUsdaSearchSeq;
+  runUsdaLiveSearch(term, seq);
+}
 // README 9.177: 记住当前#add-food-usda-results里实际展示的是哪份列表(不含星标状态),这样星标
 // 按钮点击后只需要重新套用星标状态刷新这几行,不用重新查一次USDA或重新翻译。
+// README 9.195: _lastUsdaContinueTerm非空时，说明当前展示的是"本地常用列表命中"的结果，需要
+// 在列表下面补一条"继续搜索USDA数据库"的入口——单独存成模块级变量而不是每次现算，是因为
+// refreshUsdaDisplayedList(收藏星标切换后)重新拼HTML时也要保留这同一条入口，不能因为只是
+// 点了个星标就把这条入口跟着刷没了。
 var _lastUsdaDisplayList = [];
-function renderUsdaResultRows(list){
+var _lastUsdaContinueTerm = null;
+function renderUsdaResultRows(list, continueTerm){
   _lastUsdaDisplayList = list;
+  _lastUsdaContinueTerm = continueTerm || null;
   var el = document.getElementById('add-food-usda-results');
   if(!el) return;
-  if(!list.length){ el.innerHTML = '<p class="hint">'+t('noMealLoggedHint')+'</p>'; return; }
-  el.innerHTML = list.map(usdaResultRowHtml).join('');
+  el.innerHTML = usdaResultRowsWithContinueHtml(list);
+}
+function usdaResultRowsWithContinueHtml(list){
+  var rowsHtml = list.length ? list.map(usdaResultRowHtml).join('') : '<p class="hint">'+t('noMealLoggedHint')+'</p>';
+  if(!_lastUsdaContinueTerm) return rowsHtml;
+  return rowsHtml +
+    '<div class="list-row" style="cursor:pointer;" onclick="continueUsdaLiveSearch('+aj(_lastUsdaContinueTerm)+')">'+
+      '<div class="row-label" style="color:var(--deep-caramel);">'+t('usdaContinueSearchLabel')+'</div>'+
+    '</div>';
 }
 function usdaStarIconSvg(filled){
   return '<svg width="18" height="18" viewBox="0 0 24 24" '+(filled?'fill="var(--caramel-light)" stroke="var(--caramel-light)"':'fill="none" stroke="currentColor"')+' stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l2.6 5.6 6.1.6-4.6 4.1 1.3 6-5.4-3.2-5.4 3.2 1.3-6-4.6-4.1 6.1-.6z"/></svg>';
@@ -13648,7 +13787,9 @@ function refreshUsdaDisplayedList(){
   if(!af.query || !af.query.trim()){
     el.innerHTML = usdaSavedListHtml();
   } else if(_lastUsdaDisplayList.length){
-    el.innerHTML = _lastUsdaDisplayList.map(usdaResultRowHtml).join('');
+    // README 9.195: 改成走usdaResultRowsWithContinueHtml而不是直接map——单纯点了个星标不该把
+    // "继续搜索USDA数据库"这条入口(如果当时有的话)也跟着刷没了。
+    el.innerHTML = usdaResultRowsWithContinueHtml(_lastUsdaDisplayList);
   }
 }
 // 每次成功拉到完整详情(包括直接点选/星标收藏两个入口)都顺手缓存下来,不管这次有没有真的存进
@@ -13721,6 +13862,7 @@ function pickLocalFoodForMeal(type, id){
   }
   af.step = 'amount';
   render();
+  scrollAppToTop();
   focusAddFoodAmountInput();
 }
 async function pickUsdaFoodForMeal(fdcId){
@@ -13732,6 +13874,7 @@ async function pickUsdaFoodForMeal(fdcId){
     af.amountText = '100';
     af.step = 'amount';
     render();
+    scrollAppToTop();
     focusAddFoodAmountInput();
     return;
   }
@@ -13749,6 +13892,7 @@ async function pickUsdaFoodForMeal(fdcId){
     showToast(t('usdaSearchError'));
   }
   render();
+  scrollAppToTop();
   focusAddFoodAmountInput();
   removeIosKeyboardKeepalive();
 }
@@ -13756,6 +13900,7 @@ function backToAddFoodSearch(){
   var af = state.mealsUI.addFood;
   af.step = 'search'; af.picked = null;
   render();
+  scrollAppToTop();
 }
 function af_str(field, val){ state.mealsUI.addFood[field] = val; }
 function af_bool(field, val){ state.mealsUI.addFood[field] = val; }
