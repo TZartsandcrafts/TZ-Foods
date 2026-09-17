@@ -906,7 +906,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.200';
+var BUILD_VERSION = '9.201';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -4024,6 +4024,19 @@ function multiplyNutrition(n, factor){
   NUTRI_KEYS.forEach(function(k){ out[k] = (n[k]||0)*factor; });
   return out;
 }
+// README 9.201: multiplyNutrition的nutrition_extra版本——套餐嵌套快照兜底(见
+// buildMealsetLogItems)需要把快照里已经算好的每一项nutrition_extra再按倍率缩放一次，
+// 跟multiplyNutrition处理核心营养素是同一个道理，只是extra是{unit,value}这种带单位的结构，
+// 不能直接乘。
+function multiplyNutritionExtraCore(extra, factor){
+  var out = {};
+  Object.keys(extra||{}).forEach(function(k){
+    var e = extra[k];
+    if(!e || e.value==null) return;
+    out[k] = {unit:e.unit, value:e.value*factor};
+  });
+  return out;
+}
 // README 9.155: shared by scaleNutritionExtraCore/calcRecipeNutrition-style callers - "how much
 // of this source's basis does `used` represent", the same basis-matching arithmetic scaleNutrition
 // does inline, pulled out so the extra (vitamin/mineral) path can reuse the identical factor
@@ -4164,10 +4177,22 @@ function mealsetItemDisplayName(item){
 // inventory/external row) as the core macros right next to it - see scaleNutritionExtraCore.
 function recomputeMealsetLogItemNutrition(item){
   if(item.source_type==='recipe'){
+    // README 9.201: 子食谱被删除后，退回用refreshMealsetItemSnapshots在上次保存这个套餐时留的
+    // 快照(item.snapshot)顶上——原则跟calcRecipeNutrition对食谱食材的处理完全一致(9.134)：
+    // 只在源彻底找不到(被删了)时才用快照，源还在只是这一行单位换算不出来，还是照旧返回空值，
+    // 不用快照掩盖这个真实存在的问题。
     var r = state.recipes.find(function(x){ return x.id===item.source_id; });
-    if(!r) return {nutrition:emptyNutrition(), nutrition_extra:{}};
-    var totalN = calcRecipeNutrition(r);
-    var mult = recipeIngredientMultiplier({servings:r.servings, cooked_weight:r.cooked_weight}, item.amount, item.unit);
+    var totalN, servingsInfo;
+    if(r){
+      totalN = calcRecipeNutrition(r);
+      servingsInfo = {servings:r.servings, cooked_weight:r.cooked_weight};
+    } else if(item.snapshot){
+      totalN = item.snapshot;
+      servingsInfo = {servings:item.snapshot.servings, cooked_weight:item.snapshot.cooked_weight};
+    } else {
+      return {nutrition:emptyNutrition(), nutrition_extra:{}};
+    }
+    var mult = recipeIngredientMultiplier(servingsInfo, item.amount, item.unit);
     if(mult==null) return {nutrition:emptyNutrition(), nutrition_extra:{}};
     var extra = {};
     NUTRI_EXTRA_CORE_KEYS.forEach(function(k){
@@ -4197,7 +4222,10 @@ function recomputeMealsetLogItemNutrition(item){
     return {nutrition: item.nutrition_snapshot || emptyNutrition(), nutrition_extra: item.nutrition_extra_snapshot || {}};
   }
   var src = item.source_type==='inventory' ? state.items.find(function(x){ return x.id===item.source_id; }) : state.ingredients.find(function(x){ return x.id===item.source_id; });
-  if(!src) return {nutrition:emptyNutrition(), nutrition_extra:{}};
+  // README 9.201: 库存/外部食材条目被彻底删除后，退回用上次保存这个套餐时留的快照(item.snapshot)
+  // 顶上，原则跟上面的'recipe'分支/calcRecipeNutrition对库存食材的处理完全一致(9.187)——只在
+  // 源找不到时才用快照，源还在只是单位换算不出来，不用快照掩盖。
+  if(!src) return item.snapshot ? {nutrition:item.snapshot.nutrition, nutrition_extra:item.snapshot.nutrition_extra||{}} : {nutrition:emptyNutrition(), nutrition_extra:{}};
   var basisInfo = ingredientBasisInfo(src);
   var used = amountToBasisUnits(item.amount, item.unit, item.source_type==='inventory'?src:null);
   if(used==null) used = countBasisMatch(src, item.amount, item.unit);
@@ -4221,12 +4249,31 @@ function buildMealsetLogItems(mealset, multiplier, visited){
   (mealset.items||[]).forEach(function(it){
     if(it.source_type==='mealset'){
       var sub = state.mealsets.find(function(m){ return m.id===it.source_id; });
-      if(sub) out = out.concat(buildMealsetLogItems(sub, multiplier*(it.amount||1), visited));
+      var effMult = multiplier*(it.amount||1);
+      if(sub){
+        out = out.concat(buildMealsetLogItems(sub, effMult, visited));
+      } else if(it.snapshot && it.snapshot.items){
+        // README 9.201: 被嵌套的套餐彻底删除后，退回用refreshMealsetItemSnapshots在上次保存
+        // (外层)这个套餐时留的快照顶上——快照存的是那个套餐当时按倍率1展开的明细，这里再按这一
+        // 层实际的倍率(外层传下来的multiplier × 这一条嵌套本身的份数)重新缩放一次，跟"源还在"
+        // 时算出来的结果是同一套倍率逻辑，不会因为嵌套的套餐被删就让引用它的这个套餐/正在记录
+        // 的这一餐的热量凭空消失。
+        it.snapshot.items.forEach(function(si){
+          out.push({
+            id: uid(), source_type: si.source_type, source_id: si.source_id,
+            name: si.name, amount: (si.amount||0)*effMult, unit: si.unit,
+            nutrition: multiplyNutrition(si.nutrition, effMult),
+            nutrition_extra: multiplyNutritionExtraCore(si.nutrition_extra, effMult),
+            deduct: si.deduct
+          });
+        });
+      }
       return;
     }
     var scaledItem = {source_type: it.source_type, source_id: it.source_id, amount: (it.amount||0)*multiplier, unit: it.unit,
       nutrition_snapshot_per100g: it.nutrition_snapshot_per100g, nutrition_extra_snapshot_per100g: it.nutrition_extra_snapshot_per100g,
-      nutrition_snapshot: it.nutrition_snapshot, nutrition_extra_snapshot: it.nutrition_extra_snapshot};
+      nutrition_snapshot: it.nutrition_snapshot, nutrition_extra_snapshot: it.nutrition_extra_snapshot,
+      snapshot: it.snapshot};
     var computed = recomputeMealsetLogItemNutrition(scaledItem);
     out.push({
       id: uid(), source_type: it.source_type, source_id: it.source_id,
@@ -10512,9 +10559,51 @@ function renderMealsetForm(){
     (!d._isNew ? '<button class="btn btn-danger" style="width:100%;margin-top:10px;" onclick="deleteMealsetFromForm()">'+ic('trash',16)+' '+t('delete')+'</button>' : '')+
   '</div>';
 }
+// README 9.201: 保存套餐前刷新每一条食材的snapshot——跟refreshRecipeIngredientSnapshots(食谱，
+// 9.134/9.187)是完全对应的同一条基本规则：库存/外部食材存这一行当时算出来的营养贡献本身；
+// 食谱类食材存子食谱当时的完整计算结果；套餐嵌套存被嵌套的那个套餐当时(按倍率1)展开的明细。
+// 这三种食材源之后如果被删除，recomputeMealsetLogItemNutrition/buildMealsetLogItems都能退回来
+// 用这份快照顶上，不会让删除动作反过来改变已经引用了它的套餐的热量计算。只在源眼下还能找到、
+// 而且这一行确实能算出结果时才刷新——源已经不在了/换算不出来就跳过，保留现成的旧快照，没有
+// 更新鲜的数据可捕捉，也不用一个null去覆盖掉本来还能用的快照。USDA/自定这两种来源从加进来那一
+// 刻起就已经是固定快照(见recomputeMealsetLogItemNutrition)，这里不用管。
+function refreshMealsetItemSnapshots(mealset){
+  (mealset.items||[]).forEach(function(it){
+    if(it.source_type==='recipe'){
+      var subRecipe = state.recipes.find(function(r){ return r.id===it.source_id; });
+      if(!subRecipe) return;
+      var result = calcRecipeNutrition(subRecipe, [subRecipe.id]);
+      it.snapshot = {
+        total: result.total, extraTotal: result.extraTotal,
+        servings: subRecipe.servings, cooked_weight: subRecipe.cooked_weight,
+        name: subRecipe.name, captured_at: nowLocalIso()
+      };
+      return;
+    }
+    if(it.source_type==='mealset'){
+      var sub = state.mealsets.find(function(m){ return m.id===it.source_id; });
+      if(!sub) return;
+      it.snapshot = {
+        items: buildMealsetLogItems(sub, 1, []),
+        name: sub.name, captured_at: nowLocalIso()
+      };
+      return;
+    }
+    if(it.source_type!=='inventory' && it.source_type!=='external') return;
+    var src = it.source_type==='inventory' ? state.items.find(function(x){ return x.id===it.source_id; }) : state.ingredients.find(function(x){ return x.id===it.source_id; });
+    if(!src) return;
+    var contribution = computeIngredientRowContribution(it, src);
+    if(!contribution) return;
+    it.snapshot = {
+      nutrition: contribution.nutrition, nutrition_extra: contribution.nutrition_extra,
+      name: src.name, captured_at: nowLocalIso()
+    };
+  });
+}
 function saveMealsetForm(){
   var d = state.mealsetDraft;
   if(!(d.name||'').trim()){ showToast(state.lang==='zh'?'请输入套餐名称':'Please enter a name'); return; }
+  refreshMealsetItemSnapshots(d);
   var idx = state.mealsets.findIndex(function(m){ return m.id===d.id; });
   d.updated_at = nowLocalIso();
   delete d._isNew;
