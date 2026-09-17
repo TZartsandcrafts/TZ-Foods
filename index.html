@@ -906,7 +906,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.201';
+var BUILD_VERSION = '9.202';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2543,8 +2543,7 @@ var I18N = {
     recipeFormTitleAdd:'新建食谱', recipeFormTitleEdit:'编辑食谱',
     fieldRecipeName:'食谱名称', fieldRecipeNamePh:'例如：番茄炒蛋', fieldRecipeCover:'封面图',
     fieldServings:'份数', fieldInstructions:'做法', stepLabel:'步骤', stepPlaceholder:'输入这一步做法…', addStepBtn:'再增加一步',
-    sectionIngredients:'食材', addFromInventory:'从库存选择', addExternal:'添加外部食材',
-    addRecipeAsIngredient:'添加食谱作为食材', pickRecipeTitle:'选择食谱作为食材',
+    sectionIngredients:'食材',
     recipeUnitWhole:'整份', recipeUnitServing:'人份', cookViaLabel:'来自',
     recipeIngUseLabel:'食材来源', recipeIngUseFresh:'现做原料', recipeIngUseExisting:'用现成成品',
     cookConfirmPreMade:'使用现成成品，不扣减原始食材',
@@ -2834,8 +2833,7 @@ var I18N = {
     recipeFormTitleAdd:'New recipe', recipeFormTitleEdit:'Edit recipe',
     fieldRecipeName:'Recipe name', fieldRecipeNamePh:'e.g. Tomato & egg stir-fry', fieldRecipeCover:'Cover photo',
     fieldServings:'Servings', fieldInstructions:'Steps', stepLabel:'Step', stepPlaceholder:'Describe this step…', addStepBtn:'Add another step',
-    sectionIngredients:'Ingredients', addFromInventory:'Add from inventory', addExternal:'Add external ingredient',
-    addRecipeAsIngredient:'Add a recipe as ingredient', pickRecipeTitle:'Choose a recipe as ingredient',
+    sectionIngredients:'Ingredients',
     recipeUnitWhole:'whole recipe', recipeUnitServing:'serving', cookViaLabel:'via',
     recipeIngUseLabel:'Ingredient source', recipeIngUseFresh:'Make from raw', recipeIngUseExisting:'Use pre-made',
     cookConfirmPreMade:'Using pre-made - raw ingredients not deducted',
@@ -4382,6 +4380,30 @@ function computeIngredientRowContribution(ri, src){
   });
   return {nutrition:nutrition, nutrition_extra:nutritionExtra, extraSkippedKeys:extraSkippedKeys};
 }
+// README 9.202: USDA/自定这两种食谱食材来源没有一个"活的"本地记录可以现查现算——USDA只在
+// state.usdaSaved这个可能被清掉的本地缓存里有，自定条目干脆压根没有来源——所以这两种食材加进
+// 食谱的那一刻起，就把当时的营养数据整个存进这一行食材自身，用法完全比照套餐那边
+// (recomputeMealsetLogItemNutrition)对usda/custom两个分支的处理：USDA存per100g快照+当时的
+// 克数，按比例现算；自定存最终固定值，不随amount缩放。
+function computeUsdaCustomIngredientRowContribution(ri){
+  if(ri.source_type==='usda'){
+    if(!ri.nutrition_snapshot_per100g) return null;
+    var factor = (ri.amount||0)/100;
+    var nutrition = {}; NUTRI_KEYS.forEach(function(k){ nutrition[k]=(ri.nutrition_snapshot_per100g[k]||0)*factor; });
+    var extra = {};
+    NUTRI_EXTRA_CORE_KEYS.concat(NUTRI_EXTRA_OPTIONAL_KEYS).forEach(function(k){
+      var e = (ri.nutrition_extra_snapshot_per100g||{})[k];
+      if(!e || e.value==null) return;
+      var norm = extraToNaturalUnit(k, Number(e.value)*factor, e.unit);
+      if(norm) extra[k] = norm;
+    });
+    return {nutrition:nutrition, nutrition_extra:extra, extraSkippedKeys:[]};
+  }
+  if(ri.source_type==='custom'){
+    return {nutrition: ri.nutrition_snapshot || emptyNutrition(), nutrition_extra: ri.nutrition_extra_snapshot || {}, extraSkippedKeys:[]};
+  }
+  return null;
+}
 function calcRecipeNutrition(recipe, visited){
   visited = visited || [];
   var total = emptyNutrition();
@@ -4453,7 +4475,13 @@ function calcRecipeNutrition(recipe, visited){
     // 快照；食材还在、只是这一行的单位换算不出来(比如单位改了/对不上)，还是照旧警告，不用
         // 快照掩盖这个真实存在的问题——这跟食谱类食材的快照只在"子食谱被删除"时顶上是同一个原则。
     var contribution, contribName;
-    if(src){
+    if(ri.source_type==='usda' || ri.source_type==='custom'){
+      // README 9.202: 见computeUsdaCustomIngredientRowContribution的注释——这两种来源直接读
+      // 自己身上存的快照现算，压根没有"src被删了"这回事。
+      contribution = computeUsdaCustomIngredientRowContribution(ri);
+      if(!contribution){ warnings.push(ri.name_snapshot||'?'); return; }
+      contribName = ri.name_snapshot || '?';
+    } else if(src){
       contribution = computeIngredientRowContribution(ri, src);
       if(!contribution){ warnings.push(src.name); return; }
       contribName = src.name;
@@ -4625,9 +4653,6 @@ function render(){
     case 'mealsSettings': html = renderMealsSettings(); break;
     case 'healthSettings': html = renderHealthSettings(); break;
     case 'manageTags': html = renderManageTags(); break;
-    case 'pickInventory': html = renderPickInventory(); break;
-    case 'pickExternal': html = renderPickExternal(); break;
-    case 'pickRecipe': html = renderPickRecipe(); break;
     case 'mealsetForm': html = renderMealsetForm(); break;
     case 'archive': html = renderArchiveList(); break;
     case 'itemViewOnly': html = renderItemViewOnly(); break;
@@ -5005,7 +5030,12 @@ function openSettings(fromView){
     if(state.view==='planSettings') return {view:'mealsSettings'};
     if(state.view==='macroPresetPicker') return {view:'planSettings'};
     if(state.view==='mealAddFood') return {view:'meals'};
-    if(state.view==='ingPicker') return {view: (state.mealsUI.ingPicker && state.mealsUI.ingPicker.pickerKind==='mealsetTemplate') ? 'mealsetForm' : 'mealAddFood'};
+    if(state.view==='ingPicker') return {view: (function(){
+      var pk = state.mealsUI.ingPicker && state.mealsUI.ingPicker.pickerKind;
+      if(pk==='mealsetTemplate') return 'mealsetForm';
+      if(pk==='recipeIngredients') return 'recipeForm';
+      return 'mealAddFood';
+    })()};
     if(state.view==='mealsetForm') return {view:'mealAddFood'};
     if(state.view==='mealLogEntryDetail') return {view:'meals'};
     if(state.view==='mealsHistory') return {view:'meals'};
@@ -9908,198 +9938,9 @@ function recipeUnitOptionsForItem(item){
   if(item && item.consume_whole_unit) return deductableUnitsForItem(item);
   return orderedUnitOptionsForItem(item);
 }
-// Shared by renderPickInventory (first paint) and onPickSearch's re-render (typing in the
-// search box) so the two can't drift out of sync with each other.
-function getPickInventoryList(){
-  var q = (state.pickSearch||'').toLowerCase();
-  var list = activeItems().filter(function(i){
-    if(!q) return true;
-    return (i.name||'').toLowerCase().indexOf(q)!==-1 || (i.brand||'').toLowerCase().indexOf(q)!==-1;
-  });
-  // Soonest-expiring first (same convention as the inventory list's default expiry sort) -
-  // when adding a recipe ingredient, the batch that's about to go off is usually the one worth
-  // using up first, so surfacing it at the top of the picker saves a scroll.
-  list.sort(function(a,b){
-    var ad = a.expiry_date || '9999-99-99';
-    var bd = b.expiry_date || '9999-99-99';
-    return ad.localeCompare(bd);
-  });
-  return list;
-}
-function pickerBackView(){
-  // README 9.200: pickInventory/pickExternal/pickRecipe原来还兼着套餐模板/套餐草稿这两个场景
-  // 的"添加食材"入口(mealsetPickInventory/mealsetPickExternal/mealsetPickRecipe+
-  // state.mealsetPickerMode)，这次两个场景都改用统一的tab选餐页面(ingPicker)之后，这三个
-  // recipe-ingredient专用的view名字底下再也不会出现mealsetPick*这几个变体了，一律回
-  // recipeForm——原来的分支连同state.mealsetPickerMode一起，已经是彻底没人能再触发到的死代码。
-  return 'recipeForm';
-}
-function renderPickInventory(){
-  return '' +
-  '<div class="page-header"><button class="back-btn" onclick="pickInventoryBack()">'+ic('back',22)+'</button><h1>'+t('pickFromInventory')+'</h1></div>'+
-  '<div class="content">'+
-    (state.pickInvDetail ? pickInventoryDetailHtml() : ('' +
-      '<div class="pick-sticky-search" id="pick-inventory-sticky">'+
-        searchBarHtml(state.pickSearch||'', t('searchPlaceholder'), 'onPickSearch', null, true)+
-      '</div>'+
-      '<div id="pick-list">'+renderPickInventoryListOnly()+'</div>'
-    ))+
-  '</div>';
-}
-function onPickSearch(v){
-  state.pickSearch = v;
-  clearTimeout(onPickSearch._t);
-  onPickSearch._t = setTimeout(function(){
-    var c = document.getElementById('pick-list');
-    if(!c) return;
-    var html = state.view==='pickInventory' ? renderPickInventoryListOnly()
-      : state.view==='pickRecipe' ? renderPickRecipeListOnly()
-      : renderPickExternalListOnly();
-    c.outerHTML = '<div id="pick-list">'+html+'</div>';
-  }, 200);
-}
-// README 9.194: 参照三餐加食物-库存tab(9.185起)的做法整套搬过来——同一产品(名称+品牌+条码)
-// 不管有多少个批次，搜索结果列表里始终只显示一行(品牌+名称，多批次时名字后面跟一个数字小圆点
-// 提示"还有好几批"，样式复用库存主列表分组行/三餐tab同款的.dup-badge)，不再支持点开展开看
-// 每个批次。具体选哪个批次、填多少数量、用什么单位，统一挪到点进这一行之后的详情页
-// (pickInventoryDetailHtml)——那边有批次下拉框(默认选中项算法跟三餐一样，见
-// defaultBatchForGroup：最早到期优先，同一天打平的话优先选这个产品上次选过的位置)、单位下拉框
-// (记住上次选的单位)、数量输入框(预填上次填过的数量)。这些"上次选的批次位置/单位/数量"记在
-// state.recipeIngPrefs里，跟三餐"直接吃"用的state.mealAddItemPrefs是两份独立的记忆——同一个
-// 食材"做菜时一般放多少"和"直接吃的时候吃多少"往往不是一回事，不合并。
-// 排列顺序也从"只按最早到期排"改成先按"这个产品被选作食材的频率"排(常用的排前面，逻辑跟三餐/
-// 库存首页的sortByPickFrequency一样)，组内批次仍按到期日排序。
-// README 9.200: 这个页面原来还兼着套餐模板/套餐草稿的"从库存选择"入口(state.view==='
-// mealsetPickInventory')，这次两个场景都改走统一的tab选餐页面(ingPicker)，只剩recipeForm的
-// "添加食材"这一个用途，state.view恒为'pickInventory'。
-function renderPickInventoryListOnly(){
-  var list = getPickInventoryList();
-  if(!list.length) return '<div class="empty-state">'+ic('search',32)+'<p>'+(state.lang==='zh'?'没有找到食材':'No items found')+'</p></div>';
-  var groupOrder = [], groupMap = {};
-  list.forEach(function(it){
-    var k = itemGroupKey(it);
-    if(!groupMap[k]){ groupMap[k] = []; groupOrder.push(k); }
-    groupMap[k].push(it);
-  });
-  var groups = groupOrder.map(function(k){ return {key:k, items:groupMap[k], rep:representativeGroupItem(groupMap[k])}; });
-  sortByPickFrequency(groups, function(gr){ return 'recipeIngItem:'+gr.key; });
-  return groups.map(function(gr){ return pickInventoryRowHtml(gr); }).join('');
-}
-function pickInventoryRowHtml(gr){
-  var badge = gr.items.length>1 ? '<span class="dup-badge">'+gr.items.length+'</span>' : '';
-  return '<div class="picker-item" onclick="openPickInventoryDetail('+aj(gr.key)+')">'+
-    '<div class="pname">'+itemDisplayName(gr.rep)+badge+'</div>'+
-    ic('chevronRight',18)+
-  '</div>';
-}
-function openPickInventoryDetail(groupKey){
-  var groupItems = itemsInGroupKeySorted(groupKey);
-  if(!groupItems.length) return;
-  var prefs = (state.recipeIngPrefs||{})['inventory:'+groupKey] || {};
-  var chosen = defaultBatchForGroup(groupItems, prefs.location) || groupItems[0];
-  var unitOpts = recipeUnitOptionsForItem(chosen);
-  var unit = (prefs.unit && unitOpts.indexOf(prefs.unit)!==-1) ? prefs.unit : (unitOpts.indexOf('g')!==-1 ? 'g' : (unitOpts[0]||chosen.primary_unit||'g'));
-  state.pickInvDetail = {
-    groupKey: groupKey,
-    batchIds: groupItems.map(function(x){ return x.id; }),
-    chosenId: chosen.id,
-    unit: unit,
-    amountText: prefs.amount ? String(prefs.amount) : ''
-  };
-  render();
-  scrollAppToTop();
-  focusPickInventoryAmountInput();
-}
-function pickInventoryDetailHtml(){
-  var d = state.pickInvDetail;
-  var batchItems = d.batchIds.map(function(bid){ return state.items.find(function(x){ return x.id===bid; }); }).filter(function(x){ return x && !x.archived; });
-  // 极端情况：打开详情页之后，这批(甚至整个产品)在别处被删掉了——不崩，给个提示退回列表。
-  if(!batchItems.length){
-    return '<p class="hint">'+(state.lang==='zh'?'这个食材已经不在库存里了':'This item is no longer in stock')+'</p>'+
-      '<button class="btn btn-outline" style="margin-top:14px;width:100%;" onclick="pickInventoryBack()">'+t('back')+'</button>';
-  }
-  var chosen = batchItems.filter(function(x){ return x.id===d.chosenId; })[0] || batchItems[0];
-  d.chosenId = chosen.id;
-  var batchInfoParts = function(it){
-    var parts = [];
-    if(it.expiry_date) parts.push(esc(fmtDateDots(it.expiry_date)));
-    if(it.location) parts.push(esc(it.location));
-    parts.push(esc(qtyDisplay(it)));
-    return parts.join(' · ');
-  };
-  var batchField;
-  if(batchItems.length>1){
-    batchField = '<div class="field"><label>'+t('fieldBatch')+'</label>'+
-      '<select onchange="setPickInvBatch(this.value)">'+
-      batchItems.map(function(it){ return '<option value="'+esc(it.id)+'" '+(it.id===chosen.id?'selected':'')+'>'+batchInfoParts(it)+'</option>'; }).join('')+
-      '</select></div>';
-  } else {
-    batchField = '<div class="field" style="margin-bottom:14px;"><p class="hint" style="margin:0;">'+batchInfoParts(chosen)+'</p></div>';
-  }
-  var unitOpts = recipeUnitOptionsForItem(chosen);
-  if(d.unit && unitOpts.indexOf(d.unit)===-1) d.unit = null;
-  if(!d.unit) d.unit = unitOpts.indexOf('g')!==-1 ? 'g' : (unitOpts[0]||chosen.primary_unit||'g');
-  var unitField = unitOpts.length>1 ?
-    ('<div class="field"><label>'+t('ingUnitLabel')+'</label><select onchange="setPickInvUnit(this.value)">'+
-      unitOpts.map(function(u){ return '<option value="'+esc(u)+'" '+(d.unit===u?'selected':'')+'>'+esc(u)+'</option>'; }).join('')+
-    '</select></div>') : '';
-  return '' +
-    '<p style="font-weight:600;margin-bottom:14px;">'+esc(itemDisplayNameRaw(chosen))+'</p>'+
-    batchField+
-    '<div class="field-row">'+
-      '<div class="field"><label>'+t('ingAmountLabel')+(unitOpts.length<=1?(' ('+esc(d.unit)+')'):'')+'</label><input type="text" id="pick-inv-amount-input" autofocus placeholder="'+t('ingAmountPh')+'" value="'+esc(d.amountText)+'" oninput="setPickInvAmount(this.value)"></div>'+
-      unitField+
-    '</div>'+
-    '<button class="btn btn-outline" style="margin-top:14px;width:100%;" onclick="pickInventoryBack()">'+t('back')+'</button>'+
-    '<button class="btn btn-primary" style="margin-top:10px;width:100%;" onclick="confirmPickInventoryDetail()">'+t('add')+'</button>';
-}
-function setPickInvAmount(v){ if(state.pickInvDetail) state.pickInvDetail.amountText = v; }
-function setPickInvUnit(u){ if(state.pickInvDetail) state.pickInvDetail.unit = u; }
-function setPickInvBatch(id){
-  if(!state.pickInvDetail) return;
-  state.pickInvDetail.chosenId = id;
-  // 换了批次，单位先清空回退到"这批g优先"的默认规则重新算 - 理论上同产品各批次单位配置应该
-  // 一样，但保险起见跟addFoodAmountBodyHtml的9.185注释是同一个道理。
-  state.pickInvDetail.unit = null;
-  render();
-}
-function focusPickInventoryAmountInput(){
-  var el = document.getElementById('pick-inv-amount-input');
-  if(!el) return;
-  el.focus();
-  if(el.value && el.select){ try{ el.select(); }catch(e){} }
-}
-function pickInventoryBack(){
-  if(state.pickInvDetail){ state.pickInvDetail = null; render(); scrollAppToTop(); return; }
-  navigate(pickerBackView());
-}
-function confirmPickInventoryDetail(){
-  var d = state.pickInvDetail;
-  if(!d) return;
-  var amount = parseAmountInput(d.amountText);
-  if(!amount || amount<=0){ showToast(state.lang==='zh'?'请输入用量':'Please enter an amount'); return; }
-  var chosen = state.items.find(function(x){ return x.id===d.chosenId; });
-  if(!chosen){ showToast(state.lang==='zh'?'这个批次已经不在库存里了':'This batch is no longer in stock'); state.pickInvDetail=null; render(); return; }
-  var unit = d.unit;
-  var name = itemDisplayNameRaw(chosen);
-  // README 9.194: 记住这个产品这次选的位置/单位/数量，同时给"常用排列"计一次频率 - 只有真的
-  // 点了"添加"才算数，跟pickFrequency"只在真的存了之后才计数"是同一个原则。
-  state.recipeIngPrefs = state.recipeIngPrefs || {};
-  state.recipeIngPrefs['inventory:'+d.groupKey] = {location: chosen.location||'', unit: unit, amount: amount};
-  saveRecipeIngPrefs();
-  bumpPickFrequency('recipeIngItem', d.groupKey);
-  state.pickInvDetail = null;
-  commitPickedInventoryIngredient(chosen.id, name, amount, unit);
-}
-// README 9.194: 从confirmAddIngredient"库存来源"这条分支单独抽出来的提交逻辑——原来是从modal
-// 里的#ing-amount/#ing-unit-pills这两个DOM元素读值，现在数量/单位是从上面的详情页
-// state.pickInvDetail直接算好传进来的，不用再依赖那两个已经不存在的modal元素。
-// README 9.200: 原来这里还有一段"套餐模板/草稿"分支(state.view==='mealsetPickInventory')，随
-// 两个场景都改用统一的tab选餐页面(ingPicker)一起删掉了——这个view名字现在只会在食谱的"添加
-// 食材"流程里出现，不会再是套餐相关的场景。
-function commitPickedInventoryIngredient(id, name, amount, unit){
-  addIngredientToRecipe('inventory', id, name, amount, unit);
-}function selectPillIn(el, containerId){
+// README 9.202: 通用的"选中即高亮"小工具，配合各种tag-select/pill选择器使用(比如上面
+// recipeIngUseExistingToggleHtml的现做/现成切换、食材编辑弹窗里的单位选项)。
+function selectPillIn(el, containerId){
   var c = document.getElementById(containerId);
   Array.prototype.forEach.call(c.children, function(ch){ ch.classList.remove('active'); });
   el.classList.add('active');
@@ -10125,25 +9966,23 @@ function recipeIngUseExistingToggleHtml(current){
     opts.map(function(o){ return '<div class="tag-option '+(o.u===current?'active':'')+'" data-u="'+o.u+'" onclick="selectPillIn(this,\'ing-use-existing-pills\')">'+esc(o.label)+'</div>'; }).join('')+
   '</div></div>';
 }
-// README 9.200: 同样删掉了原来的套餐模板/草稿分支——理由同commitPickedInventoryIngredient。
-function confirmAddIngredient(sourceType, id, name){
-  var amount = parseAmountInput(document.getElementById('ing-amount').value);
-  var unit = getActivePill('ing-unit-pills');
-  if(!amount || amount<=0){ showToast(state.lang==='zh'?'请输入用量':'Please enter an amount'); return; }
-  var useExistingEl = document.getElementById('ing-use-existing-pills');
-  var useExisting = useExistingEl ? (getActivePill('ing-use-existing-pills')==='existing') : false;
-  addIngredientToRecipe(sourceType, id, name, amount, unit, useExisting);
-}
 // Inserts right after the last ingredient already under whichever group was active when
-// goPickInventory/goPickExternal was tapped (see README) - i.e. right before the next group
-// marker, or at the very end if this is the last group - so a new ingredient always lands inside
-// the group the person was actually adding to, not just tacked onto the end of the whole recipe.
+// openIngPickerForRecipe (see README 9.202, replaced the old goPickInventory/goPickExternal/
+// goPickRecipe) was tapped - i.e. right before the next group marker, or at the very end if this
+// is the last group - so a new ingredient always lands inside the group the person was actually
+// adding to, not just tacked onto the end of the whole recipe.
 // Falls back to a plain append if there's somehow no active group (shouldn't happen now that
 // ensureRecipeIngredientGroups always guarantees at least one, but kept as a safe default).
-function addIngredientToRecipe(sourceType, sourceId, nameSnapshot, amount, unit, useExisting){
+// README 9.202: 新增可选的extraFields参数(纯plain object，直接merge进新食材行)，给
+// ipConfirmAmountPick/ipConfirmOneQuickPick传USDA/自定这两种来源需要额外存的营养快照字段用——
+// 老的调用方(confirmAddIngredient)不传这个参数，行为完全不变。不管走哪个入口，"插入到当前活动
+// 分组"这条逻辑都是同一份，统一tab选餐页面加的食材照样能正确落进用户当时展开的那个分组里，不会
+// 变成不分组直接扔到最后。
+function addIngredientToRecipe(sourceType, sourceId, nameSnapshot, amount, unit, useExisting, extraFields){
   var list = state.recipeDraft.ingredients || (state.recipeDraft.ingredients=[]);
   var entry = {id:uid(), source_type:sourceType, source_id:sourceId, name_snapshot:nameSnapshot, amount:amount, unit:unit};
   if(sourceType==='recipe' && useExisting) entry.use_existing = true;
+  if(extraFields) Object.keys(extraFields).forEach(function(k){ entry[k] = extraFields[k]; });
   var groupIdx = state.recipeFormUI && state.recipeFormUI.activeIngredientGroupIdx;
   if(groupIdx!=null && list[groupIdx] && list[groupIdx].type==='group'){
     var i = groupIdx+1;
@@ -10152,62 +9991,7 @@ function addIngredientToRecipe(sourceType, sourceId, nameSnapshot, amount, unit,
   } else {
     list.push(entry);
   }
-  closeModal();
-  navigate('recipeForm');
-}
-function renderPickExternal(){
-  var q = (state.pickSearch||'').toLowerCase();
-  var list = state.ingredients.filter(function(i){ return !q || (i.name||'').toLowerCase().indexOf(q)!==-1; });
-  var itemsHtml = list.map(function(ing){
-    return '<div class="picker-item" onclick="pickExternalIngredient('+aj(ing.id)+')">'+
-      '<div><div class="pname">'+esc(ing.name)+'</div><div class="pmeta">'+fmtNum(ing.nutrition.calories,0)+' kcal /100g</div></div>'+
-      '<div style="display:flex;align-items:center;gap:2px;">'+
-        '<button class="icon-btn" onclick="event.stopPropagation();deleteExternalIngredientConfirm('+aj(ing.id)+')" aria-label="'+t('delete')+'">'+ic('trash',17)+'</button>'+
-        '<button class="icon-btn" onclick="event.stopPropagation();editExternalIngredientModal('+aj(ing.id)+')" aria-label="'+t('edit')+'">'+ic('edit',17)+'</button>'+
-      '</div>'+
-    '</div>';
-  }).join('');
-  return '' +
-  '<div class="page-header"><button class="back-btn" onclick="navigate('+aj(pickerBackView())+')">'+ic('back',22)+'</button><h1>'+t('pickExternal')+'</h1></div>'+
-  '<div class="content" style="padding-bottom:90px;">'+
-    '<div class="pick-sticky-search" id="pick-external-sticky">'+
-      searchBarHtml(state.pickSearch||'', t('searchPlaceholder'), 'onPickSearch', null, true)+
-    '</div>'+
-    '<div id="pick-list">'+itemsHtml+'</div>'+
-  '</div>'+
-  '<button class="usage-fab" onclick="openNewExternalIngredientModal()" aria-label="'+t('createNewIngredient')+'">'+ic('plus',26)+'</button>';
-}
-function renderPickExternalListOnly(){
-  var q = (state.pickSearch||'').toLowerCase();
-  var list = state.ingredients.filter(function(i){ return !q || (i.name||'').toLowerCase().indexOf(q)!==-1; });
-  return list.map(function(ing){
-    return '<div class="picker-item" onclick="pickExternalIngredient('+aj(ing.id)+')">'+
-      '<div><div class="pname">'+esc(ing.name)+'</div><div class="pmeta">'+fmtNum(ing.nutrition.calories,0)+' kcal /100g</div></div>'+
-      '<div style="display:flex;align-items:center;gap:2px;">'+
-        '<button class="icon-btn" onclick="event.stopPropagation();deleteExternalIngredientConfirm('+aj(ing.id)+')" aria-label="'+t('delete')+'">'+ic('trash',17)+'</button>'+
-        '<button class="icon-btn" onclick="event.stopPropagation();editExternalIngredientModal('+aj(ing.id)+')" aria-label="'+t('edit')+'">'+ic('edit',17)+'</button>'+
-      '</div>'+
-    '</div>';
-  }).join('');
-}
-// README 9.142: this used to add straight at a flat 100g default with no amount prompt at all
-// (the comment used to justify it by pointing at editRecipeIngredient/editing after the fact -
-// but Lynn wants the amount asked for up front here, the same as pickInventoryItem already does
-// for inventory ingredients, not as an extra edit step after adding). Now opens the same kind of
-// autofocus-amount modal instead - no unit picker needed since external ingredients are always
-// tracked in grams (their nutrition is stored per-100g to begin with - see openNewExternalIngredientModal).
-function pickExternalIngredient(id){
-  var ing = state.ingredients.find(function(i){ return i.id===id; });
-  if(!ing) return;
-  showModal(ing.name,
-    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" id="ing-amount" autofocus placeholder="'+t('ingAmountPh')+'"></div>'+
-    '<button class="btn btn-primary" onclick="confirmAddExternalIngredient('+aj(id)+','+aj(ing.name)+')">'+t('add')+'</button>'
-  );
-}
-function confirmAddExternalIngredient(id, name){
-  var amount = parseAmountInput(document.getElementById('ing-amount').value);
-  if(!amount || amount<=0){ showToast(state.lang==='zh'?'请输入用量':'Please enter an amount'); return; }
-  addIngredientToRecipe('external', id, name, amount, 'g');
+  return entry;
 }
 function deleteExternalIngredientConfirm(id){
   showConfirmModal(t('deleteConfirm'), function(){
@@ -10215,59 +9999,6 @@ function deleteExternalIngredientConfirm(id){
     saveIngredients();
     render();
   }, {title:t('delete')});
-}
-// README 9.130 (updated 9.142): recipe-as-ingredient picker page - same page shape as
-// renderPickInventory/renderPickExternal (page-header + sticky search + a list that re-renders
-// in place on search), but the list itself is getPickRecipeList() rather than a plain filter,
-// since it also has to exclude the recipe currently being edited and anything that would create
-// a cycle (see recipeUsesRecipe). Tapping a row opens an amount/unit modal (pickRecipeIngredient),
-// same idea as pickExternalIngredient's amount modal - except this one also needs a unit picker
-// (整份/人份/g, whichever the sub-recipe's own servings/cooked_weight make available - see
-// recipeUnitOptionsForRecipe), since unlike an external ingredient (always grams), "some of
-// another recipe" has more than one sensible way to measure it.
-function getPickRecipeList(){
-  var q = (state.pickSearch||'').toLowerCase();
-  var selfId = state.recipeDraft && state.recipeDraft.id;
-  return state.recipes.filter(function(r){
-    if(selfId){ if(r.id===selfId) return false; if(recipeUsesRecipe(r, selfId)) return false; }
-    if(q && (r.name||'').toLowerCase().indexOf(q)===-1) return false;
-    return true;
-  });
-}
-function renderPickRecipe(){
-  return '' +
-  '<div class="page-header"><button class="back-btn" onclick="navigate('+aj(pickerBackView())+')">'+ic('back',22)+'</button><h1>'+t('pickRecipeTitle')+'</h1></div>'+
-  '<div class="content">'+
-    '<div class="pick-sticky-search" id="pick-recipe-sticky">'+
-      searchBarHtml(state.pickSearch||'', t('searchPlaceholder'), 'onPickSearch', null, true)+
-    '</div>'+
-    '<div id="pick-list">'+renderPickRecipeListOnly()+'</div>'+
-  '</div>';
-}
-function renderPickRecipeListOnly(){
-  var list = getPickRecipeList();
-  if(!list.length) return '<div class="empty-state">'+ic('search',32)+'<p>'+(state.lang==='zh'?'没有可选的食谱':'No recipes available')+'</p></div>';
-  return list.map(function(r){
-    var nutri = calcRecipeNutrition(r);
-    var metaParts = [Math.round(nutri.total.calories||0)+' kcal'];
-    if(r.servings) metaParts.push(r.servings+recipeUnitLabel('serving'));
-    if(r.cooked_weight) metaParts.push(fmtNum(r.cooked_weight,0)+'g');
-    return '<div class="picker-item" onclick="pickRecipeIngredient('+aj(r.id)+')">'+
-      '<div><div class="pname">'+esc(r.name)+'</div><div class="pmeta">'+metaParts.map(esc).join(' · ')+'</div></div>'+
-      ic('chevronRight',18)+
-    '</div>';
-  }).join('');
-}
-function pickRecipeIngredient(id){
-  var r = state.recipes.find(function(x){ return x.id===id; });
-  if(!r) return;
-  var unitOpts = recipeUnitOptionsForRecipe(r);
-  showModal(esc(r.name),
-    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" id="ing-amount" autofocus placeholder="'+t('ingAmountPh')+'"></div>'+
-    '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u,idx){ return '<div class="tag-option '+(idx===0?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+esc(recipeUnitLabel(u))+'</div>'; }).join('')+'</div></div>'+
-    recipeIngUseExistingToggleHtml('fresh')+
-    '<button class="btn btn-primary" onclick="confirmAddIngredient(\'recipe\','+aj(id)+','+aj(r.name)+')">'+t('add')+'</button>'
-  );
 }
 // External ingredient add/edit modal (see README): now a live-state-bound draft
 // (state.extIngUI), same idea as state.itemDraft for the item form, instead of the old
@@ -10468,6 +10199,8 @@ function createExternalIngredientAndAdd(){
   state.ingredients.push(ing);
   saveIngredients();
   addIngredientToRecipe('external', ing.id, ing.name, ui.amount||100, ui.unit||'g');
+  closeModal();
+  navigate('recipeForm');
 }
 function saveExternalIngredientEdit(){
   var ui = state.extIngUI;
@@ -10489,9 +10222,7 @@ function saveExternalIngredientEdit(){
 // (see mealsetTabListHtml) - there's no separate bottom-nav entry, matching Lynn's call that
 // this doesn't need to be a peer of 食谱. Editing what's INSIDE a referenced recipe/inventory
 // item still happens on that item's own page - 套餐 rows are pure references (source_type +
-// source_id + amount/unit), same shape as a recipe ingredient row, reusing all the same
-// picker infrastructure (see pickerBackView / the mealsetPick* branches added throughout the
-// pickInventory/pickExternal/pickRecipe functions above) rather than inventing a parallel set.
+// source_id + amount/unit), same shape as a recipe ingredient row.
 // README 9.200: 老的goMealsetPick*()/goMealsetDraftPick*()(以及它们共用的单来源pick页面里
 // 那一堆isMealsetCtx/state.mealsetPickerMode分支)整个删掉了——套餐模板编辑页和套餐草稿页的
 // "添加食材"现在统一走openIngPicker()打开跟三餐加食物同款的tab选餐页面，不再需要这一整套。
@@ -10792,10 +10523,16 @@ function ingredientGroupsEditorHtml(){
     var isLast = segPos === segments.length-1;
     var isEmpty = !(seg.group.name||'').trim() && seg.rows.length===0;
     var rowsHtml = seg.rows.map(function(r){
+      // README 9.202: usda/custom两种新来源的名称标签，跟external/recipe那两个已有的标签是
+      // 同一套写法；amtHtml这一列的custom分支照抄套餐那边的处理(mealsetItemTagHtml/
+      // renderMealsetForm)——自定条目是固定营养值，没有"数量+单位"这个概念可以显示。
+      var amtHtml = r.ri.source_type==='custom' ? '' : (fmtAmount(r.ri.amount, r.ri.unit)+' '+esc(recipeUnitLabel(r.ri.unit)));
       return '<div class="ing-row" onclick="editRecipeIngredient('+r.idx+')"><div class="ing-info"><span class="ing-name">'+esc(recipeIngredientDisplayName(r.ri))+
         (r.ri.source_type==='external' ? ' <span style="font-size:11px;color:var(--almond);">('+t('pickExternal')+')</span>' : '')+
         (r.ri.source_type==='recipe' ? ' <span style="font-size:11px;color:var(--almond);">('+t('navRecipes')+(r.ri.use_existing?(' · '+t('recipeIngUseExisting')):'')+')</span>' : '')+
-        '</span><span class="ing-amt">'+fmtAmount(r.ri.amount, r.ri.unit)+' '+esc(recipeUnitLabel(r.ri.unit))+'</span></div></div>';
+        (r.ri.source_type==='usda' ? ' <span style="font-size:11px;color:var(--almond);">(USDA)</span>' : '')+
+        (r.ri.source_type==='custom' ? ' <span style="font-size:11px;color:var(--almond);">('+t('tabCustom')+')</span>' : '')+
+        '</span><span class="ing-amt">'+amtHtml+'</span></div></div>';
     }).join('');
     return '<div class="ing-group-block">'+
       '<div class="ing-group-title-row">'+
@@ -10803,13 +10540,11 @@ function ingredientGroupsEditorHtml(){
         (!isLast && isEmpty ? '<button type="button" class="icon-btn" onclick="removeIngredientGroupBlock('+seg.groupIdx+')" aria-label="'+t('delete')+'">'+ic('trash',16)+'</button>' : '')+
       '</div>'+
       rowsHtml+
-      '<div class="btn-row" style="margin-top:6px;">'+
-        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="goPickInventory('+seg.groupIdx+')">'+t('addFromInventory')+'</button>'+
-        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="goPickExternal('+seg.groupIdx+')">'+t('addExternal')+'</button>'+
-      '</div>'+
-      '<div class="btn-row" style="margin-top:6px;">'+
-        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="goPickRecipe('+seg.groupIdx+')">'+t('addRecipeAsIngredient')+'</button>'+
-      '</div>'+
+      // README 9.202: 原来两行三个按钮(从库存选择/添加外部食材/添加食谱作为食材)统一改成一个
+      // "添加食材"按钮，打开跟三餐加食物/套餐加食材完全同款的tab选餐页面(库存/食谱/USDA/扫描/
+      // 自定五个tab，没有"套餐"——食谱不能把套餐当食材)。openIngPickerForRecipe先记下这次是往
+      // 哪个分组里加(跟原来goPickInventory(groupIdx)等函数的第一步完全一样)。
+      '<button class="btn btn-outline btn-sm" style="width:100%;margin-top:6px;" onclick="openIngPickerForRecipe('+seg.groupIdx+')">'+ic('plus',15)+' '+t('addIngredientBtn')+'</button>'+
     '</div>';
   }).join('');
 }
@@ -10846,6 +10581,15 @@ function deleteRecipeIngredientFromModal(idx){
 function editRecipeIngredient(idx){
   var ri = (state.recipeDraft.ingredients||[])[idx];
   if(!ri) return;
+  // README 9.202: 自定条目(source_type==='custom')是手动填写的固定营养值，没有"活的"来源可以
+  // 按数量/单位现算——跟套餐那边(editMealsetTplItem)完全一样的处理，编辑框只留删除。
+  if(ri.source_type==='custom'){
+    showModal(esc(recipeIngredientDisplayName(ri)),
+      '<p class="hint" style="margin:0 0 10px;">'+t('customMealsetItemHint')+'</p>'+
+      '<div class="btn-row"><button class="btn btn-danger" style="width:100%;" onclick="deleteRecipeIngredientFromModal('+idx+')">'+ic('trash',16)+' '+t('delete')+'</button></div>'
+    );
+    return;
+  }
   var unitOpts;
   if(ri.source_type==='inventory'){
     var item = state.items.find(function(i){ return i.id===ri.source_id; });
@@ -10853,6 +10597,10 @@ function editRecipeIngredient(idx){
   } else if(ri.source_type==='recipe'){
     var subRecipe = state.recipes.find(function(r){ return r.id===ri.source_id; });
     unitOpts = subRecipe ? recipeUnitOptionsForRecipe(subRecipe) : [ri.unit];
+  } else if(ri.source_type==='usda'){
+    // README 9.202: 理由同套餐那边(editMealsetTplItem)的usda分支——USDA快照始终按克数算，
+    // 只给重量单位可选。
+    unitOpts = WEIGHT_UNITS.slice();
   } else {
     unitOpts = WEIGHT_UNITS.concat(VOLUME_UNITS);
   }
@@ -11108,11 +10856,14 @@ function removeRecipePhoto(){
   render();
 }
 // groupIdx (position of a {type:'group'} marker in state.recipeDraft.ingredients) records which
-// group block's button was tapped, so addIngredientToRecipe knows where to insert once the
-// picker flow (and possibly the amount/unit modal after it) finishes - see its own comment.
-function goPickInventory(groupIdx){ state.pickSearch=''; state.pickInvDetail=null; state.recipeFormUI.activeIngredientGroupIdx = groupIdx; navigate('pickInventory'); }
-function goPickExternal(groupIdx){ state.pickSearch=''; state.recipeFormUI.activeIngredientGroupIdx = groupIdx; navigate('pickExternal'); }
-function goPickRecipe(groupIdx){ state.pickSearch=''; state.recipeFormUI.activeIngredientGroupIdx = groupIdx; navigate('pickRecipe'); }
+// group block's button was tapped, so the final add (see ipConfirmAmountPick/
+// ipConfirmOneQuickPick/ipSaveCustomItem's 'recipeIngredients' branches) knows where to insert
+// once the unified tab选餐页面 finishes - same idea as the old goPickInventory/goPickExternal/
+// goPickRecipe (README 9.202 replaced all three with this one entry point + openIngPicker).
+function openIngPickerForRecipe(groupIdx){
+  state.recipeFormUI.activeIngredientGroupIdx = groupIdx;
+  openIngPicker('recipeIngredients');
+}
 // README 9.133: was an unconditional discard - an accidental edge-swipe (or a deliberate tap on
 // the back button/取消 with unsaved edits) silently threw away everything typed into the recipe
 // form, ingredients included, no confirmation at all. All three ways out of this form (the
@@ -12892,6 +12643,38 @@ function openAddFoodPage(date, slot){
 function activeAddCtx(){
   return (state.view==='ingPicker' && state.mealsUI.ingPicker) ? state.mealsUI.ingPicker : state.mealsUI.addFood;
 }
+// README 9.202: 库存食材"记住上次位置/单位/数量"这份记忆，食谱做菜场景('做菜时一般放多少')
+// 跟三餐/套餐场景('直接吃/整份端上桌时用多少')从9.194起就是两份独立的记忆，故意不合并——统一
+// 到同一套tab选餐页面之后，这几个小helper负责按当前在哪个场景，去读/写正确的那一份，其余共用
+// 的搜索排序(searchInventoryFoods)/快速勾选计算(computeQuickAddNutritionForInventoryGroup)/
+// 选中详情页(pickLocalFoodForMeal)/最终保存(ipConfirmAmountPick/ipConfirmOneQuickPick)都通过
+// 它们间接访问，不用各自重复判断"现在是不是食谱在添加食材"。
+function isRecipeIngredientCtx(){
+  var ctx = activeAddCtx();
+  return !!(ctx && ctx.pickerKind==='recipeIngredients');
+}
+function getInventoryItemPrefs(groupKey){
+  if(isRecipeIngredientCtx()) return (state.recipeIngPrefs||{})['inventory:'+groupKey] || null;
+  return (state.mealAddItemPrefs||{})[groupKey] || null;
+}
+function setInventoryItemPrefs(groupKey, prefsObj){
+  if(isRecipeIngredientCtx()){
+    state.recipeIngPrefs = state.recipeIngPrefs || {};
+    state.recipeIngPrefs['inventory:'+groupKey] = prefsObj;
+    saveRecipeIngPrefs();
+  } else {
+    state.mealAddItemPrefs = state.mealAddItemPrefs || {};
+    state.mealAddItemPrefs[groupKey] = prefsObj;
+    saveMealAddItemPrefs();
+  }
+}
+function bumpInventoryPickFrequency(groupKey, repId){
+  if(isRecipeIngredientCtx()) bumpPickFrequency('recipeIngItem', groupKey);
+  else bumpPickFrequency('inventory', repId);
+}
+function inventoryPickFreqKey(groupKey, repId){
+  return isRecipeIngredientCtx() ? ('recipeIngItem:'+groupKey) : ('inventory:'+repId);
+}
 // README 9.200: 套餐"添加食材"入口——pickerKind是'mealsetTemplate'(套餐模板编辑页，写进
 // state.mealsetDraft.items)或'mealsetDraft'(三餐里正在编辑的套餐草稿，写进
 // state.mealsUI.addFood.mealsetLogItems)之一，决定最终选中的食材写去哪、要不要显示"加到哪一
@@ -12915,15 +12698,15 @@ function renderIngPicker(){
 function ipBack(){
   var ip = state.mealsUI.ingPicker;
   if(ip && ip.step==='amount'){ ip.step='search'; ip.picked=null; render(); scrollAppToTop(); return; }
-  var returnView = (ip && ip.pickerKind==='mealsetTemplate') ? 'mealsetForm' : 'mealAddFood';
+  var returnView = (ip && ip.pickerKind==='mealsetTemplate') ? 'mealsetForm' : (ip && ip.pickerKind==='recipeIngredients') ? 'recipeForm' : 'mealAddFood';
   state.mealsUI.ingPicker = null;
   navigate(returnView);
 }
 // README 9.193: tabs数组抽成独立函数(mealAddTabsList)——renderMealAddFood整页渲染、
 // refreshMealAddTabsBar单独刷新tab条这两处都要用同一份tab列表，抽出来避免以后改tab列表
 // (加/删/改名某个tab)只改了一处、另一处忘了跟着改。
-function mealAddTabsList(){
-  return [
+function mealAddTabsList(af){
+  var list = [
     {id:'inventory', label:t('sourceInventory')},
     {id:'recipe', label:t('sourceRecipe')},
     {id:'mealset', label:t('sourceMealset')},
@@ -12931,11 +12714,15 @@ function mealAddTabsList(){
     {id:'scan', label:t('sourceScan')},
     {id:'custom', label:t('tabCustom')}
   ];
+  // README 9.202: 食谱添加食材没有"套餐"tab——食谱不能把套餐当食材(套餐只会反过来引用食谱)，
+  // 这个来源在这个场景下压根不该出现。
+  if(af && af.pickerKind==='recipeIngredients') list = list.filter(function(tb){ return tb.id!=='mealset'; });
+  return list;
 }
 // README 9.193: af.matchTabs是evaluateCrossTabSearch算出来的"当前关键词在哪些tab里有匹配"
 // 列表(库存/食谱/套餐/USDA四个之一)——当前tab自己不需要点，它的结果已经直接展示在屏幕上了。
 function mealAddTabsBarHtml(af){
-  return mealAddTabsList().map(function(tb){
+  return mealAddTabsList(af).map(function(tb){
     var isMatch = af.matchTabs && tb.id!==af.tab && af.matchTabs.indexOf(tb.id)!==-1;
     return '<div class="meal-add-tab '+(af.tab===tb.id?'active':'')+(isMatch?' has-match':'')+'" onclick="setMealAddFoodTab('+aj(tb.id)+')">'+esc(tb.label)+'</div>';
   }).join('');
@@ -13410,8 +13197,15 @@ function mealScanDeclineAddToInventory(code){
 function addFoodLocalSearchBodyHtml(af){
   var ph = af.tab==='recipe' ? t('recipeSearchPlaceholder') : t('searchPlaceholder');
   var resultsHtml = af.tab==='recipe' ? addFoodRecipeResultsHtml(searchRecipeFoods(af.query)) : addFoodInventoryResultsHtml(searchInventoryFoods(af.query));
+  // README 9.202: 食谱添加食材统一改走这套tab页面之前，"库存"tab(准确说是它下面的"外部食材"
+  // 结果区)本来就有一个"+新建外部食材"入口(renderPickExternal的usage-fab)——三餐加食物/套餐
+  // 加食材这两个场景本来就没有过这个入口，不受影响；食谱这边是原有能力，统一之后不能丢，所以
+  // 只在pickerKind==='recipeIngredients'且当前是库存tab时才加这个悬浮按钮，其它场景维持原样。
+  var newExternalFab = (af.tab==='inventory' && af.pickerKind==='recipeIngredients')
+    ? '<button class="usage-fab" onclick="openNewExternalIngredientModal()" aria-label="'+t('createNewIngredient')+'">'+ic('plus',26)+'</button>'
+    : '';
   return '<div class="meal-add-search-sticky"><input id="add-food-search-input" type="text" autocapitalize="none" autofocus placeholder="'+esc(ph)+'" value="'+esc(af.query)+'" oninput="onAddFoodQueryInput(this.value)" style="width:100%;box-sizing:border-box;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);"></div>'+
-    '<div id="add-food-local-results">'+resultsHtml+'</div>';
+    '<div id="add-food-local-results">'+resultsHtml+'</div>'+newExternalFab;
 }
 function addFoodUsdaSearchBodyHtml(af){
   // README 9.177: 关键词为空时("浏览模式")直接把常用列表放在搜索框下面; 有关键词的话先占位
@@ -13437,7 +13231,7 @@ function addFoodUsdaSearchBodyHtml(af){
 function computeQuickAddNutritionForInventoryGroup(groupKey){
   var groupItems = itemsInGroupKeySorted(groupKey);
   if(!groupItems.length) return null;
-  var prefs = (state.mealAddItemPrefs||{})[groupKey];
+  var prefs = getInventoryItemPrefs(groupKey);
   if(!prefs || !prefs.amount || prefs.amount<=0) return null;
   var chosen = defaultBatchForGroup(groupItems, prefs.location) || groupItems[0];
   var unit = prefs.unit || 'g';
@@ -13561,13 +13355,22 @@ function addFoodInventoryResultsHtml(data){
   if(!data.groups.length && !data.externals.length) return '<p class="hint">'+t('noMealLoggedHint')+'</p>';
   var groupsHtml = data.groups.map(function(gr){ return addFoodInventoryRowHtml(gr); }).join('');
   var quickPicks = currentQuickPicks();
+  // README 9.202: 老的"添加外部食材"独立页面(renderPickExternal)其实身兼两职——除了挑一个外部
+  // 食材当食谱食材，也是编辑/删除某条外部食材定义(营养数据)本身的唯一入口。这次统一改走这个tab
+  // 页面之后，这两个管理按钮原样保留，只在食谱添加食材场景(pickerKind==='recipeIngredients')
+  // 显示——三餐/套餐场景之前就没有这两个按钮，不应该凭空多出来。
+  var showManageBtns = isRecipeIngredientCtx();
   var externalsHtml = data.externals.map(function(ing){
     var qa = computeQuickAddNutritionForExternal(ing.id);
     var key = 'external:'+ing.id;
     var right = qa ? quickAddRightHtml(key, qa.amount, qa.unit, qa.nutrition.calories, !!quickPicks[key]) : ic('chevronRight',16);
+    var manageBtns = showManageBtns ?
+      ('<button class="icon-btn" onclick="event.stopPropagation();deleteExternalIngredientConfirm('+aj(ing.id)+')" aria-label="'+t('delete')+'">'+ic('trash',17)+'</button>'+
+       '<button class="icon-btn" onclick="event.stopPropagation();editExternalIngredientModal('+aj(ing.id)+')" aria-label="'+t('edit')+'">'+ic('edit',17)+'</button>')
+      : '';
     return '<div class="list-row">'+
       '<div class="row-label" style="cursor:pointer;flex:1;min-width:0;" onclick="pickLocalFoodForMeal(\'external\','+aj(ing.id)+')">'+esc(ing.name)+'<div class="hint" style="margin-top:2px;">'+esc(t('sourceExternal'))+'</div></div>'+
-      right+
+      manageBtns+right+
     '</div>';
   }).join('');
   return groupsHtml + externalsHtml;
@@ -13612,7 +13415,7 @@ function searchInventoryFoods(q){
     g.sort(function(a,b){ var ad=a.expiry_date||'9999-99-99', bd=b.expiry_date||'9999-99-99'; return ad.localeCompare(bd); });
     return {key:k, items:g, rep: representativeGroupItem(g)};
   });
-  sortByPickFrequency(groups, function(gr){ return 'inventory:'+gr.rep.id; });
+  sortByPickFrequency(groups, function(gr){ return inventoryPickFreqKey(gr.key, gr.rep.id); });
   var externals = state.ingredients.filter(function(ing){
     return !q || (ing.name||'').toLowerCase().indexOf(q)!==-1;
   });
@@ -13621,8 +13424,15 @@ function searchInventoryFoods(q){
 }
 function searchRecipeFoods(q){
   q = (q||'').trim().toLowerCase();
+  // README 9.202: 食谱添加食材(pickerKind==='recipeIngredients')场景下，"食谱"tab要排除食谱
+  // 自己、以及任何已经(哪怕间接)用到了自己的食谱，避免嵌套成环——逻辑跟老的getPickRecipeList
+  // 完全一样，只是从独立的picker页面搬到了这个统一tab页面里复用的搜索函数中。三餐加食物/套餐
+  // 加食材(选中即直接记录/展开，不会真的产生"食谱引用食谱"这种结构)不存在这个风险，不受影响。
+  var ip = activeAddCtx();
+  var selfId = (ip && ip.pickerKind==='recipeIngredients' && state.recipeDraft) ? state.recipeDraft.id : null;
   var out = [];
   state.recipes.forEach(function(r){
+    if(selfId){ if(r.id===selfId) return; if(recipeUsesRecipe(r, selfId)) return; }
     if(!q || (r.name||'').toLowerCase().indexOf(q)!==-1) out.push({type:'recipe', id:r.id, label:r.name, sub:''});
   });
   sortByPickFrequency(out, function(r){ return 'recipe:'+r.id; });
@@ -13679,7 +13489,11 @@ function evaluateCrossTabSearch(af, query){
   var q = (query||'').trim();
   if(!q){ af.matchTabs = null; return false; }
   var info = crossTabMatchInfo(q);
-  var matching = MEAL_ADD_CROSS_TAB_ORDER.filter(function(tb){ return info.counts[tb]>0; });
+  // README 9.202: 食谱添加食材(af.pickerKind==='recipeIngredients')没有"套餐"这个tab(食谱不能
+  // 引用套餐，逻辑上是反过来的——套餐才会引用食谱)，跨tab搜索命中/自动跳转也要把套餐排除在外，
+  // 不然关键词只在套餐里有匹配时会尝试跳到一个压根没显示出来的tab。
+  var crossTabOrder = (af.pickerKind==='recipeIngredients') ? MEAL_ADD_CROSS_TAB_ORDER.filter(function(tb){ return tb!=='mealset'; }) : MEAL_ADD_CROSS_TAB_ORDER;
+  var matching = crossTabOrder.filter(function(tb){ return info.counts[tb]>0; });
   af.matchTabs = matching;
   if(!matching.length) return false;
   var exact = matching.filter(function(tb){ return info.exact[tb]; });
@@ -14012,7 +13826,7 @@ function pickLocalFoodForMeal(type, id){
     // 那边已经改成"始终只显示一行"，具体选哪个批次挪到这个页面里的批次下拉框去处理了。
     var groupItems = itemsInGroupKeySorted(id);
     if(!groupItems.length) return;
-    var prefs = (state.mealAddItemPrefs||{})[id] || {};
+    var prefs = getInventoryItemPrefs(id) || {};
     var chosen = defaultBatchForGroup(groupItems, prefs.location) || groupItems[0];
     af.picked = {type:'item', groupKey:id, batchIds:groupItems.map(function(x){ return x.id; }), id:chosen.id, name:itemDisplayNameRaw(chosen)};
     // README 9.185: 单位默认值改成先读这个产品自己记的"上次选的单位"(prefs.unit)——读不到，或者
@@ -14203,13 +14017,26 @@ function ipSaveCustomItem(){
   if(protein) nutrition.protein = protein;
   if(fat) nutrition.fat = fat;
   var name = af.customName || t('quickCalDefaultName');
-  if(af.pickerKind==='mealsetTemplate'){
-    state.mealsetDraft.items.push({id:uid(), source_type:'custom', source_id:null, name_snapshot:name, amount:1, unit:'', nutrition_snapshot:nutrition, nutrition_extra_snapshot:{}});
+  if(af.pickerKind==='mealsetTemplate' || af.pickerKind==='recipeIngredients'){
+    var tplItem = {id:uid(), source_type:'custom', source_id:null, name_snapshot:name, amount:1, unit:'', nutrition_snapshot:nutrition, nutrition_extra_snapshot:{}};
+    if(af.pickerKind==='recipeIngredients'){
+      var list = state.recipeDraft.ingredients || (state.recipeDraft.ingredients=[]);
+      var groupIdx = state.recipeFormUI && state.recipeFormUI.activeIngredientGroupIdx;
+      if(groupIdx!=null && list[groupIdx] && list[groupIdx].type==='group'){
+        var gi = groupIdx+1;
+        while(gi<list.length && list[gi].type!=='group') gi++;
+        list.splice(gi, 0, tplItem);
+      } else {
+        list.push(tplItem);
+      }
+    } else {
+      state.mealsetDraft.items.push(tplItem);
+    }
   } else {
     var outerAf = state.mealsUI.addFood;
     outerAf.mealsetLogItems = (outerAf.mealsetLogItems||[]).concat([{id:uid(), source_type:'custom', source_id:null, name:name, amount:null, unit:'', nutrition:nutrition, nutrition_extra:{}}]);
   }
-  var returnView = af.pickerKind==='mealsetTemplate' ? 'mealsetForm' : 'mealAddFood';
+  var returnView = (af.pickerKind==='mealsetTemplate') ? 'mealsetForm' : (af.pickerKind==='recipeIngredients') ? 'recipeForm' : 'mealAddFood';
   state.mealsUI.ingPicker = null;
   navigate(returnView);
 }
@@ -14444,7 +14271,11 @@ function addFoodAmountBodyHtml(af){
     '<p style="font-weight:600;margin-bottom:14px;">'+esc(p.name)+'</p>'+
     batchField+
     (isRecipe ?
-      recipeAmountField
+      recipeAmountField+
+      // README 9.202: "现做原料/用现成成品"这个切换只有食谱把另一个食谱当食材(recipeIngredients
+      // 场景)才有意义(见recipeIngUseExistingToggleHtml的注释)——三餐加食物/套餐加食材直接挑一个
+      // 食谱来记录/引用，不涉及"父食谱做的时候要不要连带扣这个子食谱的原料"这件事，不显示。
+      (af.pickerKind==='recipeIngredients' ? recipeIngUseExistingToggleHtml('fresh') : '')
       :
       // README 9.186: 重量输入框和单位选择框这次改成左右并排一行(field-row)，不再上下堆叠——
       // Lynn反馈重量这一栏本来就用不到一整行宽度，改成下拉之后单位框也不需要占一整行，正好
@@ -14712,9 +14543,7 @@ function ipConfirmAmountPick(){
     name = p.type==='item' ? itemDisplayNameRaw(src) : (p.type==='offquick' ? p.name : src.name);
     amount = amt2; unit = unitPicked;
     if(p.type==='item' && p.groupKey){
-      state.mealAddItemPrefs = state.mealAddItemPrefs || {};
-      state.mealAddItemPrefs[p.groupKey] = {location: src.location||'', unit: unitPicked, amount: amt2};
-      saveMealAddItemPrefs();
+      setInventoryItemPrefs(p.groupKey, {location: src.location||'', unit: unitPicked, amount: amt2});
     } else if(p.type==='external'){
       state.mealAddLastAmount = state.mealAddLastAmount || {};
       state.mealAddLastAmount['external:'+p.id] = {amount: amt2, unit: unitPicked};
@@ -14723,7 +14552,7 @@ function ipConfirmAmountPick(){
   }
   var sourceType = p.type==='item' ? 'inventory' : (p.type==='offquick' ? 'custom' : p.type);
   var sourceId = (p.type==='usda' ? p.fdcId : (p.type==='offquick' ? null : p.id)) || null;
-  if(af.pickerKind==='mealsetTemplate'){
+  if(af.pickerKind==='mealsetTemplate' || af.pickerKind==='recipeIngredients'){
     var tplItem = {id:uid(), source_type:sourceType, source_id:sourceId, name_snapshot:name, amount:amount, unit:unit};
     if(sourceType==='usda' && usdaPer100g){
       tplItem.nutrition_snapshot_per100g = usdaPer100g.nutrition;
@@ -14734,7 +14563,27 @@ function ipConfirmAmountPick(){
       tplItem.nutrition_snapshot = nutrition;
       tplItem.nutrition_extra_snapshot = nutritionExtra;
     }
-    state.mealsetDraft.items.push(tplItem);
+    if(af.pickerKind==='recipeIngredients'){
+      // README 9.202: 食谱把另一个食谱当食材时的"现做原料/用现成成品"开关——只有这一种pickerKind
+      // 会显示这个切换(见addFoodAmountBodyHtml)，套餐模板不显示，不用管。插入位置(哪个分组)
+      // 沿用跟原来goPickInventory等入口一样的activeIngredientGroupIdx，逻辑照抄
+      // addIngredientToRecipe，这里不复用那个函数是因为它自带closeModal()(这里没有modal)。
+      if(sourceType==='recipe'){
+        var useExistingEl = document.getElementById('ing-use-existing-pills');
+        if(useExistingEl && getActivePill('ing-use-existing-pills')==='existing') tplItem.use_existing = true;
+      }
+      var list = state.recipeDraft.ingredients || (state.recipeDraft.ingredients=[]);
+      var groupIdx = state.recipeFormUI && state.recipeFormUI.activeIngredientGroupIdx;
+      if(groupIdx!=null && list[groupIdx] && list[groupIdx].type==='group'){
+        var gi = groupIdx+1;
+        while(gi<list.length && list[gi].type!=='group') gi++;
+        list.splice(gi, 0, tplItem);
+      } else {
+        list.push(tplItem);
+      }
+    } else {
+      state.mealsetDraft.items.push(tplItem);
+    }
   } else {
     var outerAf = state.mealsUI.addFood;
     var draftPush = {id:uid(), source_type:sourceType, source_id:sourceId, name:name, amount:amount, unit:unit, nutrition:nutrition, nutrition_extra:nutritionExtra};
@@ -14742,10 +14591,10 @@ function ipConfirmAmountPick(){
     outerAf.mealsetLogItems = (outerAf.mealsetLogItems||[]).concat([draftPush]);
   }
   if(p.type==='recipe') bumpPickFrequency('recipe', p.id);
-  else if(p.type==='item') bumpPickFrequency('inventory', p.id);
+  else if(p.type==='item') bumpInventoryPickFrequency(p.groupKey, p.id);
   else if(p.type==='external') bumpPickFrequency('external', p.id);
   else if(p.type==='usda') bumpPickFrequency('usda', p.fdcId);
-  var returnView = af.pickerKind==='mealsetTemplate' ? 'mealsetForm' : 'mealAddFood';
+  var returnView = (af.pickerKind==='mealsetTemplate') ? 'mealsetForm' : (af.pickerKind==='recipeIngredients') ? 'recipeForm' : 'mealAddFood';
   state.mealsUI.ingPicker = null;
   navigate(returnView);
 }
@@ -14853,7 +14702,7 @@ function ipConfirmOneQuickPick(ip, key){
     var chosen = qa.chosen;
     tplItem = {id:uid(), source_type:'inventory', source_id:chosen.id, name_snapshot:itemDisplayNameRaw(chosen), amount:qa.amount, unit:qa.unit};
     draftItem = {id:uid(), source_type:'inventory', source_id:chosen.id, name:itemDisplayNameRaw(chosen), amount:qa.amount, unit:qa.unit, nutrition:qa.nutrition, nutrition_extra:qa.nutrition_extra};
-    bumpPickFrequency('inventory', chosen.id);
+    bumpInventoryPickFrequency(id, chosen.id);
   } else if(kind==='recipe'){
     var qaR = computeQuickAddNutritionForRecipe(id);
     if(!qaR) return false;
@@ -14875,7 +14724,7 @@ function ipConfirmOneQuickPick(ip, key){
     draftItem = {id:uid(), source_type:'usda', source_id:id, name:qaU.food.description, amount:qaU.amount, unit:'g', nutrition:qaU.nutrition, nutrition_extra:qaU.nutrition_extra};
     bumpPickFrequency('usda', id);
   } else if(kind==='mealset'){
-    if(ip.pickerKind==='mealsetTemplate') return false; // 不应该出现，保险起见拦一下
+    if(ip.pickerKind==='mealsetTemplate' || ip.pickerKind==='recipeIngredients') return false; // 不应该出现，保险起见拦一下(食谱没有套餐tab，模板场景已经在mealsetResultsHtml里禁掉了快速勾选)
     var qaM = computeQuickAddForMealset(id);
     if(!qaM) return false;
     var outerAf0 = state.mealsUI.addFood;
@@ -14887,6 +14736,19 @@ function ipConfirmOneQuickPick(ip, key){
   }
   if(ip.pickerKind==='mealsetTemplate'){
     state.mealsetDraft.items.push(tplItem);
+  } else if(ip.pickerKind==='recipeIngredients'){
+    // README 9.202: 跟ipConfirmAmountPick里"添加到哪个分组"是同一套逻辑，批量快速添加也要遵守。
+    // 批量勾选没有逐条填"现做/现成"的界面，统一按默认的"现做原料"处理(不设use_existing)，跟
+    // recipeIngUseExistingToggleHtml的默认值一致；真要选"现成成品"，还是走单条详情页那条路。
+    var list = state.recipeDraft.ingredients || (state.recipeDraft.ingredients=[]);
+    var groupIdx = state.recipeFormUI && state.recipeFormUI.activeIngredientGroupIdx;
+    if(groupIdx!=null && list[groupIdx] && list[groupIdx].type==='group'){
+      var gi = groupIdx+1;
+      while(gi<list.length && list[gi].type!=='group') gi++;
+      list.splice(gi, 0, tplItem);
+    } else {
+      list.push(tplItem);
+    }
   } else {
     var outerAf = state.mealsUI.addFood;
     outerAf.mealsetLogItems = (outerAf.mealsetLogItems||[]).concat([draftItem]);
@@ -14904,7 +14766,7 @@ function ipConfirmQuickAddSelection(){
   ip.quickPicks = {};
   if(!okCount){ showToast(t('quickAddFailedToast')); render(); return; }
   showToast(failCount ? t('quickAddPartialToast').replace('{n}', okCount) : t('mealLoggedToast'));
-  var returnView = ip.pickerKind==='mealsetTemplate' ? 'mealsetForm' : 'mealAddFood';
+  var returnView = (ip.pickerKind==='mealsetTemplate') ? 'mealsetForm' : (ip.pickerKind==='recipeIngredients') ? 'recipeForm' : 'mealAddFood';
   state.mealsUI.ingPicker = null;
   navigate(returnView);
 }
