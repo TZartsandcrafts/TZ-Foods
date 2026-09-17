@@ -906,7 +906,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.202';
+var BUILD_VERSION = '9.204';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -10283,11 +10283,15 @@ function renderMealsetForm(){
     '</div>'+
     '<div class="section-title">'+t('nutritionSummary')+'</div>'+
     '<div class="form-group">'+mealsetNutritionSummaryHtml(d)+'</div>'+
+    // README 9.203: 取消/保存原来单独一行，删除另起一行整宽——Lynn要求编辑套餐(编辑图标进来，
+    // d._isNew为false)这个场景统一成一行三个按钮，从左到右删除/取消/保存，配色不变(.btn-row
+    // .btn自带flex:1，三个按钮天然等宽)；新建套餐(d._isNew为true，没有可删的东西)还是保持原来
+    // 取消/保存两个按钮一行，不显示删除。
     '<div class="btn-row" style="margin-top:8px;">'+
+      (!d._isNew ? '<button class="btn btn-danger" onclick="deleteMealsetFromForm()">'+ic('trash',16)+' '+t('delete')+'</button>' : '')+
       '<button class="btn btn-outline" onclick="navigate(\'mealAddFood\')">'+t('cancel')+'</button>'+
       '<button class="btn btn-primary" onclick="saveMealsetForm()">'+t('save')+'</button>'+
     '</div>'+
-    (!d._isNew ? '<button class="btn btn-danger" style="width:100%;margin-top:10px;" onclick="deleteMealsetFromForm()">'+ic('trash',16)+' '+t('delete')+'</button>' : '')+
   '</div>';
 }
 // README 9.201: 保存套餐前刷新每一条食材的snapshot——跟refreshRecipeIngredientSnapshots(食谱，
@@ -12829,7 +12833,14 @@ function mealsetTabListHtml(af){
   // 是用来挑一个已有套餐嵌套/展开进当前正在编辑的另一个套餐(模板)或草稿里的——这时候不应该再
   // 冒出"+新建套餐"这个入口(会跳去编辑套餐表单，把当前正在编辑的套餐/草稿状态搅乱)，只有正常
   // 三餐加食物(直接给某一餐挑一个套餐来记录)才需要这个新建入口。
-  return (af.pickerKind ? '' : '<button class="btn btn-outline" style="width:100%;margin-bottom:10px;" onclick="openMealsetForm(null)">'+ic('plus',15)+' '+t('newMealsetBtn')+'</button>')+
+  // README 9.203: 这个按钮margin-bottom原来是10px——但紧跟在它后面的.meal-add-search-sticky
+  // 有一个margin-top:-16px（配合.content的padding-top:16px、让它在"作为content第一个元素"
+  // 时贴顶吸顶用的，见该class定义处的注释）。这里按钮排在它前面，两个相邻margin会按CSS折叠
+  // 规则合并成10+(-16)=-6px，等于把search-sticky的不透明背景往上拉，盖住了按钮底部6px、
+  // 连带边框也被挡住（Lynn反馈的截图）。改成16px正好跟-16px抵消成0，不透明背景刚好从按钮
+  // 底边开始，视觉间距由search-sticky自己的padding-top:16px撑出来，跟其它没有前置按钮的
+  // tab（库存/食谱/USDA）看起来一样，不会再挡住按钮的边框。
+  return (af.pickerKind ? '' : '<button class="btn btn-outline" style="width:100%;margin-bottom:16px;" onclick="openMealsetForm(null)">'+ic('plus',15)+' '+t('newMealsetBtn')+'</button>')+
     '<div class="meal-add-search-sticky"><input id="add-food-search-input" type="text" autocapitalize="none" autofocus placeholder="'+esc(t('mealsetSearchPlaceholder'))+'" value="'+esc(af.query)+'" oninput="onAddFoodQueryInput(this.value)" style="width:100%;box-sizing:border-box;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);"></div>'+
     '<div id="add-food-mealset-results">'+mealsetResultsHtml(af.query)+'</div>';
 }
@@ -12946,7 +12957,14 @@ function mealsetDraftHtml(af){
       '<button class="btn btn-outline btn-sm" style="width:100%;margin-top:6px;" onclick="openIngPicker(\'mealsetDraft\')">'+ic('plus',15)+' '+t('addIngredientBtn')+'</button>'+
     '</div>'+
     '<div id="mealset-draft-nutrition-preview" style="margin-top:6px;">'+mealEntryNutritionPreviewHtml(total)+'</div>'+
-    '<button class="btn btn-primary" style="margin-top:14px;width:100%;" onclick="onMealsetDraftConfirm()">'+t('save')+'</button>';
+    // README 9.203: 原来这里只有一个整行宽的"保存"键，返回全靠页头的返回箭头/右划手势——Lynn
+    // 反馈这其实就是9.199说要改、但当时误改到了别的页面(数量编辑页)那处"返回/保存改成同一行"
+    // 的诉求，这次改到点子上：返回(mealAddFoodBack，效果跟页头箭头完全一样，回到套餐tab列表)
+    // 放左边，保存放右边，跟数量编辑页那一行样式完全一致。
+    '<div style="display:flex;gap:10px;margin-top:14px;">'+
+      '<button class="btn btn-outline" style="flex:1;" onclick="mealAddFoodBack()">'+t('back')+'</button>'+
+      '<button class="btn btn-primary" style="flex:1;" onclick="onMealsetDraftConfirm()">'+t('save')+'</button>'+
+    '</div>';
 }
 function deleteMealsetDraftItem(idx){
   var af = state.mealsUI.addFood;
