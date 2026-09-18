@@ -906,7 +906,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.204';
+var BUILD_VERSION = '9.203';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2563,6 +2563,7 @@ var I18N = {
     usdaSearchError:'搜索失败，请检查网络或稍后再试', usdaSearchApplyToast:'已填入 USDA 数据，可自行调整',
     usdaTranslating:'翻译中…', usdaSavedSectionTitle:'常用', usdaFavoriteToggle:'收藏',
     usdaDataTypeFoundation:'官方实测', usdaDataTypeSRLegacy:'官方数据', usdaDataTypeBranded:'品牌食品',
+    usdaDetailBasis:'每100g', usdaDetailMissingHint:'本地缓存里没有找到这条食品的营养数据（可能是缓存被清掉了），重新在USDA里搜一次这个食品即可再次查看。', usdaDetailFallbackTitle:'USDA 食品详情',
     // recipe detail
     cookThis:'我做了这道菜', cookConfirmTitle:'确认扣减库存',
     recipeCookHistoryTitle:'制作记录', recipeNeverCooked:'还没有制作记录', recipeCookedTimes:'共制作 {n} 次',
@@ -2853,6 +2854,7 @@ var I18N = {
     usdaSearchError:'Search failed, check your connection and try again', usdaSearchApplyToast:'Filled in USDA data - feel free to adjust',
     usdaTranslating:'Translating…', usdaSavedSectionTitle:'Frequently used', usdaFavoriteToggle:'Favorite',
     usdaDataTypeFoundation:'USDA Lab-Tested', usdaDataTypeSRLegacy:'USDA Data', usdaDataTypeBranded:'Branded',
+    usdaDetailBasis:'Per 100g', usdaDetailMissingHint:'This food\\u2019s nutrition data isn\\u2019t in the local cache (it may have been cleared) \\u2014 search for it again on USDA to view it here.', usdaDetailFallbackTitle:'USDA food details',
     cookThis:"I made this dish", cookConfirmTitle:'Confirm inventory deduction',
     recipeCookHistoryTitle:'Cooking History', recipeNeverCooked:'Not made yet', recipeCookedTimes:'Made {n} times',
     nutriToggleExpand:'Show per 100g cooked / per serving', nutriToggleCollapse:'Hide',
@@ -4262,7 +4264,14 @@ function buildMealsetLogItems(mealset, multiplier, visited){
             name: si.name, amount: (si.amount||0)*effMult, unit: si.unit,
             nutrition: multiplyNutrition(si.nutrition, effMult),
             nutrition_extra: multiplyNutritionExtraCore(si.nutrition_extra, effMult),
-            deduct: si.deduct
+            deduct: si.deduct,
+            // README 9.203: 之前这里(以及下面非嵌套的那个push)漏掉了往外层带这几个snapshot字段——
+            // usda/custom这两种来源的recomputeMealsetLogItemNutrition完全靠这几个字段现算，缺了
+            // 就只能返回空营养。之前的问题是：这份草稿/已存记录里的usda/custom条目一旦被编辑
+            // (改数量触发confirmEditMealsetDraftItem/confirmEditMealsetLogSubItem的
+            // recomputeMealsetLogItemNutrition重算)，营养就被静默清零——加上这几个字段之后修复。
+            nutrition_snapshot_per100g: si.nutrition_snapshot_per100g, nutrition_extra_snapshot_per100g: si.nutrition_extra_snapshot_per100g,
+            nutrition_snapshot: si.nutrition_snapshot, nutrition_extra_snapshot: si.nutrition_extra_snapshot
           });
         });
       }
@@ -4276,7 +4285,11 @@ function buildMealsetLogItems(mealset, multiplier, visited){
     out.push({
       id: uid(), source_type: it.source_type, source_id: it.source_id,
       name: mealsetItemDisplayName(it), amount: scaledItem.amount, unit: it.unit,
-      nutrition: computed.nutrition, nutrition_extra: computed.nutrition_extra, deduct: it.source_type==='inventory'
+      nutrition: computed.nutrition, nutrition_extra: computed.nutrition_extra, deduct: it.source_type==='inventory',
+      // README 9.203: 同上一条注释——这两行是这次一并修的bug，让usda/custom条目在草稿/已存记录
+      // 里被编辑数量后还能正确重算，不会清零。
+      nutrition_snapshot_per100g: it.nutrition_snapshot_per100g, nutrition_extra_snapshot_per100g: it.nutrition_extra_snapshot_per100g,
+      nutrition_snapshot: it.nutrition_snapshot, nutrition_extra_snapshot: it.nutrition_extra_snapshot
     });
   });
   return out;
@@ -4654,6 +4667,7 @@ function render(){
     case 'healthSettings': html = renderHealthSettings(); break;
     case 'manageTags': html = renderManageTags(); break;
     case 'mealsetForm': html = renderMealsetForm(); break;
+    case 'usdaFoodDetail': html = renderUsdaFoodDetail(); break;
     case 'archive': html = renderArchiveList(); break;
     case 'itemViewOnly': html = renderItemViewOnly(); break;
     case 'stats': html = renderStats(); break;
@@ -5037,6 +5051,7 @@ function openSettings(fromView){
       return 'mealAddFood';
     })()};
     if(state.view==='mealsetForm') return {view:'mealAddFood'};
+    if(state.view==='usdaFoodDetail') return (state.params && state.params.from) || {view:'meals'};
     if(state.view==='mealLogEntryDetail') return {view:'meals'};
     if(state.view==='mealsHistory') return {view:'meals'};
     if(state.view==='fastingHistory') return {view:'meals'};
@@ -7016,6 +7031,41 @@ function usdaDataTypeLabel(dataType){
   if(dataType==='SR Legacy') return t('usdaDataTypeSRLegacy');
   if(dataType==='Branded') return t('usdaDataTypeBranded');
   return dataType || '';
+}
+// README 9.203: "点击查看USDA详情" - 三餐/套餐(模板+草稿+已存记录的子项)/食谱里，来源是USDA的
+// 那些食材/食品，原来点一下只能改数量/单位，看不到完整的营养成分表(库存/食谱来源的食材点开能跳
+// 去各自的详情页看到完整信息，USDA没有类似的"活的"详情页可跳)。这个页面直接从本地已经缓存好的
+// state.usdaSaved读数据(不重新联网查)，复用现成的recipeNutritionFactsBoxHtml组件按"每100g"这个
+// USDA原始基准展示——USDA的food-detail接口本来就是按每100g返回的(worker.js)，state.usdaSaved里
+// 存的nutrition/nutrition_extra跟recipeNutritionFactsBoxHtml要的{key:value}/{key:{value,unit}}
+// 形状完全一致，不用转换直接传。缓存万一被清掉(比如用户手动清过"常用"列表)找不到这条数据时，显示
+// 一句提示，不报错也不崩页面。
+function renderUsdaFoodDetail(){
+  var fdcId = state.params.fdcId;
+  var backTo = (state.params && state.params.from) || {view:'meals'};
+  var f = (state.usdaSaved||{})[fdcId];
+  var title = (state.params && state.params.name) || (f && f.description) || t('usdaDetailFallbackTitle');
+  var bodyHtml;
+  if(!f){
+    bodyHtml = '<p class="hint" style="margin:0;">'+t('usdaDetailMissingHint')+'</p>';
+  } else {
+    var metaLine = usdaDataTypeLabel(f.dataType)+(f.brandName?(' · '+esc(f.brandName)):'');
+    bodyHtml = (metaLine ? '<p class="hint" style="margin:0 0 10px;">'+esc(metaLine)+'</p>' : '') +
+      recipeNutritionFactsBoxHtml(f.nutrition||{}, t('usdaDetailBasis'), f.nutrition_extra||{});
+  }
+  return '' +
+  '<div class="page-header">'+
+    '<button class="back-btn" onclick="navigate('+aj(backTo.view)+','+aj(backTo.params||{})+')">'+ic('back',22)+'</button>'+
+    '<h1>'+esc(title)+'</h1>'+
+  '</div>'+
+  '<div class="content"><div class="form-group">'+bodyHtml+'</div></div>';
+}
+// 供各处"编辑数量"弹窗里的"查看详情"按钮调用——先关掉弹窗(不留在USDA详情这个全新页面背后)，
+// 再跳转过去；`from`带上当前应该回到的页面，跟其它详情页(itemDetail/recipeDetail)的返回逻辑
+// 完全一致，返回时会正好落回原来那个页面(mealsetForm/recipeForm/mealAddFood/mealLogEntryDetail)。
+function viewUsdaSourceDetail(fdcId, name, from){
+  closeModal();
+  navigate('usdaFoodDetail', {fdcId: fdcId, name: name, from: from});
 }
 // ===== USDA 云端食品搜索 - 输入名称时的下拉自动补全（README 9.92 重做） =====
 // 9.87-9.91 那版是个独立的"搜索USDA数据库"按钮 + 弹窗，跟本地参考库的绿色建议卡片体验很不
@@ -10283,15 +10333,11 @@ function renderMealsetForm(){
     '</div>'+
     '<div class="section-title">'+t('nutritionSummary')+'</div>'+
     '<div class="form-group">'+mealsetNutritionSummaryHtml(d)+'</div>'+
-    // README 9.203: 取消/保存原来单独一行，删除另起一行整宽——Lynn要求编辑套餐(编辑图标进来，
-    // d._isNew为false)这个场景统一成一行三个按钮，从左到右删除/取消/保存，配色不变(.btn-row
-    // .btn自带flex:1，三个按钮天然等宽)；新建套餐(d._isNew为true，没有可删的东西)还是保持原来
-    // 取消/保存两个按钮一行，不显示删除。
     '<div class="btn-row" style="margin-top:8px;">'+
-      (!d._isNew ? '<button class="btn btn-danger" onclick="deleteMealsetFromForm()">'+ic('trash',16)+' '+t('delete')+'</button>' : '')+
       '<button class="btn btn-outline" onclick="navigate(\'mealAddFood\')">'+t('cancel')+'</button>'+
       '<button class="btn btn-primary" onclick="saveMealsetForm()">'+t('save')+'</button>'+
     '</div>'+
+    (!d._isNew ? '<button class="btn btn-danger" style="width:100%;margin-top:10px;" onclick="deleteMealsetFromForm()">'+ic('trash',16)+' '+t('delete')+'</button>' : '')+
   '</div>';
 }
 // README 9.201: 保存套餐前刷新每一条食材的snapshot——跟refreshRecipeIngredientSnapshots(食谱，
@@ -10395,6 +10441,10 @@ function editMealsetTplItem(idx){
   }
   if(unitOpts.indexOf(it.unit)===-1) unitOpts.unshift(it.unit);
   showModal(esc(mealsetItemDisplayName(it)),
+    // README 9.203: usda来源多加一个"查看详情"入口——本地缓存(state.usdaSaved)里存着完整营养表，
+    // 之前这里只能改数量/单位，看不到完整数据。closeModal()先关掉这个弹窗再跳转，回来时(从
+    // usdaFoodDetail页头返回箭头/右划)正好落回套餐模板编辑页本身。
+    (it.source_type==='usda' ? '<button class="btn btn-outline btn-sm" style="width:100%;margin-bottom:10px;" onclick="viewUsdaSourceDetail('+aj(it.source_id)+','+aj(mealsetItemDisplayName(it))+','+aj({view:'mealsetForm'})+')">'+ic('note',15)+' '+t('viewSourceDetail')+'</button>' : '')+
     '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" id="ing-amount" autofocus placeholder="'+t('ingAmountPh')+'" value="'+fmtAmount(it.amount, it.unit)+'"></div>'+
     '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u){ return '<div class="tag-option '+(u===it.unit?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+esc(recipeUnitLabel(u))+'</div>'; }).join('')+'</div></div>'+
     '<div class="btn-row" style="margin-top:14px;">'+
@@ -10610,6 +10660,7 @@ function editRecipeIngredient(idx){
   }
   if(unitOpts.indexOf(ri.unit)===-1) unitOpts.unshift(ri.unit);
   showModal(esc(recipeIngredientDisplayName(ri)),
+    (ri.source_type==='usda' ? '<button class="btn btn-outline btn-sm" style="width:100%;margin-bottom:10px;" onclick="viewUsdaSourceDetail('+aj(ri.source_id)+','+aj(recipeIngredientDisplayName(ri))+','+aj({view:'recipeForm'})+')">'+ic('note',15)+' '+t('viewSourceDetail')+'</button>' : '')+
     '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" id="ing-amount" autofocus placeholder="'+t('ingAmountPh')+'" value="'+fmtAmount(ri.amount, ri.unit)+'"></div>'+
     '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u){ return '<div class="tag-option '+(u===ri.unit?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+esc(recipeUnitLabel(u))+'</div>'; }).join('')+'</div></div>'+
     (ri.source_type==='recipe' ? recipeIngUseExistingToggleHtml(ri.use_existing?'existing':'fresh') : '')+
@@ -12247,6 +12298,11 @@ function renderMealLogEntryDetail(){
   } else if(m.source_type==='inventory'){
     var it = state.items.find(function(x){ return x.id===m.source_id; });
     if(it) sourceLinkHtml = '<button class="btn btn-outline" style="width:100%;margin-bottom:10px;" onclick="navigate(\'itemDetail\',{id:'+aj(it.id)+',from:{view:\'mealLogEntryDetail\',params:{id:'+aj(id)+'}}})">'+ic('box',16)+' '+t('viewSourceDetail')+'</button>';
+  } else if(m.source_type==='usda'){
+    // README 9.203: USDA没有像库存/食谱那样"活的"详情页可跳，这里直接从本地缓存(state.usdaSaved)
+    // 现读——跟recipe/inventory两个分支是同一个按钮样式/位置，只是跳转目标换成新增的
+    // usdaFoodDetail页面。
+    sourceLinkHtml = '<button class="btn btn-outline" style="width:100%;margin-bottom:10px;" onclick="navigate(\'usdaFoodDetail\',{fdcId:'+aj(m.source_id)+',name:'+aj(m.name)+',from:{view:\'mealLogEntryDetail\',params:{id:'+aj(id)+'}}})">'+ic('note',16)+' '+t('viewSourceDetail')+'</button>';
   }
 
   var mainFieldsHtml = isCustom ?
@@ -12334,6 +12390,18 @@ function editMealsetLogSubItem(entryId, idx){
   if(!m) return;
   var si = (m.subItems||[])[idx];
   if(!si) return;
+  // README 9.203: 这两个分支之前完全没有——套餐里usda/自定来源的子项，编辑框走的是跟库存/食谱
+  // 完全一样的"任意重量/体积单位可选+改数量"逻辑，跟这两种来源自己的编辑函数(editMealsetTplItem/
+  // editMealsetDraftItemAmount/editRecipeIngredient)早就有的处理完全不一致——不光缺"查看详情"，
+  // 自定条目本来就不该让改数量(它是固定值，不支持缩放)，usda条目也不该给体积单位选项(快照按
+  // 克数算，选ml会把数值错当克数用)。这次补齐，跟另外三处保持同一套逻辑。
+  if(si.source_type==='custom'){
+    showModal(esc(si.name),
+      '<p class="hint" style="margin:0 0 10px;">'+t('customMealsetItemHint')+'</p>'+
+      '<div class="btn-row"><button class="btn btn-danger" style="width:100%;" onclick="deleteMealsetLogSubItem('+aj(entryId)+','+idx+')">'+ic('trash',16)+' '+t('delete')+'</button></div>'
+    );
+    return;
+  }
   var unitOpts;
   if(si.source_type==='recipe'){
     var r = state.recipes.find(function(x){ return x.id===si.source_id; });
@@ -12341,11 +12409,14 @@ function editMealsetLogSubItem(entryId, idx){
   } else if(si.source_type==='inventory'){
     var item = state.items.find(function(x){ return x.id===si.source_id; });
     unitOpts = item ? recipeUnitOptionsForItem(item) : [si.unit];
+  } else if(si.source_type==='usda'){
+    unitOpts = WEIGHT_UNITS.slice();
   } else {
     unitOpts = WEIGHT_UNITS.concat(VOLUME_UNITS);
   }
   if(unitOpts.indexOf(si.unit)===-1) unitOpts.unshift(si.unit);
   showModal(esc(si.name),
+    (si.source_type==='usda' ? '<button class="btn btn-outline btn-sm" style="width:100%;margin-bottom:10px;" onclick="viewUsdaSourceDetail('+aj(si.source_id)+','+aj(si.name)+','+aj({view:'mealLogEntryDetail',params:{id:entryId}})+')">'+ic('note',15)+' '+t('viewSourceDetail')+'</button>' : '')+
     '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" id="ing-amount" autofocus placeholder="'+t('ingAmountPh')+'" value="'+fmtAmount(si.amount, si.unit)+'"></div>'+
     '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u){ return '<div class="tag-option '+(u===si.unit?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+esc(recipeUnitLabel(u))+'</div>'; }).join('')+'</div></div>'+
     '<div class="btn-row" style="margin-top:14px;">'+
@@ -12833,14 +12904,7 @@ function mealsetTabListHtml(af){
   // 是用来挑一个已有套餐嵌套/展开进当前正在编辑的另一个套餐(模板)或草稿里的——这时候不应该再
   // 冒出"+新建套餐"这个入口(会跳去编辑套餐表单，把当前正在编辑的套餐/草稿状态搅乱)，只有正常
   // 三餐加食物(直接给某一餐挑一个套餐来记录)才需要这个新建入口。
-  // README 9.203: 这个按钮margin-bottom原来是10px——但紧跟在它后面的.meal-add-search-sticky
-  // 有一个margin-top:-16px（配合.content的padding-top:16px、让它在"作为content第一个元素"
-  // 时贴顶吸顶用的，见该class定义处的注释）。这里按钮排在它前面，两个相邻margin会按CSS折叠
-  // 规则合并成10+(-16)=-6px，等于把search-sticky的不透明背景往上拉，盖住了按钮底部6px、
-  // 连带边框也被挡住（Lynn反馈的截图）。改成16px正好跟-16px抵消成0，不透明背景刚好从按钮
-  // 底边开始，视觉间距由search-sticky自己的padding-top:16px撑出来，跟其它没有前置按钮的
-  // tab（库存/食谱/USDA）看起来一样，不会再挡住按钮的边框。
-  return (af.pickerKind ? '' : '<button class="btn btn-outline" style="width:100%;margin-bottom:16px;" onclick="openMealsetForm(null)">'+ic('plus',15)+' '+t('newMealsetBtn')+'</button>')+
+  return (af.pickerKind ? '' : '<button class="btn btn-outline" style="width:100%;margin-bottom:10px;" onclick="openMealsetForm(null)">'+ic('plus',15)+' '+t('newMealsetBtn')+'</button>')+
     '<div class="meal-add-search-sticky"><input id="add-food-search-input" type="text" autocapitalize="none" autofocus placeholder="'+esc(t('mealsetSearchPlaceholder'))+'" value="'+esc(af.query)+'" oninput="onAddFoodQueryInput(this.value)" style="width:100%;box-sizing:border-box;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);"></div>'+
     '<div id="add-food-mealset-results">'+mealsetResultsHtml(af.query)+'</div>';
 }
@@ -12957,14 +13021,7 @@ function mealsetDraftHtml(af){
       '<button class="btn btn-outline btn-sm" style="width:100%;margin-top:6px;" onclick="openIngPicker(\'mealsetDraft\')">'+ic('plus',15)+' '+t('addIngredientBtn')+'</button>'+
     '</div>'+
     '<div id="mealset-draft-nutrition-preview" style="margin-top:6px;">'+mealEntryNutritionPreviewHtml(total)+'</div>'+
-    // README 9.203: 原来这里只有一个整行宽的"保存"键，返回全靠页头的返回箭头/右划手势——Lynn
-    // 反馈这其实就是9.199说要改、但当时误改到了别的页面(数量编辑页)那处"返回/保存改成同一行"
-    // 的诉求，这次改到点子上：返回(mealAddFoodBack，效果跟页头箭头完全一样，回到套餐tab列表)
-    // 放左边，保存放右边，跟数量编辑页那一行样式完全一致。
-    '<div style="display:flex;gap:10px;margin-top:14px;">'+
-      '<button class="btn btn-outline" style="flex:1;" onclick="mealAddFoodBack()">'+t('back')+'</button>'+
-      '<button class="btn btn-primary" style="flex:1;" onclick="onMealsetDraftConfirm()">'+t('save')+'</button>'+
-    '</div>';
+    '<button class="btn btn-primary" style="margin-top:14px;width:100%;" onclick="onMealsetDraftConfirm()">'+t('save')+'</button>';
 }
 function deleteMealsetDraftItem(idx){
   var af = state.mealsUI.addFood;
@@ -13000,6 +13057,7 @@ function editMealsetDraftItemAmount(idx){
   }
   if(unitOpts.indexOf(it.unit)===-1) unitOpts.unshift(it.unit);
   showModal(esc(it.name),
+    (it.source_type==='usda' ? '<button class="btn btn-outline btn-sm" style="width:100%;margin-bottom:10px;" onclick="viewUsdaSourceDetail('+aj(it.source_id)+','+aj(it.name)+','+aj({view:'mealAddFood'})+')">'+ic('note',15)+' '+t('viewSourceDetail')+'</button>' : '')+
     '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" id="ing-amount" autofocus placeholder="'+t('ingAmountPh')+'" value="'+fmtAmount(it.amount, it.unit)+'"></div>'+
     '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u){ return '<div class="tag-option '+(u===it.unit?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+esc(recipeUnitLabel(u))+'</div>'; }).join('')+'</div></div>'+
     '<div class="btn-row" style="margin-top:14px;">'+
