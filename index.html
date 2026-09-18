@@ -906,7 +906,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.203';
+var BUILD_VERSION = '9.204';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2998,6 +2998,7 @@ var state = {
   waistLogUI: null,
   exerciseLogs: [],
   exerciseLogUI: null,
+  exerciseLogFormUI: {},
   recipeCategoryGroups: JSON.parse(JSON.stringify(DEFAULT_RECIPE_CATEGORY_GROUPS)),
   recipesUI: { groupId:null, sub:null, expandedGroups:{}, search:'', settingsExpandedGroups:{} },
   recipeFormUI: {},
@@ -5050,7 +5051,7 @@ function openSettings(fromView){
       if(pk==='recipeIngredients') return 'recipeForm';
       return 'mealAddFood';
     })()};
-    if(state.view==='mealsetForm') return {view:'mealAddFood'};
+    if(state.view==='mealsetForm') return (state.params && state.params.from) || {view:'mealAddFood'};
     if(state.view==='usdaFoodDetail') return (state.params && state.params.from) || {view:'meals'};
     if(state.view==='mealLogEntryDetail') return {view:'meals'};
     if(state.view==='mealsHistory') return {view:'meals'};
@@ -5077,6 +5078,11 @@ function openSettings(fromView){
     if(dx > 60 && Math.abs(dy) < 60){
       if(state.view==='itemForm') cancelItemForm();
       else if(state.view==='recipeForm') cancelRecipeForm();
+      // README 9.204: mealsetForm/exerciseLogForm这两个"草稿+显式保存"的表单，右划之前是直接
+      // navigate(target)无声丢弃——跟itemForm/recipeForm两个同款分支一样，改成走各自的cancel*
+      // 函数，脏了才弹确认。
+      else if(state.view==='mealsetForm') cancelMealsetForm();
+      else if(state.view==='exerciseLogForm') cancelExerciseLogForm();
       // README 9.138: 从哪里来回哪里去 - while still choosing an amount (or mid-USDA-lookup) on
       // the 三餐加食物 page, swipe-back should return to the search step within THIS SAME page,
       // not exit the whole flow back to 三餐. Only the search step itself (nothing left to step
@@ -10278,7 +10284,11 @@ function saveExternalIngredientEdit(){
 // "添加食材"现在统一走openIngPicker()打开跟三餐加食物同款的tab选餐页面，不再需要这一整套。
 // addRawItemToMealsetDraftLog(往草稿追加一条明细)原来是给这些入口用的，同一功能现在由
 // ipConfirmAmountPick/ipConfirmOneQuickPick直接完成，也一并删除，避免留一个没人调用的函数。
-function openMealsetForm(id){
+// README 9.204: 新增第二个参数`from`——之前只有套餐tab的"+新建套餐"/编辑图标两处会打开这个表单，
+// 都是回到mealAddFood，不需要记"从哪来"。这次三餐页套餐记录详情新增的"查看详情"要跳来这里编辑
+// 模板，回去时得落回mealLogEntryDetail而不是mealAddFood，所以补上跟itemDetail/recipeDetail同一
+// 套的`from`透传，不传时保持原来"回mealAddFood"的默认行为，两处旧调用不用改。
+function openMealsetForm(id, from){
   if(id){
     var m = state.mealsets.find(function(x){ return x.id===id; });
     if(!m) return;
@@ -10287,7 +10297,11 @@ function openMealsetForm(id){
   } else {
     state.mealsetDraft = {id:uid(), name:'', items:[], created_at:nowLocalIso(), _isNew:true};
   }
-  navigate('mealsetForm');
+  // README 9.204: 跟itemFormUI/recipeFormUI的originalSnapshot同一套机制——套餐编辑页之前完全没有
+  // "离开时确认"，右划或点返回/取消会无声丢掉刚编辑的内容(改名字、加/删食材)。这里记一份刚打开时
+  // 的快照，cancelMealsetForm()比对现在的草稿是否偏离这份快照，偏离了才弹确认。
+  state.mealsetFormUI = {originalSnapshot: JSON.stringify(state.mealsetDraft)};
+  navigate('mealsetForm', {from: from});
 }
 function ms_setName(val){ state.mealsetDraft.name = val; }
 function mealsetNutritionSummaryHtml(d){
@@ -10315,7 +10329,7 @@ function renderMealsetForm(){
   }).join('') || '<p class="hint" style="margin:0;">'+t('mealsetItemsEmptyHint')+'</p>';
   return '' +
   '<div class="page-header">'+
-    '<button class="back-btn" onclick="navigate(\'mealAddFood\')">'+ic('back',22)+'</button>'+
+    '<button class="back-btn" onclick="cancelMealsetForm()">'+ic('back',22)+'</button>'+
     '<h1>'+(d._isNew?t('mealsetFormTitleNew'):t('mealsetFormTitleEdit'))+'</h1>'+
   '</div>'+
   '<div class="content">'+
@@ -10334,11 +10348,28 @@ function renderMealsetForm(){
     '<div class="section-title">'+t('nutritionSummary')+'</div>'+
     '<div class="form-group">'+mealsetNutritionSummaryHtml(d)+'</div>'+
     '<div class="btn-row" style="margin-top:8px;">'+
-      '<button class="btn btn-outline" onclick="navigate(\'mealAddFood\')">'+t('cancel')+'</button>'+
+      '<button class="btn btn-outline" onclick="cancelMealsetForm()">'+t('cancel')+'</button>'+
       '<button class="btn btn-primary" onclick="saveMealsetForm()">'+t('save')+'</button>'+
     '</div>'+
     (!d._isNew ? '<button class="btn btn-danger" style="width:100%;margin-top:10px;" onclick="deleteMealsetFromForm()">'+ic('trash',16)+' '+t('delete')+'</button>' : '')+
   '</div>';
+}
+// README 9.204: cancelRecipeForm/cancelItemForm的同款守卫——套餐编辑页的返回箭头/取消键/右划
+// 手势这三条离开路径都走这一个函数，比对state.mealsetFormUI.originalSnapshot判断是否真的改过
+// 东西，没改就直接静默退出，改过才弹确认。
+function cancelMealsetForm(){
+  var snap = state.mealsetFormUI && state.mealsetFormUI.originalSnapshot;
+  var dirty = snap != null && JSON.stringify(state.mealsetDraft) !== snap;
+  if(dirty){
+    showConfirmModal(t('discardChangesConfirm'), discardMealsetFormChanges, {title:t('discardChangesTitle'), confirmLabel:t('discardChangesConfirmBtn')});
+    return;
+  }
+  discardMealsetFormChanges();
+}
+function discardMealsetFormChanges(){
+  var target = (state.params && state.params.from) || {view:'mealAddFood'};
+  state.mealsetDraft = null;
+  navigate(target.view, target.params);
 }
 // README 9.201: 保存套餐前刷新每一条食材的snapshot——跟refreshRecipeIngredientSnapshots(食谱，
 // 9.134/9.187)是完全对应的同一条基本规则：库存/外部食材存这一行当时算出来的营养贡献本身；
@@ -10391,7 +10422,8 @@ function saveMealsetForm(){
   if(idx===-1) state.mealsets.push(d); else state.mealsets[idx]=d;
   saveMealsets();
   showToast(t('mealsetSavedToast'));
-  navigate('mealAddFood');
+  var target = (state.params && state.params.from) || {view:'mealAddFood'};
+  navigate(target.view, target.params);
 }
 function deleteMealsetFromForm(){
   var d = state.mealsetDraft;
@@ -10399,7 +10431,8 @@ function deleteMealsetFromForm(){
     state.mealsets = state.mealsets.filter(function(m){ return m.id!==d.id; });
     saveMealsets();
     closeModal();
-    navigate('mealAddFood');
+    var target = (state.params && state.params.from) || {view:'mealAddFood'};
+    navigate(target.view, target.params);
   }, {title:t('delete')});
 }
 function editMealsetTplItem(idx){
@@ -12052,6 +12085,16 @@ function dailyNutrientBarsHtml(totals, budget){
   var units = nutriUnits();
   var extraDefs = nutriExtraDefs();
   NUTRI_EXTRA_CORE_KEYS.forEach(function(k){ labels[k] = t(extraDefs[k].labelKey); units[k] = NUTRI_DV_REFERENCE[k].unit; });
+  // README 9.204: 热量/总脂肪/总碳水/蛋白质这4个一级项的小标题加粗，热量本身字号比另外3个略大一点，
+  // 跟它们在营养标签(recipeNutritionFactsBoxHtml/mealEntryNutritionPreviewHtml)里"热量单独一行、
+  // 字号最大"的视觉层级呼应一下；饱和脂肪/反式脂肪/膳食纤维/总糖这些缩进的二级项、以及维生素矿物质
+  // 那几行不在这次的范围内，保持原样不加粗。
+  var TIER1_BOLD_KEYS = {fat:1, carbs:1, protein:1};
+  function labelSpanHtml(key){
+    if(key==='calories') return '<span style="font-weight:700;font-size:14px;">'+labels[key]+'</span>';
+    if(TIER1_BOLD_KEYS[key]) return '<span style="font-weight:700;">'+labels[key]+'</span>';
+    return '<span>'+labels[key]+'</span>';
+  }
   var rows = DAILY_NUTRIENT_BAR_ORDER.map(function(key){
     var actual = Math.round(totals[key]||0);
     var unit = units[key];
@@ -12073,7 +12116,7 @@ function dailyNutrientBarsHtml(totals, budget){
     var target = targets[key];
     if(target==null){
       return '<div style="margin-bottom:11px;">'+
-        '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span>'+labels[key]+'</span><span class="hint">'+actual+unit+'</span></div>'+
+        '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">'+labelSpanHtml(key)+'<span class="hint">'+actual+unit+'</span></div>'+
         '<div style="height:8px;background:var(--cream);border-radius:4px;"></div>'+
         '<div class="hint" style="font-size:11.5px;margin-top:3px;">'+t('nutriTargetNotSet')+'</div>'+
       '</div>';
@@ -12083,7 +12126,7 @@ function dailyNutrientBarsHtml(totals, budget){
     var barPct = Math.min(pct,100);
     var rightText = over ? (t('caloriesOverLabel')+' '+(compareActual-target)+unit) : (t('caloriesRemainingShortLabel')+' '+(target-compareActual)+unit);
     return '<div style="margin-bottom:11px;">'+
-      '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span>'+labels[key]+'</span><span class="hint">'+actual+unit+', '+pct+'%</span></div>'+
+      '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">'+labelSpanHtml(key)+'<span class="hint">'+actual+unit+', '+pct+'%</span></div>'+
       '<div style="height:8px;background:var(--cream);border-radius:4px;overflow:hidden;"><div style="height:100%;width:'+barPct+'%;background:'+(over?'var(--danger)':'var(--fresh)')+';"></div></div>'+
       '<div class="hint" style="font-size:11.5px;margin-top:3px;text-align:right;">'+rightText+'</div>'+
     '</div>';
@@ -12239,6 +12282,15 @@ function commitMealEntryMove(isMove){
     clone.date = ee.moveDate; clone.slot = ee.moveSlot;
     clone.created_at = nowLocalIso();
     delete clone.deductItemId; delete clone.deductAmount; delete clone.deductUnit;
+    // README 9.204: 套餐条目的库存扣减记在每个subItem自己身上(deductItemId/deductAmount/
+    // deductUnit)，不是entry顶层——上面3行delete只清了顶层字段，对套餐类型的entry不起作用。
+    // 之前"移动/复制到其它日期"这个功能压根没对套餐条目开放过，这个漏洞一直没被暴露；这次给
+    // 套餐条目接上复制功能，顺带把这个补上：复制出来的每个subItem都清掉扣减字段(兑现"复制不
+    // 会重复扣减库存"这条提示)，同时重新分配id(避免复制品和原件的subItem共用同一个id)。
+    if(clone.subItems) clone.subItems.forEach(function(si){
+      si.id = uid();
+      delete si.deductItemId; delete si.deductAmount; delete si.deductUnit;
+    });
     state.mealLogs.push(clone);
     saveMealLogs();
     showToast(t('mealCopiedToast'));
@@ -12278,11 +12330,25 @@ function renderMealLogEntryDetail(){
         '<div>'+Math.round((si.nutrition&&si.nutrition.calories)||0)+' kcal</div>'+
       '</div>';
     }).join('');
+    // README 9.204: 之前这个分支只有一个整行宽的删除键，缺了查看详情/移动复制到其它日期这两个
+    // 跳转——不是没想到，是这条分支之前直接return，没走下面给普通条目用的ee(state.mealsUI.
+    // editEntry)取值逻辑。openMealLogEntryDetail对所有来源类型(包括套餐)统一都会设好这个ee
+    // (见该函数自己的实现，没有按source_type分支)，只是套餐分支之前没用上而已——这里跟下面
+    // 普通条目分支一样兜底取一次，两个分支现在共享同一份ee。
+    var ee0 = state.mealsUI.editEntry;
+    if(!ee0 || ee0.id!==id) openMealLogEntryDetail(id);
+    ee0 = state.mealsUI.editEntry;
+    var mealsetTplLinkHtml = '';
+    if(m.source_id){
+      var msTpl = state.mealsets.find(function(x){ return x.id===m.source_id; });
+      if(msTpl) mealsetTplLinkHtml = '<button class="btn btn-outline" style="width:100%;margin-bottom:10px;" onclick="openMealsetForm('+aj(msTpl.id)+','+aj({view:'mealLogEntryDetail',params:{id:id}})+')">'+ic('link',16)+' '+t('viewSourceDetail')+'</button>';
+    }
     return '<div class="page-header"><button class="back-btn" onclick="navigate(\'meals\')">'+ic('back',22)+'</button><h1>'+esc(m.name)+'</h1></div>'+
     '<div class="content">'+
       '<div class="form-group">'+(itemsHtml||'')+'</div>'+
       '<div id="meal-entry-nutrition-preview">'+mealEntryNutritionPreviewHtml(m.nutrition)+'</div>'+
-      '<button class="btn btn-danger" style="width:100%;margin-top:16px;" onclick="deleteMealLogEntryFromDetail('+aj(id)+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
+      '<div style="margin-top:16px;">'+mealsetTplLinkHtml+mealEntryMoveSectionHtml(ee0)+'</div>'+
+      '<button class="btn btn-danger" style="width:100%;" onclick="deleteMealLogEntryFromDetail('+aj(id)+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
     '</div>';
   }
   var ee = state.mealsUI.editEntry;
@@ -13117,7 +13183,14 @@ function commitMealsetLogEntry(date, slot, mealsetId, mealsetName, items){
     totalExtra = addNutritionExtraCore(totalExtra, it.nutrition_extra||{});
   });
   var subItems = items.map(function(it){
-    return {id: it.id||uid(), source_type:it.source_type, source_id:it.source_id, name:it.name, amount:it.amount, unit:it.unit, nutrition:it.nutrition, nutrition_extra:it.nutrition_extra||{}};
+    return {id: it.id||uid(), source_type:it.source_type, source_id:it.source_id, name:it.name, amount:it.amount, unit:it.unit, nutrition:it.nutrition, nutrition_extra:it.nutrition_extra||{},
+      // README 9.204: 9.203修的那个"usda/自定条目编辑后营养被清零"的bug，当时只补了
+      // buildMealsetLogItems自己的两处push——这里是另一处会把它吐出来的条目再重新拍平一遍存进
+      // m.subItems的地方（新记一顿套餐时，saveMealsetLogEntryFinal/commitOneQuickPick都走这里），
+      // 之前这个白名单式的.map()没有把这几个快照字段带过来，等于绕开了那次修复——新记的套餐里
+      // usda/自定条目照样会在编辑数量后清零。这次一并补上。
+      nutrition_snapshot_per100g: it.nutrition_snapshot_per100g, nutrition_extra_snapshot_per100g: it.nutrition_extra_snapshot_per100g,
+      nutrition_snapshot: it.nutrition_snapshot, nutrition_extra_snapshot: it.nutrition_extra_snapshot};
   });
   var entryId = uid();
   var ts = nowLocalIso();
@@ -15346,7 +15419,27 @@ function openExerciseLogForm(id, returnTo){
      customMode: !existing.exerciseId, returnTo: returnTo||'exerciseHistory'} :
     {id:null, date:todayStr(), type:'', exerciseId:null, met:null, durationMin:'', caloriesBurned:'', note:'',
      customMode:false, returnTo: returnTo||'exerciseHistory'};
+  // README 9.204: 跟itemFormUI/recipeFormUI/mealsetFormUI同一套originalSnapshot机制——这个表单
+  // 也是"本地草稿+显式保存"，之前返回箭头/右划完全没有确认，容易不小心把刚填的运动记录丢掉。
+  // 快照放在单独的exerciseLogFormUI里，不直接塞进exerciseLogUI本身——否则快照字段自己也会被
+  // JSON.stringify(ui)算进"现在的状态"里，永远比对不出"没改过"。
+  state.exerciseLogFormUI = {originalSnapshot: JSON.stringify(state.exerciseLogUI)};
   navigate('exerciseLogForm');
+}
+// cancelRecipeForm/cancelMealsetForm同款：返回箭头+右划都走这一个函数，没改过直接退，改过才弹。
+function cancelExerciseLogForm(){
+  var snap = state.exerciseLogFormUI && state.exerciseLogFormUI.originalSnapshot;
+  var dirty = snap != null && JSON.stringify(state.exerciseLogUI) !== snap;
+  if(dirty){
+    showConfirmModal(t('discardChangesConfirm'), discardExerciseLogFormChanges, {title:t('discardChangesTitle'), confirmLabel:t('discardChangesConfirmBtn')});
+    return;
+  }
+  discardExerciseLogFormChanges();
+}
+function discardExerciseLogFormChanges(){
+  var returnTo = (state.exerciseLogUI && state.exerciseLogUI.returnTo) || 'exerciseHistory';
+  state.exerciseLogUI = null;
+  navigate(returnTo);
 }
 function renderExerciseLogForm(){
   var ui = state.exerciseLogUI;
@@ -15363,7 +15456,7 @@ function renderExerciseLogForm(){
     '</div>';
   }
   return '' +
-  '<div class="page-header"><button class="back-btn" onclick="navigate('+aj(ui.returnTo)+')">'+ic('back',22)+'</button><h1>'+(ui.id?t('editExerciseEntryTitle'):t('logExerciseBtn'))+'</h1></div>'+
+  '<div class="page-header"><button class="back-btn" onclick="cancelExerciseLogForm()">'+ic('back',22)+'</button><h1>'+(ui.id?t('editExerciseEntryTitle'):t('logExerciseBtn'))+'</h1></div>'+
   '<div class="content">'+
     '<div class="field"><label>'+t('fieldDate')+'</label><input type="date" value="'+esc(ui.date)+'" oninput="exl_str(\'date\',this.value)"></div>'+
     typeFieldHtml +
