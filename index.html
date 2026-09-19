@@ -906,7 +906,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.210';
+var BUILD_VERSION = '9.211';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2487,7 +2487,7 @@ var I18N = {
     aiProxySettingLabel:'AI识别代理地址(可选)',
     aiProxySettingHint:'留空则"拍照识别"功能不显示。需要自建一个转发到Anthropic API的小型代理服务，详见README.md。',
     cloudSyncSectionTitle:'云同步（多设备实时共享，可选）',
-    cloudSyncIntro:'两个人各自在手机上安装本App，配对同一个"同步房间"后，一边改库存/食谱，另一边打开App会自动看到最新数据。需要先自己搭建一个免费的Firebase项目，具体步骤见README.md。',
+    cloudSyncIntro:'两个人各自在手机上安装本App，配对同一个"同步房间"后，一边改库存/食谱/套餐，另一边打开App会自动看到最新数据。需要先自己搭建一个免费的Firebase项目，具体步骤见README.md。',
     cloudSyncConfigLabel:'Firebase 项目配置',
     cloudSyncConfigPh:'粘贴从 Firebase 控制台复制的 firebaseConfig（JSON格式）',
     cloudSyncConfigHint:'从 Firebase 控制台"项目设置→常规→你的应用"里复制那一段 firebaseConfig 对象，整段粘贴进来即可。',
@@ -2503,7 +2503,7 @@ var I18N = {
     cloudSyncStatusError:'连接出错',
     cloudSyncLastSyncedLabel:'上次同步', cloudSyncNeverSynced:'尚未同步',
     cloudSyncNeedConfigToast:'请先填写 Firebase 项目配置和同步房间码',
-    cloudSyncPhotoLimitHint:'提示：云同步覆盖库存食材（名称、数量、分类、位置、保质期、营养标签等）以及分类/位置这两份列表；食谱、笔记、照片目前还不同步——照片只存在拍摄它的那台设备本地。',
+    cloudSyncPhotoLimitHint:'提示：云同步覆盖库存食材（名称、数量、分类、位置、保质期、营养标签等）、食谱、外部食材库、套餐，以及分类/位置这些列表；三餐记录、健康数据、照片不同步——照片只存在拍摄它的那台设备本地。',
     save:'保存', cancel:'取消', delete:'删除', edit:'编辑', add:'添加', confirm:'确认', close:'关闭',
     addNewTag:'+ 新建', newTagPrompt:'输入新标签名称',
     // detail
@@ -2785,7 +2785,7 @@ var I18N = {
     aiProxySettingLabel:'AI recognition proxy URL (optional)',
     aiProxySettingHint:'Leave blank to hide "Photo recognition". Requires your own small proxy that forwards to the Anthropic API — see README.md.',
     cloudSyncSectionTitle:'Cloud Sync (real-time, multi-device, optional)',
-    cloudSyncIntro:'Two people can each install this app and join the same "sync room" — when one side edits inventory or recipes, the other sees it automatically next time they open the app. Requires setting up a free Firebase project first; see README.md for steps.',
+    cloudSyncIntro:'Two people can each install this app and join the same "sync room" — when one side edits inventory, recipes, or meal sets, the other sees it automatically next time they open the app. Requires setting up a free Firebase project first; see README.md for steps.',
     cloudSyncConfigLabel:'Firebase project config',
     cloudSyncConfigPh:'Paste the firebaseConfig object copied from the Firebase console (JSON)',
     cloudSyncConfigHint:'Copy the firebaseConfig object from Firebase Console → Project settings → General → Your apps, and paste the whole thing here.',
@@ -2801,7 +2801,7 @@ var I18N = {
     cloudSyncStatusError:'Connection error',
     cloudSyncLastSyncedLabel:'Last synced', cloudSyncNeverSynced:'Never synced yet',
     cloudSyncNeedConfigToast:'Please fill in the Firebase config and a room code first',
-    cloudSyncPhotoLimitHint:'Note: cloud sync covers inventory items (name, quantity, category, location, expiry, nutrition, etc.) plus the category/location lists themselves. Recipes, notes, and photos aren\'t synced yet — photos stay on whichever device took them.',
+    cloudSyncPhotoLimitHint:'Note: cloud sync covers inventory items (name, quantity, category, location, expiry, nutrition, etc.), recipes, the external ingredient library, meal sets, and the category/location lists themselves. Meal logs, health data, and photos aren\'t synced — photos stay on whichever device took them.',
     save:'Save', cancel:'Cancel', delete:'Delete', edit:'Edit', add:'Add', confirm:'Confirm', close:'Close',
     addNewTag:'+ New', newTagPrompt:'Enter new tag name',
     detailQtyLabel:'Current stock',
@@ -2955,9 +2955,10 @@ var state = {
   ingredients: [],
   recipes: [],
   // README 9.139: 套餐 (mealset) templates - {id, name, items:[{id, source_type:'inventory'|
-  // 'external'|'recipe'|'mealset', source_id, amount, unit, name_snapshot}]}. Deliberately local-
-  // only (like mealLogs/health data), NOT in SYNCABLE_STORAGE_KEYS - see README for why (三餐/
-  // 健康 data is intentionally per-user, not shared between the two household members).
+  // 'external'|'recipe'|'mealset', source_id, amount, unit, name_snapshot}]}. 9.139起原本刻意做成
+  // 本机独立(跟mealLogs/健康数据一样不同步)；README 9.211起改成跟库存/食谱一样走云同步(两位家庭
+  // 成员共用同一批套餐模板)——三餐记录本身(mealLogs)、"上次用量"(mealsetLastItems)、常用频率
+  // (pickFrequency)等其它三餐数据仍然各用各的，不同步。
   mealsets: [],
   mealsetDraft: null,
   // README 9.146: {id, recipe_id, date, created_at} - one row per confirmed "我做了这道菜" tap,
@@ -3103,7 +3104,10 @@ async function loadAll(){
     // 产品(itemGroupKey)记一份"上次选的批次位置/单位/数量"，用来给详情页的批次下拉/单位下拉/
     // 数量输入框带出默认值——跟三餐"直接吃"用的mealAddItemPrefs是两份独立的记忆，同一个食材做菜
     // 放多少跟直接吃多少往往不是一回事，不合并。
-    storageGet('recipeIngPrefs', {})
+    storageGet('recipeIngPrefs', {}),
+    // README 9.211: 套餐云同步的pushMap(记录"这台设备上次推送到云端的每条套餐是哪个时间戳")，
+    // 跟cloudSyncRecipePushMap同一个用途；追加在数组最后，不打乱前面各项的下标。
+    storageGet('cloudSyncMealsetPushMap', {})
   ]);
   // README 9.125: categoryGroups is the new two-level (母分类/子分类) structure for inventory
   // categories, architecturally matching state.recipeCategoryGroups but without any color
@@ -3181,6 +3185,7 @@ async function loadAll(){
   state.mealAddLastAmount = results[31] || {};
   state.mealsetLastItems = results[32] || {};
   state.recipeIngPrefs = results[33] || {};
+  CLOUD.mealsetPushMap = results[34] || {};
   state.loaded = true;
 }
 // Old data shape had a single secondary_qty/secondary_unit/unit_ratio triplet per item. The
@@ -3281,7 +3286,11 @@ function saveRecipes(){
 }
 function saveSettings(){ return storageSet('settings', {lang:state.lang, reminderDays:state.reminderDays, aiProxyUrl:state.aiProxyUrl, fastingDisplayMode:state.fastingDisplayMode, fastingSettings:state.fastingSettings, visibleMealSlots:state.visibleMealSlots}); }
 function saveMealLogs(){ return storageSet('mealLogs', state.mealLogs); }
-function saveMealsets(){ return storageSet('mealsets', state.mealsets); }
+function saveMealsets(){
+  var p = storageSet('mealsets', state.mealsets);
+  cloudSyncPushMealsetChanges(); // README 9.211: 套餐现在走云同步，跟saveRecipes同样的写法
+  return p;
+}
 function saveRecipeCookLogs(){ return storageSet('recipeCookLogs', state.recipeCookLogs); }
 function savePickFrequency(){ return storageSet('pickFrequency', state.pickFrequency); }
 function saveUsdaSaved(){ return storageSet('usdaSaved', state.usdaSaved); }
@@ -3337,7 +3346,7 @@ function saveUnits(){ return storageSet('units', state.units); }
    changing out from under an active session would be more surprising than helpful). Rendering
    is skipped while an edit form is open (reusing cloudSyncSafeRender's existing guard) so this
    can't blow away an in-progress keystroke the same way a stray cloud-sync render used to. */
-var SYNCABLE_STORAGE_KEYS = ['items','categoryGroups','locations','ingredients','recipes','recipeCategoryGroups','units'];
+var SYNCABLE_STORAGE_KEYS = ['items','categoryGroups','locations','ingredients','recipes','recipeCategoryGroups','units','mealsets'];
 async function resyncFromStorage(){
   if(!state.loaded) return;
   var changed = false;
@@ -17204,7 +17213,7 @@ document.addEventListener('click', function(e){
    - Security is "room code = shared secret", same trust model as a shareable doc link -
      fine for 2-3 people you already trust, not a real multi-tenant permission system.
 */
-var CLOUD = { app:null, auth:null, db:null, uid:null, unsub:null, metaUnsub:null, recipeUnsub:null, ingredientUnsub:null, pushMap:{}, metaPushMap:{}, recipePushMap:{}, ingredientPushMap:{}, sdkLoadPromise:null };
+var CLOUD = { app:null, auth:null, db:null, uid:null, unsub:null, metaUnsub:null, recipeUnsub:null, ingredientUnsub:null, mealsetUnsub:null, pushMap:{}, metaPushMap:{}, recipePushMap:{}, ingredientPushMap:{}, mealsetPushMap:{}, sdkLoadPromise:null };
 
 function cloudSyncActive(){ return !!(state.cloudSyncEnabled && CLOUD.db && CLOUD.uid && state.cloudSyncRoomCode); }
 
@@ -17339,6 +17348,9 @@ function recipesCollectionRef(){
 function ingredientsCollectionRef(){
   return CLOUD.db.collection('syncRooms').doc(state.cloudSyncRoomCode).collection('ingredients');
 }
+function mealsetsCollectionRef(){
+  return CLOUD.db.collection('syncRooms').doc(state.cloudSyncRoomCode).collection('mealsets');
+}
 function metaCollectionRef(){
   return CLOUD.db.collection('syncRooms').doc(state.cloudSyncRoomCode).collection('meta');
 }
@@ -17386,12 +17398,14 @@ async function startCloudSync(){
     subscribeCloudMeta();
     subscribeCloudRecipes();
     subscribeCloudIngredients();
+    subscribeCloudMealsets();
     // Also push once right away: covers the case where the collection is empty (brand new
     // room, nothing to receive yet) but this device already has local items/lists to upload.
     cloudSyncPushChanges();
     cloudSyncPushMeta();
     cloudSyncPushRecipeChanges();
     cloudSyncPushIngredientChanges();
+    cloudSyncPushMealsetChanges();
     state.cloudSyncStatus = 'connected';
   }catch(e){
     console.error('cloud sync start failed', e);
@@ -17406,6 +17420,7 @@ function stopCloudSync(){
   if(CLOUD.metaUnsub){ CLOUD.metaUnsub(); CLOUD.metaUnsub = null; }
   if(CLOUD.recipeUnsub){ CLOUD.recipeUnsub(); CLOUD.recipeUnsub = null; }
   if(CLOUD.ingredientUnsub){ CLOUD.ingredientUnsub(); CLOUD.ingredientUnsub = null; }
+  if(CLOUD.mealsetUnsub){ CLOUD.mealsetUnsub(); CLOUD.mealsetUnsub = null; }
   CLOUD.db = null; CLOUD.auth = null; CLOUD.uid = null;
   state.cloudSyncStatus = 'idle';
   state.cloudSyncError = '';
@@ -17783,6 +17798,106 @@ async function cloudSyncPushIngredientChanges(){
     cloudSyncSafeRender();
   }catch(e){
     console.error('cloud sync ingredient push failed', e);
+    state.cloudSyncStatus = 'error';
+    state.cloudSyncError = (e && e.message) || String(e);
+    render();
+  }
+}
+
+/* ---------- Mealsets (套餐模板) ----------
+   README 9.211: 跟食谱/外部食材同一套"每条记录一个Firestore文档 + pushMap + 墓碑 + 最后写入者
+   (updated_at)胜出"的模式，集合路径 syncRooms/{roomCode}/mealsets/{mealsetId}。之所以现在可以
+   同步：套餐行本质上是纯引用(source_type + source_id + amount/unit)，指向的库存食材/外部食材/
+   食谱本来就已经在两位成员之间共享，同一个source_id在两边都能解析到同一条数据。套餐没有照片
+   字段，不需要处理照片。三餐记录(mealLogs)里的套餐记录在记录时已经把内容展开成快照，跟模板
+   脱钩，所以任何一方之后改/删套餐模板都不影响已经记过的历史，也不需要同步mealLogs。 */
+function saveCloudSyncMealsetPushMap(){ return storageSet('cloudSyncMealsetPushMap', CLOUD.mealsetPushMap); }
+function subscribeCloudMealsets(){
+  if(CLOUD.mealsetUnsub){ CLOUD.mealsetUnsub(); CLOUD.mealsetUnsub = null; }
+  CLOUD.mealsetUnsub = mealsetsCollectionRef().onSnapshot(function(snapshot){
+    var changed = false;
+    snapshot.docChanges().forEach(function(change){
+      if(change.type === 'removed') return;
+      if(applyRemoteMealset(change.doc.data())) changed = true;
+    });
+    saveCloudSyncMealsetPushMap();
+    if(changed) storageSet('mealsets', state.mealsets);
+    state.cloudSyncLastSyncedAt = nowLocalIso();
+    cloudSyncSafeRender();
+  }, function(err){
+    console.error('cloud sync mealset snapshot error', err);
+    state.cloudSyncStatus = 'error';
+    state.cloudSyncError = (err && err.message) || String(err);
+    cloudSyncSafeRender();
+  });
+}
+function applyRemoteMealset(data){
+  if(!data || !data.id) return false;
+  var idx = -1;
+  for(var i=0;i<state.mealsets.length;i++){ if(state.mealsets[i].id===data.id){ idx=i; break; } }
+  var localTs = idx>=0 ? (state.mealsets[idx].updated_at || state.mealsets[idx].created_at || '') : '';
+  var remoteTs = data.updated_at || data.created_at || '';
+  if(data._deleted){
+    if(idx>=0 && remoteTs >= localTs){
+      state.mealsets.splice(idx,1);
+      CLOUD.mealsetPushMap[data.id] = '__deleted__';
+      return true;
+    }
+    return false;
+  }
+  if(idx===-1){
+    var fresh = JSON.parse(JSON.stringify(data));
+    delete fresh._deleted;
+    state.mealsets.push(fresh);
+    CLOUD.mealsetPushMap[data.id] = remoteTs;
+    return true;
+  }
+  if(remoteTs > localTs){
+    var merged = JSON.parse(JSON.stringify(data));
+    delete merged._deleted;
+    state.mealsets[idx] = merged;
+    CLOUD.mealsetPushMap[data.id] = remoteTs;
+    return true;
+  }
+  return false;
+}
+function sanitizeMealsetForCloud(m){
+  var copy = JSON.parse(JSON.stringify(m));
+  delete copy._isNew;
+  copy._deleted = false;
+  return copy;
+}
+async function cloudSyncPushMealsetChanges(){
+  if(!cloudSyncActive()) return;
+  var toPush = [], currentIds = {};
+  state.mealsets.forEach(function(m){
+    currentIds[m.id] = true;
+    var ts = m.updated_at || m.created_at || '';
+    if(CLOUD.mealsetPushMap[m.id] !== ts) toPush.push(m);
+  });
+  var tombstoneIds = [];
+  Object.keys(CLOUD.mealsetPushMap).forEach(function(id){
+    if(!currentIds[id] && CLOUD.mealsetPushMap[id] !== '__deleted__') tombstoneIds.push(id);
+  });
+  if(!toPush.length && !tombstoneIds.length) return;
+  try{
+    var batch = CLOUD.db.batch();
+    var now = nowLocalIso();
+    toPush.forEach(function(m){
+      var docData = sanitizeMealsetForCloud(m);
+      batch.set(mealsetsCollectionRef().doc(m.id), docData);
+      CLOUD.mealsetPushMap[m.id] = docData.updated_at || docData.created_at || '';
+    });
+    tombstoneIds.forEach(function(id){
+      batch.set(mealsetsCollectionRef().doc(id), {id:id, _deleted:true, updated_at:now});
+      CLOUD.mealsetPushMap[id] = '__deleted__';
+    });
+    await batch.commit();
+    saveCloudSyncMealsetPushMap();
+    state.cloudSyncLastSyncedAt = nowLocalIso();
+    cloudSyncSafeRender();
+  }catch(e){
+    console.error('cloud sync mealset push failed', e);
     state.cloudSyncStatus = 'error';
     state.cloudSyncError = (e && e.message) || String(e);
     render();
