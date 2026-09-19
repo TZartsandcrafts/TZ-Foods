@@ -906,7 +906,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.206';
+var BUILD_VERSION = '9.208';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2354,7 +2354,8 @@ var I18N = {
     dailyCalorieBudgetLabel:'每日热量预算', macroDistLabel:'宏量营养素分布', targetDateLabel:'预计达成日期', mealMacroShareLabel:'这一餐的宏量占比',
     healthPlanIncompleteHint:'填写个人信息和目标体重后，这里会自动算出每日热量预算', planSettingsBtn:'计划设置', personalInfoBtn:'个人信息',
     editWeightEntryTitle:'编辑体重记录', fieldWeight:'体重', fieldDate:'日期',
-    weightEntryInvalid:'请填写日期和体重', weightSavedToast:'已保存', deleteWeightConfirm:'删除这条体重记录？',
+    weightEntryInvalid:'请填写日期和体重', weightSavedToast:'已保存',
+    amountRequiredToast:'请输入数量', servingsRequiredToast:'请输入份数', caloriesRequiredToast:'请输入热量', deleteWeightConfirm:'删除这条体重记录？',
     unitConversionUnavailable:'这个单位无法换算出营养信息，请换一个单位',
     fieldSex:'性别', sex_female:'女', sex_male:'男', fieldHeight:'身高', fieldBirthDate:'出生日期', fieldActivityLevel:'活动量',
     activity_inactive:'久坐', activity_low_active:'轻度活动', activity_active:'活跃', activity_very_active:'非常活跃',
@@ -2601,6 +2602,8 @@ var I18N = {
     importWrongFile:'文件类型不匹配，请选择对应的备份文件',
     exportedOn:'导出于',
     tagInUseWarning:'仍有食材使用此标签，删除后这些食材将标记为"未分类"。',
+    locationInUseWarning:'仍有食材存放在此位置，删除后这些食材的位置将被清空。',
+    recipeTagInUseWarning:'仍有食谱使用此标签，删除后这些食谱将标记为"未分类"。',
     days:'天',
     unset:'未设置',
     // photo upload
@@ -2654,7 +2657,8 @@ var I18N = {
     dailyCalorieBudgetLabel:'Daily Calorie Budget', macroDistLabel:'Macronutrient Distribution', targetDateLabel:'Projected Target Date', mealMacroShareLabel:"This Meal's Macro Share",
     healthPlanIncompleteHint:'Fill in your personal info and goal weight to see your daily calorie budget here', planSettingsBtn:'Plan Settings', personalInfoBtn:'Personal Info',
     editWeightEntryTitle:'Edit Weight Entry', fieldWeight:'Weight', fieldDate:'Date',
-    weightEntryInvalid:'Please fill in a date and weight', weightSavedToast:'Saved', deleteWeightConfirm:'Delete this weight entry?',
+    weightEntryInvalid:'Please fill in a date and weight', weightSavedToast:'Saved',
+    amountRequiredToast:'Please enter an amount', servingsRequiredToast:'Please enter a quantity', caloriesRequiredToast:'Please enter calories', deleteWeightConfirm:'Delete this weight entry?',
     unitConversionUnavailable:'This unit can\'t be converted into nutrition info - try a different unit',
     fieldSex:'Sex', sex_female:'Female', sex_male:'Male', fieldHeight:'Height', fieldBirthDate:'Date of Birth', fieldActivityLevel:'Activity Level',
     activity_inactive:'Inactive', activity_low_active:'Low Active', activity_active:'Active', activity_very_active:'Very Active',
@@ -2890,6 +2894,8 @@ var I18N = {
     importWrongFile:'File type does not match. Please select the correct backup file.',
     exportedOn:'Exported on',
     tagInUseWarning:'Some items still use this tag. They will be marked "uncategorized" after deletion.',
+    locationInUseWarning:'Some items are stored at this location. Their location will be cleared after deletion.',
+    recipeTagInUseWarning:'Some recipes still use this tag. They will be marked "uncategorized" after deletion.',
     days:'days',
     unset:'Not set',
     // photo upload
@@ -9188,7 +9194,10 @@ function runPendingConfirmAction(){
 }
 
 /* ======================= SCAN ======================= */
-var scanCtx = { stream:null, detecting:false, raf:null };
+// README 9.208: 加了session计数器 - 每次startScan/stopScan都会让它+1，startScan里每个await之后
+// 都要核对"我这次启动是不是已经过期了"(期间有人调了stopScan/又启动了新的一轮)，过期就把刚拿到的
+// 摄像头流/ZXing控制器当场释放，不再挂到scanCtx上留着没人管。见startScan上面的详细说明。
+var scanCtx = { stream:null, detecting:false, raf:null, session:0 };
 
 /* ---- 搜索添加 (search USDA by brand/name, no camera) ---- */
 function renderSearchAddItem(){
@@ -9299,26 +9308,41 @@ function renderScan(){
   '</div>'+
   bottomNav();
 }
+// README 9.208: 摄像头"关掉后又自己冒出来"的排查——startScan是async的，await getUserMedia(首次要等
+// 权限弹窗)/await加载ZXing库/await decodeFromVideoDevice这几步都可能耗时几百毫秒到几秒，这期间：
+//  (a) 页面已经跳走了(navigate()里调了stopScan)，但这时scanCtx.stream/zxingControls还是null，
+//      stopScan什么也没停到；等await回来，这个流才被赋值到scanCtx上——没人再去停它，摄像头就一直
+//      开着(直到下一次navigate()才被顺手停掉)；
+//  (b) afterRender()在扫描页上每次render都会再调一遍startScan，上一轮还没结束，新一轮又开始，
+//      后到的会把scanCtx.zxingControls/stream直接覆盖，先到的那一路成了无主的流，永远不会被停。
+// 修法：startScan开头先stopScan()清场并领一个新的session号，每个await之后都核对这个号是不是还是
+// 当前的——不是就说明这一轮已经作废，把刚拿到的流/控制器当场释放掉再退出。
 async function startScan(){
   var video = document.getElementById('scan-video');
   if(!video) return;
+  stopScan();
+  var mySession = scanCtx.session;
   if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
     setScanStatus(t('scanCameraError'));
     return;
   }
   if('BarcodeDetector' in window){
+    var stream = null;
     try{
-      var stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}, audio:false});
+      stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}, audio:false});
+      if(mySession !== scanCtx.session){ stream.getTracks().forEach(function(tr){ tr.stop(); }); return; }
       scanCtx.stream = stream;
       video.srcObject = stream;
       await video.play();
       var formats = await window.BarcodeDetector.getSupportedFormats();
+      if(mySession !== scanCtx.session) return; // stopScan已经把scanCtx.stream停掉了，不用再处理
       var detector = new window.BarcodeDetector({formats: formats});
       scanCtx.detecting = true;
       setScanStatus(t('scanHintCamera'));
       detectLoop(video, detector);
       return;
     }catch(e){
+      if(stream && mySession !== scanCtx.session){ try{ stream.getTracks().forEach(function(tr){ tr.stop(); }); }catch(e2){} return; }
       setScanStatus(t('scanCameraError'));
       return;
     }
@@ -9326,7 +9350,7 @@ async function startScan(){
   // Native BarcodeDetector isn't available (this is the normal case on iOS Safari, since
   // WebKit hasn't implemented the Shape Detection API). Fall back to a pure-JS decoder
   // (ZXing) loaded on demand - it processes camera frames itself, no native API needed.
-  startZXingScan(video);
+  startZXingScan(video, mySession);
 }
 function detectLoop(video, detector){
   if(!scanCtx.detecting) return;
@@ -9362,14 +9386,16 @@ function loadZXing(){
     .catch(function(e){ _zxingLoadPromise = null; throw e; });
   return _zxingLoadPromise;
 }
-async function startZXingScan(video){
+async function startZXingScan(video, mySession){
   setScanStatus(t('scanLoadingLib'));
   try{
     await loadZXing();
   }catch(e){
+    if(mySession !== scanCtx.session) return;
     setScanStatus(t('scanLibLoadError'));
     return;
   }
+  if(mySession !== scanCtx.session) return; // 加载库期间页面已经跳走了，别再去开摄像头
   try{
     var hints = new Map();
     if(window.ZXing && ZXing.DecodeHintType){
@@ -9378,19 +9404,26 @@ async function startZXingScan(video){
     var codeReader = new ZXingBrowser.BrowserMultiFormatReader(hints.size ? hints : undefined);
     scanCtx.detecting = true;
     setScanStatus(t('scanHintCamera'));
+    var myControls = null;
     var controls = await codeReader.decodeFromVideoDevice(undefined, video, function(result){
-      if(result && scanCtx.detecting){
+      // 回调只认自己这一轮的session，过期的一轮就算又扫到码也不处理
+      if(result && scanCtx.detecting && mySession === scanCtx.session){
         scanCtx.detecting = false;
-        if(scanCtx.zxingControls){ try{ scanCtx.zxingControls.stop(); }catch(e2){} scanCtx.zxingControls=null; }
-        onBarcodeDetected(result.getText());
+        onBarcodeDetected(result.getText()); // 里面的stopScan()会停掉scanCtx.zxingControls
       }
     });
+    myControls = controls;
+    // 等摄像头真正启动好的这段时间里(首次要等权限弹窗)，如果已经被stopScan/新一轮startScan作废了，
+    // 就地把这一路停掉，不要再挂到scanCtx上
+    if(mySession !== scanCtx.session){ try{ myControls.stop(); }catch(e3){} return; }
     scanCtx.zxingControls = controls;
   }catch(e){
+    if(mySession !== scanCtx.session) return;
     setScanStatus(t('scanCameraError'));
   }
 }
 function stopScan(){
+  scanCtx.session++; // 让所有还在await中的startScan/startZXingScan知道自己这一轮已经作废
   scanCtx.detecting = false;
   if(scanCtx.raf) cancelAnimationFrame(scanCtx.raf);
   scanCtx.raf = null;
@@ -9402,6 +9435,16 @@ function stopScan(){
     try{ scanCtx.zxingControls.stop(); }catch(e){}
     scanCtx.zxingControls = null;
   }
+  // 兜底：不管上面记录里有没有，把页面上所有<video>挂着的流都停掉。ZXing自己内部也会给video元素
+  // 挂一路流，万一某一路没被scanCtx记到(见startScan上面的说明)，这里能扫清。
+  try{
+    document.querySelectorAll('video').forEach(function(v){
+      var src = v.srcObject;
+      if(src && src.getTracks) src.getTracks().forEach(function(tr){ try{ tr.stop(); }catch(e){} });
+      try{ v.pause(); }catch(e){}
+      v.srcObject = null;
+    });
+  }catch(e){}
 }
 function setScanStatus(msg){
   var el = document.getElementById('scan-status');
@@ -12481,7 +12524,7 @@ function saveMealLogEntryEdit(){
   if(!m) return;
   if(m.source_type==='custom'){
     var cals = parseAmountInput(ee.customCalories);
-    if(!cals || cals<=0){ showToast(t('weightEntryInvalid')); return; }
+    if(!cals || cals<=0){ showToast(t('caloriesRequiredToast')); return; }
     var carbs = ee.customCarbs ? parseAmountInput(ee.customCarbs) : null;
     var protein = ee.customProtein ? parseAmountInput(ee.customProtein) : null;
     var fat = ee.customFat ? parseAmountInput(ee.customFat) : null;
@@ -12494,7 +12537,7 @@ function saveMealLogEntryEdit(){
     if(fat) m.nutrition.fat = fat;
   } else {
     var newAmt = parseAmountInput(ee.amountText);
-    if(!newAmt || newAmt<=0){ showToast(t('weightEntryInvalid')); return; }
+    if(!newAmt || newAmt<=0){ showToast(t('amountRequiredToast')); return; }
     if(m.amount){
       m.nutrition_extra = computeScaledNutritionExtra(m.nutrition_extra, m.amount, newAmt);
       m.nutrition = computeScaledNutrition(m.nutrition, m.amount, newAmt);
@@ -14216,7 +14259,7 @@ function focusNextCustomField(event, nextId){
 function saveCustomMealLogEntry(){
   var af = state.mealsUI.addFood;
   var cals = parseAmountInput(af.customCalories);
-  if(!cals || cals<=0){ showToast(t('weightEntryInvalid')); return; }
+  if(!cals || cals<=0){ showToast(t('caloriesRequiredToast')); return; }
   var nutrition = emptyNutrition();
   nutrition.calories = cals;
   var carbs = af.customCarbs ? parseAmountInput(af.customCarbs) : null;
@@ -14247,7 +14290,7 @@ function saveCustomMealLogEntry(){
 function ipSaveCustomItem(){
   var af = state.mealsUI.ingPicker;
   var cals = parseAmountInput(af.customCalories);
-  if(!cals || cals<=0){ showToast(t('weightEntryInvalid')); return; }
+  if(!cals || cals<=0){ showToast(t('caloriesRequiredToast')); return; }
   var nutrition = emptyNutrition();
   nutrition.calories = cals;
   var carbs = af.customCarbs ? parseAmountInput(af.customCarbs) : null;
@@ -14579,7 +14622,8 @@ function saveMealLogEntry(){
     var totalN = calcRecipeNutrition(r);
     if(af.amountUnit==='g'){
       var grams = parseAmountInput(af.amountText);
-      if(!grams || grams<=0 || !totalN.per100g){ showToast(t('weightEntryInvalid')); return; }
+      if(!grams || grams<=0){ showToast(t('amountRequiredToast')); return; }
+      if(!totalN.per100g){ showToast(t('unitConversionUnavailable')); return; }
       var gramsFactor = grams/100;
       nutrition = {}; NUTRI_KEYS.forEach(function(k){ nutrition[k]=(totalN.per100g[k]||0)*gramsFactor; });
       NUTRI_EXTRA_CORE_KEYS.forEach(function(k){
@@ -14595,7 +14639,7 @@ function saveMealLogEntry(){
       saveMealAddLastAmount();
     } else {
       var servings = parseAmountInput(af.amountText);
-      if(!servings || servings<=0){ showToast(t('weightEntryInvalid')); return; }
+      if(!servings || servings<=0){ showToast(t('servingsRequiredToast')); return; }
       nutrition = {}; NUTRI_KEYS.forEach(function(k){ nutrition[k]=(totalN.perServing[k]||0)*servings; });
       NUTRI_EXTRA_CORE_KEYS.forEach(function(k){
         var e = (totalN.extraPerServing||{})[k];
@@ -14608,7 +14652,7 @@ function saveMealLogEntry(){
     }
   } else if(p.type==='usda'){
     var amt = parseAmountInput(af.amountText);
-    if(!amt || amt<=0){ showToast(t('weightEntryInvalid')); return; }
+    if(!amt || amt<=0){ showToast(t('amountRequiredToast')); return; }
     var factor2 = amt/100;
     nutrition = {}; NUTRI_KEYS.forEach(function(k){ nutrition[k]=(p.nutrition[k]||0)*factor2; });
     NUTRI_EXTRA_CORE_KEYS.forEach(function(k){
@@ -14629,7 +14673,7 @@ function saveMealLogEntry(){
     saveUsdaSaved();
   } else {
     var amt2 = parseAmountInput(af.amountText);
-    if(!amt2 || amt2<=0){ showToast(t('weightEntryInvalid')); return; }
+    if(!amt2 || amt2<=0){ showToast(t('amountRequiredToast')); return; }
     var src = p.type==='item' ? state.items.find(function(x){ return x.id===p.id; })
       : p.type==='offquick' ? p.fakeSrc
       : state.ingredients.find(function(x){ return x.id===p.id; });
@@ -14711,7 +14755,7 @@ function ipConfirmAmountPick(){
   var p = af.picked;
   if(p.type==='mealsetNest'){
     var mult = parseAmountInput(af.amountText);
-    if(!mult || mult<=0){ showToast(t('weightEntryInvalid')); return; }
+    if(!mult || mult<=0){ showToast(t('servingsRequiredToast')); return; }
     state.mealsetDraft.items.push({id:uid(), source_type:'mealset', source_id:p.id, name_snapshot:p.name, amount:mult, unit:'份'});
     bumpPickFrequency('mealset', p.id);
     state.mealsUI.ingPicker = null;
@@ -14724,7 +14768,8 @@ function ipConfirmAmountPick(){
     var totalN = calcRecipeNutrition(r);
     if(af.amountUnit==='g'){
       var grams = parseAmountInput(af.amountText);
-      if(!grams || grams<=0 || !totalN.per100g){ showToast(t('weightEntryInvalid')); return; }
+      if(!grams || grams<=0){ showToast(t('amountRequiredToast')); return; }
+      if(!totalN.per100g){ showToast(t('unitConversionUnavailable')); return; }
       var gramsFactor = grams/100;
       nutrition = {}; NUTRI_KEYS.forEach(function(k){ nutrition[k]=(totalN.per100g[k]||0)*gramsFactor; });
       NUTRI_EXTRA_CORE_KEYS.forEach(function(k){
@@ -14737,7 +14782,7 @@ function ipConfirmAmountPick(){
       saveMealAddLastAmount();
     } else {
       var servings = parseAmountInput(af.amountText);
-      if(!servings || servings<=0){ showToast(t('weightEntryInvalid')); return; }
+      if(!servings || servings<=0){ showToast(t('servingsRequiredToast')); return; }
       nutrition = {}; NUTRI_KEYS.forEach(function(k){ nutrition[k]=(totalN.perServing[k]||0)*servings; });
       NUTRI_EXTRA_CORE_KEYS.forEach(function(k){
         var e = (totalN.extraPerServing||{})[k];
@@ -14750,7 +14795,7 @@ function ipConfirmAmountPick(){
     }
   } else if(p.type==='usda'){
     var amt = parseAmountInput(af.amountText);
-    if(!amt || amt<=0){ showToast(t('weightEntryInvalid')); return; }
+    if(!amt || amt<=0){ showToast(t('amountRequiredToast')); return; }
     var factor2 = amt/100;
     nutrition = {}; NUTRI_KEYS.forEach(function(k){ nutrition[k]=(p.nutrition[k]||0)*factor2; });
     NUTRI_EXTRA_CORE_KEYS.forEach(function(k){
@@ -14769,7 +14814,7 @@ function ipConfirmAmountPick(){
     saveUsdaSaved();
   } else {
     var amt2 = parseAmountInput(af.amountText);
-    if(!amt2 || amt2<=0){ showToast(t('weightEntryInvalid')); return; }
+    if(!amt2 || amt2<=0){ showToast(t('amountRequiredToast')); return; }
     var src = p.type==='item' ? state.items.find(function(x){ return x.id===p.id; })
       : p.type==='offquick' ? p.fakeSrc
       : state.ingredients.find(function(x){ return x.id===p.id; });
@@ -16606,7 +16651,7 @@ function deleteTagItem(kind, name){
     render();
     refreshSidebarContent();
   }
-  if(inUse) showConfirmModal(t('tagInUseWarning'), doDelete, {title:t('delete')});
+  if(inUse) showConfirmModal(t('locationInUseWarning'), doDelete, {title:t('delete')});
   else doDelete();
 }
 // README 9.125: 库存分类的增/删/改，跟 deleteRecipeGroup/openRenameRecipeGroupModal 等食谱那边
@@ -16804,7 +16849,7 @@ function deleteRecipeGroup(groupId){
     render();
     refreshSidebarContent();
   }
-  if(inUse) showConfirmModal(t('tagInUseWarning'), doDelete, {title:t('delete')});
+  if(inUse) showConfirmModal(t('recipeTagInUseWarning'), doDelete, {title:t('delete')});
   else doDelete();
 }
 function openRenameRecipeSubModal(groupId, oldSub){
@@ -16853,7 +16898,7 @@ function deleteRecipeSub(groupId, sub){
     render();
     refreshSidebarContent();
   }
-  if(inUse) showConfirmModal(t('tagInUseWarning'), doDelete, {title:t('delete')});
+  if(inUse) showConfirmModal(t('recipeTagInUseWarning'), doDelete, {title:t('delete')});
   else doDelete();
 }
 
