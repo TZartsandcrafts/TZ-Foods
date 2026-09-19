@@ -906,7 +906,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.208';
+var BUILD_VERSION = '9.210';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2561,6 +2561,7 @@ var I18N = {
     newIngName:'食材名称', newIngNutriHint:'请填写每100g/100ml的营养信息',
     freshRefFoundPrefix:'检测到「', freshRefFoundSuffix:'」的参考营养数据，点击填入', freshRefApplyBtn:'填入', freshRefAppliedToast:'已填入参考数据，可自行调整',
     usdaSearchLoading:'搜索中…', usdaSearchNoResults:'没有找到匹配结果，换个关键词试试',
+    usdaSectionOfficial:'USDA 官方数据', usdaSectionBranded:'品牌食品', usdaNoOfficialMatch:'没有找到匹配的官方数据',
     usdaSearchError:'搜索失败，请检查网络或稍后再试', usdaSearchApplyToast:'已填入 USDA 数据，可自行调整',
     usdaTranslating:'翻译中…', usdaSavedSectionTitle:'常用', usdaFavoriteToggle:'收藏',
     usdaDataTypeFoundation:'官方实测', usdaDataTypeSRLegacy:'官方数据', usdaDataTypeBranded:'品牌食品',
@@ -2855,6 +2856,7 @@ var I18N = {
     newIngName:'Ingredient name', newIngNutriHint:'Enter nutrition per 100g/100ml',
     freshRefFoundPrefix:'Found reference nutrition for "', freshRefFoundSuffix:'" - tap to fill in', freshRefApplyBtn:'Fill in', freshRefAppliedToast:'Filled in - feel free to adjust',
     usdaSearchLoading:'Searching…', usdaSearchNoResults:'No matches found, try a different keyword',
+    usdaSectionOfficial:'USDA reference data', usdaSectionBranded:'Branded foods', usdaNoOfficialMatch:'No matching reference data found',
     usdaSearchError:'Search failed, check your connection and try again', usdaSearchApplyToast:'Filled in USDA data - feel free to adjust',
     usdaTranslating:'Translating…', usdaSavedSectionTitle:'Frequently used', usdaFavoriteToggle:'Favorite',
     usdaDataTypeFoundation:'USDA Lab-Tested', usdaDataTypeSRLegacy:'USDA Data', usdaDataTypeBranded:'Branded',
@@ -7102,6 +7104,30 @@ async function usdaSearchFoods(query){
   if(!res.ok) throw new Error('search failed: '+res.status);
   var data = await res.json();
   return data.foods || [];
+}
+// README 9.210: 三餐加食物/套餐加食材页USDA tab专用的"官方数据/品牌食品分开搜"——原来
+// usdaSearchFoods把Foundation/SR Legacy/Branded三类塞进同一个请求、只取前25条(App再截成20条)，
+// 而品牌食品的条目数量比官方两类多得多(官方合计约一万条上下，品牌是几十万条以上)，很多品牌条目
+// 描述又很短(比如就叫"MILK")、相关性分数很高，搜"milk"这种常见词时官方数据很容易被挤出前25名，
+// 根本看不到(Lynn反馈：想找2% milk，出来的全是品牌食品，一条官方数据都没有)。改成两个请求并行：
+// 官方(Foundation+SR Legacy)取前15条、品牌取前10条，各自按USDA自己的相关性排序，界面上分两段
+// 展示。worker.js的/food-search本来就支持dataType/pageSize参数，所以这次不需要改worker。
+// 任意一路失败不影响另一路显示(失败的那一段会显示错误提示)，两路都失败才抛错。
+async function usdaSearchFoodsSplit(query){
+  var base = usdaWorkerBase();
+  if(!base) throw new Error('not configured');
+  function one(dataType, pageSize){
+    var p = fetch(base+'/food-search?q='+encodeURIComponent(query)+'&dataType='+encodeURIComponent(dataType)+'&pageSize='+pageSize)
+      .then(function(res){
+        if(!res.ok) throw new Error('search failed: '+res.status);
+        return res.json();
+      })
+      .then(function(d){ return d.foods || []; });
+    return withTimeout(p, 20000).then(function(foods){ return {ok:true, foods:foods}; }, function(){ return {ok:false, foods:[]}; });
+  }
+  var r = await Promise.all([one('Foundation,SR Legacy', 15), one('Branded', 10)]);
+  if(!r[0].ok && !r[1].ok) throw new Error('search failed');
+  return {official:r[0].foods, branded:r[1].foods, officialError:!r[0].ok, brandedError:!r[1].ok};
 }
 async function usdaFetchFoodDetail(fdcId){
   var base = usdaWorkerBase();
@@ -12898,6 +12924,7 @@ function macroPieHtml(actualG, targetG, colors){
 // Lynn's 6-tab spec and they're both "something I already have saved locally", unlike 食谱
 // (computed nutrition) or USDA (external database).
 function openAddFoodPage(date, slot){
+  _addFoodSearchScroll = null; // 全新打开一次选餐页，上次会话遗留的滚动位置作废
   state.mealsUI.addFood = {date:date, slot:slot, tab:'inventory', step:'search', query:'', picked:null, amountText:'', deduct:true, quickPicks:{}, matchTabs:null};
   navigate('mealAddFood');
 }
@@ -12950,6 +12977,7 @@ function inventoryPickFreqKey(groupKey, repId){
 // customMealFieldsHtml里对pickerKind的判断)。每次打开都是全新状态，不跨会话保留关键词——
 // 跟openAddFoodPage一致。
 function openIngPicker(pickerKind){
+  _addFoodSearchScroll = null;
   state.mealsUI.ingPicker = {pickerKind:pickerKind, tab:'inventory', step:'search', query:'', picked:null, amountText:'', amountUnit:null, quickPicks:{}, matchTabs:null};
   navigate('ingPicker');
 }
@@ -12965,7 +12993,7 @@ function renderIngPicker(){
 }
 function ipBack(){
   var ip = state.mealsUI.ingPicker;
-  if(ip && ip.step==='amount'){ ip.step='search'; ip.picked=null; render(); scrollAppToTop(); return; }
+  if(ip && ip.step==='amount'){ ip.step='search'; ip.picked=null; render(); restoreAddFoodSearchScroll(); return; }
   var returnView = (ip && ip.pickerKind==='mealsetTemplate') ? 'mealsetForm' : (ip && ip.pickerKind==='recipeIngredients') ? 'recipeForm' : 'mealAddFood';
   state.mealsUI.ingPicker = null;
   navigate(returnView);
@@ -13064,9 +13092,9 @@ function setMealAddFoodTab(tabId){
   af.tab = tabId; af.step = 'search'; af.picked = null; af.mealsetPhase = null; af.mealsetLogItems = null; af.amountUnit = null;
   render();
   scrollAppToTop();
-  if(tabId==='usda' && af.query && af.query.trim().length>=2){
-    runAddFoodUsdaSearch(af.query.trim());
-  }
+  // README 9.209: 原来这里在render()之后单独补一次USDA搜索(tabId==='usda'且关键词>=2字符)——现在
+  // 这件事统一放到afterRender()里(见ensureUsdaSearchForCurrentRender)，任何原因触发的重渲染都能
+  // 覆盖到，这里不用再调一次，否则会同时发起两次一样的搜索/翻译请求。
   // README 9.193: 跨tab统一搜索(evaluateCrossTabSearch)在用户打字过程中也会调这个函数把tab
   // 切过去——上面的render()把整个内容区(包括原来聚焦的搜索输入框)换掉了，光标/键盘都会跟着丢，
   // 这里补一次聚焦+把光标定位到文字末尾，让用户能不中断地在新tab的输入框里接着往下打字。手动
@@ -13493,7 +13521,22 @@ function addFoodLocalSearchBodyHtml(af){
 function addFoodUsdaSearchBodyHtml(af){
   // README 9.177: 关键词为空时("浏览模式")直接把常用列表放在搜索框下面; 有关键词的话先占位
   // 一个loading提示 - setMealAddFoodTab/onAddFoodQueryInput那边的异步搜索会把它填成真正结果。
-  var resultsHtml = (af.query||'').trim() ? '<p class="hint" style="padding:8px 0 0;">'+t('usdaSearchLoading')+'</p>' : usdaSavedListHtml();
+  // README 9.209: 从数量页右划/点返回退回搜索步骤时，这个函数会被重新调用一遍(整页重渲染)，之前
+  // 只要关键词非空就无脑占位一个"搜索中…"——占位之后本来是靠onAddFoodQueryInput/setMealAddFoodTab
+  // 那边的异步搜索把它替换成真正结果的，但"退回"这条路径不经过它们，搜索根本没人去触发，页面就
+  // 永远停在"搜索中…"了(同样的问题也会出现在任何别的原因触发的重渲染上，比如云同步刷新)。
+  // 现在分三种情况：
+  //  1) 关键词太短(<2个字符，搜索本来就不会触发)/为空：跟onAddFoodQueryInput里的"浏览模式"一致，
+  //     显示常用列表——以前这种情况(比如只输入了1个字符)重渲染后也会永远卡在"搜索中…"；
+  //  2) 有关键词，而且当前缓存的那份结果(_lastUsdaDisplayList)就是这个关键词搜出来的：直接原样
+  //     恢复，不用重新联网，退回来看到的跟离开时一模一样(包括"继续搜索USDA数据库"那条入口)；
+  //  3) 有关键词但没有对得上的缓存：先占位"搜索中…"，afterRender()里会检查到这种情况并补一次搜索。
+  var qTrim = (af.query||'').trim();
+  var resultsHtml;
+  if(qTrim.length<2) resultsHtml = usdaSavedListHtml();
+  else if(!usdaWorkerBase()) resultsHtml = '';
+  else if(_lastUsdaDisplayQuery === qTrim) resultsHtml = usdaResultRowsWithContinueHtml(_lastUsdaDisplayList);
+  else resultsHtml = '<p class="hint" style="padding:8px 0 0;">'+t('usdaSearchLoading')+'</p>';
   return '<div class="meal-add-search-sticky"><input id="add-food-search-input" type="text" autocapitalize="none" autofocus placeholder="'+t('usdaOnlySearchPh')+'" value="'+esc(af.query)+'" oninput="onAddFoodQueryInput(this.value)" style="width:100%;box-sizing:border-box;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);"></div>'+
     '<div id="add-food-usda-results">'+resultsHtml+'</div>';
 }
@@ -13881,6 +13924,8 @@ function sortUsdaSavedList(list){
 }
 async function runAddFoodUsdaSearch(rawQuery){
   var seq = ++addFoodUsdaSearchSeq;
+  _usdaCurrentRawQuery = rawQuery;
+  _lastUsdaDisplayQuery = null; // 新一轮搜索开始，旧缓存作废(结果回来后renderUsdaResultRows会重新标上)
   var el = document.getElementById('add-food-usda-results');
   if(el) el.innerHTML = '<p class="hint" style="padding:8px 0 0;">'+t(containsChinese(rawQuery)?'usdaTranslating':'usdaSearchLoading')+'</p>';
   var term = await resolveUsdaSearchTerm(rawQuery);
@@ -13910,16 +13955,18 @@ async function runUsdaLiveSearch(term, seq){
   try{
     // README 9.179: 同样的超时保护，套在真正打USDA的这次请求上（比翻译请求给多一点时间，
     // 20秒 - USDA接口本身实测比翻译接口慢一些）。
-    var results = await withTimeout(usdaSearchFoods(term), 20000);
+    // README 9.210: 改用官方/品牌分开搜的版本，分两段展示(见usdaSearchFoodsSplit)。
+    var results = await usdaSearchFoodsSplit(term);
     if(seq!==addFoodUsdaSearchSeq) return;
     // 联网结果没有continueTerm这个参数——已经是真联网搜出来的了，不需要再显示"继续搜索"入口；
-    // results为空时renderUsdaResultRows/usdaResultRowsWithContinueHtml自己会显示空状态提示。
-    renderUsdaResultRows(results.slice(0,20));
+    // 两段都为空时usdaResultRowsWithContinueHtml自己会显示空状态提示。
+    renderUsdaResultRows(results.official.concat(results.branded), null, {grouped:true, officialError:results.officialError, brandedError:results.brandedError});
   }catch(e){
     if(seq!==addFoodUsdaSearchSeq) return;
     // README 9.179: 之前这里失败/超时之后直接清空成一片空白，跟"卡住不动"从用户角度看不出
     // 区别（都是没反应）。改成显示明确的错误提示，至少能看出"这次真的失败了"而不是还在等。
-    _lastUsdaDisplayList = []; _lastUsdaContinueTerm = null;
+    _lastUsdaDisplayList = []; _lastUsdaContinueTerm = null; _lastUsdaDisplayQuery = null;
+    _lastUsdaDisplayGrouped = false; _lastUsdaSectionErrors = null;
     var el4 = document.getElementById('add-food-usda-results');
     if(el4) el4.innerHTML = '<p class="hint">'+t('usdaSearchError')+'</p>';
   }
@@ -13940,15 +13987,54 @@ function continueUsdaLiveSearch(term){
 // 点了个星标就把这条入口跟着刷没了。
 var _lastUsdaDisplayList = [];
 var _lastUsdaContinueTerm = null;
-function renderUsdaResultRows(list, continueTerm){
+// README 9.209: _lastUsdaDisplayList当前对应的是哪个(去掉首尾空格的)搜索关键词——''表示常用列表
+// (浏览模式)，null表示没有可用的缓存(还没搜过/上一次搜索失败了)。addFoodUsdaSearchBodyHtml据此
+// 判断整页重渲染(比如从数量页退回来)之后，能不能直接把上次的搜索结果原样恢复出来，不能才需要重新搜。
+var _lastUsdaDisplayQuery = null;
+var _usdaCurrentRawQuery = null; // runAddFoodUsdaSearch正在处理的原始关键词，写入上面那个缓存标记时用
+// README 9.210: 当前展示的这份结果是不是"官方数据/品牌食品分两段"的联网搜索结果(本地常用列表匹配、
+// 浏览模式的常用列表都不是)，以及分段时每一段有没有请求失败——跟着结果一起缓存，重渲染恢复/星标
+// 刷新时才能按同样的分段样式画出来。
+var _lastUsdaDisplayGrouped = false;
+var _lastUsdaSectionErrors = null;
+function renderUsdaResultRows(list, continueTerm, opts){
   _lastUsdaDisplayList = list;
   _lastUsdaContinueTerm = continueTerm || null;
+  _lastUsdaDisplayGrouped = !!(opts && opts.grouped);
+  _lastUsdaSectionErrors = opts ? {official:!!opts.officialError, branded:!!opts.brandedError} : null;
+  _lastUsdaDisplayQuery = _usdaCurrentRawQuery;
   var el = document.getElementById('add-food-usda-results');
   if(!el) return;
   el.innerHTML = usdaResultRowsWithContinueHtml(list);
 }
+function usdaGroupedRowsHtml(list){
+  var official = list.filter(function(f){ return f.dataType!=='Branded'; });
+  var branded = list.filter(function(f){ return f.dataType==='Branded'; });
+  var err = _lastUsdaSectionErrors || {};
+  if(!official.length && !branded.length && !err.official && !err.branded){
+    return '<p class="hint">'+t('usdaSearchNoResults')+'</p>';
+  }
+  function head(key, first){
+    return '<p class="hint" style="margin:'+(first?'4px':'18px')+' 2px 6px;font-weight:600;">'+t(key)+'</p>';
+  }
+  var html = head('usdaSectionOfficial', true);
+  html += official.length
+    ? official.map(usdaResultRowHtml).join('')
+    : '<p class="hint" style="margin:0 2px;">'+t(err.official?'usdaSearchError':'usdaNoOfficialMatch')+'</p>';
+  if(branded.length || err.branded){
+    html += head('usdaSectionBranded', false);
+    html += branded.length
+      ? branded.map(usdaResultRowHtml).join('')
+      : '<p class="hint" style="margin:0 2px;">'+t('usdaSearchError')+'</p>';
+  }
+  return html;
+}
 function usdaResultRowsWithContinueHtml(list){
-  var rowsHtml = list.length ? list.map(usdaResultRowHtml).join('') : '<p class="hint">'+t('noMealLoggedHint')+'</p>';
+  if(_lastUsdaDisplayGrouped) return usdaGroupedRowsHtml(list);
+  // README 9.209: 空结果原来显示的是noMealLoggedHint("还没有记录")——那是三餐页"今天还没记录任何食物"的
+  // 文案，搜索没结果时显示它是错的；usdaSearchNoResults("没有找到匹配结果，换个关键词试试")这条现成
+  // 的key本来就是给这里用的，只是没接上。
+  var rowsHtml = list.length ? list.map(usdaResultRowHtml).join('') : '<p class="hint">'+t('usdaSearchNoResults')+'</p>';
   if(!_lastUsdaContinueTerm) return rowsHtml;
   return rowsHtml +
     '<div class="list-row" style="cursor:pointer;" onclick="continueUsdaLiveSearch('+aj(_lastUsdaContinueTerm)+')">'+
@@ -14009,6 +14095,7 @@ function usdaSavedListHtml(){
   sortUsdaSavedList(list);
   list = list.slice(0,30);
   _lastUsdaDisplayList = list.map(function(f){ return {fdcId:f.fdcId, description:f.description, dataType:f.dataType, brandName:f.brandName}; });
+  _lastUsdaContinueTerm = null; _lastUsdaDisplayQuery = ''; _lastUsdaDisplayGrouped = false; _lastUsdaSectionErrors = null;
   return '<p class="hint" style="margin:4px 2px 6px;">'+t('usdaSavedSectionTitle')+'</p>'+
     list.map(function(f){ return usdaSavedRowHtml(f); }).join('');
 }
@@ -14167,11 +14254,34 @@ async function pickUsdaFoodForMeal(fdcId){
   focusAddFoodAmountInput();
   removeIosKeyboardKeepalive();
 }
+// README 9.210: 选餐页(mealAddFood/ingPicker)搜索步骤的滚动位置——Lynn: 在USDA搜索结果里点进条目
+// 看数量/营养、不对就右划退回，是经常发生的操作，退回后应该回到刚才滚动到的那个位置(接着在同一
+// 份结果里挑别的)，而不是被顶回列表最上面。做法：一个被动scroll监听，只在"当前处于搜索步骤"时
+// 持续记录window.scrollY(进了数量步骤/加载步骤之后页面滚动到顶的那次滚动不记，因为step已经不是
+// search了)，连同tab一起记，退回时只在tab一致的情况下恢复(切了tab就是另一份列表，位置没意义)。
+// 用模块变量而不是塞进addFood/ingPicker状态对象，避免污染可能被持久化的状态；每次重新打开选餐页
+// 时清空(openAddFoodPage/openIngPicker)，避免上次会话遗留的位置串到这一次。
+var _addFoodSearchScroll = null;
+window.addEventListener('scroll', function(){
+  if(state.view!=='mealAddFood' && state.view!=='ingPicker') return;
+  var ctx = activeAddCtx();
+  if(!ctx || ctx.step!=='search') return;
+  _addFoodSearchScroll = {view:state.view, tab:ctx.tab, y:(window.scrollY || document.documentElement.scrollTop || 0)};
+}, {passive:true});
+function restoreAddFoodSearchScroll(){
+  var ctx = activeAddCtx();
+  var s = _addFoodSearchScroll;
+  var y = (s && ctx && s.view===state.view && s.tab===ctx.tab) ? s.y : 0;
+  window.scrollTo(0, y);
+  // 跟navigate()/scrollAppToTop()一样再补一次：退回时搜索框的autofocus会重新弹出键盘，iOS上键盘
+  // 收起/弹出引起的视口变化可能把刚设好的位置顶走。
+  requestAnimationFrame(function(){ window.scrollTo(0, y); });
+}
 function backToAddFoodSearch(){
   var af = activeAddCtx();
   af.step = 'search'; af.picked = null;
   render();
-  scrollAppToTop();
+  restoreAddFoodSearchScroll();
 }
 function af_str(field, val){ activeAddCtx()[field] = val; }
 function af_bool(field, val){ activeAddCtx()[field] = val; }
@@ -16946,9 +17056,23 @@ function focusAutofocusElementOnce(){
     try{ el.select(); }catch(e){}
   }
 }
+// README 9.209: 三餐加食物/套餐加食材页的USDA tab，只要当前渲染出来的是"有关键词但没有对得上的
+// 缓存结果"(即addFoodUsdaSearchBodyHtml里占位"搜索中…"的那种情况)，就补发一次搜索，把占位替换成
+// 真正结果。之前这个搜索只在"打字"和"切tab"两个入口触发，"从数量页退回搜索步骤"这类不经过
+// 它们的重渲染路径漏掉了，占位就永远没人来替换。
+function ensureUsdaSearchForCurrentRender(){
+  if(state.view!=='mealAddFood' && state.view!=='ingPicker') return;
+  var ctx = activeAddCtx();
+  if(!ctx || ctx.tab!=='usda' || ctx.step!=='search') return;
+  var q = (ctx.query||'').trim();
+  if(q.length<2 || !usdaWorkerBase()) return;
+  if(_lastUsdaDisplayQuery === q) return; // 有对得上的缓存，页面已经原样恢复出来了
+  runAddFoodUsdaSearch(q);
+}
 function afterRender(){
   hydratePhotos();
   focusAutofocusElementOnce();
+  ensureUsdaSearchForCurrentRender();
   if(state.view === 'scan'){
     startScan();
   }
