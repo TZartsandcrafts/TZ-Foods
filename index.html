@@ -906,7 +906,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.213';
+var BUILD_VERSION = '9.214';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -4817,6 +4817,12 @@ function navBottomHome(){
 function navBottomRecipes(){
   state.recipesUI.groupId = null;
   state.recipesUI.sub = null;
+  // README 9.214: 跟navBottomHome(库存)保持一致——点底部导航"食谱"是"直接回到食谱主页"，要把所有筛选条件
+  // 一起清掉。之前这里只清了分类筛选(groupId/sub)，漏了搜索框里的关键词(recipesUI.search)，所以搜索框里
+  // 有关键词时点导航，页面还是停在搜索结果上，回不到食谱主页。顺带把200ms防抖里还没执行的那次列表刷新
+  // 取消掉，避免它在导航重渲染之后再改一次列表。
+  state.recipesUI.search = '';
+  clearTimeout(onRecipeSearch._t);
   navigate('recipes');
   _scrollMemory.recipes = 0;
   var app = document.getElementById('app');
