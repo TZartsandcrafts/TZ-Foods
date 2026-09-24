@@ -839,13 +839,24 @@
      title input (styled like the ing-group-header it becomes on the detail page: bold, left-
      aligned) plus whatever ingredients were added under it - rather than one flat list with
      "add a group" as an afterthought button at the bottom. */
-  // README 9.206: .ing-group-block这层包裹div没了(食材行现在要能跨组精确拖拽，分组标题行/
-  // 食材行/添加按钮全部拉平成同一个.sidebar-reorder-list容器下的直接子元素，见
-  // ingredientGroupsEditorHtml的注释)——原来"组与组之间18px间距、最后一组4px"这两条margin改
-  // 记在"添加食材"按钮上（每组末尾正好是这个按钮），效果跟以前完全一样。
+  /* README 9.206: .ing-group-block这层包裹div没了(食材行现在要能跨组精确拖拽，分组标题行/
+     食材行/添加按钮全部拉平成同一个.sidebar-reorder-list容器下的直接子元素，见
+     ingredientGroupsEditorHtml的注释)——原来"组与组之间18px间距、最后一组4px"这两条margin改
+     记在"添加食材"按钮上（每组末尾正好是这个按钮），效果跟以前完全一样。
+     README 9.218: 修复——上面这段注释原来是用 // 写的，CSS 不认这种注释，浏览器把它连同紧跟着的
+     .ing-add-btn 规则一起当成一个无效选择器整个丢掉了，导致"添加食材"按钮的 margin-bottom:18px
+     从 9.206 起就从来没生效过(只有最后一个按钮那条 :last-child 规则碰巧是独立的、还在生效)，
+     表现就是第二个及以后的分组标题紧贴在上一组的"添加食材"按钮下面。 */
   .ing-add-btn{ margin-top:6px; margin-bottom:18px; }
   .sidebar-reorder-list[data-reorder-kind="recipeIngredient"] > .ing-add-btn:last-child{ margin-bottom:4px; }
   .ing-group-title-row{ display:flex; align-items:center; gap:4px; margin-bottom:8px; }
+  /* README 9.218: 食谱编辑页已添加食材的左划删除——外层沿用三餐页同款的 .item-card-swipe 结构
+     (左划手势引擎按这个 class 做事件委托)，视觉上要跟原来的 .ing-row 药丸一样：边框/圆角放在
+     外层(overflow:hidden 会把内层自带的圆角边框裁掉一截)，内层去掉自己的边框/阴影/圆角。 */
+  .ing-swipe{ border:1px solid var(--line); border-radius:11px; margin-bottom:9px; background:var(--card-bg); }
+  .ing-swipe .item-card.ing-row{ flex-direction:row; align-items:center; gap:10px; border:none; border-radius:0; box-shadow:none; padding:12px 14px; margin-bottom:0; }
+  .ing-swipe.dragging-row{ background:var(--cream); box-shadow:0 6px 16px rgba(90,60,30,0.18); opacity:0.92; }
+  .ing-swipe.dragging-row .item-card.ing-row{ background:var(--cream); }
   /* font-size kept at 16px (not the 14.5px the read-only .ing-group-header prints at) for the
      same reason as the nf-basis-input/nf-input rule above - anything smaller makes iOS Safari
      auto-zoom the page the moment this field is focused. Bold+color still match the header look. */
@@ -906,7 +917,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.217';
+var BUILD_VERSION = '9.218';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2406,7 +2417,7 @@ var I18N = {
     macroOverLabel:'超标', addFoodSearchPh:'搜索库存/食谱/食材，或输入英文查USDA',
     dailyNutrientDetailLabel:'当日营养摄入详情', nutriTargetNotSet:'未设置目标',
     sourceInventory:'库存', sourceRecipe:'食谱', sourceExternal:'外部食材库', sourceMealset:'套餐', sourceScan:'扫描',
-    tabCustom:'自定', usdaOnlySearchPh:'搜索 USDA 食物数据库（英文）',
+    tabCustom:'自定', usdaOnlySearchPh:'搜索 USDA 食物数据库（英文）', usdaNoVolumeHint:'这条 USDA 食品没有体积（杯/汤匙等）换算数据，只能按克记录',
     quickAddClearBtn:'清空', quickAddConfirmBtn:'添加',
     quickAddPartialToast:'已添加{n}项，部分条目已失效未添加', quickAddFailedToast:'添加失败，请重试',
     usdaContinueSearchLabel:'没找到想要的？继续搜索 USDA 数据库',
@@ -2711,7 +2722,7 @@ var I18N = {
     macroOverLabel:'over', addFoodSearchPh:'Search inventory/recipes/ingredients, or an English term for USDA',
     dailyNutrientDetailLabel:'Daily Nutrient Detail', nutriTargetNotSet:'No target set',
     sourceInventory:'Inventory', sourceRecipe:'Recipe', sourceExternal:'External Ingredients', sourceMealset:'Mealset', sourceScan:'Scan',
-    tabCustom:'Custom', usdaOnlySearchPh:'Search the USDA food database',
+    tabCustom:'Custom', usdaOnlySearchPh:'Search the USDA food database', usdaNoVolumeHint:'USDA has no volume (cup/spoon) conversion data for this food - grams only',
     quickAddClearBtn:'Clear', quickAddConfirmBtn:'Add',
     quickAddPartialToast:'{n} items added; some entries were no longer valid and were skipped', quickAddFailedToast:'Failed to add, please try again',
     usdaContinueSearchLabel:"Can't find it? Search the USDA database",
@@ -3693,6 +3704,34 @@ function convertSameFamilyUnit(amount, fromUnit, toUnit){
   }
   return null;
 }
+// README 9.218: USDA条目支持体积单位(ml/tsp/tbsp/cup)——USDA营养数据按每100g存，体积要先换算成克，
+// 靠的是worker.js从USDA自带份量(foodPortions，"1 cup = 244 g"这种)推算出来的密度(g/ml)，存在
+// usdaSaved[fdcId].density_g_per_ml，以及每一行USDA食材/条目自己的usda_density_g_per_ml快照里
+// (快照的道理跟nutrition_snapshot_per100g一样：这条USDA缓存万一被清掉，条目自己还能算)。
+// 没有密度数据(品牌食品常见)的条目只提供重量单位，不猜——跟App一贯"换算不出来就明说"的原则一致。
+var USDA_VOLUME_UNITS = ['ml','tsp','tbsp','cup'];
+function usdaDensityOf(x){
+  if(!x) return null;
+  var d = Number(x.usda_density_g_per_ml);
+  if(d>0) return d;
+  var id = x.source_id!=null ? x.source_id : x.fdcId;
+  var sv = id!=null ? (state.usdaSaved||{})[id] : null;
+  d = sv ? Number(sv.density_g_per_ml) : 0;
+  return d>0 ? d : null;
+}
+function usdaAmountToGrams(amount, unit, density){
+  var u = unit || 'g';
+  var w = weightUnitToG(u);
+  if(w!=null) return amount*w;
+  var v = volumeUnitToMl(u);
+  if(v!=null && density>0) return amount*v*density;
+  return null;
+}
+function usdaUnitOptions(density, withKg){
+  var o = withKg ? ['g','kg'] : ['g'];
+  if(density>0) o = o.concat(USDA_VOLUME_UNITS);
+  return o;
+}
 // item.primary_unit / primary_qty : the "count" unit used at purchase time, source of truth
 // item.primary_pack_amount / primary_pack_unit : optional "规格" - how much ONE count-unit
 //   holds (e.g. 500 g per bottle). Fixed/descriptive - deducting/adding never changes this,
@@ -4241,7 +4280,9 @@ function recomputeMealsetLogItemNutrition(item){
       if(savedU && savedU.nutrition){ perU = savedU.nutrition; perUExtra = savedU.nutrition_extra; }
     }
     if(!perU) return {nutrition:emptyNutrition(), nutrition_extra:{}};
-    var factorU = (item.amount||0)/100;
+    var gramsU = usdaAmountToGrams(item.amount||0, item.unit, usdaDensityOf(item));
+    if(gramsU==null) return {nutrition:emptyNutrition(), nutrition_extra:{}};
+    var factorU = gramsU/100;
     var nutritionU = {}; NUTRI_KEYS.forEach(function(k){ nutritionU[k]=(perU[k]||0)*factorU; });
     var extraU = {};
     NUTRI_EXTRA_CORE_KEYS.forEach(function(k){
@@ -4304,7 +4345,7 @@ function buildMealsetLogItems(mealset, multiplier, visited){
             // 就只能返回空营养。之前的问题是：这份草稿/已存记录里的usda/custom条目一旦被编辑
             // (改数量触发confirmEditMealsetDraftItem/confirmEditMealsetLogSubItem的
             // recomputeMealsetLogItemNutrition重算)，营养就被静默清零——加上这几个字段之后修复。
-            nutrition_snapshot_per100g: si.nutrition_snapshot_per100g, nutrition_extra_snapshot_per100g: si.nutrition_extra_snapshot_per100g,
+            nutrition_snapshot_per100g: si.nutrition_snapshot_per100g, nutrition_extra_snapshot_per100g: si.nutrition_extra_snapshot_per100g, usda_density_g_per_ml: si.usda_density_g_per_ml,
             nutrition_snapshot: si.nutrition_snapshot, nutrition_extra_snapshot: si.nutrition_extra_snapshot
           });
         });
@@ -4312,7 +4353,7 @@ function buildMealsetLogItems(mealset, multiplier, visited){
       return;
     }
     var scaledItem = {source_type: it.source_type, source_id: it.source_id, amount: (it.amount||0)*multiplier, unit: it.unit,
-      nutrition_snapshot_per100g: it.nutrition_snapshot_per100g, nutrition_extra_snapshot_per100g: it.nutrition_extra_snapshot_per100g,
+      nutrition_snapshot_per100g: it.nutrition_snapshot_per100g, nutrition_extra_snapshot_per100g: it.nutrition_extra_snapshot_per100g, usda_density_g_per_ml: it.usda_density_g_per_ml,
       nutrition_snapshot: it.nutrition_snapshot, nutrition_extra_snapshot: it.nutrition_extra_snapshot,
       snapshot: it.snapshot};
     var computed = recomputeMealsetLogItemNutrition(scaledItem);
@@ -4322,7 +4363,7 @@ function buildMealsetLogItems(mealset, multiplier, visited){
       nutrition: computed.nutrition, nutrition_extra: computed.nutrition_extra, deduct: it.source_type==='inventory',
       // README 9.203: 同上一条注释——这两行是这次一并修的bug，让usda/custom条目在草稿/已存记录
       // 里被编辑数量后还能正确重算，不会清零。
-      nutrition_snapshot_per100g: it.nutrition_snapshot_per100g, nutrition_extra_snapshot_per100g: it.nutrition_extra_snapshot_per100g,
+      nutrition_snapshot_per100g: it.nutrition_snapshot_per100g, nutrition_extra_snapshot_per100g: it.nutrition_extra_snapshot_per100g, usda_density_g_per_ml: it.usda_density_g_per_ml,
       nutrition_snapshot: it.nutrition_snapshot, nutrition_extra_snapshot: it.nutrition_extra_snapshot
     });
   });
@@ -4435,7 +4476,10 @@ function computeIngredientRowContribution(ri, src){
 function computeUsdaCustomIngredientRowContribution(ri){
   if(ri.source_type==='usda'){
     if(!ri.nutrition_snapshot_per100g) return null;
-    var factor = (ri.amount||0)/100;
+    // README 9.218: 数量可以是体积单位(用条目自己存的密度快照/usdaSaved折算成克)，不再默认amount就是克数。
+    var gramsR = usdaAmountToGrams(ri.amount||0, ri.unit, usdaDensityOf(ri));
+    if(gramsR==null) return null;
+    var factor = gramsR/100;
     var nutrition = {}; NUTRI_KEYS.forEach(function(k){ nutrition[k]=(ri.nutrition_snapshot_per100g[k]||0)*factor; });
     var extra = {};
     NUTRI_EXTRA_CORE_KEYS.concat(NUTRI_EXTRA_OPTIONAL_KEYS).forEach(function(k){
@@ -5200,6 +5244,9 @@ function deleteItemFromSwipe(id){ closeItemSwipeRow(id); deleteItemDetail(id); }
       itemSwipeSwallowClick = true;
     }
     if(!wrap){ tracking=false; cardEl=null; return; }
+    // README 9.218: 食谱编辑页的食材行里有个长按拖拽排序的把手(.sidebar-drag-handle)，从把手上
+    // 开始的触摸只属于拖拽引擎，不参与左划手势，免得两个手势互相抢。
+    if(e.target.closest && e.target.closest('.sidebar-drag-handle')){ tracking=false; cardEl=null; return; }
     var t0 = e.touches[0];
     sx=t0.clientX; sy=t0.clientY; tracking=true; moved=false;
     cardEl = wrap.querySelector('.item-card');
@@ -10832,7 +10879,7 @@ function editMealsetTplItem(idx){
     // README 9.200: USDA条目的营养快照始终是per100g(克)为基准算的(recomputeMealsetLogItemNutrition
     // 的usda分支不认单位，永远把amount当克数用)，这里的单位可选项限定为重量单位，避免选了ml等
     // 体积单位之后数值被当成克数误用。
-    unitOpts = WEIGHT_UNITS.slice();
+    unitOpts = usdaUnitOptions(usdaDensityOf(it), true);
   } else {
     unitOpts = WEIGHT_UNITS.concat(VOLUME_UNITS);
   }
@@ -10993,14 +11040,20 @@ function ingredientGroupsEditorHtml(){
       // README 9.206: 把手(.sidebar-drag-handle)是长按拖拽的唯一触发区，跟点击行本体打开编辑框
       // (editRecipeIngredient)分开——把手自己的onclick用stopPropagation挡掉冒泡，避免只是点了
       // 一下把手(没有真的长按拖动)也顺带弹出编辑框。
-      return '<div class="ing-row" data-arr-idx="'+r.idx+'" onclick="editRecipeIngredient('+r.idx+')"><div class="ing-info"><span class="ing-name">'+esc(recipeIngredientDisplayName(r.ri))+
+      // README 9.218: 外面套一层跟三餐页已添加条目(mealSlotDetailHtml)同款的左划删除结构——
+      // data-arr-idx 挪到最外层(9.206 的拖拽引擎按"列表的直接子元素"定位、读这个属性)，把手仍然
+      // 在行内；点行本体照旧打开 editRecipeIngredient 编辑框。
+      var swipeKey = r.ri.id || ('ri'+r.idx);
+      return '<div class="item-card-swipe ing-swipe" data-item-id="'+esc(swipeKey)+'" data-arr-idx="'+r.idx+'">'+
+        '<div class="item-swipe-actions"><button class="swipe-action-btn action-delete" onclick="event.stopPropagation();deleteRecipeIngredientFromSwipe('+aj(swipeKey)+','+r.idx+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button></div>'+
+        '<div class="item-card ing-row" onclick="editRecipeIngredient('+r.idx+')"><div class="ing-info"><span class="ing-name">'+esc(recipeIngredientDisplayName(r.ri))+
         (r.ri.source_type==='external' ? ' <span style="font-size:11px;color:var(--almond);">('+t('pickExternal')+')</span>' : '')+
         (r.ri.source_type==='recipe' ? ' <span style="font-size:11px;color:var(--almond);">('+t('navRecipes')+(r.ri.use_existing?(' · '+t('recipeIngUseExisting')):'')+')</span>' : '')+
         (r.ri.source_type==='usda' ? ' <span style="font-size:11px;color:var(--almond);">(USDA)</span>' : '')+
         (r.ri.source_type==='custom' ? ' <span style="font-size:11px;color:var(--almond);">('+t('tabCustom')+')</span>' : '')+
         '</span><span class="ing-amt">'+amtHtml+'</span></div>'+
         '<span class="sidebar-drag-handle" onclick="event.stopPropagation()">'+ic('grip',15)+'</span>'+
-      '</div>';
+      '</div></div>';
     }).join('');
     // README 9.202: 原来两行三个按钮(从库存选择/添加外部食材/添加食谱作为食材)统一改成一个
     // "添加食材"按钮，打开跟三餐加食物/套餐加食材完全同款的tab选餐页面(库存/食谱/USDA/扫描/
@@ -11026,6 +11079,12 @@ function onIngredientGroupTitleInput(idx, val){
 function removeIngredientGroupBlock(idx){
   state.recipeDraft.ingredients.splice(idx,1);
   render();
+}
+// README 9.218: 左划露出的删除键——先 closeItemSwipeRow 清掉手势引擎记的"当前展开行"，再删；
+// 不然 render() 之后这一行已经不存在了，引擎还以为它开着，下一次点别处会白白吞掉一次 click。
+function deleteRecipeIngredientFromSwipe(key, idx){
+  closeItemSwipeRow(key);
+  removeRecipeIngredient(idx);
 }
 function removeRecipeIngredient(idx){
   state.recipeDraft.ingredients.splice(idx,1);
@@ -11063,7 +11122,7 @@ function editRecipeIngredient(idx){
   } else if(ri.source_type==='usda'){
     // README 9.202: 理由同套餐那边(editMealsetTplItem)的usda分支——USDA快照始终按克数算，
     // 只给重量单位可选。
-    unitOpts = WEIGHT_UNITS.slice();
+    unitOpts = usdaUnitOptions(usdaDensityOf(ri), true);
   } else {
     unitOpts = WEIGHT_UNITS.concat(VOLUME_UNITS);
   }
@@ -12852,7 +12911,7 @@ function editMealsetLogSubItem(entryId, idx){
     var item = state.items.find(function(x){ return x.id===si.source_id; });
     unitOpts = item ? recipeUnitOptionsForItem(item) : [si.unit];
   } else if(si.source_type==='usda'){
-    unitOpts = WEIGHT_UNITS.slice();
+    unitOpts = usdaUnitOptions(usdaDensityOf(si), true);
   } else {
     unitOpts = WEIGHT_UNITS.concat(VOLUME_UNITS);
   }
@@ -13504,7 +13563,7 @@ function editMealsetDraftItemAmount(idx){
   } else if(it.source_type==='usda'){
     // README 9.200: 理由同editMealsetTplItem的usda分支——USDA快照始终按克数(重量)算，只给重量
     // 单位可选，避免选中体积单位后数值被误当克数使用。
-    unitOpts = WEIGHT_UNITS.slice();
+    unitOpts = usdaUnitOptions(usdaDensityOf(it), true);
   } else {
     unitOpts = WEIGHT_UNITS.concat(VOLUME_UNITS);
   }
@@ -13576,7 +13635,7 @@ function commitMealsetLogEntry(date, slot, mealsetId, mealsetName, items){
       // m.subItems的地方（新记一顿套餐时，saveMealsetLogEntryFinal/commitOneQuickPick都走这里），
       // 之前这个白名单式的.map()没有把这几个快照字段带过来，等于绕开了那次修复——新记的套餐里
       // usda/自定条目照样会在编辑数量后清零。这次一并补上。
-      nutrition_snapshot_per100g: it.nutrition_snapshot_per100g, nutrition_extra_snapshot_per100g: it.nutrition_extra_snapshot_per100g,
+      nutrition_snapshot_per100g: it.nutrition_snapshot_per100g, nutrition_extra_snapshot_per100g: it.nutrition_extra_snapshot_per100g, usda_density_g_per_ml: it.usda_density_g_per_ml,
       nutrition_snapshot: it.nutrition_snapshot, nutrition_extra_snapshot: it.nutrition_extra_snapshot};
   });
   var entryId = uid();
@@ -13613,6 +13672,7 @@ function commitMealsetLogEntry(date, slot, mealsetId, mealsetName, items){
       var li = {source_type:it.source_type, source_id:it.source_id, amount:it.amount, unit:it.unit, name_snapshot:it.name};
       if(it.source_type==='usda'){
         li.nutrition_snapshot_per100g = it.nutrition_snapshot_per100g; li.nutrition_extra_snapshot_per100g = it.nutrition_extra_snapshot_per100g;
+        li.usda_density_g_per_ml = it.usda_density_g_per_ml;
       } else if(it.source_type==='custom'){
         li.nutrition_snapshot = it.nutrition_snapshot || it.nutrition; li.nutrition_extra_snapshot = it.nutrition_extra_snapshot || it.nutrition_extra;
       }
@@ -13843,7 +13903,11 @@ function computeQuickAddNutritionForRecipe(recipeId){
 function computeQuickAddNutritionForUsda(fdcId){
   var f = (state.usdaSaved||{})[fdcId];
   if(!f || !f.lastAmount) return null;
-  var factor = f.lastAmount/100;
+  // README 9.218: "上次数量"现在带单位(lastUnit，没有就是g)，体积单位靠这条缓存里的密度折算成克。
+  var lastUnitU = f.lastUnit || 'g';
+  var lastGramsU = usdaAmountToGrams(f.lastAmount, lastUnitU, f.density_g_per_ml>0 ? f.density_g_per_ml : null);
+  if(lastGramsU==null) return null;
+  var factor = lastGramsU/100;
   var nutrition = {}; NUTRI_KEYS.forEach(function(k){ nutrition[k]=(f.nutrition[k]||0)*factor; });
   var nutritionExtra = {};
   NUTRI_EXTRA_CORE_KEYS.forEach(function(k){
@@ -13852,7 +13916,7 @@ function computeQuickAddNutritionForUsda(fdcId){
     var norm = extraToNaturalUnit(k, Number(e.value)*factor, e.unit);
     if(norm) nutritionExtra[k] = norm;
   });
-  return {amount:f.lastAmount, unit:'g', food:f, nutrition:nutrition, nutrition_extra:nutritionExtra};
+  return {amount:f.lastAmount, unit:lastUnitU, food:f, nutrition:nutrition, nutrition_extra:nutritionExtra};
 }
 // 套餐没有单一的"数量"概念(是一堆食材的组合)，"上次用量"记的是整份食材清单(每项的
 // source_type/source_id/amount/unit)，营养现算(recomputeMealsetLogItemNutrition)而不是把
@@ -13866,7 +13930,7 @@ function computeQuickAddForMealset(mealsetId){
     var computed = recomputeMealsetLogItemNutrition(li);
     return {id:uid(), source_type:li.source_type, source_id:li.source_id, name:mealsetItemDisplayName(li), amount:li.amount, unit:li.unit, nutrition:computed.nutrition, nutrition_extra:computed.nutrition_extra,
       // README 9.217: 把快照字段带下去，这批条目之后进草稿/存成记录时，改数量才不会清零。
-      nutrition_snapshot_per100g: li.nutrition_snapshot_per100g, nutrition_extra_snapshot_per100g: li.nutrition_extra_snapshot_per100g,
+      nutrition_snapshot_per100g: li.nutrition_snapshot_per100g, nutrition_extra_snapshot_per100g: li.nutrition_extra_snapshot_per100g, usda_density_g_per_ml: li.usda_density_g_per_ml,
       nutrition_snapshot: li.nutrition_snapshot, nutrition_extra_snapshot: li.nutrition_extra_snapshot};
   });
   var totalCal = 0;
@@ -14389,6 +14453,7 @@ async function toggleUsdaFavorite(fdcId, description, dataType, brandName){
       brandName: brandName || detail.brandOwner || null,
       nutrition: detail.nutrition,
       nutrition_extra: detail.nutrition_extra || {},
+      density_g_per_ml: usdaDensityFieldsFrom(detail).density_g_per_ml, density_note: usdaDensityFieldsFrom(detail).density_note, density_checked: usdaDensityFieldsFrom(detail).density_checked,
       starred: true
     };
     saveUsdaSaved();
@@ -14414,9 +14479,25 @@ function refreshUsdaDisplayedList(){
 // 每次成功拉到完整详情(包括直接点选/星标收藏两个入口)都顺手缓存下来,不管这次有没有真的存进
 // 一条三餐记录 - 单纯为了"下次再选到同一条能跳过网络请求"这件事,跟pickFrequency("只在真的
 // 存了之后才计数")是两回事,分开处理。
+// README 9.218: 同时记下体积密度(density_g_per_ml，worker.js从USDA份量推算，推不出来是null)和
+// density_checked(这条已经查过密度了，不用再联网补查)；以及保留原来会被这里悄悄冲掉的
+// lastAmount/lastUnit("上次数量"，快速勾选添加用)。worker.js还没重新部署时detail里没有
+// density_g_per_ml字段——这时沿用缓存里原有的密度信息，不当成"查过了、没有"。
+function usdaDensityFieldsFrom(detail, existing){
+  existing = existing || {};
+  if(detail && Object.prototype.hasOwnProperty.call(detail, 'density_g_per_ml')){
+    return {
+      density_g_per_ml: detail.density_g_per_ml>0 ? detail.density_g_per_ml : null,
+      density_note: detail.density_note || null,
+      density_checked: true
+    };
+  }
+  return {density_g_per_ml: existing.density_g_per_ml||null, density_note: existing.density_note||null, density_checked: !!existing.density_checked};
+}
 function cacheUsdaFoodDetail(fdcId, detail){
   var saved = state.usdaSaved || (state.usdaSaved = {});
   var existing = saved[fdcId] || {};
+  var df = usdaDensityFieldsFrom(detail, existing);
   saved[fdcId] = {
     fdcId: fdcId,
     description: detail.description || existing.description || '',
@@ -14424,8 +14505,11 @@ function cacheUsdaFoodDetail(fdcId, detail){
     brandName: detail.brandOwner || existing.brandName || null,
     nutrition: detail.nutrition,
     nutrition_extra: detail.nutrition_extra || {},
+    density_g_per_ml: df.density_g_per_ml, density_note: df.density_note, density_checked: df.density_checked,
     starred: existing.starred || false
   };
+  if(existing.lastAmount) saved[fdcId].lastAmount = existing.lastAmount;
+  if(existing.lastUnit) saved[fdcId].lastUnit = existing.lastUnit;
   saveUsdaSaved();
 }
 // README 9.185: 库存tab选餐这次改成先选产品、批次留到数量页再选（见pickLocalFoodForMeal的
@@ -14487,11 +14571,19 @@ function pickLocalFoodForMeal(type, id){
 async function pickUsdaFoodForMeal(fdcId){
   var af = activeAddCtx();
   // README 9.177: 这条之前已经缓存过完整营养数据(用过/收藏过) - 直接跳过网络请求进入数量步骤。
+  // README 9.218: 但只有"已经查过体积密度"(density_checked，worker.js 9.218之后的food-detail才会带)
+  // 的缓存才算数——之前缓存的旧条目没有密度信息，会联网补查一次(之后就有了、又能跳过网络)，补查失败
+  // 就退回旧缓存照常进入数量页(只是暂时没有体积单位)。
   var cached = (state.usdaSaved||{})[fdcId];
-  if(cached && cached.nutrition){
-    af.picked = {type:'usda', name:cached.description, nutrition:cached.nutrition, nutrition_extra:cached.nutrition_extra||{}, fdcId:fdcId};
+  function goAmountStep(name, nutrition, nutritionExtra, density, lastUnit){
+    af.picked = {type:'usda', name:name, nutrition:nutrition, nutrition_extra:nutritionExtra||{}, fdcId:fdcId, usda_density_g_per_ml:density||null};
     af.amountText = '100';
+    // 默认单位：这条上次用的单位(如果这次还能用)，否则g
+    af.amountUnit = (lastUnit && usdaUnitOptions(density, false).indexOf(lastUnit)!==-1) ? lastUnit : 'g';
     af.step = 'amount';
+  }
+  if(cached && cached.nutrition && cached.density_checked){
+    goAmountStep(cached.description, cached.nutrition, cached.nutrition_extra, cached.density_g_per_ml, cached.lastUnit);
     render();
     scrollAppToTop();
     focusAddFoodAmountInput();
@@ -14502,13 +14594,16 @@ async function pickUsdaFoodForMeal(fdcId){
   render();
   try{
     var detail = await usdaFetchFoodDetail(fdcId);
-    af.picked = {type:'usda', name:detail.description, nutrition:detail.nutrition, nutrition_extra:detail.nutrition_extra||{}, fdcId:fdcId};
-    af.amountText = '100';
-    af.step = 'amount';
     cacheUsdaFoodDetail(fdcId, detail);
+    var fresh = (state.usdaSaved||{})[fdcId] || {};
+    goAmountStep(detail.description, detail.nutrition, detail.nutrition_extra, fresh.density_g_per_ml, fresh.lastUnit);
   }catch(e){
-    af.step = 'search';
-    showToast(t('usdaSearchError'));
+    if(cached && cached.nutrition){
+      goAmountStep(cached.description, cached.nutrition, cached.nutrition_extra, cached.density_g_per_ml, cached.lastUnit);
+    } else {
+      af.step = 'search';
+      showToast(t('usdaSearchError'));
+    }
   }
   render();
   scrollAppToTop();
@@ -14722,7 +14817,9 @@ function computeAddFoodPreviewNutrition(af){
   if(p.type==='usda'){
     var amt = parseAmountInput(af.amountText);
     if(!amt || amt<=0) return null;
-    var uf = amt/100;
+    var gu = usdaAmountToGrams(amt, af.amountUnit, usdaDensityOf(p));
+    if(gu==null) return null;
+    var uf = gu/100;
     var ou = {}; NUTRI_KEYS.forEach(function(k){ ou[k]=(p.nutrition[k]||0)*uf; });
     return ou;
   }
@@ -14856,6 +14953,16 @@ function addFoodAmountBodyHtml(af){
   // not always primary_unit.
   var itemSrc = isItem ? state.items.find(function(x){ return x.id===p.id; }) : null;
   var itemUnitField = '';
+  // README 9.218: USDA条目的数量页也有单位下拉了——g一直有，有密度数据(worker.js从USDA份量推算)
+  // 的再加ml/tsp/tbsp/cup；没有密度数据就只有g，并在输入框下面说明原因。
+  var usdaUnits = (p.type==='usda') ? usdaUnitOptions(usdaDensityOf(p), false) : null;
+  if(usdaUnits){
+    if(usdaUnits.indexOf(af.amountUnit)===-1) af.amountUnit = 'g';
+    itemUnitField = usdaUnits.length>1 ?
+      ('<div class="field"><label>'+t('fieldMealAmountUnit')+'</label><select onchange="setAddFoodAmountUnit(this.value)">'+
+        usdaUnits.map(function(u){ return '<option value="'+esc(u)+'" '+(af.amountUnit===u?'selected':'')+'>'+esc(u)+'</option>'; }).join('')+
+      '</select></div>') : '';
+  }
   if(isItem && itemSrc){
     var itemUnits = orderedUnitOptionsForItem(itemSrc);
     // README 9.185: 上次记的单位(pickLocalFoodForMeal里从state.mealAddItemPrefs读出来的
@@ -14937,9 +15044,10 @@ function addFoodAmountBodyHtml(af){
       // 露出空白的另一栏。9.189: 标签从"重量"改成更通用的"数量"——单位不一定是重量单位(可以是
       // ml/件/份等)，"数量"更准确，纯文案调整。
       '<div class="field-row">'+
-        '<div class="field"><label>'+t('fieldMealAmount')+((isItem||p.type==='offquick') ? (' ('+esc(af.amountUnit||'g')+')') : ' (g)')+'</label><input type="text" id="af-amount-input" autofocus placeholder="-" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>'+
+        '<div class="field"><label>'+t('fieldMealAmount')+((isItem||p.type==='offquick'||p.type==='usda') ? (' ('+esc(af.amountUnit||'g')+')') : ' (g)')+'</label><input type="text" id="af-amount-input" autofocus placeholder="-" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>'+
         itemUnitField+
-      '</div>'
+      '</div>'+
+      (usdaUnits && usdaUnits.length===1 ? '<p class="hint" style="margin:-4px 2px 10px;">'+t('usdaNoVolumeHint')+'</p>' : '')
     )+
     mealSlotField+
     (isItem && !af.pickerKind ?
@@ -15024,7 +15132,13 @@ function saveMealLogEntry(){
   } else if(p.type==='usda'){
     var amt = parseAmountInput(af.amountText);
     if(!amt || amt<=0){ showToast(t('amountRequiredToast')); return; }
-    var factor2 = amt/100;
+    // README 9.218: 单位可以是体积单位——用这条食品的密度折算成克；换算不了(没密度却选了体积单位，
+    // 理论上选项里就不会出现)就明说，不猜。
+    var unitU = af.amountUnit || 'g';
+    var densU = usdaDensityOf(p);
+    var gramsU2 = usdaAmountToGrams(amt, unitU, densU);
+    if(gramsU2==null){ showToast(t('unitConversionUnavailable')); return; }
+    var factor2 = gramsU2/100;
     nutrition = {}; NUTRI_KEYS.forEach(function(k){ nutrition[k]=(p.nutrition[k]||0)*factor2; });
     NUTRI_EXTRA_CORE_KEYS.forEach(function(k){
       var e = (p.nutrition_extra||{})[k];
@@ -15032,7 +15146,7 @@ function saveMealLogEntry(){
       var norm = extraToNaturalUnit(k, Number(e.value)*factor2, e.unit);
       if(norm) nutritionExtra[k] = norm;
     });
-    name = p.name; amount = amt; unit = 'g';
+    name = p.name; amount = amt; unit = unitU;
     // README 9.193: USDA的"上次数量"直接并进已有的state.usdaSaved缓存(每条USDA食品本来就有
     // 一条缓存记录了)，加一个lastAmount字段，不用单独再开一份存储。理论上pickUsdaFoodForMeal
     // 选中时就应该已经缓存过这条食品的营养数据了，这里保险起见兜底建一条。
@@ -15041,6 +15155,7 @@ function saveMealLogEntry(){
       state.usdaSaved[p.fdcId] = {fdcId:p.fdcId, description:p.name, dataType:p.dataType||null, brandName:p.brandName||null, nutrition:p.nutrition, nutrition_extra:p.nutrition_extra||{}, starred:false};
     }
     state.usdaSaved[p.fdcId].lastAmount = amt;
+    state.usdaSaved[p.fdcId].lastUnit = unitU;
     saveUsdaSaved();
   } else {
     var amt2 = parseAmountInput(af.amountText);
@@ -15167,7 +15282,13 @@ function ipConfirmAmountPick(){
   } else if(p.type==='usda'){
     var amt = parseAmountInput(af.amountText);
     if(!amt || amt<=0){ showToast(t('amountRequiredToast')); return; }
-    var factor2 = amt/100;
+    // README 9.218: 单位可以是体积单位——用这条食品的密度折算成克；换算不了(没密度却选了体积单位，
+    // 理论上选项里就不会出现)就明说，不猜。
+    var unitU = af.amountUnit || 'g';
+    var densU = usdaDensityOf(p);
+    var gramsU2 = usdaAmountToGrams(amt, unitU, densU);
+    if(gramsU2==null){ showToast(t('unitConversionUnavailable')); return; }
+    var factor2 = gramsU2/100;
     nutrition = {}; NUTRI_KEYS.forEach(function(k){ nutrition[k]=(p.nutrition[k]||0)*factor2; });
     NUTRI_EXTRA_CORE_KEYS.forEach(function(k){
       var e = (p.nutrition_extra||{})[k];
@@ -15175,13 +15296,14 @@ function ipConfirmAmountPick(){
       var norm = extraToNaturalUnit(k, Number(e.value)*factor2, e.unit);
       if(norm) nutritionExtra[k] = norm;
     });
-    name = p.name; amount = amt; unit = 'g';
-    usdaPer100g = {nutrition:p.nutrition, nutrition_extra:p.nutrition_extra||{}};
+    name = p.name; amount = amt; unit = unitU;
+    usdaPer100g = {nutrition:p.nutrition, nutrition_extra:p.nutrition_extra||{}, density:densU};
     state.usdaSaved = state.usdaSaved || {};
     if(!state.usdaSaved[p.fdcId]){
       state.usdaSaved[p.fdcId] = {fdcId:p.fdcId, description:p.name, dataType:p.dataType||null, brandName:p.brandName||null, nutrition:p.nutrition, nutrition_extra:p.nutrition_extra||{}, starred:false};
     }
     state.usdaSaved[p.fdcId].lastAmount = amt;
+    state.usdaSaved[p.fdcId].lastUnit = unitU;
     saveUsdaSaved();
   } else {
     var amt2 = parseAmountInput(af.amountText);
@@ -15213,6 +15335,7 @@ function ipConfirmAmountPick(){
     if(sourceType==='usda' && usdaPer100g){
       tplItem.nutrition_snapshot_per100g = usdaPer100g.nutrition;
       tplItem.nutrition_extra_snapshot_per100g = usdaPer100g.nutrition_extra;
+      tplItem.usda_density_g_per_ml = usdaPer100g.density || null;
     } else if(sourceType==='custom'){
       // README 9.200: 扫描到的"仅记录这一次"(OFF有数据但本地库存/外部食材库里都没有)条目跟自定
       // 条目一样没有"活的"来源，同样按固定营养值快照处理，不支持后续按数量缩放。
@@ -15246,7 +15369,7 @@ function ipConfirmAmountPick(){
     if(sourceType==='custom'){ draftPush.nutrition_snapshot = nutrition; draftPush.nutrition_extra_snapshot = nutritionExtra; }
     // README 9.217: usda条目也要带per100g快照(9.203/9.204只补了buildMealsetLogItems/commitMealsetLogEntry
     // 两处，漏了这个直接往草稿里加usda条目的入口)，否则之后改数量/存成"上次用量"营养都会丢。
-    if(sourceType==='usda' && usdaPer100g){ draftPush.nutrition_snapshot_per100g = usdaPer100g.nutrition; draftPush.nutrition_extra_snapshot_per100g = usdaPer100g.nutrition_extra; }
+    if(sourceType==='usda' && usdaPer100g){ draftPush.nutrition_snapshot_per100g = usdaPer100g.nutrition; draftPush.nutrition_extra_snapshot_per100g = usdaPer100g.nutrition_extra; draftPush.usda_density_g_per_ml = usdaPer100g.density || null; }
     outerAf.mealsetLogItems = (outerAf.mealsetLogItems||[]).concat([draftPush]);
   }
   if(p.type==='recipe') bumpPickFrequency('recipe', p.id);
@@ -15314,7 +15437,7 @@ function commitOneQuickPick(af, key){
     var qaU = computeQuickAddNutritionForUsda(id);
     if(!qaU) return false;
     state.mealLogs.push({
-      id: uid(), date: af.date, slot: af.slot, name: qaU.food.description, amount: qaU.amount, unit: 'g',
+      id: uid(), date: af.date, slot: af.slot, name: qaU.food.description, amount: qaU.amount, unit: qaU.unit,
       nutrition: qaU.nutrition, nutrition_extra: qaU.nutrition_extra, created_at: nowLocalIso(),
       source_type: 'usda', source_id: id
     });
@@ -15378,10 +15501,10 @@ function ipConfirmOneQuickPick(ip, key){
   } else if(kind==='usda'){
     var qaU = computeQuickAddNutritionForUsda(id);
     if(!qaU) return false;
-    tplItem = {id:uid(), source_type:'usda', source_id:id, name_snapshot:qaU.food.description, amount:qaU.amount, unit:'g',
-      nutrition_snapshot_per100g:qaU.food.nutrition, nutrition_extra_snapshot_per100g:qaU.food.nutrition_extra||{}};
-    draftItem = {id:uid(), source_type:'usda', source_id:id, name:qaU.food.description, amount:qaU.amount, unit:'g', nutrition:qaU.nutrition, nutrition_extra:qaU.nutrition_extra,
-      nutrition_snapshot_per100g:qaU.food.nutrition, nutrition_extra_snapshot_per100g:qaU.food.nutrition_extra||{}};
+    tplItem = {id:uid(), source_type:'usda', source_id:id, name_snapshot:qaU.food.description, amount:qaU.amount, unit:qaU.unit,
+      nutrition_snapshot_per100g:qaU.food.nutrition, nutrition_extra_snapshot_per100g:qaU.food.nutrition_extra||{}, usda_density_g_per_ml:qaU.food.density_g_per_ml||null};
+    draftItem = {id:uid(), source_type:'usda', source_id:id, name:qaU.food.description, amount:qaU.amount, unit:qaU.unit, nutrition:qaU.nutrition, nutrition_extra:qaU.nutrition_extra,
+      nutrition_snapshot_per100g:qaU.food.nutrition, nutrition_extra_snapshot_per100g:qaU.food.nutrition_extra||{}, usda_density_g_per_ml:qaU.food.density_g_per_ml||null};
     bumpPickFrequency('usda', id);
   } else if(kind==='mealset'){
     if(ip.pickerKind==='mealsetTemplate' || ip.pickerKind==='recipeIngredients') return false; // 不应该出现，保险起见拦一下(食谱没有套餐tab，模板场景已经在mealsetResultsHtml里禁掉了快速勾选)
