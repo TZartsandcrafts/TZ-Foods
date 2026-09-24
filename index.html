@@ -906,7 +906,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.216';
+var BUILD_VERSION = '9.217';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -4180,6 +4180,13 @@ function mealsetItemDisplayName(item){
     var sub = state.mealsets.find(function(x){ return x.id===item.source_id; });
     return sub ? sub.name : (item.name_snapshot || '?');
   }
+  // README 9.217: usda条目没有"活的"来源记录可以直接查(getIngredientSource只认库存/外部食材/食谱)，
+  // 名字只能靠条目自带的name_snapshot/name；万一这两个都没有(9.217之前"上次用量"里存下来的usda
+  // 条目就是这样)，再退回本地USDA缓存(state.usdaSaved)里的官方英文名，最后才是'?'。
+  if(item.source_type==='usda'){
+    var savedName = (state.usdaSaved||{})[item.source_id];
+    return item.name_snapshot || item.name || (savedName && savedName.description) || '?';
+  }
   var src = getIngredientSource(item);
   return src ? src.name : (item.name_snapshot || '?');
 }
@@ -4226,12 +4233,19 @@ function recomputeMealsetLogItemNutrition(item){
   // 的这两类条目在写入时就把当时算好的营养数据整个存进条目自身(usda存per100g快照+当时的克数，
   // custom存最终固定值，不随amount缩放)，这里直接读快照现算/原样返回，不依赖任何外部状态。
   if(item.source_type==='usda'){
-    if(!item.nutrition_snapshot_per100g) return {nutrition:emptyNutrition(), nutrition_extra:{}};
+    // README 9.217: 条目自己没带per100g快照时(9.217之前存进"上次用量"、或者草稿里直接加的USDA条目
+    // 都是这样)，退回本地USDA缓存(state.usdaSaved)里同一个fdcId的营养数据顶上，而不是直接返回全0。
+    var perU = item.nutrition_snapshot_per100g, perUExtra = item.nutrition_extra_snapshot_per100g;
+    if(!perU){
+      var savedU = (state.usdaSaved||{})[item.source_id];
+      if(savedU && savedU.nutrition){ perU = savedU.nutrition; perUExtra = savedU.nutrition_extra; }
+    }
+    if(!perU) return {nutrition:emptyNutrition(), nutrition_extra:{}};
     var factorU = (item.amount||0)/100;
-    var nutritionU = {}; NUTRI_KEYS.forEach(function(k){ nutritionU[k]=(item.nutrition_snapshot_per100g[k]||0)*factorU; });
+    var nutritionU = {}; NUTRI_KEYS.forEach(function(k){ nutritionU[k]=(perU[k]||0)*factorU; });
     var extraU = {};
     NUTRI_EXTRA_CORE_KEYS.forEach(function(k){
-      var eu = (item.nutrition_extra_snapshot_per100g||{})[k];
+      var eu = (perUExtra||{})[k];
       if(!eu || eu.value==null) return;
       var normU = extraToNaturalUnit(k, Number(eu.value)*factorU, eu.unit);
       if(normU) extraU[k] = normU;
@@ -12896,6 +12910,8 @@ function confirmEditMealsetLogSubItem(entryId, idx){
   var computed = recomputeMealsetLogItemNutrition(si);
   si.nutrition = computed.nutrition;
   si.nutrition_extra = computed.nutrition_extra;
+  // README 9.217: 9.217之前存下来的usda条目名字可能已经是'?'，这里改数量顺手把名字也补回来。
+  if(si.source_type==='usda' && (!si.name || si.name==='?')) si.name = mealsetItemDisplayName(si);
   resumeMealsetEntryNutrition(m);
   saveMealLogs();
   closeModal();
@@ -13591,7 +13607,17 @@ function commitMealsetLogEntry(date, slot, mealsetId, mealsetName, items){
   if(mealsetId){
     bumpPickFrequency('mealset', mealsetId);
     state.mealsetLastItems = state.mealsetLastItems || {};
-    state.mealsetLastItems[mealsetId] = items.map(function(it){ return {source_type:it.source_type, source_id:it.source_id, amount:it.amount, unit:it.unit}; });
+    // README 9.217: usda/自定条目没有"活的"来源可以事后查名字/营养，光存identity四项的话，下次
+    // 快速添加这个套餐时这两类条目会变成"?"+0kcal——所以额外带上名字和它们各自的营养快照。
+    state.mealsetLastItems[mealsetId] = items.map(function(it){
+      var li = {source_type:it.source_type, source_id:it.source_id, amount:it.amount, unit:it.unit, name_snapshot:it.name};
+      if(it.source_type==='usda'){
+        li.nutrition_snapshot_per100g = it.nutrition_snapshot_per100g; li.nutrition_extra_snapshot_per100g = it.nutrition_extra_snapshot_per100g;
+      } else if(it.source_type==='custom'){
+        li.nutrition_snapshot = it.nutrition_snapshot || it.nutrition; li.nutrition_extra_snapshot = it.nutrition_extra_snapshot || it.nutrition_extra;
+      }
+      return li;
+    });
     saveMealsetLastItems();
   }
   return entry;
@@ -13838,7 +13864,10 @@ function computeQuickAddForMealset(mealsetId){
   if(!lastItems || !lastItems.length) return null;
   var items = lastItems.map(function(li){
     var computed = recomputeMealsetLogItemNutrition(li);
-    return {id:uid(), source_type:li.source_type, source_id:li.source_id, name:mealsetItemDisplayName(li), amount:li.amount, unit:li.unit, nutrition:computed.nutrition, nutrition_extra:computed.nutrition_extra};
+    return {id:uid(), source_type:li.source_type, source_id:li.source_id, name:mealsetItemDisplayName(li), amount:li.amount, unit:li.unit, nutrition:computed.nutrition, nutrition_extra:computed.nutrition_extra,
+      // README 9.217: 把快照字段带下去，这批条目之后进草稿/存成记录时，改数量才不会清零。
+      nutrition_snapshot_per100g: li.nutrition_snapshot_per100g, nutrition_extra_snapshot_per100g: li.nutrition_extra_snapshot_per100g,
+      nutrition_snapshot: li.nutrition_snapshot, nutrition_extra_snapshot: li.nutrition_extra_snapshot};
   });
   var totalCal = 0;
   items.forEach(function(it){ totalCal += (it.nutrition.calories||0); });
@@ -14659,7 +14688,7 @@ function ipSaveCustomItem(){
     }
   } else {
     var outerAf = state.mealsUI.addFood;
-    outerAf.mealsetLogItems = (outerAf.mealsetLogItems||[]).concat([{id:uid(), source_type:'custom', source_id:null, name:name, amount:null, unit:'', nutrition:nutrition, nutrition_extra:{}}]);
+    outerAf.mealsetLogItems = (outerAf.mealsetLogItems||[]).concat([{id:uid(), source_type:'custom', source_id:null, name:name, amount:null, unit:'', nutrition:nutrition, nutrition_extra:{}, nutrition_snapshot:nutrition, nutrition_extra_snapshot:{}}]);
   }
   var returnView = (af.pickerKind==='mealsetTemplate') ? 'mealsetForm' : (af.pickerKind==='recipeIngredients') ? 'recipeForm' : 'mealAddFood';
   state.mealsUI.ingPicker = null;
@@ -15215,6 +15244,9 @@ function ipConfirmAmountPick(){
     var outerAf = state.mealsUI.addFood;
     var draftPush = {id:uid(), source_type:sourceType, source_id:sourceId, name:name, amount:amount, unit:unit, nutrition:nutrition, nutrition_extra:nutritionExtra};
     if(sourceType==='custom'){ draftPush.nutrition_snapshot = nutrition; draftPush.nutrition_extra_snapshot = nutritionExtra; }
+    // README 9.217: usda条目也要带per100g快照(9.203/9.204只补了buildMealsetLogItems/commitMealsetLogEntry
+    // 两处，漏了这个直接往草稿里加usda条目的入口)，否则之后改数量/存成"上次用量"营养都会丢。
+    if(sourceType==='usda' && usdaPer100g){ draftPush.nutrition_snapshot_per100g = usdaPer100g.nutrition; draftPush.nutrition_extra_snapshot_per100g = usdaPer100g.nutrition_extra; }
     outerAf.mealsetLogItems = (outerAf.mealsetLogItems||[]).concat([draftPush]);
   }
   if(p.type==='recipe') bumpPickFrequency('recipe', p.id);
@@ -15348,7 +15380,8 @@ function ipConfirmOneQuickPick(ip, key){
     if(!qaU) return false;
     tplItem = {id:uid(), source_type:'usda', source_id:id, name_snapshot:qaU.food.description, amount:qaU.amount, unit:'g',
       nutrition_snapshot_per100g:qaU.food.nutrition, nutrition_extra_snapshot_per100g:qaU.food.nutrition_extra||{}};
-    draftItem = {id:uid(), source_type:'usda', source_id:id, name:qaU.food.description, amount:qaU.amount, unit:'g', nutrition:qaU.nutrition, nutrition_extra:qaU.nutrition_extra};
+    draftItem = {id:uid(), source_type:'usda', source_id:id, name:qaU.food.description, amount:qaU.amount, unit:'g', nutrition:qaU.nutrition, nutrition_extra:qaU.nutrition_extra,
+      nutrition_snapshot_per100g:qaU.food.nutrition, nutrition_extra_snapshot_per100g:qaU.food.nutrition_extra||{}};
     bumpPickFrequency('usda', id);
   } else if(kind==='mealset'){
     if(ip.pickerKind==='mealsetTemplate' || ip.pickerKind==='recipeIngredients') return false; // 不应该出现，保险起见拦一下(食谱没有套餐tab，模板场景已经在mealsetResultsHtml里禁掉了快速勾选)
