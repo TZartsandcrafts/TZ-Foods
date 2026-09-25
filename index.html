@@ -917,7 +917,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.218';
+var BUILD_VERSION = '9.219';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2494,7 +2494,7 @@ var I18N = {
     photoError:'识别失败，请重试或手动填写',
     photoStandaloneDisabledHint:'拍照AI识别需要连接一个后端代理服务（浏览器无法直接安全调用AI API）。这个独立部署版默认未配置，前往"设置"填写代理地址即可启用；具体如何搭建代理，请看项目里的 README.md。',
     goToSettings:'前往设置配置',
-    nutritionPhotoRecaptureBtn:'拍照重新识别',
+    nutritionPhotoRecaptureBtn:'拍照/选图重新识别',
     aiProxySettingLabel:'AI识别代理地址(可选)',
     aiProxySettingHint:'留空则"拍照识别"功能不显示。需要自建一个转发到Anthropic API的小型代理服务，详见README.md。',
     cloudSyncSectionTitle:'云同步（多设备实时共享，可选）',
@@ -2793,7 +2793,7 @@ var I18N = {
     photoError:'Recognition failed, please retry or fill in manually',
     photoStandaloneDisabledHint:'Photo AI recognition needs a small backend proxy (a browser can\'t safely call the AI API directly). This standalone build has none configured by default — set a proxy URL in Settings to enable it. See README.md for how to set one up.',
     goToSettings:'Configure in Settings',
-    nutritionPhotoRecaptureBtn:'Retake & re-scan',
+    nutritionPhotoRecaptureBtn:'Retake or choose photo',
     aiProxySettingLabel:'AI recognition proxy URL (optional)',
     aiProxySettingHint:'Leave blank to hide "Photo recognition". Requires your own small proxy that forwards to the Anthropic API — see README.md.',
     cloudSyncSectionTitle:'Cloud Sync (real-time, multi-device, optional)',
@@ -3732,6 +3732,48 @@ function usdaUnitOptions(density, withKg){
   if(density>0) o = o.concat(USDA_VOLUME_UNITS);
   return o;
 }
+// README 9.219: 营养标签的两组基准(每___[单位])里，如果有一组填的不是真的重量/体积单位——
+// 比如"每56g / 每2 slices"这种，第二组"slices"是自由文本，不是真的ml/tbsp——那这组"计件"信息
+// 其实等于这个食材自己给出的一个"1[这个单位]=多少克/ml"的换算比例，值得跟主单位/规格/副单位一样，
+// 在食谱/三餐/套餐选用量的时候拿出来当一个可选单位用。Lynn: 整包切片火腿，包装只标了总重量，
+// 实际生活中不可能数清整包多少片，库存本身也就只能按g/件记，但营养标签上明明白白写着"多少片=
+// 多少克"，选用量时应该能直接按"片"记录，不用先心算能有几片。
+// 只有两组基准都真的填了、且恰好一组是可识别的重量/体积单位、另一组不是时才生效——两组都是真单位
+// (那是真正的密度对，走resolveDeductionTarget原有的另一段桥接)，或者两组都不是真单位(不知道怎么
+// 搭桥)，都不触发。换算准不准完全取决于标签本身标的是否准确，跟库存扣减一样只是估算，不追求
+// 数到最后一片的精确——这跟这类商品本来就没法精确点数的现实是一致的。
+function normalizeUnitLabelForMatch(u){
+  return String(u||'').trim().toLowerCase().replace(/s$/,'');
+}
+// 大小写、英文单复数(slices/slice)不影响匹配——反正这个单位是直接从这个食材自己的营养标签字段
+// 里取出来当选项用的，不是让人重新手打一遍，这里放宽主要是为了同一份数据改过大小写/单复数写法
+// 之后，已经保存的食谱食材行(ri.unit)还能继续对上。
+function unitLabelsMatch(a,b){
+  if(a==null || b==null) return false;
+  if(a===b) return true;
+  var na=normalizeUnitLabelForMatch(a), nb=normalizeUnitLabelForMatch(b);
+  return na!=='' && na===nb;
+}
+function realUnitCanonicalPerOne(unit){
+  var g = weightUnitToG(unit); if(g!=null) return {type:'weight', per:g};
+  var ml = volumeUnitToMl(unit); if(ml!=null) return {type:'volume', per:ml};
+  return null;
+}
+function itemNutritionCountUnit(item){
+  if(!item) return null;
+  var wAmt = item.nutrition_basis_weight_amount, wUnit = item.nutrition_basis_weight_unit || 'g';
+  var vAmt = item.nutrition_basis_volume_amount, vUnit = item.nutrition_basis_volume_unit || 'ml';
+  if(!(wAmt>0) || !(vAmt>0)) return null;
+  var wReal = realUnitCanonicalPerOne(wUnit), vReal = realUnitCanonicalPerOne(vUnit);
+  var anchor, anchorAmt, customUnit, customAmt;
+  if(wReal && !vReal){ anchor=wReal; anchorAmt=wAmt; customUnit=vUnit; customAmt=vAmt; }
+  else if(vReal && !wReal){ anchor=vReal; anchorAmt=vAmt; customUnit=wUnit; customAmt=wAmt; }
+  else return null;
+  var canon = anchorAmt*anchor.per;
+  var perUnit = canon/customAmt;
+  if(!(perUnit>0)) return null;
+  return {unit: customUnit, type: anchor.type, perUnit: perUnit};
+}
 // item.primary_unit / primary_qty : the "count" unit used at purchase time, source of truth
 // item.primary_pack_amount / primary_pack_unit : optional "规格" - how much ONE count-unit
 //   holds (e.g. 500 g per bottle). Fixed/descriptive - deducting/adding never changes this,
@@ -3799,6 +3841,16 @@ function resolveDeductionTarget(item, unit){
           if(conv3!=null) return {kind:'converted_density', toPrimaryRatio: candidates[k].toPrimaryRatio*conv3};
         }
       }
+    }
+  }
+  // README 9.219: 见上面itemNutritionCountUnit的注释——营养标签第二基准是"计件"单位(比如
+  // "每2 slices")时，同样当一条可以搭桥的换算比例用，原理跟上面重量/体积互相搭桥完全一样，
+  // 只是桥的另一头不是"另一种真实单位"，而是这个食材自己标签上给出的这组比例。
+  var countUnit = itemNutritionCountUnit(item);
+  if(countUnit && unitLabelsMatch(unit, countUnit.unit)){
+    for(var m=0;m<candidates.length;m++){
+      var convC = convertSameFamilyUnit(countUnit.perUnit, countUnit.type==='weight'?'g':'ml', candidates[m].toUnit);
+      if(convC!=null) return {kind:'nutrition_count', toPrimaryRatio: candidates[m].toPrimaryRatio*convC};
     }
   }
   return null;
@@ -4427,11 +4479,13 @@ function ingredientBasisInfo(src){
 function countBasisMatch(src, amount, unit){
   if(!unit) return null;
   var wUnit = src.nutrition_basis_weight_unit || 'g';
-  if(src.nutrition_basis_weight_amount != null && wUnit === unit && weightUnitToG(wUnit) == null){
+  // README 9.219: 改成unitLabelsMatch(大小写/英文单复数不敏感)，跟itemNutritionCountUnit那条
+  // 路径统一同一套匹配规则。
+  if(src.nutrition_basis_weight_amount != null && unitLabelsMatch(wUnit,unit) && weightUnitToG(wUnit) == null){
     return {type:'weight', value:amount};
   }
   var vUnit = src.nutrition_basis_volume_unit || 'ml';
-  if(src.nutrition_basis_volume_amount != null && vUnit === unit && volumeUnitToMl(vUnit) == null){
+  if(src.nutrition_basis_volume_amount != null && unitLabelsMatch(vUnit,unit) && volumeUnitToMl(vUnit) == null){
     return {type:'volume', value:amount};
   }
   return null;
@@ -7889,7 +7943,10 @@ function renderItemForm(){
       (state.aiProxyUrl ? '<button type="button" class="btn btn-outline btn-sm" onclick="triggerItemNutritionPhotoCapture()">'+ic('camera',16)+' '+t('nutritionPhotoRecaptureBtn')+'</button>' : '')+
     '</div>'+
     (state.aiProxyUrl ? (
-      '<input type="file" accept="image/*" capture="environment" id="item-nutrition-photo-input" style="display:none" onchange="onItemNutritionPhotoSelected(this)">'+
+      // README 9.219: 去掉capture="environment"——iOS Safari上这个属性会让系统直接跳相机，
+      // 根本不出现"照片图库/拍照"选择的操作表，导致这个按钮实际上只能拍照、选不了相册里已有的图。
+      // 去掉之后是标准的文件选择行为，iOS会弹出完整的操作表(相机/照片图库/浏览)，两种来源都能选。
+      '<input type="file" accept="image/*" id="item-nutrition-photo-input" style="display:none" onchange="onItemNutritionPhotoSelected(this)">'+
       '<div id="item-nutrition-photo-status" class="hint" style="margin:-6px 0 10px;"></div>'
     ) : '')+
     freshProduceSuggestionCardHtml()+
@@ -10391,6 +10448,12 @@ function orderedUnitOptionsForItem(item){
     if(g.unit) ownUnits.push(g.unit);
     if(g.pack_unit && g.pack_amount && g.ratio) ownUnits.push(g.pack_unit);
   });
+  // README 9.219: 营养标签算出来的"计件"单位(见itemNutritionCountUnit)也当这个食材自己的单位
+  // 之一，跟到主单位/规格/副单位后面、标准单位列表前面——已经是这几组里的某一个就不重复加。
+  var countUnit = itemNutritionCountUnit(item);
+  if(countUnit && !ownUnits.some(function(u){ return unitLabelsMatch(u, countUnit.unit); })){
+    ownUnits.push(countUnit.unit);
+  }
   ownUnits = ownUnits.filter(function(u,i){ return ownUnits.indexOf(u)===i; });
   var gIdx = ownUnits.indexOf('g');
   if(gIdx > 0){ ownUnits.splice(gIdx,1); ownUnits.unshift('g'); }
