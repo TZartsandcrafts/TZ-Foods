@@ -920,7 +920,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.221';
+var BUILD_VERSION = '9.222';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2497,8 +2497,7 @@ var I18N = {
     photoError:'识别失败，请重试或手动填写',
     photoStandaloneDisabledHint:'拍照AI识别需要连接一个后端代理服务（浏览器无法直接安全调用AI API）。这个独立部署版默认未配置，前往"设置"填写代理地址即可启用；具体如何搭建代理，请看项目里的 README.md。',
     goToSettings:'前往设置配置',
-    nutritionPhotoRecaptureBtn:'拍照/选图重新识别', mealAddSwipeBtn:'加餐', quickMealAddTitle:'加餐',
-  quickMealAddSlotSectionTitle:'添加到哪一餐', quickMealAddDateSectionTitle:'日期',
+    nutritionPhotoRecaptureBtn:'拍照/选图重新识别', mealAddSwipeBtn:'加餐', quickMealAddDateSectionTitle:'日期',
     aiProxySettingLabel:'AI识别代理地址(可选)',
     aiProxySettingHint:'留空则"拍照识别"功能不显示。需要自建一个转发到Anthropic API的小型代理服务，详见README.md。',
     cloudSyncSectionTitle:'云同步（多设备实时共享，可选）',
@@ -2797,8 +2796,7 @@ var I18N = {
     photoError:'Recognition failed, please retry or fill in manually',
     photoStandaloneDisabledHint:'Photo AI recognition needs a small backend proxy (a browser can\'t safely call the AI API directly). This standalone build has none configured by default — set a proxy URL in Settings to enable it. See README.md for how to set one up.',
     goToSettings:'Configure in Settings',
-    nutritionPhotoRecaptureBtn:'Retake or choose photo', mealAddSwipeBtn:'Add to meal', quickMealAddTitle:'Add to meal',
-  quickMealAddSlotSectionTitle:'Add to which meal', quickMealAddDateSectionTitle:'Date',
+    nutritionPhotoRecaptureBtn:'Retake or choose photo', mealAddSwipeBtn:'Add to meal', quickMealAddDateSectionTitle:'Date',
     aiProxySettingLabel:'AI recognition proxy URL (optional)',
     aiProxySettingHint:'Leave blank to hide "Photo recognition". Requires your own small proxy that forwards to the Anthropic API — see README.md.',
     cloudSyncSectionTitle:'Cloud Sync (real-time, multi-device, optional)',
@@ -4826,7 +4824,6 @@ function render(){
     case 'exerciseHistory': html = renderExerciseHistory(); break;
     case 'exerciseLogForm': html = renderExerciseLogForm(); break;
     case 'pickExercise': html = renderPickExercise(); break;
-    case 'quickMealAddDate': html = renderQuickMealAddDate(); break;
     default: html = renderHome();
   }
   app.innerHTML = html;
@@ -4836,7 +4833,7 @@ function bottomNav(){
   var v = state.view;
   var isHome = (v==='home'||v==='itemForm'||v==='itemDetail'||v==='archive'||v==='stats'||v==='priceHistory'||v==='itemViewOnly'||v==='statFilteredList'||v==='usageLog'||v==='usageLogAdd'||v==='inventorySettings');
   var isRecipes = (v==='recipes'||v==='recipeForm'||v==='recipeDetail'||v==='pickInventory'||v==='pickExternal'||v==='pickRecipe'||v==='recipesSettings');
-  var isMeals = (v==='meals'||v==='fastingHistory'||v==='mealsSettings'||v==='planSettings'||v==='macroPresetPicker'||v==='mealAddFood'||v==='mealLogEntryDetail'||v==='quickMealAddDate');
+  var isMeals = (v==='meals'||v==='fastingHistory'||v==='mealsSettings'||v==='planSettings'||v==='macroPresetPicker'||v==='mealAddFood'||v==='mealLogEntryDetail');
   var isHealth = (v==='health'||v==='bpHistory'||v==='waistHistory'||v==='exerciseHistory'||v==='exerciseLogForm'||v==='pickExercise'||v==='weightHistory'||v==='healthSettings'||v==='personalInfo');
   return '' +
   (state.addMenuOpen ? ('<div class="add-menu-backdrop" onclick="closeAddMenu()"></div>'+addMenuFloatingOptionsHtml()) : '')+
@@ -5211,12 +5208,11 @@ function openSettings(fromView){
     if(state.view==='personalInfo') return {view:'healthSettings'};
     if(state.view==='planSettings') return {view:'mealsSettings'};
     if(state.view==='macroPresetPicker') return {view:'planSettings'};
-    // README 9.221: "加餐"这条路径(quickMealAddFromItem/quickMealAddFromRecipe)进mealAddFood时会
-    // 设af.quickAddReturnTo，退回那里而不是固定回'meals'——数量页返回加餐自己的日期/餐次选择页，
-    // 保留原来选的那个食材/食谱，只是让Lynn能重新选日期/餐次；不是走"加餐"进来的(af.step仍然是
-    // 'search'时，或者根本没设这个字段)照旧回'meals'。
+    // README 9.221/9.222: "加餐"这条路径(quickMealAddFromItem/quickMealAddFromRecipe)进mealAddFood
+    // 时会设af.quickAddReturnTo，退回那里而不是固定回'meals'——9.222起直接指回加餐前所在的列表
+    // ('home'/'recipes')，中间不再经过一个专门选日期/餐次的页面(见startQuickMealAdd的注释)；
+    // 不是走"加餐"进来的照旧回'meals'。
     if(state.view==='mealAddFood') return (state.mealsUI.addFood && state.mealsUI.addFood.quickAddReturnTo) || {view:'meals'};
-    if(state.view==='quickMealAddDate') return {view: (state.quickMealAdd && state.quickMealAdd.sourceType==='recipe') ? 'recipes' : 'home'};
     if(state.view==='ingPicker') return {view: (function(){
       var pk = state.mealsUI.ingPicker && state.mealsUI.ingPicker.pickerKind;
       if(pk==='mealsetTemplate') return 'mealsetForm';
@@ -13297,128 +13293,108 @@ function macroPieHtml(actualG, targetG, colors){
 // into the 库存 tab's results (labelled distinctly) since there's no separate tab for them in
 // Lynn's 6-tab spec and they're both "something I already have saved locally", unlike 食谱
 // (computed nutrition) or USDA (external database).
-// README 9.221: "加餐"——库存条目(左划)/食谱条目(左划)一键把这个食材/食谱加到某一天某一餐，
-// 不用先去三餐页找到那一天那一餐再点+再从一长串tab里重新搜一遍同一个东西。设计：
-//   1) quickMealAddFromItem/quickMealAddFromRecipe 只记下"要加的是哪个食材/食谱"，跳到一个新的
-//      全页(quickMealAddDate)专门选日期+餐次——风格照抄三餐页自己的日期条+月历(openMealsCalendar
-//      那一套)，独立一份小状态(state.quickMealAdd)，不跟三餐页自己正在看的日期(state.mealsUI.date)
-//      混用，两边互不干扰。
-//   2) 选完餐次(confirmQuickMealAddSlot)，直接复用现成的三餐加食物页(mealAddFood)——手动拼出
-//      跟openAddFoodPage同样形状的state.mealsUI.addFood，再调pickLocalFoodForMeal，让它落到
-//      数量步骤：单位下拉(营养标签/详情里的单位)、"记住上次用量+单位"、"是否从库存扣减"这些
-//      全部是已有页面自带的能力，不用另外写一份。
-//   3) 唯一需要特殊处理的是"返回"：这条路径进数量页时压根没经过搜索步骤，所以数量页的返回(swipe
-//      或者左上角箭头)不能像平时那样退回"搜索步骤"(那边看到的会是一个从没真正搜索过、af.picked
-//      被清空的空列表，莫名其妙)——用af.quickAddReturnTo记下"应该回哪"(日期/餐次选择页)，
-//      backTarget()/mealAddFoodBack()/swipe-back处理这三处都认这个字段，见各自的注释。
-//      日期/餐次选择页自己的返回，直接回加餐前所在的那个列表(库存首页/食谱列表)，且那两个view
-//      本来就在SCROLL_MEMORY_VIEWS里，navigate()自带的"记住/恢复滚动位置"直接生效，不用另外处理。
+// README 9.222: "加餐"——库存条目(左划)/食谱条目(左划)一键把这个食材/食谱加到某一天某一餐，
+// 不用先去三餐页找到那一天那一餐再点+再从一长串tab里重新搜一遍同一个东西。
+// 9.221最早的版本专门做了一个"选日期+餐次"的中间页，9.222按Lynn的反馈去掉了这个中间页——
+// 数量页(addFoodAmountBodyHtml)本来就有"加到哪一餐"的选择器(mealSlotField)，日期这次也直接
+// 加进数量页(quickAddReturnTo有值时才显示，见addFoodAmountBodyHtml里的quickAddDateField)，两者
+// 合一，不用先经过一个专门的页面才能到数量页。
+// 设计：quickMealAddFromItem/quickMealAddFromRecipe直接拼出跟openAddFoodPage同样形状的
+// state.mealsUI.addFood(日期默认今天、餐次按当前时间猜一个)，导航到mealAddFood后立刻调
+// pickLocalFoodForMeal跳过搜索步骤直接落到数量步骤——单位下拉(营养标签/详情里的单位)、"记住
+// 上次用量+单位"、"是否从库存扣减"这些都是数量页本来就有的能力，原样复用。
+// 返回：这条路径进数量页时压根没经过搜索步骤，所以返回(页面左上角箭头/左划手势/页面内"返回"
+// 按钮三处)不能像平时那样退回"搜索步骤"——用af.quickAddReturnTo记下"应该回哪"(加餐前所在的
+// 库存首页或食谱列表)，backTarget()/mealAddFoodBack()/swipe-back/页面内返回按钮四处都认这个
+// 标记；不是走"加餐"进来的(没设这个字段)完全不受影响。那两个列表页本来就在SCROLL_MEMORY_VIEWS
+// 里，navigate()自带的"记住/恢复滚动位置"直接生效，回去之后精确停在原来的滚动位置。
+function guessMealSlotForNow(){
+  var h = new Date().getHours();
+  var guess = h<10 ? 'breakfast' : h<15 ? 'lunch' : h<21 ? 'dinner' : 'snack';
+  var visible = MEAL_SLOTS.filter(function(s){ return state.visibleMealSlots.indexOf(s)!==-1; });
+  if(visible.indexOf(guess)!==-1) return guess;
+  return visible[0] || 'snack';
+}
+function startQuickMealAdd(sourceType, sourceId){
+  state.mealsUI.addFood = {
+    date: todayStr(), slot: guessMealSlotForNow(), tab: sourceType==='recipe' ? 'recipe' : 'inventory',
+    step:'search', query:'', picked:null, amountText:'', deduct:true, quickPicks:{}, matchTabs:null,
+    quickAddReturnTo: {view: sourceType==='recipe' ? 'recipes' : 'home'}
+  };
+  navigate('mealAddFood');
+  if(sourceType==='recipe') pickLocalFoodForMeal('recipe', sourceId);
+  else pickLocalFoodForMeal('item', sourceId);
+}
 function quickMealAddFromItem(itemId){
   var it = state.items.find(function(x){ return x.id===itemId; });
   if(!it) return;
-  state.quickMealAdd = {sourceType:'item', groupKey: itemGroupKey(it), date: todayStr()};
-  navigate('quickMealAddDate');
+  startQuickMealAdd('item', itemGroupKey(it));
 }
 function quickMealAddFromRecipe(recipeId){
-  state.quickMealAdd = {sourceType:'recipe', recipeId: recipeId, date: todayStr()};
-  navigate('quickMealAddDate');
+  startQuickMealAdd('recipe', recipeId);
 }
-function quickMealAddDateBack(){
-  var target = (state.quickMealAdd && state.quickMealAdd.sourceType==='recipe') ? 'recipes' : 'home';
-  state.quickMealAdd = null;
-  navigate(target);
-}
-function shiftQuickMealAddDate(delta){
-  if(!state.quickMealAdd) return;
-  state.quickMealAdd.date = addDaysStr(state.quickMealAdd.date||todayStr(), delta);
+// README 9.222: 数量页里"加餐"专属的日期字段——月历部分照抄三餐页自己的日历弹窗(openMealsCalendar
+// 那一套)的画法，操作的是activeAddCtx()(即state.mealsUI.addFood)自己的date字段，跟三餐页自己
+// 正在看的日期(state.mealsUI.date)完全独立，不会互相影响。
+function shiftAddFoodDate(delta){
+  var af = activeAddCtx();
+  af.date = addDaysStr(af.date||todayStr(), delta);
   render();
 }
-function openQuickMealAddCalendar(){
-  if(!state.quickMealAdd) return;
-  var d = new Date((state.quickMealAdd.date||todayStr())+'T00:00:00');
-  state.quickMealAdd.calendarYear = d.getFullYear();
-  state.quickMealAdd.calendarMonth = d.getMonth();
-  showModal(t('mealsCalendarTitle'), '<div id="quick-meal-add-calendar-body">'+quickMealAddCalendarBodyHtml()+'</div>');
+function openAddFoodDateCalendar(){
+  var af = activeAddCtx();
+  var d = new Date((af.date||todayStr())+'T00:00:00');
+  af.dateCalendarYear = d.getFullYear();
+  af.dateCalendarMonth = d.getMonth();
+  showModal(t('mealsCalendarTitle'), '<div id="add-food-date-calendar-body">'+addFoodDateCalendarBodyHtml()+'</div>');
 }
-function shiftQuickMealAddCalendarMonth(delta){
-  var y = state.quickMealAdd.calendarYear, m = state.quickMealAdd.calendarMonth + delta;
+function shiftAddFoodDateCalendarMonth(delta){
+  var af = activeAddCtx();
+  var y = af.dateCalendarYear, m = af.dateCalendarMonth + delta;
   if(m<0){ m=11; y--; } else if(m>11){ m=0; y++; }
-  state.quickMealAdd.calendarYear = y; state.quickMealAdd.calendarMonth = m;
-  var el = document.getElementById('quick-meal-add-calendar-body');
-  if(el) el.innerHTML = quickMealAddCalendarBodyHtml();
+  af.dateCalendarYear = y; af.dateCalendarMonth = m;
+  var el = document.getElementById('add-food-date-calendar-body');
+  if(el) el.innerHTML = addFoodDateCalendarBodyHtml();
 }
-// README 9.221: 跟mealsCalendarBodyHtml几乎一样的月历格子画法(缺一份"哪天有记录"的小圆点——那份
-// 信息(dailyCalories)对"我要把这个食材/食谱加到哪天"这个场景没什么意义，加餐动作本身还没发生，
-// 没有可标的点)，点哪天直接回填state.quickMealAdd.date，不是三餐页自己那份state.mealsUI.date。
-function quickMealAddCalendarBodyHtml(){
-  var y = state.quickMealAdd.calendarYear, m = state.quickMealAdd.calendarMonth;
+function addFoodDateCalendarBodyHtml(){
+  var af = activeAddCtx();
+  var y = af.dateCalendarYear, m = af.dateCalendarMonth;
   var first = new Date(y, m, 1);
   var startWeekday = first.getDay();
   var daysInMonth = new Date(y, m+1, 0).getDate();
-  var todayS = todayStr(), selectedS = state.quickMealAdd.date;
+  var todayS = todayStr(), selectedS = af.date;
   var weekdayLabels = state.lang==='zh' ? ['日','一','二','三','四','五','六'] : ['Su','Mo','Tu','We','Th','Fr','Sa'];
   var cells = '';
   for(var i=0;i<startWeekday;i++) cells += '<div></div>';
   for(var day=1; day<=daysInMonth; day++){
     var ds = y+'-'+String(m+1).padStart(2,'0')+'-'+String(day).padStart(2,'0');
     var cls = 'meals-cal-day'+(ds===selectedS?' selected':'')+(ds===todayS?' today':'');
-    cells += '<div class="'+cls+'" onclick="pickQuickMealAddCalendarDate(\''+ds+'\')">'+day+'</div>';
+    cells += '<div class="'+cls+'" onclick="pickAddFoodDateCalendarDate(\''+ds+'\')">'+day+'</div>';
   }
   return '' +
     '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">'+
-      '<button class="icon-btn" onclick="shiftQuickMealAddCalendarMonth(-1)" aria-label="'+t('prevDay')+'">'+ic('back',18)+'</button>'+
+      '<button class="icon-btn" onclick="shiftAddFoodDateCalendarMonth(-1)" aria-label="'+t('prevDay')+'">'+ic('back',18)+'</button>'+
       '<div style="font-weight:700;">'+monthDisplayLabel(y,m)+'</div>'+
-      '<button class="icon-btn" onclick="shiftQuickMealAddCalendarMonth(1)" aria-label="'+t('nextDay')+'">'+ic('chevronRight',18)+'</button>'+
+      '<button class="icon-btn" onclick="shiftAddFoodDateCalendarMonth(1)" aria-label="'+t('nextDay')+'">'+ic('chevronRight',18)+'</button>'+
     '</div>'+
     '<div class="meals-cal-grid meals-cal-weekdays">'+weekdayLabels.map(function(w){ return '<div class="meals-cal-weekday">'+w+'</div>'; }).join('')+'</div>'+
     '<div class="meals-cal-grid">'+cells+'</div>'+
-    '<button class="btn btn-outline" style="width:100%;margin-top:14px;" onclick="pickQuickMealAddCalendarDate('+aj(todayStr())+')">'+t('todayLabel')+'</button>';
+    '<button class="btn btn-outline" style="width:100%;margin-top:14px;" onclick="pickAddFoodDateCalendarDate('+aj(todayStr())+')">'+t('todayLabel')+'</button>';
 }
-function pickQuickMealAddCalendarDate(ds){
-  state.quickMealAdd.date = ds;
+function pickAddFoodDateCalendarDate(ds){
+  var af = activeAddCtx();
+  af.date = ds;
   closeModal();
   render();
 }
-function renderQuickMealAddDate(){
-  var qma = state.quickMealAdd;
-  if(!qma){ navigate('home'); return ''; } // 防御：异常情况下(比如刷新恢复)状态丢了，别停在空白页
-  var date = qma.date || todayStr();
-  var name = qma.sourceType==='recipe'
-    ? ((state.recipes.find(function(x){ return x.id===qma.recipeId; })||{}).name || '')
-    : itemDisplayNameRaw(itemsInGroupKeySorted(qma.groupKey)[0] || {});
-  var slots = MEAL_SLOTS.filter(function(s){ return state.visibleMealSlots.indexOf(s)!==-1; });
-  return '' +
-  '<div class="page-header"><button class="back-btn" onclick="quickMealAddDateBack()">'+ic('back',22)+'</button><h1>'+esc(t('quickMealAddTitle'))+'</h1></div>'+
-  '<div class="content">'+
-    '<div class="card" style="margin-bottom:14px;font-weight:600;font-size:15.5px;">'+esc(name)+'</div>'+
-    '<div class="field"><label>'+t('quickMealAddDateSectionTitle')+'</label></div>'+
-    '<div class="date-nav-bar" style="margin-bottom:18px;">'+
-      '<button class="icon-btn" onclick="shiftQuickMealAddDate(-1)" aria-label="'+t('prevDay')+'">'+ic('back',18)+'</button>'+
-      '<div class="date-nav-label" onclick="openQuickMealAddCalendar()" style="cursor:pointer;">'+(date===todayStr() ? t('todayLabel') : esc(fmtDateDots(date)))+'</div>'+
-      '<button class="icon-btn" onclick="shiftQuickMealAddDate(1)" aria-label="'+t('nextDay')+'">'+ic('chevronRight',18)+'</button>'+
-    '</div>'+
-    '<div class="field"><label>'+t('quickMealAddSlotSectionTitle')+'</label></div>'+
-    '<div class="card" style="padding:0;">'+
-      slots.map(function(s, i){
-        return '<div class="list-row" style="cursor:pointer;'+(i>0?'border-top:1px solid var(--line);':'')+'" onclick="confirmQuickMealAddSlot('+aj(s)+')">'+
-          '<span class="row-label">'+esc(t('mealSlot_'+s))+'</span>'+ic('chevronRight',18)+
-        '</div>';
-      }).join('')+
-    '</div>'+
-  '</div>';
-}
-function confirmQuickMealAddSlot(slot){
-  var qma = state.quickMealAdd;
-  if(!qma) return;
-  var date = qma.date || todayStr();
-  state.mealsUI.addFood = {
-    date:date, slot:slot, tab: qma.sourceType==='recipe' ? 'recipe' : 'inventory',
-    step:'search', query:'', picked:null, amountText:'', deduct:true, quickPicks:{}, matchTabs:null,
-    quickAddReturnTo: {view:'quickMealAddDate'}
-  };
-  navigate('mealAddFood');
-  if(qma.sourceType==='recipe') pickLocalFoodForMeal('recipe', qma.recipeId);
-  else pickLocalFoodForMeal('item', qma.groupKey);
+// README 9.222: 数量页里的"返回"按钮以前一直是无条件调backToAddFoodSearch()——对"加餐"这条从没
+// 经过搜索步骤的路径来说是错的(会跳到一个从没真正搜索过、af.picked被清空的空列表)，之前只顾着
+// 修页面左上角箭头/左划手势那两处，这个页面内按钮漏改了，这次一并修：quickAddReturnTo有值就直接
+// 回那里，逻辑上跟另外三处(backTarget/mealAddFoodBack/swipe-back)保持一致。
+function handleAddFoodAmountBack(){
+  var af = activeAddCtx();
+  if(af.quickAddReturnTo){ navigate(af.quickAddReturnTo.view, af.quickAddReturnTo.params); return; }
+  backToAddFoodSearch();
 }
 function openAddFoodPage(date, slot){
   _addFoodSearchScroll = null; // 全新打开一次选餐页，上次会话遗留的滚动位置作废
@@ -15275,6 +15251,18 @@ function addFoodAmountBodyHtml(af){
   // README 9.200: "加到哪一餐"这个字段只有真正记三餐日志(af.pickerKind为空，即三餐加食物本身)
   // 才有意义——套餐加食材(模板/草稿两种场景)压根不涉及"这条记录算哪一餐"，所以整块隐藏。
   var mealSlotField = af.pickerKind ? '' : ('<div class="field"><label>'+t('fieldMealSlot')+'</label>'+mealSlotPickerTabsHtml(af.slot)+'</div>');
+  // README 9.222: "加餐"(quickMealAddFromItem/quickMealAddFromRecipe)进来的才显示这个日期字段——
+  // 平时从三餐页本身进来的加食物，日期已经是三餐页当前正在看的那一天，不需要在这里重复选，维持
+  // 原样不动。
+  var quickAddDateField = af.quickAddReturnTo ? (
+    '<div class="field"><label>'+t('quickMealAddDateSectionTitle')+'</label>'+
+      '<div class="date-nav-bar">'+
+        '<button class="icon-btn" onclick="shiftAddFoodDate(-1)" aria-label="'+t('prevDay')+'">'+ic('back',18)+'</button>'+
+        '<div class="date-nav-label" onclick="openAddFoodDateCalendar()" style="cursor:pointer;">'+(af.date===todayStr() ? t('todayLabel') : esc(fmtDateDots(af.date)))+'</div>'+
+        '<button class="icon-btn" onclick="shiftAddFoodDate(1)" aria-label="'+t('nextDay')+'">'+ic('chevronRight',18)+'</button>'+
+      '</div>'+
+    '</div>'
+  ) : '';
   return '' +
     '<p style="font-weight:600;margin-bottom:14px;">'+esc(p.name)+'</p>'+
     batchField+
@@ -15296,6 +15284,7 @@ function addFoodAmountBodyHtml(af){
       '</div>'+
       (usdaUnits && usdaUnits.length===1 ? '<p class="hint" style="margin:-4px 2px 10px;">'+t('usdaNoVolumeHint')+'</p>' : '')
     )+
+    quickAddDateField+
     mealSlotField+
     (isItem && !af.pickerKind ?
       // README 9.132: defaults ON for a direct inventory pick now (was off) - Lynn: "直接吃库存
@@ -15316,7 +15305,7 @@ function addFoodAmountBodyHtml(af){
     // 本身还留着（备用/给不习惯手势的场景），只是不再单独占一行。纯排版调整，两个按钮各自的
     // 点击行为(backToAddFoodSearch/saveMealLogEntry)完全不变。
     '<div style="display:flex;gap:10px;margin-top:14px;">'+
-      '<button class="btn btn-outline" style="flex:1;" onclick="backToAddFoodSearch()">'+t('back')+'</button>'+
+      '<button class="btn btn-outline" style="flex:1;" onclick="handleAddFoodAmountBack()">'+t('back')+'</button>'+
       '<button class="btn btn-primary" style="flex:1;" onclick="'+(af.pickerKind?'ipConfirmAmountPick()':'saveMealLogEntry()')+'">'+t('save')+'</button>'+
     '</div>';
 }
