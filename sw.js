@@ -15,7 +15,14 @@
 // as long as the device is online, every load fetches the current index.html straight from the
 // network (and refreshes the cache for later); the cache is only ever used as an offline
 // fallback, never as a "good enough, don't bother checking" substitute for the real thing.
-var CACHE_NAME = 'foodcode-shell-v3';
+var CACHE_NAME = 'foodcode-shell-v5';
+// v5 (README 9.224): the fetch below now uses cache:'no-cache' instead of 'no-store'. Both guarantee
+// a launch never runs a stale build (the server is asked every time), but 'no-store' also threw away the
+// browser's stored copy, so EVERY launch re-downloaded the whole ~2MB index.html even when nothing had
+// changed. 'no-cache' means "revalidate with the server first": if the file is unchanged the server
+// answers 304 (a few hundred bytes) and the stored copy is used; if it changed, the new file is
+// downloaded in full. (v4 / README 9.223's "serve cache after 3s" idea was withdrawn: it could
+// open the previous build, which is misleading.)
 var APP_SHELL = [
   './',
   './index.html'
@@ -64,8 +71,10 @@ self.addEventListener('fetch', function(event){
   // already correct). {cache:'no-store'} makes this fetch bypass HTTP caching entirely, so
   // "network-first" now really means "always get the current bytes from the server" whenever
   // the device is online, closing that loophole at its actual source.
+  // README 9.224: 'no-store' -> 'no-cache'. Same guarantee (always revalidated against the server, never
+  // served from max-age), but an unchanged file now costs a tiny 304 instead of a full re-download.
   event.respondWith(
-    fetch(req, {cache:'no-store'}).then(function(res){
+    fetch(req, {cache:'no-cache'}).then(function(res){
       if(res && res.status === 200){
         var copy = res.clone();
         caches.open(CACHE_NAME).then(function(cache){ cache.put(req, copy); });
