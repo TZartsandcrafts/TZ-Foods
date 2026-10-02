@@ -920,7 +920,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.224';
+var BUILD_VERSION = '9.227';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2600,6 +2600,18 @@ var I18N = {
     storagePersistLabel:'存储持久化状态', buildVersionLabel:'当前代码版本',
     startViewTitle:'启动页', startViewHint:'打开 app 时先进入哪一页。只对当前这台手机生效，不会同步给另一台。',
     bootTimingLabel:'启动耗时（毫秒，最近5次，最新在上）',
+    restockSectionTitle:'补货提醒弹窗', restockOn:'开启', restockOff:'关闭',
+    restockWhen:'当这个食材的总库存（所有批次、所有位置合计）少于或等于：',
+    restockNoUnit:'请先在上面的"数量"里填写单位，才能选择提醒用的单位。',
+    restockSharedHint:'提醒按食材生效：同一食材（名称/品牌/条码相同）的所有批次、所有位置合计，共用这一条设置。补货后合计超过这个数就不再提醒；该食材存档或删除后也不再提醒。',
+    restockBatchInfo:'这个食材共 {n} 个批次（含这一条），按「{unit}」算当前合计 {total}。这里的设置是整个食材共用的：改数字、改单位或关闭，都会同时影响全部批次。',
+    restockBatchInfoNoTotal:'这个食材共 {n} 个批次（含这一条）。这里的设置是整个食材共用的：改数字、改单位或关闭，都会同时影响全部批次。',
+    restockBatchInfoOne:'这个食材目前只有这 1 个批次，按「{unit}」算当前为 {total}。以后新增同名、同品牌、同条码的批次，会共用这条设置。',
+    restockOffRuleWarn:'保存后，这个食材的全部批次都不再提醒（不只是这一条）。',
+    restockNeedAmountToast:'请填写补货提醒的数量（0 也可以）', restockNeedUnitToast:'补货提醒需要选一个单位',
+    restockPopupTitle:'补货提醒', restockPopupHint:'下面这些食材的库存快用完了：', restockMealHint:'只是提醒，不影响三餐的添加和库存扣除。',
+    restockCurrent:'当前库存', restockAfter:'扣除后库存', restockThreshold:'提醒线', restockGotIt:'知道了',
+    restockSettingTitle:'补货提醒弹窗', restockSettingHint:'开启后：每次启动 app，以及在三餐里用到库存不足的食材时，会弹窗提醒。只影响这台手机。',
     storagePersistYes:'已启用(浏览器已同意保护本应用数据，减少被系统清理的概率)',
     storagePersistNo:'未启用(浏览器拒绝了持久化请求，数据存在被系统清理的风险，建议定期在上方导出备份)',
     storagePersistUnknown:'当前浏览器不支持此项检测，建议定期在上方导出备份以防万一',
@@ -2896,6 +2908,18 @@ var I18N = {
     storagePersistLabel:'Storage persistence status', buildVersionLabel:'Build version',
     startViewTitle:'Start page', startViewHint:'Which page opens first when the app launches. Applies to this device only and is not synced.',
     bootTimingLabel:'Startup timing (ms, last 5, newest first)',
+    restockSectionTitle:'Restock reminder popup', restockOn:'On', restockOff:'Off',
+    restockWhen:'When this item\'s total stock (all batches, all locations combined) is less than or equal to:',
+    restockNoUnit:'Fill in a unit under "Quantity" above first to choose a unit for the reminder.',
+    restockSharedHint:'Applies per item: all batches of the same item (same name/brand/barcode) at every location are added up and share this one setting. It stops once the total rises above the number, or when the item is archived or deleted.',
+    restockBatchInfo:'This item has {n} batches (including this one); in "{unit}" the current total is {total}. This setting is shared by the whole item: changing the number, the unit, or turning it off affects every batch at once.',
+    restockBatchInfoNoTotal:'This item has {n} batches (including this one). This setting is shared by the whole item: changing the number, the unit, or turning it off affects every batch at once.',
+    restockBatchInfoOne:'This item currently has just this 1 batch; in "{unit}" it is {total}. Batches you add later with the same name, brand and barcode will share this setting.',
+    restockOffRuleWarn:'After saving, reminders for ALL batches of this item stop (not just this one).',
+    restockNeedAmountToast:'Enter an amount for the restock reminder (0 is fine)', restockNeedUnitToast:'Pick a unit for the restock reminder',
+    restockPopupTitle:'Restock reminder', restockPopupHint:'These items are running low:', restockMealHint:'Just a reminder - meal adding and stock deduction are unaffected.',
+    restockCurrent:'Current stock', restockAfter:'Stock after deduction', restockThreshold:'Reminder level', restockGotIt:'Got it',
+    restockSettingTitle:'Restock reminder popup', restockSettingHint:'When on: shown on every app launch, and in 三餐 when you use a low-stock item. This device only.',
     storagePersistYes:'Enabled (the browser agreed to protect this app\'s data, lowering the risk of automatic cleanup)',
     storagePersistNo:'Not enabled (the browser declined the persistence request — data is at risk of being cleared by the system; export a backup regularly using the buttons above)',
     storagePersistUnknown:'This browser doesn\'t support this check — export a backup regularly above just in case',
@@ -3040,6 +3064,9 @@ var state = {
   view: 'home',
   startView: 'home',
   bootTimings: [],
+  restockRules: [],
+  restockRulesUpdatedAt: '',
+  restockPopupEnabled: true,
   params: {},
   home: { search:'', categoryGroup:null, categorySub:null, expandedCategoryGroups:{}, settingsExpandedCategoryGroups:{}, location:null, sort:'expiry', sortDir:'asc', sidebarCollapsed:{category:false, location:false, tools:false}, expandedGroups:{}, bulkMode:false, bulkSelected:{} },
   scan: { running:false, stream:null, detector:null, resultDraft:null, mode:'camera' },
@@ -3129,7 +3156,10 @@ async function loadAll(){
     storageGet('recipeIngPrefs', {}),
     // README 9.211: 套餐云同步的pushMap(记录"这台设备上次推送到云端的每条套餐是哪个时间戳")，
     // 跟cloudSyncRecipePushMap同一个用途；追加在数组最后，不打乱前面各项的下标。
-    storageGet('cloudSyncMealsetPushMap', {})
+    storageGet('cloudSyncMealsetPushMap', {}),
+    // README 9.225: 补货提醒规则(按产品+位置存一份，不跟某个批次走)，以及它的最后修改时间(云同步用)。
+    storageGet('restockRules', []),
+    storageGet('restockRulesMeta', {})
   ]);
   // README 9.125: categoryGroups is the new two-level (母分类/子分类) structure for inventory
   // categories, architecturally matching state.recipeCategoryGroups but without any color
@@ -3163,6 +3193,7 @@ async function loadAll(){
   state.visibleMealSlots = results[5].visibleMealSlots || MEAL_SLOTS.slice();
   // README 9.224: per-device start page (only these four main tabs are valid; anything else falls back to 库存).
   state.startView = (['home','recipes','meals','health'].indexOf(results[5].startView)!==-1) ? results[5].startView : 'home';
+  state.restockPopupEnabled = results[5].restockPopupEnabled !== false; // README 9.225: 默认开启
   // README 9.97: 笔记 feature removed (see changelog) - results[6]/[7] (notes/noteCategories)
   // are still fetched above on purpose, just no longer assigned into state. Confirmed with Lynn
   // there was no actual note data saved, but leaving the storage read itself in place (instead
@@ -3210,6 +3241,10 @@ async function loadAll(){
   state.mealsetLastItems = results[32] || {};
   state.recipeIngPrefs = results[33] || {};
   CLOUD.mealsetPushMap = results[34] || {};
+  var _rrRaw = Array.isArray(results[35]) ? results[35] : [];
+  state.restockRules = normalizeRestockRules(_rrRaw); // README 9.226: 旧的 产品+位置 规则合并成按产品
+  if(JSON.stringify(state.restockRules) !== JSON.stringify(_rrRaw)) storageSet('restockRules', state.restockRules);
+  state.restockRulesUpdatedAt = (results[36] && results[36].updatedAt) || '';
   state.loaded = true;
 }
 // Old data shape had a single secondary_qty/secondary_unit/unit_ratio triplet per item. The
@@ -3308,7 +3343,7 @@ function saveRecipes(){
   cloudSyncPushRecipeChanges();
   return p;
 }
-function saveSettings(){ return storageSet('settings', {lang:state.lang, reminderDays:state.reminderDays, aiProxyUrl:state.aiProxyUrl, fastingDisplayMode:state.fastingDisplayMode, fastingSettings:state.fastingSettings, visibleMealSlots:state.visibleMealSlots, startView:state.startView}); }
+function saveSettings(){ return storageSet('settings', {lang:state.lang, reminderDays:state.reminderDays, aiProxyUrl:state.aiProxyUrl, fastingDisplayMode:state.fastingDisplayMode, fastingSettings:state.fastingSettings, visibleMealSlots:state.visibleMealSlots, startView:state.startView, restockPopupEnabled:state.restockPopupEnabled}); }
 function saveMealLogs(){ return storageSet('mealLogs', state.mealLogs); }
 function saveMealsets(){
   var p = storageSet('mealsets', state.mealsets);
@@ -4042,7 +4077,7 @@ function deleteArchivedItem(id){
   showConfirmModal(t('deleteArchivedConfirmMsg'), function(){
     var it = state.items.find(function(i){ return i.id===id; });
     if(it) deletePhotoRef(it.photo_url);
-    state.items = state.items.filter(function(i){ return i.id!==id; });
+    state.items = state.items.filter(function(i){ return i.id!==id; }); pruneRestockRules();
     saveItems();
     navigate('archive');
   }, {title:t('delete')});
@@ -6591,6 +6626,317 @@ function copyItemToNewForm(id){
     openItemForm(null, clone);
   });
 }
+// ===================== README 9.225: 补货提醒(低库存弹窗) =====================
+// 规则只按"产品(itemGroupKey)"存一份(state.restockRules)，跟批次和位置都没关系(README 9.226：9.225 原来
+// 是产品+位置，改成只跟产品走)：判断依据是该产品【所有未存档批次、所有位置合计】库存 ≤ 设定值——某个
+// 批次用完、或者整份从冷藏挪到冷冻，都不一定缺货；补一个新批次让合计超过设定值，提醒就自动停；该产品的
+// 批次全部被存档/删除后，提醒也不再出现(存档的规则会保留，恢复批次后继续生效；整个产品都被删除时规则
+// 才会被清掉)。
+var RESTOCK_EPS = 1e-9;
+function findRestockRule(key){
+  var rules = state.restockRules || [];
+  for(var i=0;i<rules.length;i++){ if(rules[i].key===key) return rules[i]; }
+  return null;
+}
+// README 9.226: 9.225 的规则是 产品+位置，现在只按产品——把旧数据(本机存的、或者另一台还没升级的手机
+// 推上来的)里同一产品的多条规则合并成一条：留 updated_at 最新的那条，丢掉loc；格式不对的丢掉。
+function normalizeRestockRules(list){
+  var byKey = {}, order = [];
+  (Array.isArray(list) ? list : []).forEach(function(r){
+    if(!r || r.key == null || !r.unit || !(Number(r.threshold) >= 0)) return;
+    var clean = {key:r.key, name:r.name||'', threshold:Number(r.threshold), unit:r.unit, updated_at:r.updated_at||''};
+    var cur = byKey[r.key];
+    if(!cur){ byKey[r.key] = clean; order.push(r.key); }
+    else if(clean.updated_at >= cur.updated_at) byKey[r.key] = clean;
+  });
+  return order.map(function(k){ return byKey[k]; });
+}
+function saveRestockRules(){
+  state.restockRulesUpdatedAt = nowLocalIso();
+  var p = storageSet('restockRules', state.restockRules);
+  storageSet('restockRulesMeta', {updatedAt: state.restockRulesUpdatedAt});
+  cloudSyncPushRestockRules();
+  return p;
+}
+// 没有任何记录(含已存档)还在用这条规则的产品+位置时才清掉——只在用户主动保存/删除食材时调用，
+// 不在启动时调用，避免云同步还没拉到数据时误删。
+function pruneRestockRules(){
+  var before = (state.restockRules||[]).length;
+  state.restockRules = (state.restockRules||[]).filter(function(r){
+    return state.items.some(function(it){ return itemGroupKey(it)===r.key; });
+  });
+  if(state.restockRules.length !== before) saveRestockRules();
+}
+function restockBatches(rule){
+  return state.items.filter(function(it){ return !it.archived && itemGroupKey(it)===rule.key; });
+}
+// 规则所在产品+位置的总库存，换算成规则自己的单位。overrides={itemId: 要先扣掉的主单位数量}，用来在
+// 真正扣库存之前预估"扣完之后"(套餐确认弹窗用)。一个批次都算不出来(没记录数量/这个单位换算不了)时返回null。
+function restockTotal(rule, overrides){
+  var total = 0, any = false;
+  restockBatches(rule).forEach(function(it){
+    if(it.primary_qty == null) return;
+    var target = resolveDeductionTarget(it, rule.unit);
+    if(!target || !target.toPrimaryRatio) return;
+    var prim = Number(it.primary_qty) || 0;
+    if(overrides && overrides[it.id]) prim = Math.max(0, prim - overrides[it.id]);
+    total += prim / target.toPrimaryRatio;
+    any = true;
+  });
+  return any ? total : null;
+}
+function restockAlerts(overrides){
+  var out = [];
+  (state.restockRules||[]).forEach(function(r){
+    var tot = restockTotal(r, overrides);
+    if(tot == null || tot > r.threshold + RESTOCK_EPS) return;
+    var rep = restockBatches(r)[0];
+    out.push({rule:r, total:tot, name: rep ? itemDisplayNameRaw(rep) : (r.name||'')});
+  });
+  return out;
+}
+function restockAlertRowsHtml(alerts, projected){
+  return alerts.map(function(a){
+    var r = a.rule;
+    return '<div class="list-row"><div>'+
+      '<div class="row-label" style="font-size:15px;">'+esc(a.name)+'</div>'+
+      '<div class="row-sub">'+t(projected?'restockAfter':'restockCurrent')+' '+fmtNum(Math.round(a.total*100)/100,2)+esc(r.unit)+' ≤ '+t('restockThreshold')+' '+fmtNum(r.threshold,2)+esc(r.unit)+'</div>'+
+    '</div></div>';
+  }).join('');
+}
+function showRestockPopup(alerts, hintKey){
+  if(!alerts.length) return false;
+  showModal(t('restockPopupTitle'),
+    '<p class="hint" style="margin-bottom:12px;">'+t(hintKey||'restockPopupHint')+'</p>'+
+    restockAlertRowsHtml(alerts, false)+
+    '<button class="btn btn-primary" style="margin-top:14px;width:100%;" onclick="closeModal()">'+t('restockGotIt')+'</button>');
+  return true;
+}
+function maybeShowRestockPopupOnLaunch(){
+  if(!state.restockPopupEnabled) return;
+  var root = document.getElementById('modal-root');
+  if(root && root.innerHTML) return; // 已经有别的弹窗在显示，不叠加
+  showRestockPopup(restockAlerts(), 'restockPopupHint');
+}
+function restockAlertsForItems(items){
+  var seen = {}, out = [];
+  items.forEach(function(it){
+    var key = itemGroupKey(it);
+    if(seen[key]) return; seen[key] = true;
+    var r = findRestockRule(key); if(!r) return;
+    var tot = restockTotal(r);
+    if(tot == null || tot > r.threshold + RESTOCK_EPS) return;
+    out.push({rule:r, total:tot, name:itemDisplayNameRaw(it)});
+  });
+  return out;
+}
+function showRestockForItems(items){
+  if(!state.restockPopupEnabled || !items || !items.length) return false;
+  return showRestockPopup(restockAlertsForItems(items), 'restockMealHint');
+}
+// 套餐确认弹窗里"扣除后库存"的预估：这份套餐里每个库存食材先按数量折算成主单位，再在对应批次上预扣。
+function restockProjectedAlertsForMealset(items){
+  var overrides = {}, touched = [];
+  items.forEach(function(it){
+    if(it.source_type !== 'inventory') return;
+    var item = state.items.find(function(x){ return x.id===it.source_id; });
+    if(!item) return;
+    var prim = primaryEquivalentAmount(item, it.amount, it.unit);
+    if(prim == null) return;
+    overrides[item.id] = (overrides[item.id]||0) + prim;
+    touched.push(item);
+  });
+  var seen = {}, out = [];
+  touched.forEach(function(item){
+    var key = itemGroupKey(item);
+    if(seen[key]) return; seen[key] = true;
+    var r = findRestockRule(key); if(!r) return;
+    var tot = restockTotal(r, overrides);
+    if(tot == null || tot > r.threshold + RESTOCK_EPS) return;
+    out.push({rule:r, total:tot, name:itemDisplayNameRaw(item)});
+  });
+  return out;
+}
+// 选中库存食材准备加进三餐时：该食材(所选批次所在位置)当前就已经≤提醒线，就弹一次。返回true表示弹了。
+function showRestockOnPick(item){
+  if(!state.restockPopupEnabled || !item) return false;
+  return showRestockPopup(restockAlertsForItems([item]), 'restockMealHint');
+}
+var _restockCollected = [];
+function _restockCollect(item){ if(item) _restockCollected.push(item); }
+function setRestockPopupEnabled(on){
+  state.restockPopupEnabled = !!on;
+  saveSettings();
+  render();
+}
+// ---- 库存表单里的"补货提醒弹窗"栏(最后一栏) ----
+// 没碰过这一栏时，显示的是这个产品+位置当前已有的规则(新增一个同产品新批次时自动沿用)，保存也不会改动
+// 规则；一旦动过(开关/数量/单位)，就以表单里的值为准，保存时写回规则。
+// 营养标签的重量/体积基准(决定哪些单位能互相换算)在保存之前只存在 itemFormUI 里，不在 draft 上，
+// 所以先合并成一份临时拷贝再算可选单位——保存之后(draft已写入这些字段)这一步等于什么都没改。
+function restockDraftSnapshot(d){
+  var fui = state.itemFormUI || {};
+  var c = Object.assign({}, d);
+  if(fui.nutriBasisWeightAmount !== undefined){
+    c.nutrition_basis_weight_amount = (fui.nutriBasisWeightAmount != null) ? fui.nutriBasisWeightAmount : null;
+    c.nutrition_basis_weight_unit = fui.nutriBasisWeightUnit || 'g';
+  }
+  if(fui.nutriBasisVolumeAmount !== undefined){
+    c.nutrition_basis_volume_amount = (fui.nutriBasisVolumeAmount != null) ? fui.nutriBasisVolumeAmount : null;
+    c.nutrition_basis_volume_unit = fui.nutriBasisVolumeUnit || 'ml';
+  }
+  return c;
+}
+function restockUnitOptions(d0){
+  var d = restockDraftSnapshot(d0);
+  var units = allUnitsForItem(d);
+  if(d.nutrition_basis_weight_amount != null) units.push(d.nutrition_basis_weight_unit || 'g');
+  if(d.nutrition_basis_volume_amount != null) units.push(d.nutrition_basis_volume_unit || 'ml');
+  var cu = itemNutritionCountUnit(d);
+  if(cu && cu.unit) units.push(cu.unit);
+  var seen = {};
+  return units.filter(function(u){
+    if(!u || seen[u]) return false; seen[u] = true;
+    var tg = resolveDeductionTarget(d, u);
+    return !!(tg && tg.toPrimaryRatio);
+  });
+}
+function restockEffectiveUnit(st, opts, d){
+  if(st.unit && opts.indexOf(st.unit) !== -1) return st.unit;
+  if(d.primary_unit && opts.indexOf(d.primary_unit) !== -1) return d.primary_unit;
+  return opts[0] || null;
+}
+// 表单里这条食材当前适用的规则：先按表单里现在的名称/品牌/条码找；找不到、而且这是在改名(原来的
+// 产品已经没有别的批次了)，就沿用改名前那条，避免只改个错别字规则就悄悄丢了。
+function restockRuleForDraft(d){
+  var r = findRestockRule(itemGroupKey(d));
+  if(r) return r;
+  var ok0 = (state.itemFormUI||{}).origGroupKey;
+  if(ok0 && ok0 !== itemGroupKey(d)){
+    var others = state.items.some(function(it){ return it.id!==d.id && itemGroupKey(it)===ok0; });
+    if(!others) return findRestockRule(ok0);
+  }
+  return null;
+}
+function restockFormState(){
+  var ui = state.itemFormUI || {}, d = state.itemDraft;
+  if(ui.restock && ui.restock.touched) return ui.restock;
+  var r = d ? restockRuleForDraft(d) : null;
+  if(r) return {touched:false, enabled:true, threshold:r.threshold, text:String(r.threshold), unit:r.unit};
+  return {touched:false, enabled:false, threshold:null, text:'', unit:null};
+}
+function restockTouch(patch){
+  var cur = restockFormState();
+  var ns = {touched:true, enabled:cur.enabled, threshold:cur.threshold, text:cur.text, unit:cur.unit};
+  Object.keys(patch).forEach(function(k){ ns[k] = patch[k]; });
+  state.itemFormUI.restock = ns;
+}
+function setRestockEnabled(on){ restockTouch({enabled:!!on}); render(); }
+function setRestockThreshold(v){
+  var n = parseAmountInput(v);
+  if(n == null || isNaN(n)) n = (String(v).trim()==='0') ? 0 : null;
+  restockTouch({text:v, threshold:n});
+}
+function setRestockUnit(u){ restockTouch({unit:u}); render(); }
+// README 9.227: 表单里说明"这条设置是整个食材共用的"——数一数同一食材现在有几个未存档批次，并按选中的
+// 单位算出当前合计(已保存的其它批次 + 表单里这一条现在填的数量)。算不出来的批次(没记录数量/这个单位换算
+// 不了)不计入合计，跟真正判断提醒时的口径一致。
+function restockBatchSummary(d, unit){
+  var key = itemGroupKey(d);
+  var others = state.items.filter(function(it){ return !it.archived && it.id!==d.id && itemGroupKey(it)===key; });
+  var mine = d.archived ? [] : [restockDraftSnapshot(d)];
+  var total = 0, any = false;
+  others.concat(mine).forEach(function(it){
+    if(!unit || it.primary_qty == null) return;
+    var tg = resolveDeductionTarget(it, unit);
+    if(!tg || !tg.toPrimaryRatio) return;
+    total += (Number(it.primary_qty)||0) / tg.toPrimaryRatio;
+    any = true;
+  });
+  return {n: others.length + mine.length, total: any ? total : null};
+}
+function restockBatchInfoText(d, unit){
+  if(!unit) return '';
+  var sm = restockBatchSummary(d, unit);
+  if(sm.n < 1) return '';
+  var key = sm.n>1 ? (sm.total!=null ? 'restockBatchInfo' : 'restockBatchInfoNoTotal') : (sm.total!=null ? 'restockBatchInfoOne' : null);
+  if(!key) return '';
+  return t(key).replace('{n}', sm.n).replace('{unit}', esc(unit)).replace('{total}', sm.total!=null ? fmtNum(Math.round(sm.total*100)/100,2)+esc(unit) : '');
+}
+function restockSectionHtml(d){
+  var st = restockFormState();
+  var opts = restockUnitOptions(d);
+  var unit = restockEffectiveUnit(st, opts, d);
+  var body = '';
+  if(st.enabled){
+    body = '<div class="hint" style="margin-bottom:8px;">'+t('restockWhen')+'</div>'+
+      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'+
+        '<input type="text" inputmode="decimal" value="'+esc(st.text||'')+'" oninput="setRestockThreshold(this.value)" style="flex:1;min-width:90px;">'+
+        (opts.length ? '<div class="tag-select" style="flex-shrink:0;">'+opts.map(function(u){
+          return '<div class="tag-option '+(unit===u?'active':'')+'" onclick="setRestockUnit('+aj(u)+')">'+esc(u)+'</div>';
+        }).join('')+'</div>' : '')+
+      '</div>'+
+      (opts.length ? '' : '<div class="hint" style="color:var(--warn);margin-top:6px;">'+t('restockNoUnit')+'</div>')+
+      (restockBatchInfoText(d, unit) ? '<div class="hint" style="margin-top:8px;color:var(--deep-caramel);">'+restockBatchInfoText(d, unit)+'</div>' : '')+
+      '<div class="hint" style="margin-top:8px;">'+t('restockSharedHint')+'</div>';
+  } else if(st.touched && restockRuleForDraft(d)){
+    body = '<div class="hint" style="margin-top:10px;color:var(--warn);">'+t('restockOffRuleWarn')+'</div>';
+  }
+  return '<div class="section-title">'+t('restockSectionTitle')+'</div>'+
+    '<div class="form-group">'+
+      '<div class="lang-toggle" style="margin-bottom:'+(st.enabled ? '10' : '0')+'px;">'+
+        '<button type="button" class="'+(st.enabled?'':'active')+'" onclick="setRestockEnabled(false)">'+t('restockOff')+'</button>'+
+        '<button type="button" class="'+(st.enabled?'active':'')+'" onclick="setRestockEnabled(true)">'+t('restockOn')+'</button>'+
+      '</div>'+body+
+    '</div>';
+}
+// 保存前校验：开了提醒就必须有数量(0可以)和一个能换算的单位；返回toast文案key，null表示没问题。
+function restockValidateDraft(d){
+  var st = restockFormState();
+  if(!st.touched || !st.enabled) return null;
+  if(st.threshold == null || st.threshold < 0) return 'restockNeedAmountToast';
+  if(!restockEffectiveUnit(st, restockUnitOptions(d), d)) return 'restockNeedUnitToast';
+  return null;
+}
+function applyRestockFromForm(d){
+  var ui = state.itemFormUI || {};
+  var key = itemGroupKey(d);
+  if(ui.restock && ui.restock.touched){
+    var st = ui.restock;
+    if(!st.enabled){
+      state.restockRules = (state.restockRules||[]).filter(function(r){ return r.key !== key; });
+      saveRestockRules();
+    } else {
+      var unit = restockEffectiveUnit(st, restockUnitOptions(d), d);
+      if(unit && st.threshold != null && st.threshold >= 0){
+        var ex = findRestockRule(key);
+        if(ex){ ex.threshold = st.threshold; ex.unit = unit; ex.name = d.name||''; ex.updated_at = nowLocalIso(); }
+        else (state.restockRules = state.restockRules || []).push({key:key, name:d.name||'', threshold:st.threshold, unit:unit, updated_at:nowLocalIso()});
+        saveRestockRules();
+      }
+    }
+  } else {
+    // 没碰这一栏：如果只是改了名称/品牌/条码(原来的产品已经没有别的批次)，规则跟着新名字走。
+    var ok0 = ui.origGroupKey;
+    if(ok0 && ok0 !== key && !findRestockRule(key)){
+      var old = findRestockRule(ok0);
+      var stillOld = state.items.some(function(it){ return itemGroupKey(it)===ok0; });
+      if(old && !stillOld){ old.key = key; old.name = d.name||''; old.updated_at = nowLocalIso(); saveRestockRules(); }
+    }
+  }
+  pruneRestockRules();
+}
+async function cloudSyncPushRestockRules(){
+  if(!cloudSyncActive()) return;
+  var ts = state.restockRulesUpdatedAt || '';
+  if(!ts || CLOUD.metaPushMap['restockRules'] === ts) return;
+  try{
+    // 单独推送、失败只记日志，不动云同步整体状态——一个新增的meta文档推不上去不应该让库存同步显示报错。
+    await metaCollectionRef().doc('restockRules').set({list: state.restockRules, updated_at: ts});
+    CLOUD.metaPushMap['restockRules'] = ts;
+    saveCloudSyncMetaPushMap();
+  }catch(e){ console.error('cloud sync restockRules push failed', e); }
+}
 function openItemForm(id, prefill){
   // Remember where we were opened from, so the back arrow / cancel / new swipe-right gesture
   // can return to the same place: editing an item from its detail page returns to that detail
@@ -6636,6 +6982,7 @@ function openItemForm(id, prefill){
     nutriBasisVolumeUnit: state.itemDraft.nutrition_basis_volume_unit || 'ml',
     nutriBasisVolumeAmountText: state.itemDraft.nutrition_basis_volume_amount_text || null,
     returnTo: returnTo,
+    origGroupKey: id ? itemGroupKey(state.itemDraft) : null, // README 9.226: 补货提醒规则按产品存，改名时要跟着走
     dateSegs: {
       expiry_date: isoToSegs(state.itemDraft.expiry_date),
       production_date: isoToSegs(state.itemDraft.production_date),
@@ -7975,6 +8322,7 @@ function renderItemForm(){
       nutriFieldsHtml(d)+
       nutriExtraFieldsHtml()+
     '</div>'+
+    restockSectionHtml(d)+
     '<div class="btn-row" style="margin-top:8px;">'+
       '<button class="btn btn-outline" onclick="cancelItemForm()">'+t('cancel')+'</button>'+
       '<button class="btn btn-primary" onclick="saveItemForm()">'+t('save')+'</button>'+
@@ -8241,6 +8589,8 @@ function saveItemForm(){
   d.nutrition_basis_volume_amount = (fui.nutriBasisVolumeAmount != null) ? fui.nutriBasisVolumeAmount : null;
   d.nutrition_basis_volume_unit = fui.nutriBasisVolumeUnit || 'ml';
   d.nutrition_basis_volume_amount_text = (d.nutrition_basis_volume_amount != null) ? (fui.nutriBasisVolumeAmountText || null) : null;
+  var restockErr = restockValidateDraft(d);
+  if(restockErr){ showToast(t(restockErr)); return; }
   d.updated_at = nowLocalIso();
   var idx = state.items.findIndex(function(i){ return i.id===d.id; });
   if(idx===-1){
@@ -8254,6 +8604,7 @@ function saveItemForm(){
     state.items[idx]=d;
   }
   saveItems();
+  applyRestockFromForm(d); // README 9.225
   // Now that the save is committed, it's safe to actually remove any photo(s) that were
   // replaced/deleted during this editing session (see openItemForm's comment on this).
   (state.itemFormUI.pendingPhotoDeleteRefs||[]).forEach(function(ref){ deletePhotoRef(ref); });
@@ -8346,7 +8697,7 @@ function finishItemFormNav(sourceId, doSync, siblingIds, sourceArchived){
 function deleteItemFromForm(){
   showConfirmModal(t('deleteConfirm'), function(){
     deletePhotoRef(state.itemDraft.photo_url);
-    state.items = state.items.filter(function(i){ return i.id!==state.itemDraft.id; });
+    state.items = state.items.filter(function(i){ return i.id!==state.itemDraft.id; }); pruneRestockRules();
     saveItems();
     state.itemDraft=null;
     navigate('home');
@@ -8470,7 +8821,7 @@ function deleteItemDetail(id){
   showConfirmModal(t('deleteConfirm'), function(){
     var it = state.items.find(function(i){ return i.id===id; });
     if(it) deletePhotoRef(it.photo_url);
-    state.items = state.items.filter(function(i){ return i.id!==id; });
+    state.items = state.items.filter(function(i){ return i.id!==id; }); pruneRestockRules();
     saveItems();
     if(cameFromDetail) navigate('home'); else render();
   }, {title:t('delete')});
@@ -9045,7 +9396,7 @@ function restoreUsageLogEntry(itemId, entryId){
       var target = state.items.find(function(i){ return i.id===entry.target_item_id; });
       if(target){
         if(entry.target_was_new){
-          state.items = state.items.filter(function(i){ return i.id!==target.id; });
+          state.items = state.items.filter(function(i){ return i.id!==target.id; }); pruneRestockRules();
           if(target.photo_url) deletePhotoRef(target.photo_url);
         } else if(entry.primary_delta != null){
           applyPrimaryEquivalentDelta(target, -entry.primary_delta);
@@ -13806,7 +14157,10 @@ function openMealsetLogConfirm(){
     if(!item) return '<div class="list-row"><div><div class="row-label" style="font-size:15px;">'+esc(it.name)+'</div><div class="row-sub" style="color:var(--warn);">'+t('cookConfirmNoConversion')+'</div></div></div>';
     return '<div class="list-row"><div><div class="row-label" style="font-size:15px;">'+esc(item.name)+': '+fmtAmount(it.amount,it.unit)+esc(it.unit)+'</div></div></div>';
   }).join('');
-  var bodyHtml = '<p class="hint" style="margin-bottom:14px;">'+t('cookConfirmHint')+'</p>'+lines+
+  // README 9.225: 跟扣库存确认放在同一个弹窗里——预估这份套餐扣完之后，哪些食材的总库存会≤补货提醒线。
+  var rsAlerts = state.restockPopupEnabled ? restockProjectedAlertsForMealset(items) : [];
+  var rsHtml = rsAlerts.length ? '<div class="section-title" style="margin-top:16px;">'+t('restockPopupTitle')+'</div><p class="hint" style="margin-bottom:8px;">'+t('restockMealHint')+'</p>'+restockAlertRowsHtml(rsAlerts, true) : '';
+  var bodyHtml = '<p class="hint" style="margin-bottom:14px;">'+t('cookConfirmHint')+'</p>'+lines+rsHtml+
     '<button class="btn btn-primary" style="margin-top:14px;width:100%;" onclick="confirmSaveMealsetLogEntry()">'+t('cookConfirmBtn')+'</button>';
   showModal(t('cookConfirmTitle'), bodyHtml);
 }
@@ -13851,6 +14205,7 @@ function commitMealsetLogEntry(date, slot, mealsetId, mealsetName, items){
       subItems[idx].deductUnit = it.unit;
       pushMealUsageLog(item, it.amount, it.unit, entryId, subItems[idx].id, slot, date, ts);
       anyDeducted = true;
+      _restockCollect(item); // README 9.225
     }
   });
   if(anyDeducted) saveItems();
@@ -14797,7 +15152,10 @@ function pickLocalFoodForMeal(type, id){
   af.step = 'amount';
   render();
   scrollAppToTop();
-  focusAddFoodAmountInput();
+  // README 9.225: 选中的库存食材(所选批次所在位置)总库存已经≤补货提醒线时弹窗提醒，不影响继续添加。
+  var _rsShown = false;
+  if(type==='item' && af===state.mealsUI.addFood && typeof chosen!=='undefined' && chosen) _rsShown = showRestockOnPick(chosen);
+  if(!_rsShown) focusAddFoodAmountInput();
 }
 async function pickUsdaFoodForMeal(fdcId){
   var af = activeAddCtx();
@@ -15469,6 +15827,8 @@ function saveMealLogEntry(){
   // 而不是还停在午餐、看不到自己刚加的东西、以为没存上。
   state.mealsUI.selectedSlot = af.slot;
   navigate('meals');
+  // README 9.225: 扣完库存之后，该食材总库存≤补货提醒线就弹窗提醒(不影响已经完成的添加和扣除)。
+  if(deductItemId){ var _rsItem = state.items.find(function(x){ return x.id===deductItemId; }); if(_rsItem) showRestockForItems([_rsItem]); }
 }
 // README 9.200: 套餐加食材(state.mealsUI.ingPicker)版本的saveMealLogEntry——营养计算逻辑跟
 // saveMealLogEntry的库存/食谱/USDA/外部食材四个分支完全一样(直接照抄过来，保证同一个食材/
@@ -15645,7 +16005,7 @@ function commitOneQuickPick(af, key){
       source_type: 'inventory', source_id: chosen.id
     };
     var res = deductFromItem(chosen, qa.amount, qa.unit);
-    if(res && res.ok){ entry.deductItemId=chosen.id; entry.deductAmount=qa.amount; entry.deductUnit=qa.unit; saveItems(); }
+    if(res && res.ok){ entry.deductItemId=chosen.id; entry.deductAmount=qa.amount; entry.deductUnit=qa.unit; saveItems(); _restockCollect(chosen); }
     state.mealLogs.push(entry);
     if(entry.deductItemId){ pushMealUsageLog(chosen, qa.amount, qa.unit, entry.id, null, af.slot, af.date, entry.created_at); saveItems(); }
     saveMealLogs();
@@ -15701,6 +16061,7 @@ function confirmQuickAddSelection(){
   var af = state.mealsUI.addFood;
   var keys = Object.keys(af.quickPicks||{});
   if(!keys.length) return;
+  _restockCollected = []; // README 9.225
   var okCount = 0, failCount = 0;
   keys.forEach(function(key){
     if(commitOneQuickPick(af, key)) okCount++; else failCount++;
@@ -15710,6 +16071,8 @@ function confirmQuickAddSelection(){
   state.mealsUI.selectedSlot = af.slot;
   showToast(failCount ? t('quickAddPartialToast').replace('{n}', okCount) : t('mealLoggedToast'));
   navigate('meals');
+  showRestockForItems(_restockCollected); // README 9.225: 批量快速添加扣完库存后，把触发提醒的食材合并成一个弹窗
+  _restockCollected = [];
 }
 // README 9.200: ipConfirmOneQuickPick/ipConfirmQuickAddSelection——套餐加食材页版本的
 // commitOneQuickPick/confirmQuickAddSelection，同样按"上次数量"记忆一键批量加，只是最终写去
@@ -16785,6 +17148,12 @@ function renderSettings(){
       }).join('')+
     '</div>'+
     '<div class="hint" style="margin-bottom:8px;">'+t('startViewHint')+'</div>'+
+    '<div class="section-title">'+t('restockSettingTitle')+'</div>'+
+    '<div class="lang-toggle" style="margin-bottom:8px;">'+
+      '<button class="'+(state.restockPopupEnabled?'active':'')+'" onclick="setRestockPopupEnabled(true)">'+t('restockOn')+'</button>'+
+      '<button class="'+(state.restockPopupEnabled?'':'active')+'" onclick="setRestockPopupEnabled(false)">'+t('restockOff')+'</button>'+
+    '</div>'+
+    '<div class="hint" style="margin-bottom:8px;">'+t('restockSettingHint')+'</div>'+
     '<div class="section-title">'+t('aiProxySettingLabel')+'</div>'+
     '<div class="form-group">'+
       '<input type="text" inputmode="url" value="'+esc(state.aiProxyUrl)+'" placeholder="https://your-proxy.example.com/analyze" oninput="setAiProxyUrl(this.value)" style="width:100%;font-size:16px;padding:13px 14px;border-radius:11px;border:1px solid var(--line);">'+
@@ -18138,6 +18507,8 @@ function subscribeCloudMeta(){
       storageSet('locations', state.locations);
       storageSet('recipeCategoryGroups', state.recipeCategoryGroups);
       storageSet('tagListsMeta', {categoryGroupsUpdatedAt: state.categoryGroupsUpdatedAt, locationsUpdatedAt: state.locationsUpdatedAt, recipeCategoryGroupsUpdatedAt: state.recipeCategoryGroupsUpdatedAt});
+      storageSet('restockRules', state.restockRules); // README 9.225
+      storageSet('restockRulesMeta', {updatedAt: state.restockRulesUpdatedAt});
     }
     state.cloudSyncLastSyncedAt = nowLocalIso();
     cloudSyncSafeRender();
@@ -18157,12 +18528,14 @@ function applyRemoteMeta(key, data){
   var remoteTs = data.updated_at || '';
   if(remoteTs <= localTs) return false;
   state[key] = data.list.slice();
+  if(key === 'restockRules') state.restockRules = normalizeRestockRules(state.restockRules); // README 9.226
   state[field] = remoteTs;
   CLOUD.metaPushMap[key] = remoteTs;
   return true;
 }
 async function cloudSyncPushMeta(){
   if(!cloudSyncActive()) return;
+  cloudSyncPushRestockRules(); // README 9.225: 补货提醒规则也走meta集合(整份last-write-wins)，首次开启云同步时一并推上去
   var toPush = [];
   [['categoryGroups', state.categoryGroupsUpdatedAt], ['locations', state.locationsUpdatedAt], ['recipeCategoryGroups', state.recipeCategoryGroupsUpdatedAt]].forEach(function(pair){
     var key = pair[0], ts = pair[1] || '';
@@ -18651,6 +19024,8 @@ async function initApp(){
   bt.total = Math.round(t4);
   recordBootTiming(bt);
   if(state.cloudSyncEnabled) startCloudSync();
+  // README 9.225: 冷启动补货提醒。开了云同步时稍等一会儿再判断，让另一台手机刚补的货先同步过来，免得误报。
+  setTimeout(maybeShowRestockPopupOnLaunch, state.cloudSyncEnabled ? 2500 : 0);
   // Tick the active-fast HH:MM:SS readout every second, in sync with the phone's real clock.
   // This deliberately does NOT call the app's usual full render() - re-creating the entire
   // page's innerHTML every second would be wasteful and could interrupt scrolling/taps - it
