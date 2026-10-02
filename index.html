@@ -920,7 +920,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.227';
+var BUILD_VERSION = '9.228';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -16365,21 +16365,36 @@ function latestWeightKg(){
   var e = latestWeightEntry();
   return e ? e.weightKg : null;
 }
+// README 9.228: 某一天"当时生效"的体重 = 日期不晚于该天的最近一条记录。新记一条体重只影响它的日期
+// 及以后的日子，早于它的日子仍用当时的体重，所以过去的热量配额/三餐计划不会被回溯改掉。
+// 该天之前没有任何记录（比如查看第一条体重记录之前的日子）时，退回到最早的一条记录。
+// 不传日期 = 今天。
+function weightKgForDate(dateStr){
+  var sorted = sortedWeightLogs();
+  if(!sorted.length) return null;
+  var d = dateStr || todayStr();
+  var found = null;
+  for(var i=0;i<sorted.length;i++){
+    if(sorted[i].date <= d) found = sorted[i]; else break;
+  }
+  return (found || sorted[0]).weightKg;
+}
 
 // Mifflin-St Jeor BMR is no longer used anywhere in this app (see EER_EQUATIONS' own comment
 // above for why) - calcAge is still needed on its own since EER needs age directly.
-function calcAge(birthDate){
+// README 9.228: refDateStr 可选（默认今天）——按"那一天"算年龄，过生日不会回溯改掉过去日子的配额。
+function calcAge(birthDate, refDateStr){
   if(!birthDate) return null;
-  var b = new Date(birthDate+'T00:00:00'), today = new Date();
+  var b = new Date(birthDate+'T00:00:00'), today = refDateStr ? new Date(refDateStr+'T00:00:00') : new Date();
   var age = today.getFullYear() - b.getFullYear();
   var m = today.getMonth() - b.getMonth();
   if(m < 0 || (m===0 && today.getDate() < b.getDate())) age--;
   return age;
 }
-function calcMaintenanceCalories(){
+function calcMaintenanceCalories(dateStr){
   var p = state.weightPlan;
-  var weightKg = latestWeightKg() || p.goalWeightKg;
-  var age = calcAge(p.birthDate);
+  var weightKg = weightKgForDate(dateStr) || p.goalWeightKg; // README 9.228: 按日期取当时的体重
+  var age = calcAge(p.birthDate, dateStr);
   if(!p.sex || !p.heightCm || age==null || !weightKg) return null;
   var eq = EER_EQUATIONS[p.sex][p.activityLevel||'inactive'];
   if(!eq) return null;
@@ -16410,7 +16425,7 @@ function recomputePlanFromPriority(){
 // showing so "运动消耗计入当日热量预算" adds THAT day's exercise calories, not always today's;
 // health/plan-settings pages (not date-scoped) just call this with no argument.
 function calcDailyCalorieBudget(dateStr){
-  var maint = calcMaintenanceCalories();
+  var maint = calcMaintenanceCalories(dateStr); // README 9.228: 带上日期
   if(maint==null) return null;
   var p = state.weightPlan;
   var deficitPerDay = ((p.weeklyRateKg||0) * KCAL_PER_KG_FAT) / 7;
