@@ -920,7 +920,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.228';
+var BUILD_VERSION = '9.230';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2517,7 +2517,7 @@ var I18N = {
     cloudSyncStatusError:'连接出错',
     cloudSyncLastSyncedLabel:'上次同步', cloudSyncNeverSynced:'尚未同步',
     cloudSyncNeedConfigToast:'请先填写 Firebase 项目配置和同步房间码',
-    cloudSyncPhotoLimitHint:'提示：云同步覆盖库存食材（名称、数量、分类、位置、保质期、营养标签等）、食谱、外部食材库、套餐，以及分类/位置这些列表；三餐记录、健康数据、照片不同步——照片只存在拍摄它的那台设备本地。',
+    cloudSyncPhotoLimitHint:'提示：云同步覆盖库存食材（名称、数量、分类、位置、保质期、营养标签等）、食谱、外部食材库、套餐，以及分类/位置这些列表；三餐记录、健康数据不同步。库存食材和食谱的图片也会同步：先在后台一张一张上传，另一台手机收到后下载并存在本机，之后不会重复下载。',
     save:'保存', cancel:'取消', delete:'删除', edit:'编辑', add:'添加', confirm:'确认', close:'关闭',
     addNewTag:'+ 新建', newTagPrompt:'输入新标签名称',
     // detail
@@ -2830,7 +2830,7 @@ var I18N = {
     cloudSyncStatusError:'Connection error',
     cloudSyncLastSyncedLabel:'Last synced', cloudSyncNeverSynced:'Never synced yet',
     cloudSyncNeedConfigToast:'Please fill in the Firebase config and a room code first',
-    cloudSyncPhotoLimitHint:'Note: cloud sync covers inventory items (name, quantity, category, location, expiry, nutrition, etc.), recipes, the external ingredient library, meal sets, and the category/location lists themselves. Meal logs, health data, and photos aren\'t synced — photos stay on whichever device took them.',
+    cloudSyncPhotoLimitHint:'Note: cloud sync covers inventory items (name, quantity, category, location, expiry, nutrition, etc.), recipes, the external ingredient library, meal sets, and the category/location lists themselves. Meal logs and health data aren\'t synced. Inventory and recipe photos are synced too: uploaded in the background one by one, then downloaded once by the other phone and kept on that device.',
     save:'Save', cancel:'Cancel', delete:'Delete', edit:'Edit', add:'Add', confirm:'Confirm', close:'Close',
     addNewTag:'+ New', newTagPrompt:'Enter new tag name',
     detailQtyLabel:'Current stock',
@@ -3217,6 +3217,10 @@ async function loadAll(){
   CLOUD.metaPushMap = results[13] || {};
   CLOUD.recipePushMap = results[14] || {};
   CLOUD.ingredientPushMap = results[15] || {};
+  // README 9.229: 图片云同步的三份本机记录——已上传的图片id、待删除的云端图片id、旧图片补传是否已安排过。
+  CLOUD.photoPushMap = (await storageGet('cloudSyncPhotoPushMap', {})) || {};
+  CLOUD.photoDelQueue = (await storageGet('cloudSyncPhotoDelQueue', [])) || [];
+  CLOUD.photoBackfill = (await storageGet('cloudSyncPhotoBackfillV1', {})) || {};
   state.mealLogs = results[16] || [];
   state.weightLogs = results[17] || [];
   state.weightPlan = results[18] || {};
@@ -3481,6 +3485,17 @@ var PHOTO_IDB = {
       });
     }).catch(function(){});
   },
+  // README 9.229: 只查"本机有没有这张图"，不把图片内容读出来（云同步判断哪些图还没下载用，几百张也不吃内存）。
+  has: function(id){
+    return this.db().then(function(db){
+      return new Promise(function(resolve){
+        var tx = db.transaction('photos','readonly');
+        var r = tx.objectStore('photos').count(id);
+        r.onsuccess = function(e){ resolve((e.target.result||0) > 0); };
+        r.onerror = function(){ resolve(false); };
+      });
+    }).catch(function(){ return false; });
+  },
   isRef: function(s){ return !!(s && s.indexOf('photo:')===0); }
 };
 var photoCache = {}; // in-memory cache: id -> base64 data URL, populated as photos are hydrated
@@ -3491,11 +3506,14 @@ function savePhotoToIDB(base64){
     return 'photo:'+id;
   });
 }
-function deletePhotoRef(ref){
+// README 9.229: localOnly=true 只删本机这份(云同步里"对方把图换了/删了"时清理本机旧图用)，不去动云端；
+// 默认(用户自己换图/删图)还要把云端那张图也排队删掉，免得云存储里越堆越多。
+function deletePhotoRef(ref, localOnly){
   if(PHOTO_IDB.isRef(ref)){
     var id = ref.slice(6);
     delete photoCache[id];
     PHOTO_IDB.del(id);
+    if(!localOnly && typeof cloudSyncPhotoQueueDelete === 'function') cloudSyncPhotoQueueDelete(id);
   }
 }
 // Used when duplicating an item (long-press "copy" on the inventory list): photo_url is just
@@ -3540,8 +3558,9 @@ function hydratePhotos(){
       return;
     }
     PHOTO_IDB.get(id).then(function(data){
-      if(data){ photoCache[id] = data; img.src = data; }
-      img.removeAttribute('data-photo-ref');
+      // README 9.229: 本机还没有这张图(另一台手机的图还在下载)时保留 data-photo-ref，等云同步把图
+      // 下载下来后再调一次 hydratePhotos() 就能直接补上，不用整页重新渲染。
+      if(data){ photoCache[id] = data; img.src = data; img.removeAttribute('data-photo-ref'); }
     });
   });
 }
@@ -17193,6 +17212,7 @@ function renderSettings(){
         '<span>'+(state.cloudSyncLastSyncedAt ? (t('cloudSyncLastSyncedLabel')+' '+esc(state.cloudSyncLastSyncedAt.slice(0,16).replace('T',' '))) : t('cloudSyncNeverSynced'))+'</span>'+
       '</div>'+
       (state.cloudSyncStatus==='error' && state.cloudSyncError ? '<div class="hint" style="color:var(--warn);margin-top:6px;">'+esc(state.cloudSyncError)+'</div>' : '')+
+      (state.cloudSyncStatus==='connected' ? '<div class="hint" style="margin-top:6px;">'+esc(cloudSyncPhotoStatusText())+'</div>' : '')+
       '<div class="hint" style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line);">'+t('cloudSyncPhotoLimitHint')+'</div>'+
     '</div>'+
     '<div class="section-title">'+t('aboutTitle')+'</div>'+
@@ -18268,7 +18288,7 @@ document.addEventListener('click', function(e){
    - Security is "room code = shared secret", same trust model as a shareable doc link -
      fine for 2-3 people you already trust, not a real multi-tenant permission system.
 */
-var CLOUD = { app:null, auth:null, db:null, uid:null, unsub:null, metaUnsub:null, recipeUnsub:null, ingredientUnsub:null, mealsetUnsub:null, pushMap:{}, metaPushMap:{}, recipePushMap:{}, ingredientPushMap:{}, mealsetPushMap:{}, sdkLoadPromise:null };
+var CLOUD = { app:null, auth:null, db:null, uid:null, unsub:null, metaUnsub:null, recipeUnsub:null, ingredientUnsub:null, mealsetUnsub:null, pushMap:{}, metaPushMap:{}, recipePushMap:{}, ingredientPushMap:{}, mealsetPushMap:{}, sdkLoadPromise:null, photoPushMap:{}, photoDelQueue:[], photoBackfill:{}, photoTimer:null, photoBusy:false, photoRerun:false, photoListeners:{}, photoMissing:{}, photoUpPending:0 };
 
 function cloudSyncActive(){ return !!(state.cloudSyncEnabled && CLOUD.db && CLOUD.uid && state.cloudSyncRoomCode); }
 
@@ -18461,6 +18481,7 @@ async function startCloudSync(){
     cloudSyncPushRecipeChanges();
     cloudSyncPushIngredientChanges();
     cloudSyncPushMealsetChanges();
+    cloudSyncPhotoSchedule(3000); // README 9.229: 连上之后过几秒再开始后台传图/等图，不跟启动抢资源
     state.cloudSyncStatus = 'connected';
   }catch(e){
     console.error('cloud sync start failed', e);
@@ -18476,6 +18497,9 @@ function stopCloudSync(){
   if(CLOUD.recipeUnsub){ CLOUD.recipeUnsub(); CLOUD.recipeUnsub = null; }
   if(CLOUD.ingredientUnsub){ CLOUD.ingredientUnsub(); CLOUD.ingredientUnsub = null; }
   if(CLOUD.mealsetUnsub){ CLOUD.mealsetUnsub(); CLOUD.mealsetUnsub = null; }
+  Object.keys(CLOUD.photoListeners).forEach(function(id){ cloudSyncPhotoDetach(id); }); // README 9.229
+  if(CLOUD.photoTimer){ clearTimeout(CLOUD.photoTimer); CLOUD.photoTimer = null; }
+  CLOUD.photoMissing = {}; CLOUD.photoUpPending = 0;
   CLOUD.db = null; CLOUD.auth = null; CLOUD.uid = null;
   state.cloudSyncStatus = 'idle';
   state.cloudSyncError = '';
@@ -18493,6 +18517,9 @@ function subscribeCloudItems(){
     if(changed) saveItems();
     state.cloudSyncLastSyncedAt = nowLocalIso();
     cloudSyncSafeRender();
+    cloudSyncPhotoBackfillReset('items'); // README 9.229: 第一次收到云端食材数据后，把本机带图的记录补推一次
+    cloudSyncPushChanges(); // README 9.230: 图片分歧时本机的图更晚，要把本机这条重新推上去(没有变化时什么都不做)
+    cloudSyncPhotoSchedule();
   }, function(err){
     console.error('cloud sync snapshot error', err);
     state.cloudSyncStatus = 'error';
@@ -18576,6 +18603,214 @@ async function cloudSyncPushMeta(){
   }
 }
 
+/* ---------- Photos (README 9.229) ----------
+   库存食材和食谱的图片也走云同步了。做法：图片本身(压缩好的 base64)存在 syncRooms/{房间码}/photos/{图片id}
+   这个集合里，每张图一个文档；食材/食谱记录里的 photo_url 仍是 'photo:图片id' 这个引用(云端那份现在
+   保留引用，并带 photo_sync:1 标记，表示写入的这台设备认识图片同步)。图片id每换一张图就是新的，不会
+   复用，所以图片文档写进去就不会再改，不存在\"两台设备改同一张图\"的冲突。
+   - 上传：后台一张一张传(间隔很短，不阻塞界面)；本机已有的旧图片也这样自动补传。
+   - 下载：记录里引用了、但本机还没有的图片，挂一个监听等云端的图出现，收到就存进本机 IndexedDB，
+     之后都读本机，不会每次开 app 重新下载。
+   - 删除：用户自己换图/删图/删食材时，云端那张图一起排队删掉(离线时记在本机，联网后补删)。 */
+function photosCollectionRef(){
+  return CLOUD.db.collection('syncRooms').doc(state.cloudSyncRoomCode).collection('photos');
+}
+// README 9.230: 图片id = 'p' + 创建时间(毫秒，36进制) + 随机串，所以能从id里读出这张图是什么时候拍的。
+// 两台设备对"同一条记录用哪张图"有分歧时(升级前换过图)，以拍得更晚的那张为准。
+function cloudSyncPhotoTime(ref){
+  var id = (ref && ref.indexOf('photo:')===0) ? ref.slice(6) : null;
+  if(!id) return 0;
+  var n = parseInt(id.slice(1,9), 36);
+  return isNaN(n) ? 0 : n;
+}
+// 记录时间戳相同、云端那条带图片引用、跟本机的图不一样：返回 'adopt'(用云端的) / 'keep'(本机更新，要重推) / ''(没分歧)。
+function cloudSyncPhotoTieBreak(data, localRef){
+  if(!data.photo_sync || !PHOTO_IDB.isRef(data.photo_url) || data.photo_url === localRef) return '';
+  var rt = cloudSyncPhotoTime(data.photo_url), lt = cloudSyncPhotoTime(localRef);
+  if(rt > lt) return 'adopt';
+  if(lt > rt) return 'keep';
+  return '';
+}
+function cloudSyncPhotoIdOf(ref){ return (ref && ref.indexOf('photo:')===0) ? ref.slice(6) : null; }
+function cloudSyncReferencedPhotoIds(){
+  var ids = {};
+  (state.items||[]).forEach(function(it){ var id = cloudSyncPhotoIdOf(it.photo_url); if(id) ids[id] = true; });
+  (state.recipes||[]).forEach(function(r){ var id = cloudSyncPhotoIdOf(r.photo_url); if(id) ids[id] = true; });
+  return Object.keys(ids);
+}
+function cloudSyncPhotoWithTimeout(promise, ms){
+  return Promise.race([promise, new Promise(function(_, reject){ setTimeout(function(){ reject(new Error('photo sync timeout')); }, ms); })]);
+}
+function cloudSyncPhotoSchedule(delay){
+  if(!cloudSyncActive()) return;
+  if(CLOUD.photoTimer) clearTimeout(CLOUD.photoTimer);
+  CLOUD.photoTimer = setTimeout(function(){ CLOUD.photoTimer = null; cloudSyncPhotoRun(); }, delay==null ? 1500 : delay);
+}
+function cloudSyncPhotoStatusRefresh(){
+  if(state.view === 'settings') cloudSyncSafeRender();
+}
+function cloudSyncPhotoStatusText(){
+  if(!cloudSyncActive()) return '';
+  var zh = state.lang === 'zh';
+  var down = Object.keys(CLOUD.photoMissing).length;
+  if(CLOUD.photoUpPending > 0) return zh ? ('图片上传中，还剩 '+CLOUD.photoUpPending+' 张') : ('Uploading photos, '+CLOUD.photoUpPending+' left');
+  if(down > 0) return zh ? ('等待下载图片：'+down+' 张') : ('Waiting to download photos: '+down);
+  return zh ? '图片已同步' : 'Photos in sync';
+}
+// 用户自己换图/删图时调用(见 deletePhotoRef)：只有\"这张图曾经传到云端过\"才需要排队删云端那份。
+function cloudSyncPhotoQueueDelete(id){
+  if(!CLOUD.photoPushMap[id]) return;
+  delete CLOUD.photoPushMap[id];
+  storageSet('cloudSyncPhotoPushMap', CLOUD.photoPushMap);
+  if(CLOUD.photoDelQueue.indexOf(id) === -1) CLOUD.photoDelQueue.push(id);
+  storageSet('cloudSyncPhotoDelQueue', CLOUD.photoDelQueue);
+  cloudSyncPhotoSchedule();
+}
+async function cloudSyncPhotoFlushDeletes(){
+  var q = CLOUD.photoDelQueue || [];
+  if(!q.length) return;
+  var remaining = [];
+  for(var i=0;i<q.length;i++){
+    if(!cloudSyncActive()){ remaining.push(q[i]); continue; }
+    try{ await cloudSyncPhotoWithTimeout(photosCollectionRef().doc(q[i]).delete(), 20000); }
+    catch(e){ remaining.push(q[i]); }
+  }
+  CLOUD.photoDelQueue = remaining;
+  storageSet('cloudSyncPhotoDelQueue', remaining);
+}
+// 旧图片一般已经压到 260KB 以内，Firestore 单个文档上限约 1MB，所以正常情况直接传；万一有特别大的
+// (早期版本存的)再缩一下，免得整张传不上去。
+function cloudSyncShrinkDataUrl(dataUrl){
+  return new Promise(function(resolve){
+    var img = new Image();
+    img.onload = function(){
+      var scale = Math.min(1, 900 / Math.max(img.width, img.height));
+      var c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(img.width*scale)); c.height = Math.max(1, Math.round(img.height*scale));
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      resolve(c.toDataURL('image/jpeg', 0.7));
+    };
+    img.onerror = function(){ resolve(dataUrl); };
+    img.src = dataUrl;
+  });
+}
+var CLOUD_PHOTO_MAX_CHARS = 900000;
+async function cloudSyncPhotoUploadPending(){
+  var pending = cloudSyncReferencedPhotoIds().filter(function(id){ return !CLOUD.photoPushMap[id]; });
+  CLOUD.photoUpPending = pending.length;
+  for(var i=0;i<pending.length;i++){
+    if(!cloudSyncActive()) return;
+    var id = pending[i];
+    var data = photoCache[id] || await PHOTO_IDB.get(id);
+    if(!data){ CLOUD.photoUpPending--; continue; } // 本机没有这张图(是对方的，等它下载)，不用传
+    if(data.length > CLOUD_PHOTO_MAX_CHARS) data = await cloudSyncShrinkDataUrl(data);
+    if(data.length > CLOUD_PHOTO_MAX_CHARS){
+      CLOUD.photoPushMap[id] = 1; // 缩完还是太大，放弃这一张(只会在这台设备上显示)，不再反复重试
+      storageSet('cloudSyncPhotoPushMap', CLOUD.photoPushMap);
+      CLOUD.photoUpPending--; continue;
+    }
+    try{
+      await cloudSyncPhotoWithTimeout(photosCollectionRef().doc(id).set({id:id, data:data, updated_at:nowLocalIso()}), 30000);
+    }catch(e){
+      console.error('cloud photo upload failed', e);
+      cloudSyncPhotoStatusRefresh();
+      cloudSyncPhotoSchedule(60000); // 网络不好/离线：一分钟后再试，剩下的下次一起传
+      return;
+    }
+    CLOUD.photoPushMap[id] = 1;
+    storageSet('cloudSyncPhotoPushMap', CLOUD.photoPushMap);
+    CLOUD.photoUpPending--;
+    cloudSyncPhotoStatusRefresh();
+    await new Promise(function(r){ setTimeout(r, 120); });
+  }
+  CLOUD.photoUpPending = 0;
+  cloudSyncPhotoStatusRefresh();
+}
+function cloudSyncPhotoDetach(id){
+  var un = CLOUD.photoListeners[id];
+  if(un){ try{ un(); }catch(e){} delete CLOUD.photoListeners[id]; }
+}
+async function cloudSyncPhotoReceived(id, data){
+  cloudSyncPhotoDetach(id);
+  delete CLOUD.photoMissing[id];
+  // 收到的时候这张图可能已经没人用了(对方又换了图)，那就不存。
+  if(cloudSyncReferencedPhotoIds().indexOf(id) === -1){ cloudSyncPhotoStatusRefresh(); cloudSyncPhotoSchedule(300); return; }
+  try{
+    await PHOTO_IDB.put(id, data);
+    photoCache[id] = data;
+    CLOUD.photoPushMap[id] = 1; // 云端本来就有，这台不用再往上传
+    storageSet('cloudSyncPhotoPushMap', CLOUD.photoPushMap);
+  }catch(e){
+    console.error('cloud photo save failed', e);
+    return;
+  }
+  hydratePhotos(); // 页面上还空着的图直接补上，不用整页重新渲染
+  cloudSyncPhotoStatusRefresh();
+  cloudSyncPhotoSchedule(300); // 腾出监听名额，接着挂下一批
+}
+function cloudSyncPhotoAttach(id){
+  CLOUD.photoListeners[id] = photosCollectionRef().doc(id).onSnapshot(function(snap){
+    if(!snap.exists) return; // 对方还没传上来，继续等
+    var d = snap.data();
+    if(d && d.data) cloudSyncPhotoReceived(id, d.data);
+  }, function(err){
+    console.error('cloud photo listen failed', err);
+    cloudSyncPhotoDetach(id);
+  });
+}
+var CLOUD_PHOTO_MAX_LISTENERS = 20;
+async function cloudSyncPhotoWatchMissing(){
+  var ids = cloudSyncReferencedPhotoIds();
+  var missing = {};
+  for(var i=0;i<ids.length;i++){
+    var id = ids[i];
+    if(photoCache[id]) continue;
+    if(await PHOTO_IDB.has(id)) continue;
+    missing[id] = true;
+  }
+  // 不再被引用的(对方换图了)，把它的监听摘掉
+  Object.keys(CLOUD.photoListeners).forEach(function(id){ if(!missing[id]) cloudSyncPhotoDetach(id); });
+  CLOUD.photoMissing = missing;
+  var active = Object.keys(CLOUD.photoListeners).length;
+  var todo = Object.keys(missing);
+  for(var k=0;k<todo.length && active<CLOUD_PHOTO_MAX_LISTENERS;k++){
+    if(CLOUD.photoListeners[todo[k]]) continue;
+    cloudSyncPhotoAttach(todo[k]);
+    active++;
+  }
+  cloudSyncPhotoStatusRefresh();
+}
+async function cloudSyncPhotoRun(){
+  if(!cloudSyncActive()) return;
+  if(CLOUD.photoBusy){ CLOUD.photoRerun = true; return; }
+  CLOUD.photoBusy = true;
+  try{
+    await cloudSyncPhotoFlushDeletes();
+    await cloudSyncPhotoUploadPending();
+    await cloudSyncPhotoWatchMissing();
+  }catch(e){
+    console.error('cloud photo sync failed', e);
+  }
+  CLOUD.photoBusy = false;
+  if(CLOUD.photoRerun){ CLOUD.photoRerun = false; cloudSyncPhotoSchedule(500); }
+}
+// 升级到支持图片同步之前，云端的食材/食谱记录里图片引用是被清空的，而这些记录的修改时间没变，
+// 不会自动重新推送。所以每台设备在\"第一次收到云端数据之后\"(不是启动那一刻——免得拿旧数据盖掉对方
+// 刚改的新数据)，把本机有图片的记录标成\"还没推送过\"，重推一次带上图片引用；只做一次。
+function cloudSyncPhotoBackfillReset(kind){
+  if(CLOUD.photoBackfill[kind]) return;
+  if(kind === 'items'){
+    state.items.forEach(function(it){ if(cloudSyncPhotoIdOf(it.photo_url)) delete CLOUD.pushMap[it.id]; });
+    saveCloudSyncPushMap();
+  } else {
+    state.recipes.forEach(function(r){ if(cloudSyncPhotoIdOf(r.photo_url)) delete CLOUD.recipePushMap[r.id]; });
+    saveCloudSyncRecipePushMap();
+  }
+  CLOUD.photoBackfill[kind] = true;
+  storageSet('cloudSyncPhotoBackfillV1', CLOUD.photoBackfill);
+  if(kind === 'items') cloudSyncPushChanges(); else cloudSyncPushRecipeChanges();
+}
+
 // Merge one incoming Firestore item doc into state.items. Returns true if state.items
 // actually changed (so the caller knows whether to re-save/re-render). Same last-write-wins
 // rule as mergeById: newer `updated_at` (falling back to created_at) wins, ties keep local.
@@ -18587,7 +18822,9 @@ function applyRemoteItem(data){
   var remoteTs = data.updated_at || data.created_at || '';
   if(data._deleted){
     if(idx>=0 && remoteTs >= localTs){
+      var goneItem = state.items[idx];
       state.items.splice(idx,1);
+      if(goneItem && goneItem.photo_url) deletePhotoRef(goneItem.photo_url, true); // README 9.229: 对方删了食材，本机那张图也清掉
       CLOUD.pushMap[data.id] = '__deleted__';
       return true;
     }
@@ -18596,6 +18833,7 @@ function applyRemoteItem(data){
   if(idx===-1){
     var fresh = JSON.parse(JSON.stringify(data));
     delete fresh._deleted;
+    delete fresh.photo_sync;
     fresh.secondary_units = fresh.secondary_units || [];
     state.items.push(migrateItem(fresh, state.categoryGroups));
     CLOUD.pushMap[data.id] = remoteTs;
@@ -18604,14 +18842,31 @@ function applyRemoteItem(data){
   if(remoteTs > localTs){
     var merged = JSON.parse(JSON.stringify(data));
     delete merged._deleted;
-    // A remote write never carries this device's own local photo (photos aren't synced -
-    // see module comment above), so keep whatever photo this device already has on file.
-    if(!merged.photo_url && state.items[idx].photo_url && state.items[idx].photo_url.indexOf('photo:')===0){
-      merged.photo_url = state.items[idx].photo_url;
+    var remoteKnowsPhotos = !!merged.photo_sync; // README 9.229: 写这条记录的设备是否认识图片同步
+    delete merged.photo_sync;
+    var oldLocalPhoto = state.items[idx].photo_url;
+    // 旧版本设备写的记录里图片引用是被清空的(不代表对方删了图)，这种情况保留本机已有的图；
+    // 新版本写的记录，图片引用是什么就是什么(包括被删成空)。
+    if(!remoteKnowsPhotos && !merged.photo_url && oldLocalPhoto && oldLocalPhoto.indexOf('photo:')===0){
+      merged.photo_url = oldLocalPhoto;
     }
     state.items[idx] = migrateItem(merged, state.categoryGroups);
+    // 对方把图换了/删了：本机旧图没用了，只清本机，不动云端
+    if(oldLocalPhoto && PHOTO_IDB.isRef(oldLocalPhoto) && oldLocalPhoto !== merged.photo_url) deletePhotoRef(oldLocalPhoto, true);
     CLOUD.pushMap[data.id] = remoteTs;
     return true;
+  }
+  // 同一个修改时间：这是"旧图片补传"来的。本机没图 -> 接过云端的图片引用；两边都有图但不一样(升级前
+  // 换过图) -> 以拍得更晚的为准(README 9.230)：云端的更晚就换成云端的并清掉本机旧图，本机的更晚就重推。
+  if(remoteTs === localTs){
+    var localRef = state.items[idx].photo_url;
+    var tb = cloudSyncPhotoTieBreak(data, localRef);
+    if(tb === 'adopt'){
+      state.items[idx].photo_url = data.photo_url;
+      if(PHOTO_IDB.isRef(localRef)) deletePhotoRef(localRef);
+      return true;
+    }
+    if(tb === 'keep'){ delete CLOUD.pushMap[data.id]; return false; }
   }
   return false;
 }
@@ -18620,9 +18875,11 @@ function applyRemoteItem(data){
 // IndexedDB photo references (`photo:xxxxxx`) only resolve on the device that took the
 // photo, so they're cleared here - the *local* copy of the item (state.items) is untouched,
 // only this outgoing cloud copy.
+// README 9.229: 现在图片引用(photo:xxx)原样保留(图片本身走 photos 集合同步)，并带 photo_sync:1
+// 标记，让接收方知道"这条记录里 photo_url 为空 = 真的没图/删了图"，而不是旧版本设备的清空。
 function sanitizeItemForCloud(it){
   var copy = JSON.parse(JSON.stringify(it));
-  if(copy.photo_url && copy.photo_url.indexOf('photo:')===0) copy.photo_url = '';
+  copy.photo_sync = 1;
   copy._deleted = false;
   return copy;
 }
@@ -18660,6 +18917,7 @@ async function cloudSyncPushChanges(){
     saveCloudSyncPushMap();
     state.cloudSyncLastSyncedAt = nowLocalIso();
     cloudSyncSafeRender();
+    cloudSyncPhotoSchedule(); // README 9.229: 记录推完了，再安排传图片(换了图/新加了图都是走这里)
   }catch(e){
     console.error('cloud sync push failed', e);
     state.cloudSyncStatus = 'error';
@@ -18686,6 +18944,9 @@ function subscribeCloudRecipes(){
     if(changed) storageSet('recipes', state.recipes);
     state.cloudSyncLastSyncedAt = nowLocalIso();
     cloudSyncSafeRender();
+    cloudSyncPhotoBackfillReset('recipes'); // README 9.229
+    cloudSyncPushRecipeChanges(); // README 9.230
+    cloudSyncPhotoSchedule();
   }, function(err){
     console.error('cloud sync recipe snapshot error', err);
     state.cloudSyncStatus = 'error';
@@ -18701,7 +18962,9 @@ function applyRemoteRecipe(data){
   var remoteTs = data.updated_at || data.created_at || '';
   if(data._deleted){
     if(idx>=0 && remoteTs >= localTs){
+      var goneRecipe = state.recipes[idx];
       state.recipes.splice(idx,1);
+      if(goneRecipe && goneRecipe.photo_url) deletePhotoRef(goneRecipe.photo_url, true); // README 9.229
       CLOUD.recipePushMap[data.id] = '__deleted__';
       return true;
     }
@@ -18710,6 +18973,7 @@ function applyRemoteRecipe(data){
   if(idx===-1){
     var fresh = JSON.parse(JSON.stringify(data));
     delete fresh._deleted;
+    delete fresh.photo_sync;
     state.recipes.push(fresh);
     CLOUD.recipePushMap[data.id] = remoteTs;
     return true;
@@ -18717,18 +18981,32 @@ function applyRemoteRecipe(data){
   if(remoteTs > localTs){
     var merged = JSON.parse(JSON.stringify(data));
     delete merged._deleted;
-    if(!merged.photo_url && state.recipes[idx].photo_url && state.recipes[idx].photo_url.indexOf('photo:')===0){
-      merged.photo_url = state.recipes[idx].photo_url;
+    var remoteKnowsPhotos = !!merged.photo_sync; // README 9.229，同 applyRemoteItem
+    delete merged.photo_sync;
+    var oldLocalPhoto = state.recipes[idx].photo_url;
+    if(!remoteKnowsPhotos && !merged.photo_url && oldLocalPhoto && oldLocalPhoto.indexOf('photo:')===0){
+      merged.photo_url = oldLocalPhoto;
     }
     state.recipes[idx] = merged;
+    if(oldLocalPhoto && PHOTO_IDB.isRef(oldLocalPhoto) && oldLocalPhoto !== merged.photo_url) deletePhotoRef(oldLocalPhoto, true);
     CLOUD.recipePushMap[data.id] = remoteTs;
     return true;
+  }
+  if(remoteTs === localTs){
+    var localRef = state.recipes[idx].photo_url;
+    var tb = cloudSyncPhotoTieBreak(data, localRef);
+    if(tb === 'adopt'){
+      state.recipes[idx].photo_url = data.photo_url;
+      if(PHOTO_IDB.isRef(localRef)) deletePhotoRef(localRef);
+      return true;
+    }
+    if(tb === 'keep'){ delete CLOUD.recipePushMap[data.id]; return false; }
   }
   return false;
 }
 function sanitizeRecipeForCloud(r){
   var copy = JSON.parse(JSON.stringify(r));
-  if(copy.photo_url && copy.photo_url.indexOf('photo:')===0) copy.photo_url = '';
+  copy.photo_sync = 1; // README 9.229：图片引用原样保留，见 sanitizeItemForCloud
   copy._deleted = false;
   return copy;
 }
@@ -18761,6 +19039,7 @@ async function cloudSyncPushRecipeChanges(){
     saveCloudSyncRecipePushMap();
     state.cloudSyncLastSyncedAt = nowLocalIso();
     cloudSyncSafeRender();
+    cloudSyncPhotoSchedule(); // README 9.229
   }catch(e){
     console.error('cloud sync recipe push failed', e);
     state.cloudSyncStatus = 'error';
