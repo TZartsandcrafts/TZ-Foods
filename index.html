@@ -325,6 +325,14 @@
   .photo-remove-btn{ position:absolute; top:6px; right:6px; width:30px; height:30px; background:rgba(0,0,0,0.55); color:#fff; border-color:transparent; }
   .photo-upload-btn{ cursor:pointer; align-items:center; justify-content:center; }
 
+  /* ---------- Shopping list (README 9.231) ---------- */
+  .shop-row{ display:flex; align-items:center; gap:10px; }
+  .shop-check{
+    width:26px; height:26px; flex-shrink:0; border-radius:50%; border:2px solid var(--almond);
+    background:transparent; color:#fff; display:flex; align-items:center; justify-content:center; padding:0;
+  }
+  .shop-check.on{ background:var(--almond); }
+  .shop-done{ text-decoration:line-through; opacity:0.6; }
   /* ---------- Sidebar (per-page filter drawer) ---------- */
   #sidebar-overlay{
     position:fixed; inset:0; background:rgba(30,20,10,0.4); z-index:40;
@@ -920,7 +928,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.230';
+var BUILD_VERSION = '9.231';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2610,8 +2618,9 @@ var I18N = {
     restockOffRuleWarn:'保存后，这个食材的全部批次都不再提醒（不只是这一条）。',
     restockNeedAmountToast:'请填写补货提醒的数量（0 也可以）', restockNeedUnitToast:'补货提醒需要选一个单位',
     restockPopupTitle:'补货提醒', restockPopupHint:'下面这些食材的库存快用完了：', restockMealHint:'只是提醒，不影响三餐的添加和库存扣除。',
-    restockCurrent:'当前库存', restockAfter:'扣除后库存', restockThreshold:'提醒线', restockGotIt:'知道了',
-    restockSettingTitle:'补货提醒弹窗', restockSettingHint:'开启后：每次启动 app，以及在三餐里用到库存不足的食材时，会弹窗提醒。只影响这台手机。',
+    restockCurrent:'当前库存', restockAfter:'扣除后库存', restockThreshold:'提醒线', restockGotIt:'知道了', restockAddToList:'添加到清单', restockAddAllToList:'全部添加到清单',
+    shopTitle:'购物清单', navShopping:'购物清单', shopAddPlaceholder:'添加要买的东西…', shopAddBtn:'添加', shopEmpty:'清单是空的', shopBoughtTitle:'已买', shopBoughtHint:'已勾选的食材，库存补足后会自动从这里清掉；在那之前取消勾选，就会放回待买。', shopTopHint:'从补货提醒加进来的食材，在这里勾选之前不会再弹窗提醒；勾选后如果库存仍低于提醒线，提醒会恢复。', shopRestocked:'库存已补足', shopDupToast:'清单里已经有这一项了', shopAddedToast:'已加到购物清单（{n} 项）：库存页侧边栏 → 更多 → 购物清单', shopAlreadyToast:'这些食材已经在购物清单里了',
+    restockSettingTitle:'补货提醒弹窗', restockSettingHint:'开启后：每天第一次启动 app 时（一天最多一次），以及在三餐里用到库存不足的食材时，会弹窗提醒。只影响这台手机。',
     storagePersistYes:'已启用(浏览器已同意保护本应用数据，减少被系统清理的概率)',
     storagePersistNo:'未启用(浏览器拒绝了持久化请求，数据存在被系统清理的风险，建议定期在上方导出备份)',
     storagePersistUnknown:'当前浏览器不支持此项检测，建议定期在上方导出备份以防万一',
@@ -2918,8 +2927,9 @@ var I18N = {
     restockOffRuleWarn:'After saving, reminders for ALL batches of this item stop (not just this one).',
     restockNeedAmountToast:'Enter an amount for the restock reminder (0 is fine)', restockNeedUnitToast:'Pick a unit for the restock reminder',
     restockPopupTitle:'Restock reminder', restockPopupHint:'These items are running low:', restockMealHint:'Just a reminder - meal adding and stock deduction are unaffected.',
-    restockCurrent:'Current stock', restockAfter:'Stock after deduction', restockThreshold:'Reminder level', restockGotIt:'Got it',
-    restockSettingTitle:'Restock reminder popup', restockSettingHint:'When on: shown on every app launch, and in 三餐 when you use a low-stock item. This device only.',
+    restockCurrent:'Current stock', restockAfter:'Stock after deduction', restockThreshold:'Reminder level', restockGotIt:'Got it', restockAddToList:'Add to list', restockAddAllToList:'Add all to list',
+    shopTitle:'Shopping list', navShopping:'Shopping list', shopAddPlaceholder:'Add something to buy…', shopAddBtn:'Add', shopEmpty:'The list is empty', shopBoughtTitle:'Bought', shopBoughtHint:'Checked items are cleared automatically once stock is back above the reminder level; until then, uncheck to put one back.', shopTopHint:'Items added from the restock reminder won\'t trigger the popup while unchecked here; once checked, the reminder returns if stock is still at or below the reminder level.', shopRestocked:'Stock restored', shopDupToast:'Already on the list', shopAddedToast:'Added to the shopping list ({n}): Inventory sidebar → More → Shopping list', shopAlreadyToast:'Already on the shopping list',
+    restockSettingTitle:'Restock reminder popup', restockSettingHint:'When on: shown the first time you launch the app each day (at most once a day), and in 三餐 when you use a low-stock item. This device only.',
     storagePersistYes:'Enabled (the browser agreed to protect this app\'s data, lowering the risk of automatic cleanup)',
     storagePersistNo:'Not enabled (the browser declined the persistence request — data is at risk of being cleared by the system; export a backup regularly using the buttons above)',
     storagePersistUnknown:'This browser doesn\'t support this check — export a backup regularly above just in case',
@@ -3067,6 +3077,8 @@ var state = {
   restockRules: [],
   restockRulesUpdatedAt: '',
   restockPopupEnabled: true,
+  shoppingList: [],            // README 9.231: 购物清单
+  restockPopupLastDay: '',     // README 9.231: 启动补货弹窗上次弹出的日期(只这台手机)
   params: {},
   home: { search:'', categoryGroup:null, categorySub:null, expandedCategoryGroups:{}, settingsExpandedCategoryGroups:{}, location:null, sort:'expiry', sortDir:'asc', sidebarCollapsed:{category:false, location:false, tools:false}, expandedGroups:{}, bulkMode:false, bulkSelected:{} },
   scan: { running:false, stream:null, detector:null, resultDraft:null, mode:'camera' },
@@ -3221,6 +3233,11 @@ async function loadAll(){
   CLOUD.photoPushMap = (await storageGet('cloudSyncPhotoPushMap', {})) || {};
   CLOUD.photoDelQueue = (await storageGet('cloudSyncPhotoDelQueue', [])) || [];
   CLOUD.photoBackfill = (await storageGet('cloudSyncPhotoBackfillV1', {})) || {};
+  // README 9.231: 购物清单(云同步，按条目)、启动补货弹窗上次弹出的日期(只这台手机)
+  state.shoppingList = (await storageGet('shoppingList', [])) || [];
+  if(!Array.isArray(state.shoppingList)) state.shoppingList = [];
+  CLOUD.shopPushMap = (await storageGet('cloudSyncShopPushMap', {})) || {};
+  state.restockPopupLastDay = (await storageGet('restockPopupLastDay', '')) || '';
   state.mealLogs = results[16] || [];
   state.weightLogs = results[17] || [];
   state.weightPlan = results[18] || {};
@@ -4869,6 +4886,7 @@ function render(){
     case 'itemViewOnly': html = renderItemViewOnly(); break;
     case 'stats': html = renderStats(); break;
     case 'priceHistory': html = renderPriceHistory(); break;
+    case 'shoppingList': html = renderShoppingList(); break;
     case 'statFilteredList': html = renderStatFilteredList(); break;
     case 'meals': html = renderMeals(); break;
     case 'health': html = renderHealth(); break;
@@ -4893,7 +4911,7 @@ function render(){
 }
 function bottomNav(){
   var v = state.view;
-  var isHome = (v==='home'||v==='itemForm'||v==='itemDetail'||v==='archive'||v==='stats'||v==='priceHistory'||v==='itemViewOnly'||v==='statFilteredList'||v==='usageLog'||v==='usageLogAdd'||v==='inventorySettings');
+  var isHome = (v==='home'||v==='itemForm'||v==='itemDetail'||v==='archive'||v==='stats'||v==='priceHistory'||v==='shoppingList'||v==='itemViewOnly'||v==='statFilteredList'||v==='usageLog'||v==='usageLogAdd'||v==='inventorySettings');
   var isRecipes = (v==='recipes'||v==='recipeForm'||v==='recipeDetail'||v==='pickInventory'||v==='pickExternal'||v==='pickRecipe'||v==='recipesSettings');
   var isMeals = (v==='meals'||v==='fastingHistory'||v==='mealsSettings'||v==='planSettings'||v==='macroPresetPicker'||v==='mealAddFood'||v==='mealLogEntryDetail');
   var isHealth = (v==='health'||v==='bpHistory'||v==='waistHistory'||v==='exerciseHistory'||v==='exerciseLogForm'||v==='pickExercise'||v==='weightHistory'||v==='healthSettings'||v==='personalInfo');
@@ -5021,7 +5039,7 @@ function navBottomHealth(){
 // survive normal render() calls untouched (only their class/innerHTML is toggled),
 // which is what lets the open/close CSS transition animate smoothly.
 function sidebarPageForCurrentView(){
-  if(state.view==='home' || state.view==='archive' || state.view==='stats' || state.view==='priceHistory' || state.view==='statFilteredList') return 'home';
+  if(state.view==='home' || state.view==='archive' || state.view==='stats' || state.view==='priceHistory' || state.view==='shoppingList' || state.view==='statFilteredList') return 'home';
   if(state.view==='recipes') return 'recipes';
   if(state.view==='meals' || state.view==='mealsHistory') return 'meals';
   // README 9.142: planSettings/macroPresetPicker used to live under 健康, back when this list was
@@ -5258,6 +5276,7 @@ function openSettings(fromView){
     if(state.view==='archive') return {view:'home'};
     if(state.view==='stats') return {view:'home'};
     if(state.view==='priceHistory') return {view:'home'};
+    if(state.view==='shoppingList') return {view:'home'};
     if(state.view==='statFilteredList') return {view:'home'};
     if(state.view==='manageTags') return {view:'inventorySettings'};
     if(state.view==='settings') return {view: state.settingsBackTo || 'home'};
@@ -6524,9 +6543,11 @@ function renderHomeSidebarContent(){
         (locCounts[l] ? '<span class="sidebar-item-count">'+locCounts[l]+'</span>' : '')+
       '</div>';
     }).join('')) : '');
-  var toolsHtml = '<div class="sidebar-section-title collapsible" onclick="toggleHomeSidebarSection(\'tools\')"><span>'+t('sidebarToolsLabel')+'</span>'+
+  var shopCount = shoppingPendingCount(); // README 9.231
+  var toolsHtml = '<div class="sidebar-section-title collapsible" onclick="toggleHomeSidebarSection(\'tools\')"><span style="display:flex;align-items:center;gap:6px;">'+t('sidebarToolsLabel')+(!toolsOpen && shopCount ? '<span class="sidebar-item-count">'+shopCount+'</span>' : '')+'</span>'+
       ic('chevronRight',15,'style="transform:rotate('+(toolsOpen?'90':'0')+'deg);transition:transform .15s;"')+'</div>'+
     (toolsOpen ? (
+      '<div class="sidebar-item" style="display:flex;align-items:center;justify-content:space-between;gap:6px;" onclick="closeSidebar();openShoppingList()"><span>🛒 '+t('navShopping')+'</span>'+(shopCount ? '<span class="sidebar-item-count">'+shopCount+'</span>' : '')+'</div>'+
       '<div class="sidebar-item" onclick="closeSidebar();navigate(\'archive\')">'+t('navArchive')+'</div>'+
       '<div class="sidebar-item" onclick="closeSidebar();navigate(\'priceHistory\')">'+t('navPriceHistory')+'</div>'+
       '<div class="sidebar-item" onclick="closeSidebar();navigate(\'stats\')">'+t('navStats')+'</div>'+
@@ -6704,11 +6725,138 @@ function restockTotal(rule, overrides){
   });
   return any ? total : null;
 }
+// ===================== README 9.231: 购物清单 =====================
+// 清单里一个食材只留一条(按 itemGroupKey 对应补货规则)；也可以手动加不在库存里的东西(key 为空)。
+// 补货弹窗的规则：该食材在清单里且【还没勾选】时，不再弹窗提醒；勾选后如果库存仍≤提醒线，弹窗恢复；
+// 库存不符合提醒条件时本来就不弹，跟清单怎么样无关。已勾选的条目在库存补足超过提醒线后自动清掉。
+function shoppingFindByKey(key){
+  if(!key) return null;
+  var l = state.shoppingList || [];
+  for(var i=0;i<l.length;i++){ if(l[i].key === key) return l[i]; }
+  return null;
+}
+function restockSuppressed(key){
+  var e = shoppingFindByKey(key);
+  return !!(e && !e.checked);
+}
+function shoppingPendingCount(){
+  return (state.shoppingList||[]).filter(function(e){ return !e.checked; }).length;
+}
+function saveShoppingList(){
+  var p = storageSet('shoppingList', state.shoppingList);
+  cloudSyncPushShopChanges();
+  return p;
+}
+// 返回实际新增/恢复了几项
+function shoppingAddFromAlerts(alerts){
+  var n = 0, now = nowLocalIso();
+  (alerts||[]).forEach(function(a){
+    var key = a.rule.key;
+    var e = shoppingFindByKey(key);
+    if(!e){
+      state.shoppingList.push({id:uid(), name:a.name||a.rule.name||'', key:key, checked:false, checked_at:'', created_at:now, updated_at:now});
+      n++;
+    } else if(e.checked){
+      e.checked = false; e.checked_at = ''; e.updated_at = now; n++;
+    }
+  });
+  if(n) saveShoppingList();
+  return n;
+}
+// 已勾选、对应补货规则存在、且库存已经明确超过提醒线 -> 清掉。(没算出库存/规则没了/批次暂时没加载，都不清，
+// 免得云同步还没拉到数据时误删。)返回是否清掉了东西。
+function shoppingAutoClear(){
+  var before = (state.shoppingList||[]).length;
+  state.shoppingList = (state.shoppingList||[]).filter(function(e){
+    if(!e.checked || !e.key) return true;
+    var r = findRestockRule(e.key); if(!r) return true;
+    var tot = restockTotal(r);
+    return !(tot != null && tot > r.threshold + RESTOCK_EPS);
+  });
+  if(state.shoppingList.length !== before){ saveShoppingList(); return true; }
+  return false;
+}
+function openShoppingList(){
+  shoppingAutoClear();
+  navigate('shoppingList');
+}
+function shoppingToggle(id){
+  var e = (state.shoppingList||[]).find(function(x){ return x.id===id; });
+  if(!e) return;
+  var now = nowLocalIso();
+  e.checked = !e.checked;
+  e.checked_at = e.checked ? now : '';
+  e.updated_at = now;
+  saveShoppingList();
+  render();
+}
+function shoppingDelete(id){
+  state.shoppingList = (state.shoppingList||[]).filter(function(x){ return x.id!==id; });
+  saveShoppingList();
+  render();
+}
+function shoppingAddManual(){
+  var inp = document.getElementById('shop-add-input');
+  var name = inp ? inp.value.trim() : '';
+  if(!name) return;
+  var low = name.toLowerCase();
+  var dup = (state.shoppingList||[]).find(function(x){ return String(x.name).trim().toLowerCase() === low; });
+  var now = nowLocalIso();
+  if(dup){
+    if(dup.checked){ dup.checked = false; dup.checked_at = ''; dup.updated_at = now; saveShoppingList(); }
+    else { showToast(t('shopDupToast')); return; }
+  } else {
+    state.shoppingList.push({id:uid(), name:name, key:'', checked:false, checked_at:'', created_at:now, updated_at:now});
+    saveShoppingList();
+  }
+  render();
+}
+function shoppingInputKey(ev){ if(ev && ev.key === 'Enter'){ ev.preventDefault(); shoppingAddManual(); } }
+function shoppingStockInfoHtml(e){
+  if(!e.key) return '';
+  var r = findRestockRule(e.key); if(!r) return '';
+  var tot = restockTotal(r); if(tot == null) return '';
+  var ok = tot > r.threshold + RESTOCK_EPS;
+  return '<div class="row-sub"'+(ok?' style="color:var(--almond);"':'')+'>'+t('restockCurrent')+' '+fmtNum(Math.round(tot*100)/100,2)+esc(r.unit)+' · '+t('restockThreshold')+' ≤ '+fmtNum(r.threshold,2)+esc(r.unit)+(ok?' · '+t('shopRestocked'):'')+'</div>';
+}
+function shoppingRowHtml(e){
+  var done = !!e.checked;
+  return '<div class="list-row shop-row">'+
+    '<button class="shop-check'+(done?' on':'')+'" onclick="shoppingToggle('+aj(e.id)+')">'+(done?ic('check',16):'')+'</button>'+
+    '<div style="flex:1;min-width:0;" onclick="shoppingToggle('+aj(e.id)+')">'+
+      '<div class="row-label'+(done?' shop-done':'')+'" style="font-size:15px;">'+esc(e.name)+'</div>'+
+      shoppingStockInfoHtml(e)+
+    '</div>'+
+    '<button class="icon-btn" onclick="shoppingDelete('+aj(e.id)+')">'+ic('x',16)+'</button>'+
+  '</div>';
+}
+function renderShoppingList(){
+  var list = state.shoppingList || [];
+  var todo = list.filter(function(e){ return !e.checked; }).sort(function(a,b){ return String(a.created_at||'') < String(b.created_at||'') ? -1 : 1; });
+  var done = list.filter(function(e){ return e.checked; }).sort(function(a,b){ return String(a.checked_at||'') < String(b.checked_at||'') ? 1 : -1; });
+  return '' +
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'home\')">'+ic('back',22)+'</button><h1>'+t('shopTitle')+'</h1><button class="icon-btn" onclick="toggleSidebar(\'home\')">'+ic('menu',20)+'</button></div>'+
+  '<div class="content">'+
+    '<p class="hint" style="margin-bottom:12px;">'+t('shopTopHint')+'</p>'+
+    '<div class="sidebar-inline-add-row" style="margin-bottom:12px;"><input id="shop-add-input" type="text" placeholder="'+esc(t('shopAddPlaceholder'))+'" onkeydown="shoppingInputKey(event)"><button onclick="shoppingAddManual()">'+t('shopAddBtn')+'</button></div>'+
+    (todo.length ? todo.map(shoppingRowHtml).join('') : '<p class="hint" style="text-align:center;margin:24px 0;">'+t('shopEmpty')+'</p>')+
+    (done.length ? ('<div class="sidebar-section-title" style="margin-top:18px;"><span>'+t('shopBoughtTitle')+' ('+done.length+')</span></div>'+
+      '<p class="hint" style="margin-bottom:8px;">'+t('shopBoughtHint')+'</p>'+done.map(shoppingRowHtml).join('')) : '')+
+  '</div>'+
+  bottomNav();
+}
+var _restockPopupAlerts = [];
+function restockAddAllToList(){
+  var n = shoppingAddFromAlerts(_restockPopupAlerts);
+  closeModal();
+  showToast(n ? t('shopAddedToast').replace('{n}', n) : t('shopAlreadyToast'));
+}
 function restockAlerts(overrides){
   var out = [];
   (state.restockRules||[]).forEach(function(r){
     var tot = restockTotal(r, overrides);
     if(tot == null || tot > r.threshold + RESTOCK_EPS) return;
+    if(restockSuppressed(r.key)) return; // README 9.231: 已在购物清单且未勾选 -> 不弹
     var rep = restockBatches(r)[0];
     out.push({rule:r, total:tot, name: rep ? itemDisplayNameRaw(rep) : (r.name||'')});
   });
@@ -6725,17 +6873,31 @@ function restockAlertRowsHtml(alerts, projected){
 }
 function showRestockPopup(alerts, hintKey){
   if(!alerts.length) return false;
+  _restockPopupAlerts = alerts;
   showModal(t('restockPopupTitle'),
     '<p class="hint" style="margin-bottom:12px;">'+t(hintKey||'restockPopupHint')+'</p>'+
     restockAlertRowsHtml(alerts, false)+
-    '<button class="btn btn-primary" style="margin-top:14px;width:100%;" onclick="closeModal()">'+t('restockGotIt')+'</button>');
+    // README 9.231: 知道了 + 添加到清单(多个食材时是一次全部加进去)
+    '<div style="display:flex;gap:10px;margin-top:14px;">'+
+      '<button class="btn btn-outline" style="flex:1;" onclick="closeModal()">'+t('restockGotIt')+'</button>'+
+      '<button class="btn btn-primary" style="flex:1;" onclick="restockAddAllToList()">'+t(alerts.length>1?'restockAddAllToList':'restockAddToList')+'</button>'+
+    '</div>');
   return true;
 }
+// README 9.231: 启动时的补货弹窗改成每天最多弹一次(按这台手机上次实际弹出的日期算；当天已经弹过就不再弹，
+// 有别的弹窗挡着、或者当时没有需要提醒的食材，都不算"弹过")。三餐里用到库存不足食材时的弹窗不受这个限制。
 function maybeShowRestockPopupOnLaunch(){
   if(!state.restockPopupEnabled) return;
+  shoppingAutoClear();
+  var today = todayStr();
+  if(state.restockPopupLastDay === today) return;
   var root = document.getElementById('modal-root');
   if(root && root.innerHTML) return; // 已经有别的弹窗在显示，不叠加
-  showRestockPopup(restockAlerts(), 'restockPopupHint');
+  var alerts = restockAlerts();
+  if(!alerts.length) return;
+  state.restockPopupLastDay = today;
+  storageSet('restockPopupLastDay', today);
+  showRestockPopup(alerts, 'restockPopupHint');
 }
 function restockAlertsForItems(items){
   var seen = {}, out = [];
@@ -6745,6 +6907,7 @@ function restockAlertsForItems(items){
     var r = findRestockRule(key); if(!r) return;
     var tot = restockTotal(r);
     if(tot == null || tot > r.threshold + RESTOCK_EPS) return;
+    if(restockSuppressed(r.key)) return; // README 9.231
     out.push({rule:r, total:tot, name:itemDisplayNameRaw(it)});
   });
   return out;
@@ -6772,6 +6935,7 @@ function restockProjectedAlertsForMealset(items){
     var r = findRestockRule(key); if(!r) return;
     var tot = restockTotal(r, overrides);
     if(tot == null || tot > r.threshold + RESTOCK_EPS) return;
+    if(restockSuppressed(r.key)) return; // README 9.231
     out.push({rule:r, total:tot, name:itemDisplayNameRaw(item)});
   });
   return out;
@@ -18288,7 +18452,7 @@ document.addEventListener('click', function(e){
    - Security is "room code = shared secret", same trust model as a shareable doc link -
      fine for 2-3 people you already trust, not a real multi-tenant permission system.
 */
-var CLOUD = { app:null, auth:null, db:null, uid:null, unsub:null, metaUnsub:null, recipeUnsub:null, ingredientUnsub:null, mealsetUnsub:null, pushMap:{}, metaPushMap:{}, recipePushMap:{}, ingredientPushMap:{}, mealsetPushMap:{}, sdkLoadPromise:null, photoPushMap:{}, photoDelQueue:[], photoBackfill:{}, photoTimer:null, photoBusy:false, photoRerun:false, photoListeners:{}, photoMissing:{}, photoUpPending:0 };
+var CLOUD = { app:null, auth:null, db:null, uid:null, unsub:null, metaUnsub:null, recipeUnsub:null, ingredientUnsub:null, shopUnsub:null, mealsetUnsub:null, pushMap:{}, metaPushMap:{}, recipePushMap:{}, ingredientPushMap:{}, shopPushMap:{}, mealsetPushMap:{}, sdkLoadPromise:null, photoPushMap:{}, photoDelQueue:[], photoBackfill:{}, photoTimer:null, photoBusy:false, photoRerun:false, photoListeners:{}, photoMissing:{}, photoUpPending:0 };
 
 function cloudSyncActive(){ return !!(state.cloudSyncEnabled && CLOUD.db && CLOUD.uid && state.cloudSyncRoomCode); }
 
@@ -18423,6 +18587,9 @@ function recipesCollectionRef(){
 function ingredientsCollectionRef(){
   return CLOUD.db.collection('syncRooms').doc(state.cloudSyncRoomCode).collection('ingredients');
 }
+function shoppingCollectionRef(){
+  return CLOUD.db.collection('syncRooms').doc(state.cloudSyncRoomCode).collection('shopping');
+}
 function mealsetsCollectionRef(){
   return CLOUD.db.collection('syncRooms').doc(state.cloudSyncRoomCode).collection('mealsets');
 }
@@ -18473,6 +18640,7 @@ async function startCloudSync(){
     subscribeCloudMeta();
     subscribeCloudRecipes();
     subscribeCloudIngredients();
+    subscribeCloudShopping(); // README 9.231
     subscribeCloudMealsets();
     // Also push once right away: covers the case where the collection is empty (brand new
     // room, nothing to receive yet) but this device already has local items/lists to upload.
@@ -18480,6 +18648,7 @@ async function startCloudSync(){
     cloudSyncPushMeta();
     cloudSyncPushRecipeChanges();
     cloudSyncPushIngredientChanges();
+    cloudSyncPushShopChanges(); // README 9.231
     cloudSyncPushMealsetChanges();
     cloudSyncPhotoSchedule(3000); // README 9.229: 连上之后过几秒再开始后台传图/等图，不跟启动抢资源
     state.cloudSyncStatus = 'connected';
@@ -18496,6 +18665,7 @@ function stopCloudSync(){
   if(CLOUD.metaUnsub){ CLOUD.metaUnsub(); CLOUD.metaUnsub = null; }
   if(CLOUD.recipeUnsub){ CLOUD.recipeUnsub(); CLOUD.recipeUnsub = null; }
   if(CLOUD.ingredientUnsub){ CLOUD.ingredientUnsub(); CLOUD.ingredientUnsub = null; }
+  if(CLOUD.shopUnsub){ CLOUD.shopUnsub(); CLOUD.shopUnsub = null; } // README 9.231
   if(CLOUD.mealsetUnsub){ CLOUD.mealsetUnsub(); CLOUD.mealsetUnsub = null; }
   Object.keys(CLOUD.photoListeners).forEach(function(id){ cloudSyncPhotoDetach(id); }); // README 9.229
   if(CLOUD.photoTimer){ clearTimeout(CLOUD.photoTimer); CLOUD.photoTimer = null; }
@@ -19042,6 +19212,99 @@ async function cloudSyncPushRecipeChanges(){
     cloudSyncPhotoSchedule(); // README 9.229
   }catch(e){
     console.error('cloud sync recipe push failed', e);
+    state.cloudSyncStatus = 'error';
+    state.cloudSyncError = (e && e.message) || String(e);
+    render();
+  }
+}
+
+/* ---------- Shopping list (README 9.231) ----------
+   购物清单按条目同步(跟外部食材同一套：每条一个文档、按 updated_at 谁新用谁、删除留墓碑)，所以两部
+   手机同时改清单的不同条目不会互相覆盖。 */
+function saveCloudSyncShopPushMap(){ return storageSet('cloudSyncShopPushMap', CLOUD.shopPushMap); }
+function subscribeCloudShopping(){
+  if(CLOUD.shopUnsub){ CLOUD.shopUnsub(); CLOUD.shopUnsub = null; }
+  CLOUD.shopUnsub = shoppingCollectionRef().onSnapshot(function(snapshot){
+    var changed = false;
+    snapshot.docChanges().forEach(function(change){
+      if(change.type === 'removed') return;
+      if(applyRemoteShop(change.doc.data())) changed = true;
+    });
+    saveCloudSyncShopPushMap();
+    if(changed) storageSet('shoppingList', state.shoppingList);
+    state.cloudSyncLastSyncedAt = nowLocalIso();
+    cloudSyncSafeRender();
+  }, function(err){
+    console.error('cloud sync shopping snapshot error', err);
+    state.cloudSyncStatus = 'error';
+    state.cloudSyncError = (err && err.message) || String(err);
+    cloudSyncSafeRender();
+  });
+}
+function applyRemoteShop(data){
+  if(!data || !data.id) return false;
+  var idx = -1;
+  for(var i=0;i<state.shoppingList.length;i++){ if(state.shoppingList[i].id===data.id){ idx=i; break; } }
+  var localTs = idx>=0 ? (state.shoppingList[idx].updated_at || state.shoppingList[idx].created_at || '') : '';
+  var remoteTs = data.updated_at || data.created_at || '';
+  if(data._deleted){
+    if(idx>=0 && remoteTs >= localTs){
+      state.shoppingList.splice(idx,1);
+      CLOUD.shopPushMap[data.id] = '__deleted__';
+      return true;
+    }
+    return false;
+  }
+  if(idx===-1){
+    // 这条在本机已经被删掉了(墓碑已推送)、而云端还是更早的旧内容：别又复活。
+    if(CLOUD.shopPushMap[data.id] === '__deleted__') return false;
+    var fresh = JSON.parse(JSON.stringify(data));
+    delete fresh._deleted;
+    state.shoppingList.push(fresh);
+    CLOUD.shopPushMap[data.id] = remoteTs;
+    return true;
+  }
+  if(remoteTs > localTs){
+    var merged = JSON.parse(JSON.stringify(data));
+    delete merged._deleted;
+    state.shoppingList[idx] = merged;
+    CLOUD.shopPushMap[data.id] = remoteTs;
+    return true;
+  }
+  return false;
+}
+async function cloudSyncPushShopChanges(){
+  if(!cloudSyncActive()) return;
+  var toPush = [], currentIds = {};
+  state.shoppingList.forEach(function(e){
+    currentIds[e.id] = true;
+    var ts = e.updated_at || e.created_at || '';
+    if(CLOUD.shopPushMap[e.id] !== ts) toPush.push(e);
+  });
+  var tombstoneIds = [];
+  Object.keys(CLOUD.shopPushMap).forEach(function(id){
+    if(!currentIds[id] && CLOUD.shopPushMap[id] !== '__deleted__') tombstoneIds.push(id);
+  });
+  if(!toPush.length && !tombstoneIds.length) return;
+  try{
+    var batch = CLOUD.db.batch();
+    var now = nowLocalIso();
+    toPush.forEach(function(e){
+      var docData = JSON.parse(JSON.stringify(e));
+      docData._deleted = false;
+      batch.set(shoppingCollectionRef().doc(e.id), docData);
+      CLOUD.shopPushMap[e.id] = docData.updated_at || docData.created_at || '';
+    });
+    tombstoneIds.forEach(function(id){
+      batch.set(shoppingCollectionRef().doc(id), {id:id, _deleted:true, updated_at:now});
+      CLOUD.shopPushMap[id] = '__deleted__';
+    });
+    await batch.commit();
+    saveCloudSyncShopPushMap();
+    state.cloudSyncLastSyncedAt = nowLocalIso();
+    cloudSyncSafeRender();
+  }catch(e){
+    console.error('cloud sync shopping push failed', e);
     state.cloudSyncStatus = 'error';
     state.cloudSyncError = (e && e.message) || String(e);
     render();
