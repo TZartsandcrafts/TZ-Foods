@@ -928,7 +928,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.231';
+var BUILD_VERSION = '9.232';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -13243,6 +13243,7 @@ function openMealLogEntryDetail(id){
   state.mealsUI.editEntry = {
     id: id,
     amountText: m.amount!=null ? fmtAmount(m.amount, m.unit) : '',
+    unit: m.unit || '',   // README 9.232: 编辑页当前选中的单位(可以改成添加时提供的其它备选单位)
     customCalories: m.custom_calories!=null ? String(m.custom_calories) : '',
     customCarbs: m.custom_carbs!=null ? String(m.custom_carbs) : '',
     customProtein: m.custom_protein!=null ? String(m.custom_protein) : '',
@@ -13309,13 +13310,97 @@ function customEntryPreviewNutrition(ee){
   if(fat) n.fat = fat;
   return n;
 }
+// README 9.232: 三餐条目编辑页的单位下拉。以前编辑页只有一个固定的单位(添加时选的那个)，没法改；现在跟
+// 添加时给的备选项保持一致：库存食材=该食材自己的全部可选单位(orderedUnitOptionsForItem，跟添加页同一个函数)，
+// USDA食品=g + 有密度数据时的ml/tsp/tbsp/cup，食谱=份数 + g(食谱有成品总重量和份数时)；外部食材添加时只有g，
+// 扫码一次性记录没有单位选择，这两种在编辑页也保持原样不显示下拉。来源已经被删除/换算不出来时，只剩当前单位。
+function mealEntryRecipeServingsLabel(m){ return (m.unit && m.unit!=='g') ? m.unit : t('servingsUnit'); }
+function mealEntryUnitOptions(m){
+  var cur = m.unit || 'g';
+  var opts = [cur];
+  if(m.source_type==='inventory'){
+    var item = state.items.find(function(x){ return x.id===m.source_id; });
+    if(item) opts = orderedUnitOptionsForItem(item).slice();
+  } else if(m.source_type==='usda'){
+    opts = usdaUnitOptions(usdaDensityOf(m), false);
+  } else if(m.source_type==='recipe'){
+    var r = state.recipes.find(function(x){ return x.id===m.source_id; });
+    if(r && r.cooked_weight>0 && r.servings>0) opts = [mealEntryRecipeServingsLabel(m), 'g'];
+  }
+  opts = opts.slice();
+  if(opts.indexOf(cur)===-1) opts.unshift(cur);
+  // 当前单位自己都换算不出营养(比如食材后来被改过单位设置)，就不开放切换，免得算出错的数
+  if(opts.length>1 && mealEntryUnitFactor(m, cur)==null) return [cur];
+  return opts.filter(function(u){ return u===cur || mealEntryUnitFactor(m, u)!=null; });
+}
+// 这条记录里\"1个[这个单位]\"对应的营养量(只用来跟另一个单位按比例换算，数值本身没有单位)。换算不了返回null。
+function mealEntryUnitFactor(m, unit){
+  if(m.source_type==='inventory'){
+    var item = state.items.find(function(x){ return x.id===m.source_id; });
+    if(!item) return null;
+    var used = amountToBasisUnits(1, unit, item);
+    if(used == null) used = countBasisMatch(item, 1, unit);
+    if(used == null) return null;
+    var f = scaleNutrition({calories:1}, ingredientBasisInfo(item), used).calories;
+    return f>0 ? f : null;
+  }
+  if(m.source_type==='usda'){
+    var g = usdaAmountToGrams(1, unit, usdaDensityOf(m));
+    return g>0 ? g : null;
+  }
+  if(m.source_type==='recipe'){
+    if(unit==='g'){
+      var r = state.recipes.find(function(x){ return x.id===m.source_id; });
+      if(!r || !(r.cooked_weight>0) || !(r.servings>0)) return null;
+      return r.servings / r.cooked_weight; // 1g = 多少份
+    }
+    return 1; // 份数
+  }
+  return unit===(m.unit||'g') ? 1 : null;
+}
+// 按编辑页当前的数量+单位，算出相对于这条记录当前保存的营养要乘多少倍；数量无效/换算不了返回null。
+function mealEntryScaleFactor(m, ee){
+  var amt = parseAmountInput(ee.amountText);
+  if(amt==null || isNaN(amt) || amt<0 || !m.amount) return null;
+  var unit = ee.unit || m.unit;
+  if(unit===m.unit) return amt/m.amount;
+  var qn = mealEntryUnitFactor(m, unit), qo = mealEntryUnitFactor(m, m.unit);
+  if(qn==null || qo==null) return null;
+  return amt*qn/(m.amount*qo);
+}
+function mealEntryPreviewNutrition(m, ee){
+  var f = mealEntryScaleFactor(m, ee);
+  return f==null ? m.nutrition : computeScaledNutrition(m.nutrition, 1, f);
+}
+function mealEntryUnitSelectHtml(m, ee){
+  var opts = mealEntryUnitOptions(m);
+  if(opts.length<2) return '';
+  var sel = ee.unit || m.unit;
+  return '<div class="field"><label>'+t('fieldMealAmountUnit')+'</label><select onchange="setMealEntryUnit(this.value)">'+
+    opts.map(function(u){ return '<option value="'+esc(u)+'" '+(sel===u?'selected':'')+'>'+esc(u)+'</option>'; }).join('')+
+  '</select></div>';
+}
+function setMealEntryUnit(u){
+  var ee = state.mealsUI.editEntry;
+  var m = state.mealLogs.find(function(x){ return x.id===ee.id; });
+  if(!m) return;
+  var oldU = ee.unit || m.unit;
+  if(u===oldU) return;
+  var qo = mealEntryUnitFactor(m, oldU), qn = mealEntryUnitFactor(m, u);
+  if(qo==null || qn==null){ showToast(t('unitConversionUnavailable')); render(); return; }
+  var cur = parseAmountInput(ee.amountText);
+  // 已经输入了数量就按\"同样多的量\"换算成新单位(营养不变)，没输入就留空
+  if(cur!=null && !isNaN(cur) && cur>0) ee.amountText = fmtAmount(Math.round(cur*qo/qn*1000)/1000, u);
+  ee.unit = u;
+  render();
+}
 function onMealEntryAmountInput(val){
   var ee = state.mealsUI.editEntry;
   ee.amountText = val;
   var m = state.mealLogs.find(function(x){ return x.id===ee.id; });
   if(!m) return;
   var el = document.getElementById('meal-entry-nutrition-preview');
-  if(el) el.innerHTML = mealEntryNutritionPreviewHtml(computeScaledNutrition(m.nutrition, m.amount, parseAmountInput(val)));
+  if(el) el.innerHTML = mealEntryNutritionPreviewHtml(mealEntryPreviewNutrition(m, ee));
 }
 function onMealEntryCustomInput(field, val){
   var ee = state.mealsUI.editEntry;
@@ -13418,7 +13503,7 @@ function renderMealLogEntryDetail(){
   if(!ee || ee.id!==id) openMealLogEntryDetail(id); // defensive - e.g. deep-link/back-forward without going through the row tap
   ee = state.mealsUI.editEntry;
   var isCustom = m.source_type==='custom';
-  var previewN = isCustom ? customEntryPreviewNutrition(ee) : computeScaledNutrition(m.nutrition, m.amount, parseAmountInput(ee.amountText));
+  var previewN = isCustom ? customEntryPreviewNutrition(ee) : mealEntryPreviewNutrition(m, ee);
 
   var sourceLinkHtml = '';
   if(m.source_type==='recipe'){
@@ -13441,7 +13526,8 @@ function renderMealLogEntryDetail(){
      '<div class="field"><label>'+t('fieldMealFat')+'</label><input type="text" inputmode="decimal" value="'+esc(ee.customFat)+'" oninput="onMealEntryCustomInput(\'customFat\',this.value)"></div>'+
      '<div class="field"><label>'+t('fieldMealName')+'</label><input type="text" autocapitalize="words" value="'+esc(ee.customName)+'" oninput="onMealEntryCustomInput(\'customName\',this.value)"></div>')
     :
-    ('<div class="field"><label>'+t('fieldMealAmount')+(m.unit?(' ('+esc(m.unit)+')'):'')+'</label><input type="text" autofocus id="meal-entry-amount-input" inputmode="decimal" value="'+esc(ee.amountText)+'" oninput="onMealEntryAmountInput(this.value)"></div>');
+    (mealEntryUnitSelectHtml(m, ee)+
+     '<div class="field"><label>'+t('fieldMealAmount')+((ee.unit||m.unit)?(' ('+esc(ee.unit||m.unit)+')'):'')+'</label><input type="text" autofocus id="meal-entry-amount-input" inputmode="decimal" value="'+esc(ee.amountText)+'" oninput="onMealEntryAmountInput(this.value)"></div>');
 
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'meals\')">'+ic('back',22)+'</button><h1>'+esc(m.name)+'</h1></div>'+
@@ -13475,24 +13561,38 @@ function saveMealLogEntryEdit(){
     var newAmt = parseAmountInput(ee.amountText);
     if(!newAmt || newAmt<=0){ showToast(t('amountRequiredToast')); return; }
     if(m.amount){
-      m.nutrition_extra = computeScaledNutritionExtra(m.nutrition_extra, m.amount, newAmt);
-      m.nutrition = computeScaledNutrition(m.nutrition, m.amount, newAmt);
+      // README 9.232: 单位也可以改了。营养按"新数量×新单位 ÷ 旧数量×旧单位"这个比例缩放(单位没变时就
+      // 是原来的 新数量÷旧数量)；换算不出来就明说，不猜。
+      var newUnit = ee.unit || m.unit;
+      var unitChanged = newUnit !== m.unit;
+      var scale = mealEntryScaleFactor(m, ee);
+      if(scale==null){ showToast(t('unitConversionUnavailable')); return; }
+      var dedItem = m.deductItemId ? state.items.find(function(x){ return x.id===m.deductItemId; }) : null;
+      if(dedItem && unitChanged && primaryEquivalentAmount(dedItem, newAmt, newUnit)==null){ showToast(t('unitConversionUnavailable')); return; }
+      m.nutrition_extra = computeScaledNutritionExtra(m.nutrition_extra, 1, scale);
+      m.nutrition = computeScaledNutrition(m.nutrition, 1, scale);
       // README 9.136: a linked inventory deduction gets rescaled by the same delta, so editing
       // the amount after logging keeps the earlier stock deduction consistent with what's now
       // actually recorded, rather than leaving it frozen at whatever the original amount was.
-      if(m.deductItemId){
-        var item = state.items.find(function(x){ return x.id===m.deductItemId; });
-        if(item){
+      // README 9.232: 单位改了就把旧的扣减整个加回去、再按新数量+新单位重新扣一次(两个单位之间的差额
+      // 不能直接相减)，库存的取用记录里那一笔也跟着换成新数量+新单位。
+      if(dedItem){
+        if(unitChanged){
+          addBackToItem(dedItem, m.deductAmount, m.deductUnit);
+          deductFromItem(dedItem, newAmt, newUnit);
+          m.deductUnit = newUnit;
+        } else {
           var delta = newAmt - m.amount;
-          if(delta > 0) deductFromItem(item, delta, m.deductUnit);
-          else if(delta < 0) addBackToItem(item, -delta, m.deductUnit);
-          m.deductAmount = newAmt;
-          var usageEntry = findMealUsageLogEntry(item, m.id, null);
-          if(usageEntry) usageEntry.amount = newAmt;
-          saveItems();
+          if(delta > 0) deductFromItem(dedItem, delta, m.deductUnit);
+          else if(delta < 0) addBackToItem(dedItem, -delta, m.deductUnit);
         }
+        m.deductAmount = newAmt;
+        var usageEntry = findMealUsageLogEntry(dedItem, m.id, null);
+        if(usageEntry){ usageEntry.amount = newAmt; if(unitChanged) usageEntry.unit = newUnit; }
+        saveItems();
       }
       m.amount = newAmt;
+      m.unit = newUnit;
     }
   }
   saveMealLogs();
