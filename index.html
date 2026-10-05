@@ -928,7 +928,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.233';
+var BUILD_VERSION = '9.234';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2621,6 +2621,7 @@ var I18N = {
     restockCurrent:'当前库存', restockAfter:'扣除后库存', restockThreshold:'提醒线', restockGotIt:'知道了', restockAddToList:'添加到清单', restockAddAllToList:'全部添加到清单',
     shopTitle:'购物清单', navShopping:'购物清单', shopAddPlaceholder:'添加要买的东西…', shopAddBtn:'添加', shopEmpty:'清单是空的', shopBoughtTitle:'已买', shopBoughtHint:'已勾选的食材，库存补足后会自动从这里清掉；在那之前取消勾选，就会放回待买。', shopTopHint:'从补货提醒加进来的食材，在这里勾选之前不会再弹窗提醒；勾选后如果库存仍低于提醒线，提醒会恢复。', shopRestocked:'库存已补足', shopDupToast:'清单里已经有这一项了', shopAddedToast:'已加到购物清单（{n} 项）：库存页侧边栏 → 更多 → 购物清单', shopAlreadyToast:'这些食材已经在购物清单里了',
     restockSettingTitle:'补货提醒弹窗', restockSettingHint:'开启后：每天第一次启动 app 时（一天最多一次），以及在三餐里用到库存不足的食材时，会弹窗提醒。只影响这台手机。',
+    updTitle:'已更新到 {v}', updGotIt:'知道了', updTagNew:'新功能', updTagFix:'修复', updTagTweak:'调整',
     storagePersistYes:'已启用(浏览器已同意保护本应用数据，减少被系统清理的概率)',
     storagePersistNo:'未启用(浏览器拒绝了持久化请求，数据存在被系统清理的风险，建议定期在上方导出备份)',
     storagePersistUnknown:'当前浏览器不支持此项检测，建议定期在上方导出备份以防万一',
@@ -2930,6 +2931,7 @@ var I18N = {
     restockCurrent:'Current stock', restockAfter:'Stock after deduction', restockThreshold:'Reminder level', restockGotIt:'Got it', restockAddToList:'Add to list', restockAddAllToList:'Add all to list',
     shopTitle:'Shopping list', navShopping:'Shopping list', shopAddPlaceholder:'Add something to buy…', shopAddBtn:'Add', shopEmpty:'The list is empty', shopBoughtTitle:'Bought', shopBoughtHint:'Checked items are cleared automatically once stock is back above the reminder level; until then, uncheck to put one back.', shopTopHint:'Items added from the restock reminder won\'t trigger the popup while unchecked here; once checked, the reminder returns if stock is still at or below the reminder level.', shopRestocked:'Stock restored', shopDupToast:'Already on the list', shopAddedToast:'Added to the shopping list ({n}): Inventory sidebar → More → Shopping list', shopAlreadyToast:'Already on the shopping list',
     restockSettingTitle:'Restock reminder popup', restockSettingHint:'When on: shown the first time you launch the app each day (at most once a day), and in 三餐 when you use a low-stock item. This device only.',
+    updTitle:'Updated to {v}', updGotIt:'Got it', updTagNew:'New', updTagFix:'Fixed', updTagTweak:'Changed',
     storagePersistYes:'Enabled (the browser agreed to protect this app\'s data, lowering the risk of automatic cleanup)',
     storagePersistNo:'Not enabled (the browser declined the persistence request — data is at risk of being cleared by the system; export a backup regularly using the buttons above)',
     storagePersistUnknown:'This browser doesn\'t support this check — export a backup regularly above just in case',
@@ -6899,6 +6901,80 @@ function maybeShowRestockPopupOnLaunch(){
   storageSet('restockPopupLastDay', today);
   showRestockPopup(alerts, 'restockPopupHint');
 }
+// ===================== README 9.234: 更新说明弹窗 =====================
+// 每次部署新版本后，这台手机第一次启动到新版本时弹一次，告诉用户这次更新了什么。
+// 记录"这台手机已经看过哪个版本的说明"在 localStorage 的 lastSeenVersion(只这台手机，不同步)：
+//   - 弹出的同时就记下当前版本(不是等点"知道了")，所以无论怎么关掉，同一个版本都只弹这一次。
+//   - 跳过了几个版本才更新的，一次把中间每个版本的说明都列出来(最多 3 个版本)。
+//   - 这个版本在 RELEASE_NOTES 里没写说明(纯内部改动)：不弹，只默默记下版本号。
+//   - 全新安装(没记录、也没任何数据)：不弹，只记下版本号。老用户第一次升到有这个功能的版本(没记录)：只弹最新一条。
+// 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
+// type: new=新功能  fix=修复  tweak=调整。
+var RELEASE_NOTES = [
+  {v:'9.234', items:[
+    {t:'new', zh:'以后每次更新后第一次打开 app，会弹出一个说明，告诉你这次更新了什么。点「知道了」之后就不会再弹。', en:'After each update, the first time you open the app you\'ll see a short note about what changed. Tap "Got it" and it won\'t show again.'},
+    {t:'tweak', zh:'如果当天正好也有补货提醒，会先显示更新说明，点「知道了」之后再显示补货提醒，两个都不会漏。', en:'If a restock reminder is also due that day, the update note comes first and the reminder follows after you tap "Got it".'}
+  ]},
+  {v:'9.233', items:[
+    {t:'tweak', zh:'套餐里已经记录的食材换了单位后，库存会自动按新单位重新扣，库存数量更准。', en:'When you change the unit of an item already logged in a meal set, stock is re-deducted in the new unit so the numbers stay accurate.'}
+  ]},
+  {v:'9.232', items:[
+    {t:'new', zh:'三餐里已经添加的食物，编辑页现在可以更换单位了。', en:'Foods already added to a meal can now have their unit changed on the edit page.'}
+  ]}
+];
+var _updateNoticeOpen = false;       // 更新说明弹窗正开着(closeModal 里据此接着弹补货提醒)
+var _launchRestockReadyAt = 0;       // 启动补货弹窗最早可以弹的时间(开了云同步要等同步先到)
+function verCmp(a, b){
+  var x = String(a).split('.'), y = String(b).split('.');
+  for(var i=0;i<Math.max(x.length,y.length);i++){
+    var d = (parseInt(x[i],10)||0) - (parseInt(y[i],10)||0);
+    if(d) return d;
+  }
+  return 0;
+}
+function updateNoticesToShow(seen){
+  var notes = RELEASE_NOTES.filter(function(n){ return verCmp(n.v, BUILD_VERSION) <= 0; });
+  if(seen) notes = notes.filter(function(n){ return verCmp(n.v, seen) > 0; });
+  else notes = notes.slice(0, 1);
+  return notes.slice(0, 3);
+}
+async function maybeShowUpdateNotice(){
+  var seen = await storageGet('lastSeenVersion', '');
+  if(seen === BUILD_VERSION) return false;
+  var root = document.getElementById('modal-root');
+  if(root && root.innerHTML) return false; // 已经有别的弹窗，这次不弹、也不记录，下次启动再说
+  var fresh = !seen && !(state.items||[]).length && !(state.recipes||[]).length;
+  var notes = fresh ? [] : updateNoticesToShow(seen);
+  await storageSet('lastSeenVersion', BUILD_VERSION);
+  if(!notes.length) return false;
+  showUpdateNotice(notes);
+  return true;
+}
+function showUpdateNotice(notes){
+  var zh = state.lang === 'zh';
+  var tags = {
+    'new':   {k:'updTagNew',   bg:'var(--fresh-bg)',  fg:'var(--fresh)'},
+    'fix':   {k:'updTagFix',   bg:'var(--warn-bg)',   fg:'var(--warn)'},
+    'tweak': {k:'updTagTweak', bg:'var(--almond-bg)', fg:'var(--deep-caramel)'}
+  };
+  var multi = notes.length > 1;
+  var body = notes.map(function(n){
+    var rows = n.items.map(function(it){
+      var tg = tags[it.t] || tags.tweak;
+      return '<div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:10px;">'+
+        '<span style="flex:none;margin-top:2px;padding:4px 7px;border-radius:6px;font-size:12px;line-height:1;background:'+tg.bg+';color:'+tg.fg+';">'+esc(t(tg.k))+'</span>'+
+        '<span style="font-size:15px;line-height:1.5;">'+esc(zh ? it.zh : it.en)+'</span>'+
+      '</div>';
+    }).join('');
+    return (multi ? '<div style="font-size:13px;color:#B79B78;margin:6px 0 8px;">'+esc(n.v)+'</div>' : '') + rows;
+  }).join('');
+  showModal(t('updTitle').replace('{v}', notes[0].v),
+    body+
+    '<div style="display:flex;gap:10px;margin-top:14px;">'+
+      '<button class="btn btn-primary" style="flex:1;" onclick="closeModal()">'+t('updGotIt')+'</button>'+
+    '</div>');
+  _updateNoticeOpen = true;
+}
 function restockAlertsForItems(items){
   var seen = {}, out = [];
   items.forEach(function(it){
@@ -10066,6 +10142,13 @@ function closeModal(){
   if(r) r.innerHTML='';
   unlockBodyScrollForModal();
   if(pendingMealScanRestart){ pendingMealScanRestart = false; render(); }
+  // README 9.234: 更新说明弹窗关掉后(不管点知道了、叉、还是点空白处)，接着判断补货提醒。
+  // 启动时的补货判断遇到别的弹窗开着会直接跳过且不记"今天已弹"，所以这里补上；
+  // 开了云同步的话仍然等到原定的时间再判断。重复调用没关系(当天弹过就不会再弹)。
+  if(_updateNoticeOpen){
+    _updateNoticeOpen = false;
+    setTimeout(maybeShowRestockPopupOnLaunch, Math.max(300, _launchRestockReadyAt - Date.now()));
+  }
 }
 // Generic confirm popup (see README 9.72): same shape as confirmDeleteRecipeDetail below,
 // pulled out into one reusable helper so every "are you sure?" in the app - the ones that used
@@ -19696,7 +19779,12 @@ async function initApp(){
   recordBootTiming(bt);
   if(state.cloudSyncEnabled) startCloudSync();
   // README 9.225: 冷启动补货提醒。开了云同步时稍等一会儿再判断，让另一台手机刚补的货先同步过来，免得误报。
-  setTimeout(maybeShowRestockPopupOnLaunch, state.cloudSyncEnabled ? 2500 : 0);
+  var _restockDelay = state.cloudSyncEnabled ? 2500 : 0;
+  _launchRestockReadyAt = Date.now() + _restockDelay;
+  // README 9.234: 更新说明先弹(如果有)；补货提醒的判断照常在原定时间进行，遇到更新说明开着就跳过，
+  // 等更新说明关掉后由 closeModal 接着判断。
+  maybeShowUpdateNotice();
+  setTimeout(maybeShowRestockPopupOnLaunch, _restockDelay);
   // Tick the active-fast HH:MM:SS readout every second, in sync with the phone's real clock.
   // This deliberately does NOT call the app's usual full render() - re-creating the entire
   // page's innerHTML every second would be wasteful and could interrupt scrolling/taps - it
