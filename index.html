@@ -246,6 +246,18 @@
   .empty-state i{ font-size:40px; color:var(--caramel-light); margin-bottom:12px; display:block; }
   .empty-state p{ font-size:15px; line-height:1.6; }
 
+  .ai-fab{ position:fixed; right:calc(50% - min(50%, 240px) + 16px); bottom:calc(92px + var(--safe-bottom)); width:52px; height:52px; border-radius:50%; border:none; background:var(--deep-caramel); color:#fff; font-size:16px; font-weight:700; letter-spacing:.5px; box-shadow:0 3px 10px rgba(74,46,30,0.3); z-index:29; cursor:pointer; }
+  .ai-fab:active{ transform:scale(.94); }
+  .aimeal-in{ width:100%; font-size:16px; padding:10px 12px; border-radius:9px; border:1px solid var(--line); background:#fff; color:var(--cocoa); }
+  textarea.aimeal-in{ resize:none; line-height:1.5; display:block; }
+  .aimeal-chat{ display:flex; flex-direction:column; gap:10px; margin:14px 0; }
+  .aimeal-bubble{ max-width:88%; padding:10px 12px; border-radius:14px; font-size:15px; line-height:1.5; white-space:pre-wrap; word-break:break-word; }
+  .aimeal-user{ align-self:flex-end; background:var(--almond); color:#fff; border-bottom-right-radius:4px; }
+  .aimeal-ai{ align-self:flex-start; background:var(--card-bg); border:1px solid var(--line); border-bottom-left-radius:4px; }
+  .aimeal-thumbs{ display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px; }
+  .aimeal-thumb{ position:relative; width:56px; height:56px; }
+  .aimeal-thumb img{ width:100%; height:100%; object-fit:cover; border-radius:8px; display:block; }
+  .aimeal-thumb button{ position:absolute; top:-6px; right:-6px; width:20px; height:20px; border-radius:50%; border:none; background:var(--cocoa); color:#fff; font-size:12px; line-height:20px; padding:0; }
   /* ---------- Bottom nav ---------- */
   .bottom-nav{
     position:fixed; bottom:0; left:50%; transform:translateX(-50%);
@@ -928,7 +940,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.234';
+var BUILD_VERSION = '9.235';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2621,6 +2633,24 @@ var I18N = {
     restockCurrent:'当前库存', restockAfter:'扣除后库存', restockThreshold:'提醒线', restockGotIt:'知道了', restockAddToList:'添加到清单', restockAddAllToList:'全部添加到清单',
     shopTitle:'购物清单', navShopping:'购物清单', shopAddPlaceholder:'添加要买的东西…', shopAddBtn:'添加', shopEmpty:'清单是空的', shopBoughtTitle:'已买', shopBoughtHint:'已勾选的食材，库存补足后会自动从这里清掉；在那之前取消勾选，就会放回待买。', shopTopHint:'从补货提醒加进来的食材，在这里勾选之前不会再弹窗提醒；勾选后如果库存仍低于提醒线，提醒会恢复。', shopRestocked:'库存已补足', shopDupToast:'清单里已经有这一项了', shopAddedToast:'已加到购物清单（{n} 项）：库存页侧边栏 → 更多 → 购物清单', shopAlreadyToast:'这些食材已经在购物清单里了',
     restockSettingTitle:'补货提醒弹窗', restockSettingHint:'开启后：每天第一次启动 app 时（一天最多一次），以及在三餐里用到库存不足的食材时，会弹窗提醒。只影响这台手机。',
+    aiMealTitle:'AI 加餐', aiMealFabLabel:'AI 加餐',
+    aiMealIntro:'说说你吃了什么：可以带上重量和做法，也可以拍照。AI 会估算热量和营养，你确认或修改后才会加进三餐。',
+    aiMealPlaceholder:'例：大统华美食广场 炸巴萨鱼柳150g，麻婆豆腐（只有豆腐没有肉末和汤汁）170g，蔬菜炒面100g',
+    aiMealFollowPh:'还想改什么？比如：鱼柳改成100g',
+    aiMealVoiceTip:'想用语音？点键盘上的麦克风按钮就能说话输入。',
+    aiMealSend:'发送', aiMealPhotoBtn:'添加图片', aiMealMaxImages:'最多添加 4 张图片',
+    aiMealThinking:'AI 正在估算…', aiMealNoProxy:'请先在设置里填写 AI 代理地址',
+    aiMealNeedInput:'请先输入描述，或添加一张图片', aiMealError:'估算失败了，请稍后重试（你输入的内容还在）',
+    aiMealResultTitle:'估算结果', aiMealResultHint:'以下都是 AI 的估算值，仅供参考，每一项都可以直接修改。改重量时，营养会跟着按比例变。',
+    aiMealAssumptions:'AI 的估算依据', aiMealAddRow:'添加一项', aiMealNamePh:'名称', aiMealUnitPh:'单位',
+    aiMealMore:'更多营养（可以留空）', aiMealTotal:'合计', aiMealAmountLabel:'重量/数量',
+    aiMealHowAdd:'怎么加到三餐', aiMealModeItem:'逐条添加', aiMealModeSet:'作为套餐添加',
+    aiMealModeItemHint:'每个食物在三餐里各是一条，可以单独修改、单独删除。',
+    aiMealModeSetHint:'整套作为一条记录，点开能看到里面每一项；热量和营养是合计。',
+    aiMealSetNamePh:'套餐名称', aiMealDefaultSetName:'AI 估算套餐',
+    aiMealCommit:'添加到 {target}', aiMealNeedCal:'「{name}」还没有热量，请填写后再添加', aiMealNeedItems:'没有可以添加的内容',
+    aiMealDiscardConfirm:'这次的描述和 AI 的结果还没有添加到三餐，退出后会丢失。', aiMealAdded:'已添加到三餐',
+    aiMealImageOnlyPrompt:'请根据图片里的食物估算。',
     updTitle:'已更新到 {v}', updGotIt:'知道了', updTagNew:'新功能', updTagFix:'修复', updTagTweak:'调整',
     storagePersistYes:'已启用(浏览器已同意保护本应用数据，减少被系统清理的概率)',
     storagePersistNo:'未启用(浏览器拒绝了持久化请求，数据存在被系统清理的风险，建议定期在上方导出备份)',
@@ -2931,6 +2961,24 @@ var I18N = {
     restockCurrent:'Current stock', restockAfter:'Stock after deduction', restockThreshold:'Reminder level', restockGotIt:'Got it', restockAddToList:'Add to list', restockAddAllToList:'Add all to list',
     shopTitle:'Shopping list', navShopping:'Shopping list', shopAddPlaceholder:'Add something to buy…', shopAddBtn:'Add', shopEmpty:'The list is empty', shopBoughtTitle:'Bought', shopBoughtHint:'Checked items are cleared automatically once stock is back above the reminder level; until then, uncheck to put one back.', shopTopHint:'Items added from the restock reminder won\'t trigger the popup while unchecked here; once checked, the reminder returns if stock is still at or below the reminder level.', shopRestocked:'Stock restored', shopDupToast:'Already on the list', shopAddedToast:'Added to the shopping list ({n}): Inventory sidebar → More → Shopping list', shopAlreadyToast:'Already on the shopping list',
     restockSettingTitle:'Restock reminder popup', restockSettingHint:'When on: shown the first time you launch the app each day (at most once a day), and in 三餐 when you use a low-stock item. This device only.',
+    aiMealTitle:'AI meal entry', aiMealFabLabel:'AI meal entry',
+    aiMealIntro:'Tell me what you ate - include weights and how it was cooked if you know, or take a photo. AI estimates calories and nutrition, and nothing is added until you confirm.',
+    aiMealPlaceholder:'e.g. T&T food court: fried basa fillet 150g, mapo tofu (tofu only, no minced meat or sauce) 170g, vegetable chow mein 100g',
+    aiMealFollowPh:'Want to change something? e.g. make the fish 100g',
+    aiMealVoiceTip:'Want to talk instead? Tap the microphone on your keyboard.',
+    aiMealSend:'Send', aiMealPhotoBtn:'Add photo', aiMealMaxImages:'Up to 4 photos',
+    aiMealThinking:'AI is estimating…', aiMealNoProxy:'Set the AI proxy address in Settings first',
+    aiMealNeedInput:'Type a description or add a photo first', aiMealError:'Estimate failed, please try again (your input is kept)',
+    aiMealResultTitle:'Estimate', aiMealResultHint:'All numbers are AI estimates - treat them as a guide and edit anything. Changing an amount scales the nutrition proportionally.',
+    aiMealAssumptions:'How AI estimated', aiMealAddRow:'Add item', aiMealNamePh:'Name', aiMealUnitPh:'Unit',
+    aiMealMore:'More nutrition (can stay blank)', aiMealTotal:'Total', aiMealAmountLabel:'Amount',
+    aiMealHowAdd:'How to add to meals', aiMealModeItem:'One by one', aiMealModeSet:'As a meal set',
+    aiMealModeItemHint:'Each food becomes its own entry, which you can edit or delete separately.',
+    aiMealModeSetHint:'The whole thing is one entry; open it to see each item. Calories and nutrition are the total.',
+    aiMealSetNamePh:'Meal set name', aiMealDefaultSetName:'AI-estimated meal',
+    aiMealCommit:'Add to {target}', aiMealNeedCal:'"{name}" has no calories yet - fill it in before adding', aiMealNeedItems:'Nothing to add',
+    aiMealDiscardConfirm:'This description and the AI result have not been added to your meals yet and will be lost if you leave.', aiMealAdded:'Added to meals',
+    aiMealImageOnlyPrompt:'Please estimate from the food in the picture.',
     updTitle:'Updated to {v}', updGotIt:'Got it', updTagNew:'New', updTagFix:'Fixed', updTagTweak:'Changed',
     storagePersistYes:'Enabled (the browser agreed to protect this app\'s data, lowering the risk of automatic cleanup)',
     storagePersistNo:'Not enabled (the browser declined the persistence request — data is at risk of being cleared by the system; export a backup regularly using the buttons above)',
@@ -4897,6 +4945,7 @@ function render(){
     case 'planSettings': html = renderPlanSettings(); break;
     case 'macroPresetPicker': html = renderMacroPresetPicker(); break;
     case 'mealsHistory': html = renderMealsHistory(); break;
+    case 'aiMeal': html = renderAiMeal(); break;
     case 'mealAddFood': html = renderMealAddFood(); break;
     case 'ingPicker': html = renderIngPicker(); break;
     case 'mealLogEntryDetail': html = renderMealLogEntryDetail(); break;
@@ -5306,6 +5355,7 @@ function openSettings(fromView){
     if(state.view==='usdaFoodDetail') return (state.params && state.params.from) || {view:'meals'};
     if(state.view==='mealLogEntryDetail') return {view:'meals'};
     if(state.view==='mealsHistory') return {view:'meals'};
+    if(state.view==='aiMeal') return {view:'meals'};
     if(state.view==='fastingHistory') return {view:'meals'};
     if(state.view==='inventorySettings') return {view:'home'};
     if(state.view==='recipesSettings') return {view:'recipes'};
@@ -5345,6 +5395,8 @@ function openSettings(fromView){
       // README 9.200: 套餐加食材页(ingPicker)右划返回统一走ipBack()——数量/USDA查询中的步骤先
       // 退回这个页面自己的搜索步骤，退到底(搜索步骤本身)才真正离开页面回到套餐模板/草稿，逻辑
       // 跟上面mealAddFood两条分支完全对应。
+      // README 9.235: AI加餐页右划返回：有没添加的内容就先确认，别悄悄丢掉。
+      else if(state.view==='aiMeal') cancelAiMeal();
       else if(state.view==='ingPicker') ipBack();
       else navigate(target.view, target.params);
     }
@@ -6911,6 +6963,9 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.235', items:[
+    {t:'new', zh:'三餐页右下角多了一个「AI」按钮：用文字描述你吃了什么（也可以拍照），AI 帮你估算热量和营养，你看过、改过再加进三餐。', en:'The meals page has a new "AI" button: describe what you ate (or take a photo) and AI estimates calories and nutrition. You review and edit before it is added.'}
+  ]},
   {v:'9.234', items:[
     {t:'new', zh:'以后每次更新后第一次打开 app，会弹出一个说明，告诉你这次更新了什么。点「知道了」之后就不会再弹。', en:'After each update, the first time you open the app you\'ll see a short note about what changed. Tap "Got it" and it won\'t show again.'},
     {t:'tweak', zh:'如果当天正好也有补货提醒，会先显示更新说明，点「知道了」之后再显示补货提醒，两个都不会漏。', en:'If a restock reminder is also due that day, the update note comes first and the reminder follows after you tap "Got it".'}
@@ -13103,6 +13158,7 @@ function renderMeals(){
   '<div class="content">'+
     fastingCardHtml() + topCard + tabsHtml + detailHtml + mealMacroWidget + nutrientBars +
   '</div>'+
+  (state.aiProxyUrl ? '<button class="ai-fab" onclick="openAiMeal()" aria-label="'+t('aiMealFabLabel')+'">AI</button>' : '')+
   bottomNav();
 }
 function renderMealsSidebarContent(){
@@ -13645,7 +13701,11 @@ function saveMealLogEntryEdit(){
     var fat = ee.customFat ? parseAmountInput(ee.customFat) : null;
     m.custom_calories=cals; m.custom_carbs=carbs; m.custom_protein=protein; m.custom_fat=fat; m.custom_name=ee.customName||'';
     m.name = ee.customName || t('quickCalDefaultName');
+    // README 9.235: AI加餐加进来的单条记录还带着纤维、钠等其它营养，这个编辑页只能改热量/碳水/蛋白质/脂肪四项——
+    // 以前这里会把整个nutrition重置成只剩这四项，改一下热量就会把其它营养清掉；现在其它项原样保留。
+    var _oldN = m.nutrition || {};
     m.nutrition = emptyNutrition();
+    NUTRI_KEYS.forEach(function(k){ if(['calories','carbs','protein','fat'].indexOf(k)===-1 && _oldN[k]!=null) m.nutrition[k] = _oldN[k]; });
     m.nutrition.calories = cals;
     if(carbs) m.nutrition.carbs = carbs;
     if(protein) m.nutrition.protein = protein;
@@ -16543,6 +16603,373 @@ function ipConfirmQuickAddSelection(){
 // ===================== / 快速勾选添加 - 批量确认 =====================
 
 /* ---- history ---- */
+// ===================== README 9.235: AI 辅助加餐 =====================
+// 三餐页右下角的「AI」悬浮按钮 -> 全屏的AI加餐页(view:'aiMeal')。流程：
+//  1) 用户用文字(可带最多4张图片)描述吃了什么 -> 发给 Worker 的 POST /meal-ai(见 worker.js)；
+//  2) AI 返回每个食物的估算(名称/重量/热量/宏量/可选的其它营养)+估算依据，显示在同一页的"估算结果"里；
+//  3) 每一项都能直接改(改重量时营养按比例跟着变)，也能继续跟AI说\"鱼柳改成100g\"让它重算；
+//  4) 用户选日期/餐次、\"逐条添加\"还是\"作为套餐添加\"，点最下面的按钮才真正写进三餐。
+// 数据都存成已有的\"自定\"(source_type:'custom')结构，不新增数据格式：逐条=每个食物一条自定记录；
+// 套餐=一条套餐记录(commitMealsetLogEntry)，里面每项是自定子项。自定条目的营养是固定值、不随数量缩放
+// (见recomputeMealsetLogItemNutrition)，所以重量写进名称里(\"炸巴萨鱼柳 150g\")，数量字段留空/1。
+// 没有云端状态：state.aiMeal 只在这个页面的会话里存在，退出/加完就清掉。
+var AI_MEAL_CORE = ['calories','protein','fat','carbs'];
+var AI_MEAL_MORE = ['fiber','sugar','added_sugar','saturated_fat','trans_fat','cholesterol','sodium','vitamin_d','potassium','calcium','iron'];
+var AI_MEAL_ALL = AI_MEAL_CORE.concat(AI_MEAL_MORE);
+var AI_MEAL_UNIT = {calories:'kcal',protein:'g',fat:'g',carbs:'g',fiber:'g',sugar:'g',added_sugar:'g',saturated_fat:'g',trans_fat:'g',cholesterol:'mg',sodium:'mg',vitamin_d:'mcg',potassium:'mg',calcium:'mg',iron:'mg'};
+function aiMealLabel(k){
+  var L = nutriLabels();
+  if(L[k]) return L[k];
+  var m = {vitamin_d:'nutriVitaminD', potassium:'nutriPotassium', calcium:'nutriCalcium', iron:'nutriIron'};
+  return t(m[k] || k);
+}
+function aiMealFmt(v, k){
+  if(v==null || isNaN(v)) return '';
+  return k==='calories' ? String(Math.round(v)) : String(Math.round(v*10)/10);
+}
+function aiMealParse(val){
+  if(val==null || String(val).trim()==='') return null;
+  var v = parseAmountInput(val);
+  return (v==null || isNaN(v)) ? null : v;
+}
+function aiMealFresh(){
+  mealsUIDefaults();
+  return {date: state.mealsUI.date, slot: state.mealsUI.selectedSlot, draft:'', images:[], messages:[], items:null,
+    assumptions:'', mealName:'', firstText:'', mode:'item', setName:'', loading:false, committed:false};
+}
+function openAiMeal(){
+  if(!state.aiProxyUrl){ showToast(t('aiMealNoProxy')); return; }
+  state.aiMeal = aiMealFresh();
+  navigate('aiMeal');
+}
+function aiMealHasContent(){
+  var am = state.aiMeal;
+  return !!(am && (am.items || (am.draft||'').trim() || am.images.length || am.messages.length));
+}
+function cancelAiMeal(){
+  if(aiMealHasContent()){
+    showConfirmModal(t('aiMealDiscardConfirm'), discardAiMeal, {title:t('discardChangesTitle'), confirmLabel:t('discardChangesConfirmBtn')});
+    return;
+  }
+  discardAiMeal();
+}
+function discardAiMeal(){
+  state.aiMeal = null;
+  navigate('meals');
+}
+function aiMealSlotsForPicker(am){
+  var visible = MEAL_SLOTS.filter(function(s){ return state.visibleMealSlots.indexOf(s)!==-1; });
+  if(visible.indexOf(am.slot)===-1) visible.push(am.slot);
+  return visible;
+}
+function aiMealTargetLabel(am){
+  return (am.date===todayStr() ? t('todayLabel') : fmtDateDots(am.date)) + ' ' + t('mealSlot_'+am.slot);
+}
+function aiMealSetDate(v){ if(state.aiMeal && /^\d{4}-\d{2}-\d{2}$/.test(v||'')){ state.aiMeal.date = v; render(); } }
+function aiMealSetSlot(s){ if(state.aiMeal){ state.aiMeal.slot = s; render(); } }
+function aiMealSetMode(m){ if(state.aiMeal){ state.aiMeal.mode = m; render(); } }
+
+// ---- 图片 ----
+async function aiMealPhotosSelected(input){
+  var am = state.aiMeal;
+  var files = Array.prototype.slice.call(input.files || []);
+  input.value = '';
+  if(!am || !files.length) return;
+  for(var i=0;i<files.length;i++){
+    if(am.images.length >= 4){ showToast(t('aiMealMaxImages')); break; }
+    try{
+      var r = await fileToResizedBase64(files[i], 1024);
+      am.images.push({mime:r.mimeType, data:r.base64});
+    }catch(e){ showToast(t('photoProcessFailed')); }
+  }
+  if(state.aiMeal === am && state.view==='aiMeal') render();
+}
+function aiMealRemoveImage(i){
+  if(state.aiMeal){ state.aiMeal.images.splice(i,1); render(); }
+}
+
+// ---- 发给 AI ----
+function aiMealItemsForAi(am){
+  return (am.items||[]).map(function(it){
+    var o = {name:it.name, amount:it.amount, unit:it.unit};
+    AI_MEAL_ALL.forEach(function(k){ o[k] = it.n[k]; });
+    return o;
+  });
+}
+async function aiMealSend(){
+  var am = state.aiMeal;
+  if(!am || am.loading) return;
+  var text = (am.draft||'').trim();
+  var imgs = am.images.slice();
+  if(!text && !imgs.length){ showToast(t('aiMealNeedInput')); return; }
+  var base = usdaWorkerBase();
+  if(!base){ showToast(t('aiMealNoProxy')); return; }
+  var isFollow = !!am.items;
+  var sendText = text || t('aiMealImageOnlyPrompt');
+  var payloadText = sendText;
+  if(isFollow){
+    // 每次请求都是独立的一条消息：把\"当前清单\"(含用户手动改过的数字)一起发过去，AI只在这个清单上改。
+    payloadText = '用户的新要求：' + sendText +
+      (am.firstText ? '\n\n（最初的描述：' + am.firstText + '）' : '') +
+      '\n\n当前清单（可能已被用户手动修改，以此为准）：\n' + JSON.stringify({date:am.date, slot:am.slot, meal_name:am.mealName, items:aiMealItemsForAi(am)});
+  } else {
+    am.firstText = text;
+  }
+  var userMsg = {role:'user', text: text, imgs: imgs.map(function(im){ return 'data:'+im.mime+';base64,'+im.data; })};
+  am.messages.push(userMsg);
+  am.draft = ''; am.images = []; am.loading = true;
+  render();
+  window.scrollTo(0, document.body.scrollHeight);
+  var ctrl = (typeof AbortController!=='undefined') ? new AbortController() : null;
+  var timer = ctrl ? setTimeout(function(){ ctrl.abort(); }, 90000) : null;
+  var result = null, failed = false;
+  try{
+    var res = await fetch(base + '/meal-ai', {
+      method:'POST', headers:{'Content-Type':'application/json'}, signal: ctrl ? ctrl.signal : undefined,
+      body: JSON.stringify({
+        messages:[{role:'user', text: payloadText, images: imgs}],
+        today: todayStr(), defaultDate: am.date, defaultSlot: am.slot
+      })
+    });
+    var data = await res.json();
+    if(!res.ok || !data || !data.result) failed = true; else result = data.result;
+  }catch(e){ failed = true; }
+  if(timer) clearTimeout(timer);
+  if(state.aiMeal !== am) return; // 等待期间用户已经退出了这个页面
+  am.loading = false;
+  if(failed){
+    // 失败：把刚发出去的内容原样放回输入框(含图片)，不让用户重打
+    am.messages.pop();
+    am.draft = text; am.images = imgs;
+    if(!isFollow) am.firstText = '';
+    showToast(t('aiMealError'));
+    if(state.view==='aiMeal') render();
+    return;
+  }
+  am.messages.push({role:'ai', text: result.reply || ''});
+  if(result.items && result.items.length){
+    if(result.date) am.date = result.date;
+    if(result.slot) am.slot = result.slot;
+    if(result.meal_name) am.mealName = result.meal_name;
+    am.assumptions = result.assumptions || '';
+    am.items = result.items.map(function(it){
+      var n = {};
+      AI_MEAL_ALL.forEach(function(k){ n[k] = (it[k]==null || isNaN(it[k])) ? null : Number(it[k]); });
+      return {name: it.name, amount: it.amount, unit: it.unit || 'g', n: n, open: false};
+    });
+  } else if(!isFollow){
+    am.firstText = ''; // AI没认出任何食物：下次当作第一次描述
+  }
+  if(state.view==='aiMeal'){
+    render();
+    requestAnimationFrame(function(){
+      var el = document.getElementById(am.items ? 'aimeal-result' : 'aimeal-input');
+      if(el) window.scrollTo(0, Math.max(0, el.getBoundingClientRect().top + (window.scrollY||0) - 70));
+    });
+  }
+}
+
+// ---- 手动改估算结果(都是原地更新，不重新渲染整页：重新渲染会让正在输入的框丢失焦点，也可能吞掉紧接着的按钮点击) ----
+function aiMealRefreshTotals(){
+  var am = state.aiMeal, el = document.getElementById('aimeal-total');
+  if(!am || !am.items || !el) return;
+  el.textContent = aiMealTotalsText(am);
+}
+function aiMealTotalsText(am){
+  var tot = {calories:0, protein:0, fat:0, carbs:0};
+  am.items.forEach(function(it){ AI_MEAL_CORE.forEach(function(k){ tot[k] += (it.n[k]||0); }); });
+  return Math.round(tot.calories)+' kcal  ·  '+t('nutriProtein')+' '+aiMealFmt(tot.protein)+'g  ·  '+t('nutriFat')+' '+aiMealFmt(tot.fat)+'g  ·  '+t('nutriCarbs')+' '+aiMealFmt(tot.carbs)+'g';
+}
+function aiMealSetName(i, v){ var am = state.aiMeal; if(am && am.items && am.items[i]) am.items[i].name = v; }
+function aiMealSetUnit(i, v){ var am = state.aiMeal; if(am && am.items && am.items[i]) am.items[i].unit = v; }
+function aiMealSetN(i, k, v){
+  var am = state.aiMeal; if(!am || !am.items || !am.items[i]) return;
+  am.items[i].n[k] = aiMealParse(v);
+  aiMealRefreshTotals();
+}
+// 改重量/数量：这一项所有已有的营养数字按 新数量÷旧数量 等比缩放；之前没有数量(留空)就只改数量、不缩放。
+function aiMealSetAmount(i, v){
+  var am = state.aiMeal; if(!am || !am.items || !am.items[i]) return;
+  var it = am.items[i];
+  var prev = it.amount, nv = aiMealParse(v);
+  it.amount = nv;
+  if(nv>0 && prev>0 && nv!==prev){
+    var f = nv/prev;
+    AI_MEAL_ALL.forEach(function(k){
+      if(it.n[k]==null) return;
+      it.n[k] = it.n[k]*f;
+      var el = document.getElementById('aimeal-n-'+i+'-'+k);
+      if(el) el.value = aiMealFmt(it.n[k], k);
+    });
+    aiMealRefreshTotals();
+  }
+}
+function aiMealToggleMore(i){ var am = state.aiMeal; if(am && am.items && am.items[i]){ am.items[i].open = !am.items[i].open; render(); } }
+function aiMealRemoveItem(i){
+  var am = state.aiMeal; if(!am || !am.items) return;
+  am.items.splice(i,1);
+  render();
+}
+function aiMealAddItem(){
+  var am = state.aiMeal; if(!am) return;
+  var n = {}; AI_MEAL_ALL.forEach(function(k){ n[k] = null; });
+  if(!am.items) am.items = [];
+  am.items.push({name:'', amount:null, unit:'g', n:n, open:false});
+  render();
+}
+
+// ---- 真正写进三餐 ----
+function aiMealItemName(it){
+  var nm = (it.name||'').trim() || t('quickCalDefaultName');
+  if(it.amount>0) nm += ' ' + aiMealFmt(it.amount) + (it.unit||'');
+  return nm;
+}
+function aiMealBuildNutrition(it){
+  var nutrition = emptyNutrition(), extra = {};
+  AI_MEAL_ALL.forEach(function(k){
+    var v = it.n[k];
+    if(v==null || isNaN(v)) return;
+    v = k==='calories' ? Math.round(v*10)/10 : Math.round(v*100)/100;
+    if(NUTRI_KEYS.indexOf(k)!==-1) nutrition[k] = v;
+    else if(v>0) extra[k] = {unit: AI_MEAL_UNIT[k], value: v};
+  });
+  return {nutrition: nutrition, extra: extra};
+}
+function aiMealCommit(){
+  var am = state.aiMeal;
+  if(!am || am.loading || am.committed) return;
+  if(!am.items || !am.items.length){ showToast(t('aiMealNeedItems')); return; }
+  for(var i=0;i<am.items.length;i++){
+    var c = am.items[i].n.calories;
+    if(c==null || isNaN(c) || c<=0){
+      showToast(t('aiMealNeedCal').replace('{name}', (am.items[i].name||'').trim() || String(i+1)));
+      return;
+    }
+  }
+  am.committed = true;
+  var date = am.date, slot = am.slot;
+  if(am.mode==='set'){
+    var subs = am.items.map(function(it){
+      var b = aiMealBuildNutrition(it);
+      return {id: uid(), source_type:'custom', source_id:null, name: aiMealItemName(it), amount:1, unit:'',
+        nutrition: b.nutrition, nutrition_extra: b.extra, nutrition_snapshot: b.nutrition, nutrition_extra_snapshot: b.extra, deduct:false};
+    });
+    var setName = (am.setName||'').trim() || am.mealName || t('aiMealDefaultSetName');
+    commitMealsetLogEntry(date, slot, null, setName, subs);
+  } else {
+    var ts = nowLocalIso();
+    am.items.forEach(function(it){
+      var b = aiMealBuildNutrition(it);
+      var nm = aiMealItemName(it);
+      var nn = b.nutrition;
+      state.mealLogs.push({
+        id: uid(), date: date, slot: slot, name: nm, amount:null, unit:'',
+        nutrition: nn, nutrition_extra: b.extra, created_at: ts,
+        source_type:'custom',
+        custom_calories: nn.calories, custom_carbs: nn.carbs||null, custom_protein: nn.protein||null, custom_fat: nn.fat||null, custom_name: nm,
+        ai_estimated: true
+      });
+    });
+    saveMealLogs();
+  }
+  state.aiMeal = null;
+  state.mealsUI.date = date;
+  state.mealsUI.selectedSlot = slot;
+  showToast(t('aiMealAdded'));
+  navigate('meals');
+}
+
+// ---- 页面 ----
+function aiMealInputHtml(am, follow){
+  var thumbs = am.images.length ? ('<div class="aimeal-thumbs">'+am.images.map(function(im, i){
+    return '<div class="aimeal-thumb"><img src="data:'+im.mime+';base64,'+im.data+'" alt=""><button type="button" onclick="aiMealRemoveImage('+i+')" aria-label="remove">×</button></div>';
+  }).join('')+'</div>') : '';
+  return '<div class="form-group">'+thumbs+
+    '<textarea class="aimeal-in" id="aimeal-input" rows="'+(follow?2:5)+'" placeholder="'+esc(follow ? t('aiMealFollowPh') : t('aiMealPlaceholder'))+'" oninput="state.aiMeal.draft=this.value">'+esc(am.draft)+'</textarea>'+
+    '<div style="display:flex;gap:8px;margin-top:10px;">'+
+      '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="document.getElementById(\'aimeal-file\').click()">'+ic('camera',16)+' '+t('aiMealPhotoBtn')+'</button>'+
+      '<button class="btn btn-primary btn-sm" style="flex:1;"'+(am.loading?' disabled':'')+' onclick="aiMealSend()">'+t('aiMealSend')+'</button>'+
+    '</div>'+
+    '<input type="file" accept="image/*" multiple id="aimeal-file" style="display:none" onchange="aiMealPhotosSelected(this)">'+
+    (follow ? '' : '<p class="hint" style="margin:10px 0 0;">'+t('aiMealVoiceTip')+'</p>')+
+  '</div>';
+}
+function aiMealItemHtml(it, i){
+  var coreCells = AI_MEAL_CORE.map(function(k){
+    return '<div style="flex:1;min-width:0;">'+
+      '<div class="hint" style="font-size:12px;margin:0 0 3px;">'+aiMealLabel(k)+'<span style="opacity:.7;"> '+AI_MEAL_UNIT[k]+'</span></div>'+
+      '<input class="aimeal-in" style="padding:8px 6px;" type="text" inputmode="decimal" id="aimeal-n-'+i+'-'+k+'" value="'+esc(aiMealFmt(it.n[k], k))+'" oninput="aiMealSetN('+i+',\''+k+'\',this.value)">'+
+    '</div>';
+  }).join('');
+  var more = '';
+  if(it.open){
+    more = '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">'+AI_MEAL_MORE.map(function(k){
+      return '<div style="width:calc(33.3% - 6px);min-width:0;">'+
+        '<div class="hint" style="font-size:12px;margin:0 0 3px;">'+aiMealLabel(k)+'<span style="opacity:.7;"> '+AI_MEAL_UNIT[k]+'</span></div>'+
+        '<input class="aimeal-in" style="padding:8px 6px;" type="text" inputmode="decimal" id="aimeal-n-'+i+'-'+k+'" value="'+esc(aiMealFmt(it.n[k], k))+'" oninput="aiMealSetN('+i+',\''+k+'\',this.value)">'+
+      '</div>';
+    }).join('')+'</div>';
+  }
+  return '<div class="form-group">'+
+    '<div style="display:flex;gap:8px;align-items:center;">'+
+      '<input class="aimeal-in" style="flex:1;min-width:0;font-weight:600;" type="text" placeholder="'+t('aiMealNamePh')+'" value="'+esc(it.name)+'" oninput="aiMealSetName('+i+',this.value)">'+
+      '<button type="button" class="icon-btn" onclick="aiMealRemoveItem('+i+')" aria-label="'+t('delete')+'">'+ic('trash',18)+'</button>'+
+    '</div>'+
+    '<div style="display:flex;gap:8px;margin:10px 0;">'+
+      '<div style="flex:1;min-width:0;"><div class="hint" style="font-size:12px;margin:0 0 3px;">'+t('aiMealAmountLabel')+'</div>'+
+        '<input class="aimeal-in" type="text" inputmode="decimal" value="'+esc(it.amount>0 ? aiMealFmt(it.amount) : '')+'" onchange="aiMealSetAmount('+i+',this.value)"></div>'+
+      '<div style="width:84px;"><div class="hint" style="font-size:12px;margin:0 0 3px;">'+t('aiMealUnitPh')+'</div>'+
+        '<input class="aimeal-in" type="text" value="'+esc(it.unit)+'" oninput="aiMealSetUnit('+i+',this.value)"></div>'+
+    '</div>'+
+    '<div style="display:flex;gap:6px;">'+coreCells+'</div>'+
+    more+
+    '<button type="button" class="btn btn-outline btn-sm" style="width:100%;margin-top:10px;" onclick="aiMealToggleMore('+i+')">'+t('aiMealMore')+(it.open?' ▴':' ▾')+'</button>'+
+  '</div>';
+}
+function aiMealResultHtml(am){
+  var slotTabs = aiMealSlotsForPicker(am).map(function(s){
+    return '<div class="meal-tab'+(s===am.slot?' active':'')+'" onclick="aiMealSetSlot('+aj(s)+')"><div class="mt-name" style="font-size:16px;">'+t('mealSlot_'+s)+'</div></div>';
+  }).join('');
+  var effSetName = am.setName || am.mealName || t('aiMealDefaultSetName');
+  return '<div id="aimeal-result" class="section-title" style="margin-top:6px;">'+t('aiMealResultTitle')+'</div>'+
+    '<p class="hint" style="margin:0 0 10px;">'+t('aiMealResultHint')+'</p>'+
+    (am.assumptions ? '<div class="form-group" style="background:var(--cream);"><div class="hint" style="margin:0 0 4px;font-weight:600;">'+t('aiMealAssumptions')+'</div><div style="font-size:14px;line-height:1.5;">'+esc(am.assumptions)+'</div></div>' : '')+
+    '<div class="form-group">'+
+      '<input class="aimeal-in" type="date" value="'+esc(am.date)+'" onchange="aiMealSetDate(this.value)">'+
+      '<div class="meal-tabs" style="margin:10px 0 0;">'+slotTabs+'</div>'+
+    '</div>'+
+    am.items.map(aiMealItemHtml).join('')+
+    '<button type="button" class="btn btn-outline" style="width:100%;margin-bottom:14px;" onclick="aiMealAddItem()">'+ic('plus',16)+' '+t('aiMealAddRow')+'</button>'+
+    '<div class="form-group"><div class="hint" style="margin:0 0 4px;">'+t('aiMealTotal')+'</div>'+
+      '<div id="aimeal-total" style="font-size:16px;font-weight:700;color:var(--cocoa);">'+esc(aiMealTotalsText(am))+'</div></div>'+
+    '<div class="section-title">'+t('aiMealHowAdd')+'</div>'+
+    '<div class="meal-tabs" style="margin:0 0 6px;">'+
+      '<div class="meal-tab'+(am.mode==='item'?' active':'')+'" onclick="aiMealSetMode(\'item\')"><div class="mt-name" style="font-size:16px;">'+t('aiMealModeItem')+'</div></div>'+
+      '<div class="meal-tab'+(am.mode==='set'?' active':'')+'" onclick="aiMealSetMode(\'set\')"><div class="mt-name" style="font-size:16px;">'+t('aiMealModeSet')+'</div></div>'+
+    '</div>'+
+    '<p class="hint" style="margin:0 0 10px;">'+(am.mode==='set' ? t('aiMealModeSetHint') : t('aiMealModeItemHint'))+'</p>'+
+    (am.mode==='set' ? '<input class="aimeal-in" style="margin-bottom:10px;" type="text" placeholder="'+esc(effSetName)+'" value="'+esc(am.setName)+'" oninput="state.aiMeal.setName=this.value">' : '')+
+    '<button class="btn btn-primary" style="width:100%;margin-bottom:18px;" onclick="aiMealCommit()">'+t('aiMealCommit').replace('{target}', esc(aiMealTargetLabel(am)))+'</button>';
+}
+function renderAiMeal(){
+  if(!state.aiMeal) state.aiMeal = aiMealFresh();
+  var am = state.aiMeal;
+  var bubbles = am.messages.map(function(m){
+    if(m.role==='user'){
+      var th = (m.imgs && m.imgs.length) ? '<div class="aimeal-thumbs">'+m.imgs.map(function(u){ return '<div class="aimeal-thumb"><img src="'+u+'" alt=""></div>'; }).join('')+'</div>' : '';
+      return '<div class="aimeal-bubble aimeal-user">'+th+esc(m.text)+'</div>';
+    }
+    return '<div class="aimeal-bubble aimeal-ai">'+esc(m.text)+'</div>';
+  }).join('');
+  if(am.loading) bubbles += '<div class="aimeal-bubble aimeal-ai" style="color:#B79B78;">'+t('aiMealThinking')+'</div>';
+  return '<div class="page-header"><button class="back-btn" onclick="cancelAiMeal()">'+ic('back',22)+'</button><h1>'+t('aiMealTitle')+'</h1></div>'+
+    '<div class="content">'+
+      (am.messages.length ? '' : '<p class="hint" style="margin:0 0 12px;">'+t('aiMealIntro')+'</p>')+
+      (bubbles ? '<div class="aimeal-chat">'+bubbles+'</div>' : '')+
+      (am.items ? aiMealResultHtml(am) : '')+
+      (am.loading ? '' : aiMealInputHtml(am, !!am.items))+
+    '</div>';
+}
 function renderMealsHistory(){
   var byDate = {};
   state.mealLogs.forEach(function(m){ byDate[m.date] = (byDate[m.date]||0) + (m.nutrition.calories||0); });
