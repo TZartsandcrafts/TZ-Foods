@@ -928,7 +928,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.232';
+var BUILD_VERSION = '9.233';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -13206,6 +13206,16 @@ function deleteMealLogFromSwipe(id){ closeItemSwipeRow(id); deleteMealLog(id); }
 // top-level deductItemId/deductAmount/deductUnit. Shared by deleteMealLog and
 // deleteMealLogEntryFromDetail so both reverse exactly the same way. Returns true if anything
 // was actually added back, so callers only call saveItems() when something changed.
+// README 9.233: 已记录的三餐条目/套餐子项改了单位时，库存里那笔扣减要"换算后重扣"：整笔旧扣减加回去，
+// 再按新数量+新单位扣一次(两个单位之间的差额不能直接相减)。加回去和重扣用的是同一套换算，所以只要两个单位
+// 在这个食材上都换算得出来，库存净变化就恰好是"新用量-旧用量"，不会漏扣也不会重复扣。任意一个单位换算不出来
+// (比如食材后来改过单位设置)就一律不动库存，返回 {ok:false}，让调用方提示并中止，宁可不让改也不把库存改偏。
+function redeductOnUnitChange(item, oldAmount, oldUnit, newAmount, newUnit){
+  if(primaryEquivalentAmount(item, oldAmount, oldUnit)==null || primaryEquivalentAmount(item, newAmount, newUnit)==null) return {ok:false};
+  addBackToItem(item, oldAmount, oldUnit);
+  var r = deductFromItem(item, newAmount, newUnit);
+  return {ok:true, insufficient: !!(r && r.insufficient)};
+}
 function reverseMealLogDeductions(m){
   var changed = false;
   if(m.deductItemId){
@@ -13568,7 +13578,7 @@ function saveMealLogEntryEdit(){
       var scale = mealEntryScaleFactor(m, ee);
       if(scale==null){ showToast(t('unitConversionUnavailable')); return; }
       var dedItem = m.deductItemId ? state.items.find(function(x){ return x.id===m.deductItemId; }) : null;
-      if(dedItem && unitChanged && primaryEquivalentAmount(dedItem, newAmt, newUnit)==null){ showToast(t('unitConversionUnavailable')); return; }
+      if(dedItem && unitChanged && (primaryEquivalentAmount(dedItem, newAmt, newUnit)==null || primaryEquivalentAmount(dedItem, m.deductAmount, m.deductUnit)==null)){ showToast(t('unitConversionUnavailable')); return; }
       m.nutrition_extra = computeScaledNutritionExtra(m.nutrition_extra, 1, scale);
       m.nutrition = computeScaledNutrition(m.nutrition, 1, scale);
       // README 9.136: a linked inventory deduction gets rescaled by the same delta, so editing
@@ -13578,8 +13588,7 @@ function saveMealLogEntryEdit(){
       // 不能直接相减)，库存的取用记录里那一笔也跟着换成新数量+新单位。
       if(dedItem){
         if(unitChanged){
-          addBackToItem(dedItem, m.deductAmount, m.deductUnit);
-          deductFromItem(dedItem, newAmt, newUnit);
+          redeductOnUnitChange(dedItem, m.deductAmount, m.deductUnit, newAmt, newUnit);
           m.deductUnit = newUnit;
         } else {
           var delta = newAmt - m.amount;
@@ -13684,13 +13693,18 @@ function confirmEditMealsetLogSubItem(entryId, idx){
       saveItems();
     }
   } else if(si.deductItemId && si.deductUnit!==unit){
-    // Unit changed - reverse the old deduction rather than guess a conversion; the person can
-    // re-deduct manually if this row still needs it (same caution as elsewhere in this file
-    // about never silently assuming a unit conversion is safe).
+    // README 9.233: 单位改了 -> 旧扣减整笔加回、按新数量+新单位重扣(原来是只撤销、不重扣，用掉的量就从库存里
+    // 漏掉了)。两个单位任何一个换算不出来就提示并中止，什么都不改。
     var item2 = state.items.find(function(x){ return x.id===si.deductItemId; });
-    if(item2){ addBackToItem(item2, si.deductAmount, si.deductUnit); removeMealUsageLog(item2, m.id, si.id); saveItems(); }
-    delete si.deductItemId; delete si.deductAmount; delete si.deductUnit;
-    showToast(state.lang==='zh'?'单位已改，原库存扣减已撤销':'Unit changed - the earlier inventory deduction was reversed');
+    if(item2){
+      var rd = redeductOnUnitChange(item2, si.deductAmount, si.deductUnit, amount, unit);
+      if(!rd.ok){ showToast(t('unitConversionUnavailable')); return; }
+      si.deductAmount = amount;
+      si.deductUnit = unit;
+      var usageEntry3 = findMealUsageLogEntry(item2, m.id, si.id);
+      if(usageEntry3){ usageEntry3.amount = amount; usageEntry3.unit = unit; }
+      saveItems();
+    }
   }
   si.amount = amount;
   si.unit = unit;
