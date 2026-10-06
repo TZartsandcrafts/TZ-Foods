@@ -250,6 +250,8 @@
   .ai-fab:active{ transform:scale(.94); }
   .aimeal-in{ width:100%; font-size:16px; padding:10px 12px; border-radius:9px; border:1px solid var(--line); background:#fff; color:var(--cocoa); }
   textarea.aimeal-in{ resize:none; line-height:1.5; display:block; }
+  /* README 9.237: iOS 上日期框自带一个固定的最小宽度，会把右边顶出卡片——跟 .field input[type=date] 同一个处理(去掉原生外观、允许收缩)。 */
+  input[type=date].aimeal-in{ display:block; min-width:0; max-width:100%; width:100%; -webkit-appearance:none; appearance:none; min-height:48px; line-height:20px; }
   .aimeal-chat{ display:flex; flex-direction:column; gap:10px; margin:14px 0; }
   .aimeal-bubble{ max-width:88%; padding:10px 12px; border-radius:14px; font-size:15px; line-height:1.5; white-space:pre-wrap; word-break:break-word; }
   .aimeal-user{ align-self:flex-end; background:var(--almond); color:#fff; border-bottom-right-radius:4px; }
@@ -950,7 +952,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.236';
+var BUILD_VERSION = '9.237';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -6983,6 +6985,9 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.237', items:[
+    {t:'fix', zh:'修复「AI 加餐」页里日期选择框右边超出卡片的问题。', en:'Fixed the date box on the AI meal entry page sticking out past the right edge of its card.'}
+  ]},
   {v:'9.236', items:[
     {t:'new', zh:'「AI」加餐现在会先到你自己的库存、食谱、套餐里找对应的东西：找到就用你记录的真实营养，并且自动扣库存；找不到再查 USDA，最后才用 AI 估算。', en:'AI meal entry now looks in your own inventory, recipes and meal sets first: matches use your real nutrition data and deduct stock. If nothing matches it checks USDA, and AI estimates are the last resort.'},
     {t:'tweak', zh:'每个食物都能自己选"对应到哪一条"，也可以直接用 AI 估算，或者跳过这一项。你的库存和食谱名称不会发给 AI。', en:'For each food you choose which entry it maps to, or use the AI estimate, or skip it. Your inventory and recipe names are not sent to the AI.'}
