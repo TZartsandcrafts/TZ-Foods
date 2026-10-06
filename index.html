@@ -258,6 +258,16 @@
   .aimeal-thumb{ position:relative; width:56px; height:56px; }
   .aimeal-thumb img{ width:100%; height:100%; object-fit:cover; border-radius:8px; display:block; }
   .aimeal-thumb button{ position:absolute; top:-6px; right:-6px; width:20px; height:20px; border-radius:50%; border:none; background:var(--cocoa); color:#fff; font-size:12px; line-height:20px; padding:0; }
+  .aimeal-cand{ display:flex; gap:10px; align-items:flex-start; padding:9px 10px; margin-bottom:6px; border:1px solid var(--line); border-radius:9px; background:#fff; cursor:pointer; }
+  .aimeal-cand.sel{ border-color:var(--deep-caramel); background:var(--cream); }
+  .aimeal-radio{ flex:none; width:16px; height:16px; margin-top:2px; border-radius:50%; border:2px solid var(--line); box-sizing:border-box; }
+  .aimeal-cand.sel .aimeal-radio{ border-color:var(--deep-caramel); background:radial-gradient(circle, var(--deep-caramel) 0 4px, transparent 5px); }
+  .aimeal-cand-name{ font-size:15px; line-height:1.4; word-break:break-word; }
+  .aimeal-cand-sub{ font-size:12.5px; margin:1px 0 0; }
+  .aimeal-chips{ display:flex; gap:6px; flex-wrap:wrap; }
+  .aimeal-chip{ padding:5px 10px; border-radius:14px; border:1px solid var(--line); font-size:14px; background:#fff; cursor:pointer; }
+  .aimeal-chip.on{ border-color:var(--deep-caramel); background:var(--cream); font-weight:600; }
+  .aimeal-review{ display:inline-block; padding:3px 8px; border-radius:6px; font-size:12px; background:#FBE9D9; color:#B4561F; }
   /* ---------- Bottom nav ---------- */
   .bottom-nav{
     position:fixed; bottom:0; left:50%; transform:translateX(-50%);
@@ -940,7 +950,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.235';
+var BUILD_VERSION = '9.236';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2634,7 +2644,12 @@ var I18N = {
     shopTitle:'购物清单', navShopping:'购物清单', shopAddPlaceholder:'添加要买的东西…', shopAddBtn:'添加', shopEmpty:'清单是空的', shopBoughtTitle:'已买', shopBoughtHint:'已勾选的食材，库存补足后会自动从这里清掉；在那之前取消勾选，就会放回待买。', shopTopHint:'从补货提醒加进来的食材，在这里勾选之前不会再弹窗提醒；勾选后如果库存仍低于提醒线，提醒会恢复。', shopRestocked:'库存已补足', shopDupToast:'清单里已经有这一项了', shopAddedToast:'已加到购物清单（{n} 项）：库存页侧边栏 → 更多 → 购物清单', shopAlreadyToast:'这些食材已经在购物清单里了',
     restockSettingTitle:'补货提醒弹窗', restockSettingHint:'开启后：每天第一次启动 app 时（一天最多一次），以及在三餐里用到库存不足的食材时，会弹窗提醒。只影响这台手机。',
     aiMealTitle:'AI 加餐', aiMealFabLabel:'AI 加餐',
-    aiMealIntro:'说说你吃了什么：可以带上重量和做法，也可以拍照。AI 会估算热量和营养，你确认或修改后才会加进三餐。',
+    aiMealIntro:'说说你吃了什么：可以带上重量和做法，也可以拍照。AI 会先到你自己的库存、食谱、套餐里找对应的东西，找不到再查 USDA 或估算。你确认或修改后才会加进三餐。',
+    aiMealPickTitle:'对应到哪一条', aiMealCandEst:'用 AI 估算（自定条目）', aiMealCandSkip:'跳过这一项', aiMealReview:'请确认',
+    aiMealUsdaLoading:'正在查 USDA…', aiMealUsdaFail:'USDA 暂时查不到', aiMealUsdaRetry:'重试', aiMealUsdaEmpty:'USDA 里没找到合适的', aiMealUsdaSearchBtn:'再查一下 USDA',
+    aiMealNutriLoading:'正在加载营养数据…', aiMealBadUnit:'这个数量单位算不出营养，请换一个单位（上面有这条记录能用的单位），或者改选别的', aiMealBadAmount:'请先填写数量', aiMealBadGone:'这一条记录找不到了，请改选别的',
+    aiMealNeedCalShort:'还没有热量', aiMealProblemRow:'「{name}」：{why}', aiMealDeductHint:'选了库存里的食材，加进三餐时会自动扣库存。',
+    aiMealConvertedNote:'数量的单位算不出来，已按 AI 估的重量 {w} 计算（可以在上面换单位）',
     aiMealPlaceholder:'例：大统华美食广场 炸巴萨鱼柳150g，麻婆豆腐（只有豆腐没有肉末和汤汁）170g，蔬菜炒面100g',
     aiMealFollowPh:'还想改什么？比如：鱼柳改成100g',
     aiMealVoiceTip:'想用语音？点键盘上的麦克风按钮就能说话输入。',
@@ -2962,7 +2977,12 @@ var I18N = {
     shopTitle:'Shopping list', navShopping:'Shopping list', shopAddPlaceholder:'Add something to buy…', shopAddBtn:'Add', shopEmpty:'The list is empty', shopBoughtTitle:'Bought', shopBoughtHint:'Checked items are cleared automatically once stock is back above the reminder level; until then, uncheck to put one back.', shopTopHint:'Items added from the restock reminder won\'t trigger the popup while unchecked here; once checked, the reminder returns if stock is still at or below the reminder level.', shopRestocked:'Stock restored', shopDupToast:'Already on the list', shopAddedToast:'Added to the shopping list ({n}): Inventory sidebar → More → Shopping list', shopAlreadyToast:'Already on the shopping list',
     restockSettingTitle:'Restock reminder popup', restockSettingHint:'When on: shown the first time you launch the app each day (at most once a day), and in 三餐 when you use a low-stock item. This device only.',
     aiMealTitle:'AI meal entry', aiMealFabLabel:'AI meal entry',
-    aiMealIntro:'Tell me what you ate - include weights and how it was cooked if you know, or take a photo. AI estimates calories and nutrition, and nothing is added until you confirm.',
+    aiMealIntro:'Tell me what you ate - include weights and how it was cooked if you know, or take a photo. AI first looks in your own inventory, recipes and meal sets, then USDA, then estimates. Nothing is added until you confirm.',
+    aiMealPickTitle:'Which entry?', aiMealCandEst:'Use AI estimate (custom entry)', aiMealCandSkip:'Skip this one', aiMealReview:'Please check',
+    aiMealUsdaLoading:'Checking USDA…', aiMealUsdaFail:'USDA is unavailable right now', aiMealUsdaRetry:'Retry', aiMealUsdaEmpty:'No good match in USDA', aiMealUsdaSearchBtn:'Check USDA too',
+    aiMealNutriLoading:'Loading nutrition…', aiMealBadUnit:'Can\'t work out nutrition for this unit - pick another unit (see the options above) or choose a different entry', aiMealBadAmount:'Enter an amount first', aiMealBadGone:'That entry no longer exists - choose another',
+    aiMealNeedCalShort:'has no calories yet', aiMealProblemRow:'"{name}": {why}', aiMealDeductHint:'Foods picked from inventory will deduct stock when added.',
+    aiMealConvertedNote:'Couldn\'t convert that unit, so the AI\'s estimated weight {w} was used (change the unit above if needed)',
     aiMealPlaceholder:'e.g. T&T food court: fried basa fillet 150g, mapo tofu (tofu only, no minced meat or sauce) 170g, vegetable chow mein 100g',
     aiMealFollowPh:'Want to change something? e.g. make the fish 100g',
     aiMealVoiceTip:'Want to talk instead? Tap the microphone on your keyboard.',
@@ -6963,6 +6983,10 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.236', items:[
+    {t:'new', zh:'「AI」加餐现在会先到你自己的库存、食谱、套餐里找对应的东西：找到就用你记录的真实营养，并且自动扣库存；找不到再查 USDA，最后才用 AI 估算。', en:'AI meal entry now looks in your own inventory, recipes and meal sets first: matches use your real nutrition data and deduct stock. If nothing matches it checks USDA, and AI estimates are the last resort.'},
+    {t:'tweak', zh:'每个食物都能自己选"对应到哪一条"，也可以直接用 AI 估算，或者跳过这一项。你的库存和食谱名称不会发给 AI。', en:'For each food you choose which entry it maps to, or use the AI estimate, or skip it. Your inventory and recipe names are not sent to the AI.'}
+  ]},
   {v:'9.235', items:[
     {t:'new', zh:'三餐页右下角多了一个「AI」按钮：用文字描述你吃了什么（也可以拍照），AI 帮你估算热量和营养，你看过、改过再加进三餐。', en:'The meals page has a new "AI" button: describe what you ate (or take a photo) and AI estimates calories and nutrition. You review and edit before it is added.'}
   ]},
@@ -16603,20 +16627,26 @@ function ipConfirmQuickAddSelection(){
 // ===================== / 快速勾选添加 - 批量确认 =====================
 
 /* ---- history ---- */
-// ===================== README 9.235: AI 辅助加餐 =====================
-// 三餐页右下角的「AI」悬浮按钮 -> 全屏的AI加餐页(view:'aiMeal')。流程：
-//  1) 用户用文字(可带最多4张图片)描述吃了什么 -> 发给 Worker 的 POST /meal-ai(见 worker.js)；
-//  2) AI 返回每个食物的估算(名称/重量/热量/宏量/可选的其它营养)+估算依据，显示在同一页的"估算结果"里；
-//  3) 每一项都能直接改(改重量时营养按比例跟着变)，也能继续跟AI说\"鱼柳改成100g\"让它重算；
-//  4) 用户选日期/餐次、\"逐条添加\"还是\"作为套餐添加\"，点最下面的按钮才真正写进三餐。
-// 数据都存成已有的\"自定\"(source_type:'custom')结构，不新增数据格式：逐条=每个食物一条自定记录；
-// 套餐=一条套餐记录(commitMealsetLogEntry)，里面每项是自定子项。自定条目的营养是固定值、不随数量缩放
-// (见recomputeMealsetLogItemNutrition)，所以重量写进名称里(\"炸巴萨鱼柳 150g\")，数量字段留空/1。
-// 没有云端状态：state.aiMeal 只在这个页面的会话里存在，退出/加完就清掉。
+// ===================== README 9.236: AI 辅助加餐（对应到已有的库存/食谱/套餐/USDA） =====================
+// 9.235 的AI只会"凭空估算"成自定条目。9.236 起：AI 把口述拆成一个个食物，并给每个食物提供几个中文关键词(+USDA英文搜索词)；
+// app 拿关键词在本地用跟三餐"添加食物"页搜索框同一套搜索函数(searchInventoryFoods/searchRecipeFoods/套餐名称)去找，
+// 找到的就是候选(营养用真实数据算、库存会自动扣)，本地没有的再去查USDA，都不合适还能用AI估算。
+// **用户的库存/食谱名称不会发给AI**——发出去的只有口述的文字和图片；本地搜索完全在手机上做。
+// 每个食物在确认页是一张卡片，列出"候选"让用户选：本地找到的(最多6条)、USDA查到的(最多3条)、"用AI估算"、"跳过"。
+// 营养怎么算：直接复用 recomputeMealsetLogItemNutrition(套餐子项那套现成的换算，库存/食谱/食材库/USDA都支持)，
+// 写进三餐时复用跟"快速勾选添加"(commitOneQuickPick)一样的写法，不另造一套扣库存的逻辑。全程不写任何数据，直到点最下面的"添加"。
+//
+// 默认选哪个(保守)：只有"本地有且只有一条名字跟关键词完全相同"才自动选；其它情况(同名好几条/只有部分匹配/没有)
+// 都不替用户选、卡片上标"请确认"。例外：本地一条都没有、AI又很有把握是通用食材时，默认选USDA查到的第一条。
+// 单位对不上的处理：数量单位(比如"2个")换不出这条记录的营养时，退回用AI估的克数(row.grams)按克算，并在卡片上写明；
+// 另外把这条记录自己的各个单位都列成快捷按钮(库存:自己的单位+标准单位)，用户可以随时换。
+//
+// 卡片状态 row.sel：>=0 选了 row.cands[sel]；-1 用AI估算(自定条目)；-2 跳过。
 var AI_MEAL_CORE = ['calories','protein','fat','carbs'];
 var AI_MEAL_MORE = ['fiber','sugar','added_sugar','saturated_fat','trans_fat','cholesterol','sodium','vitamin_d','potassium','calcium','iron'];
 var AI_MEAL_ALL = AI_MEAL_CORE.concat(AI_MEAL_MORE);
 var AI_MEAL_UNIT = {calories:'kcal',protein:'g',fat:'g',carbs:'g',fiber:'g',sugar:'g',added_sugar:'g',saturated_fat:'g',trans_fat:'g',cholesterol:'mg',sodium:'mg',vitamin_d:'mcg',potassium:'mg',calcium:'mg',iron:'mg'};
+var AI_MEAL_SERVING_WORDS = ['份','serving','servings','portion','份数'];
 function aiMealLabel(k){
   var L = nutriLabels();
   if(L[k]) return L[k];
@@ -16688,10 +16718,124 @@ function aiMealRemoveImage(i){
   if(state.aiMeal){ state.aiMeal.images.splice(i,1); render(); }
 }
 
+// ---- 本地搜索：AI给的关键词 -> 候选 ----
+function aiMealInvName(it){
+  var nm = itemDisplayNameRaw(it) || it.name || '';
+  if(it.brand && nm.indexOf(it.brand)===-1) nm += '（'+it.brand+'）';
+  return nm;
+}
+// 对每个关键词，在 库存(含食材库)/食谱/套餐 里按名称包含关键词搜索(跟添加食物页搜索框同一套函数，已按常用程度排序)。
+// exact=名字跟关键词完全相同(不分大小写)。完全同名的排前面，同名之间保持原来的顺序。最多6条。
+function aiMealSearchLocal(terms){
+  var out = [], seen = {};
+  function add(c, exact){
+    var k = c.type+':'+c.id;
+    if(seen[k]) return;
+    seen[k] = 1; c.exact = !!exact; out.push(c);
+  }
+  (terms||[]).forEach(function(term){
+    var q = String(term||'').trim();
+    if(!q) return;
+    var ql = q.toLowerCase();
+    var inv = searchInventoryFoods(q);
+    inv.groups.slice(0,4).forEach(function(gr){
+      add({type:'inventory', id:gr.key, label:aiMealInvName(gr.rep), sub:t('sourceInventory')}, itemDisplayNameRaw(gr.rep).toLowerCase()===ql);
+    });
+    inv.externals.slice(0,3).forEach(function(ing){
+      add({type:'external', id:ing.id, label:ing.name, sub:t('sourceExternal')}, (ing.name||'').toLowerCase()===ql);
+    });
+    searchRecipeFoods(q).slice(0,3).forEach(function(r){
+      add({type:'recipe', id:r.id, label:r.label, sub:t('sourceRecipe')}, (r.label||'').toLowerCase()===ql);
+    });
+    (state.mealsets||[]).filter(function(m){ return (m.name||'').toLowerCase().indexOf(ql)>=0; }).slice(0,3).forEach(function(m){
+      add({type:'mealset', id:m.id, label:m.name, sub:t('sourceMealset')}, (m.name||'').toLowerCase()===ql);
+    });
+  });
+  out.sort(function(a,b){ return (b.exact?1:0) - (a.exact?1:0); });
+  return out.slice(0,6);
+}
+// AI返回的一个食物 -> 确认页上的一张卡片
+function aiMealMakeRow(raw){
+  var n = {};
+  AI_MEAL_ALL.forEach(function(k){ n[k] = (raw[k]==null || isNaN(raw[k])) ? null : Number(raw[k]); });
+  var terms = (raw.search_terms && raw.search_terms.length) ? raw.search_terms : [raw.name];
+  var row = {name:raw.name, amount:raw.amount, unit:raw.unit || 'g', grams:(raw.grams>0 ? raw.grams : null), n:n, open:false,
+    cands:aiMealSearchLocal(terms), sel:-1, review:false, touched:false,
+    usdaQ:raw.usda_query||'', usdaState:'', wantUsdaDefault:false};
+  var exacts = row.cands.filter(function(c){ return c.exact; });
+  if(exacts.length===1) row.sel = row.cands.indexOf(exacts[0]);
+  row.review = (row.sel===-1 && row.cands.length>0) || raw.confidence!=='high';
+  if(!row.cands.length && row.usdaQ) row.wantUsdaDefault = (raw.confidence==='high');
+  return row;
+}
+
+// ---- USDA：按AI给的英文搜索词查候选，选中后再取详情(营养) ----
+async function aiMealFetchJson(url){
+  var res = await fetch(url);
+  if(!res.ok) throw new Error('http '+res.status);
+  return await res.json();
+}
+async function aiMealUsdaSearch(am, row){
+  var base = usdaWorkerBase();
+  if(!base || !row.usdaQ){ row.usdaState = 'fail'; return; }
+  row.usdaState = 'loading';
+  aiMealRefreshCands(am, row);
+  try{
+    var q = encodeURIComponent(row.usdaQ);
+    // 先只在\"原料类\"(Foundation/SR Legacy)里找——这类条目是通用食材，比品牌商品更靠谱；一条都没有再放开到品牌商品
+    var data = await aiMealFetchJson(base+'/food-search?q='+q+'&dataType='+encodeURIComponent('Foundation,SR Legacy')+'&pageSize=4');
+    var foods = (data && data.foods) || [];
+    if(!foods.length){
+      data = await aiMealFetchJson(base+'/food-search?q='+q+'&pageSize=4');
+      foods = (data && data.foods) || [];
+    }
+    if(state.aiMeal !== am || am.items.indexOf(row) === -1) return; // 等待期间页面退出/这一行被删了
+    foods.slice(0,3).forEach(function(f){
+      if(row.cands.some(function(c){ return c.type==='usda' && String(c.id)===String(f.fdcId); })) return;
+      row.cands.push({type:'usda', id:String(f.fdcId), label:f.description,
+        sub:'USDA · '+usdaDataTypeLabel(f.dataType)+(f.brandName ? (' · '+f.brandName) : '')});
+    });
+    row.usdaState = foods.length ? 'done' : 'empty';
+    // AI有把握说是这个通用食材、用户也还没碰过这一行：默认选第一条USDA结果(用户随时能改)
+    if(row.wantUsdaDefault && !row.touched && row.sel===-1){
+      var idx = row.cands.findIndex(function(c){ return c.type==='usda'; });
+      if(idx!==-1){ row.sel = idx; row.review = false; aiMealEnsureUsda(am, row); }
+    }
+  }catch(e){
+    row.usdaState = 'fail';
+  }
+  if(state.aiMeal === am) aiMealRefreshRow(am.items.indexOf(row));
+}
+function aiMealUsdaCached(fdcId){
+  var sv = (state.usdaSaved||{})[fdcId];
+  return (sv && sv.nutrition) ? sv : null;
+}
+async function aiMealEnsureUsda(am, row){
+  var c = row.cands[row.sel];
+  if(!c || c.type!=='usda' || aiMealUsdaCached(c.id) || c.loading) return;
+  c.loading = true; c.failed = false;
+  aiMealRefreshRow(am.items.indexOf(row));
+  try{
+    var detail = await usdaFetchFoodDetail(c.id);
+    cacheUsdaFoodDetail(c.id, detail);
+  }catch(e){ c.failed = true; }
+  c.loading = false;
+  if(state.aiMeal === am && am.items.indexOf(row)!==-1) aiMealRefreshRow(am.items.indexOf(row));
+}
+function aiMealUsdaSearchBtn(i){
+  var am = state.aiMeal; if(!am || !am.items || !am.items[i]) return;
+  var row = am.items[i];
+  if(!row.usdaQ) row.usdaQ = row.name;
+  row.usdaState = ''; // 点\"查 USDA\"/\"重试\"：重新查一次
+  aiMealUsdaSearch(am, row);
+}
+
 // ---- 发给 AI ----
 function aiMealItemsForAi(am){
   return (am.items||[]).map(function(it){
     var o = {name:it.name, amount:it.amount, unit:it.unit};
+    var cd = it.sel>=0 ? it.cands[it.sel] : null;
+    if(cd) o.currently_matched_to = cd.sub+'：'+cd.label;
     AI_MEAL_ALL.forEach(function(k){ o[k] = it.n[k]; });
     return o;
   });
@@ -16708,7 +16852,7 @@ async function aiMealSend(){
   var sendText = text || t('aiMealImageOnlyPrompt');
   var payloadText = sendText;
   if(isFollow){
-    // 每次请求都是独立的一条消息：把\"当前清单\"(含用户手动改过的数字)一起发过去，AI只在这个清单上改。
+    // 每次请求都是独立的一条消息：把\"当前清单\"(含用户手动改过的数字、当前选的对应)一起发过去，AI只在这个清单上改。
     payloadText = '用户的新要求：' + sendText +
       (am.firstText ? '\n\n（最初的描述：' + am.firstText + '）' : '') +
       '\n\n当前清单（可能已被用户手动修改，以此为准）：\n' + JSON.stringify({date:am.date, slot:am.slot, meal_name:am.mealName, items:aiMealItemsForAi(am)});
@@ -16752,10 +16896,14 @@ async function aiMealSend(){
     if(result.slot) am.slot = result.slot;
     if(result.meal_name) am.mealName = result.meal_name;
     am.assumptions = result.assumptions || '';
+    // 跟AI继续说(isFollow)时，同名的食物沿用用户之前的选择(选了哪个候选、查过的USDA结果)，不让一次小修改把用户选好的全冲掉
+    var oldByName = {};
+    (am.items||[]).forEach(function(r){ oldByName[r.name] = r; });
     am.items = result.items.map(function(it){
-      var n = {};
-      AI_MEAL_ALL.forEach(function(k){ n[k] = (it[k]==null || isNaN(it[k])) ? null : Number(it[k]); });
-      return {name: it.name, amount: it.amount, unit: it.unit || 'g', n: n, open: false};
+      var row = aiMealMakeRow(it);
+      var o = isFollow ? oldByName[row.name] : null;
+      if(o){ row.cands = o.cands; row.sel = o.sel; row.touched = o.touched; row.review = o.review; row.usdaState = o.usdaState; row.wantUsdaDefault = false; row.usdaQ = o.usdaQ || row.usdaQ; }
+      return row;
     });
   } else if(!isFollow){
     am.firstText = ''; // AI没认出任何食物：下次当作第一次描述
@@ -16766,28 +16914,253 @@ async function aiMealSend(){
       var el = document.getElementById(am.items ? 'aimeal-result' : 'aimeal-input');
       if(el) window.scrollTo(0, Math.max(0, el.getBoundingClientRect().top + (window.scrollY||0) - 70));
     });
+    // 页面画出来之后，再去查USDA(AI说\"目录里没有、是通用食材\"的那几行)，查到了原地更新、不重画整页
+    if(am.items && result.items && result.items.length){
+      am.items.forEach(function(row){ if(row.usdaQ && !row.cands.length && !row.usdaState) aiMealUsdaSearch(am, row); });
+    }
   }
 }
 
-// ---- 手动改估算结果(都是原地更新，不重新渲染整页：重新渲染会让正在输入的框丢失焦点，也可能吞掉紧接着的按钮点击) ----
+// ---- 算一张卡片当前选择的营养 ----
+// 返回 {state, nutrition, extra, ...}：est(用AI估算)/skip/ok/pending(USDA营养还在加载)/bad(why: amount|unit|nutri|gone)
+function aiMealRecipeUnit(unit){
+  if(unit==='g') return 'g';
+  if(AI_MEAL_SERVING_WORDS.indexOf(String(unit))!==-1 || unit===t('servingsUnit')) return 'serving';
+  return null;
+}
+function aiMealBuildNutrition(row){
+  var nutrition = emptyNutrition(), extra = {};
+  AI_MEAL_ALL.forEach(function(k){
+    var v = row.n[k];
+    if(v==null || isNaN(v)) return;
+    v = k==='calories' ? Math.round(v*10)/10 : Math.round(v*100)/100;
+    if(NUTRI_KEYS.indexOf(k)!==-1) nutrition[k] = v;
+    else if(v>0) extra[k] = {unit: AI_MEAL_UNIT[k], value: v};
+  });
+  return {nutrition: nutrition, extra: extra};
+}
+// 这个单位对这条库存/食材库记录来说是不是真的能换算：重量/体积单位、它自己记的单位(含规格/副单位/营养标签的计件单位)。
+function aiMealUnitUsable(src, unit){
+  if(!unit) return false;
+  if(weightUnitToG(unit)!=null || volumeUnitToMl(unit)!=null) return true;
+  if(src.primary_unit!==undefined && resolveDeductionTarget(src, unit)) return true; // 只有库存(有主单位/副单位)才有这套换算
+  return !!countBasisMatch(src, 1, unit);
+}
+// 算某个候选在给定数量+单位下的营养。state: ok / pending(USDA营养还在加载) / bad(why: amount|unit|gone|usdafail)
+function aiMealCalcWith(row, c, amt, unit){
+  var pseudo;
+  if(c.type==='mealset'){
+    var m = state.mealsets.find(function(x){ return x.id===c.id; });
+    if(!m) return {state:'bad', why:'gone', cand:c};
+    if(String(unit)!=='份' && AI_MEAL_SERVING_WORDS.indexOf(String(unit))===-1) return {state:'bad', why:'unit', cand:c};
+    var items = buildMealsetLogItems(m, amt);
+    if(!items.length) return {state:'bad', why:'unit', cand:c};
+    var tn = emptyNutrition(), te = {};
+    items.forEach(function(it){ tn = addNutrition(tn, it.nutrition||emptyNutrition()); te = addNutritionExtraCore(te, it.nutrition_extra||{}); });
+    return {state:'ok', nutrition:tn, extra:te, items:items, cand:c, mealset:m};
+  }
+  if(c.type==='inventory'){
+    var group = itemsInGroupKeySorted(c.id);
+    var chosen = defaultBatchForGroup(group) || group[0];
+    if(!chosen) return {state:'bad', why:'gone', cand:c};
+    // app 里 amountToBasisUnits 对"完全不认识的单位"有个老的兜底(当成克)——手动选单位时选项里不会出现这种情况，
+    // 但AI可能说"2只/1碗"，直接算会悄悄按2克算出一个错得离谱的营养。所以这里先确认这个单位这条记录真的能用，不能用就报"单位对不上"。
+    if(!aiMealUnitUsable(chosen, unit)) return {state:'bad', why:'unit', cand:c};
+    pseudo = {source_type:'inventory', source_id:chosen.id, amount:amt, unit:unit};
+    return aiMealFinishCalc(recomputeMealsetLogItemNutrition(pseudo), c, {item:chosen});
+  }
+  if(c.type==='external'){
+    var ing = state.ingredients.find(function(x){ return x.id===c.id; });
+    if(!ing) return {state:'bad', why:'gone', cand:c};
+    if(!aiMealUnitUsable(ing, unit)) return {state:'bad', why:'unit', cand:c};
+    pseudo = {source_type:'external', source_id:ing.id, amount:amt, unit:unit};
+    return aiMealFinishCalc(recomputeMealsetLogItemNutrition(pseudo), c, {ing:ing});
+  }
+  if(c.type==='recipe'){
+    var ru = aiMealRecipeUnit(unit);
+    if(!ru) return {state:'bad', why:'unit', cand:c};
+    var rec = state.recipes.find(function(x){ return x.id===c.id; });
+    if(!rec) return {state:'bad', why:'gone', cand:c};
+    pseudo = {source_type:'recipe', source_id:rec.id, amount:amt, unit:ru};
+    return aiMealFinishCalc(recomputeMealsetLogItemNutrition(pseudo), c, {recipe:rec, recipeUnit:ru});
+  }
+  if(c.type==='usda'){
+    var sv = aiMealUsdaCached(c.id);
+    if(!sv) return {state: c.failed ? 'bad' : 'pending', why: c.failed ? 'usdafail' : '', cand:c};
+    pseudo = {source_type:'usda', source_id:c.id, amount:amt, unit:unit,
+      nutrition_snapshot_per100g: sv.nutrition, nutrition_extra_snapshot_per100g: sv.nutrition_extra||{},
+      usda_density_g_per_ml: (sv.density_g_per_ml>0 ? sv.density_g_per_ml : null)};
+    return aiMealFinishCalc(recomputeMealsetLogItemNutrition(pseudo), c, {saved:sv, pseudo:pseudo});
+  }
+  return {state:'bad', why:'gone', cand:c};
+}
+function aiMealCalcRow(row){
+  if(row.sel===-2) return {state:'skip'};
+  var c = row.cands[row.sel];
+  if(row.sel<0 || !c){
+    var b = aiMealBuildNutrition(row);
+    return {state:'est', nutrition:b.nutrition, extra:b.extra};
+  }
+  var tries = [];
+  if(row.amount>0) tries.push({amt:row.amount, unit:row.unit, converted:false});
+  // 数量单位换算不出来(比如"2个"而这条记录只按克记)时，退回用AI估的克数按克算；套餐是按份数的，不适用这个退路
+  if(row.grams>0 && c.type!=='mealset') tries.push({amt:row.grams, unit:'g', converted:true});
+  if(!tries.length) return {state:'bad', why:'amount', cand:c};
+  var last = null;
+  for(var i=0;i<tries.length;i++){
+    var r = aiMealCalcWith(row, c, tries[i].amt, tries[i].unit);
+    r.effAmount = tries[i].amt; r.effUnit = tries[i].unit; r.converted = tries[i].converted;
+    if(r.state!=='bad' || r.why!=='unit') return r;
+    if(!last){ last = r; last.effAmount = row.amount; last.effUnit = row.unit; last.converted = false; }
+  }
+  return last; // 两种都算不出来：按原来的数量单位报错，让用户去换单位
+}
+function aiMealFinishCalc(out, c, extra){
+  var n = out && out.nutrition;
+  if(!n || n.calories==null || isNaN(n.calories)) return {state:'bad', why:'unit', cand:c};
+  var r = {state:'ok', nutrition:n, extra:(out.nutrition_extra||{}), cand:c};
+  for(var k in extra) r[k] = extra[k];
+  return r;
+}
+function aiMealRowProblem(row){
+  var cl = aiMealCalcRow(row);
+  if(cl.state==='skip' || cl.state==='ok') return null;
+  if(cl.state==='est'){
+    var c = row.n.calories;
+    return (c==null || isNaN(c) || c<=0) ? t('aiMealNeedCalShort') : null;
+  }
+  if(cl.state==='pending') return t('aiMealNutriLoading');
+  if(cl.why==='amount') return t('aiMealBadAmount');
+  if(cl.why==='usdafail') return t('aiMealUsdaFail');
+  if(cl.why==='gone') return t('aiMealBadGone');
+  return t('aiMealBadUnit');
+}
+
+// ---- 原地刷新(不重画整页：重画会让正在输入的框丢失焦点和还没提交的修改，也可能吞掉紧接着的按钮点击) ----
+function aiMealTotalsText(am){
+  var tot = {calories:0, protein:0, fat:0, carbs:0};
+  am.items.forEach(function(row){
+    var cl = aiMealCalcRow(row);
+    if(cl.state==='skip' || !cl.nutrition) return;
+    AI_MEAL_CORE.forEach(function(k){ tot[k] += (cl.nutrition[k]||0); });
+  });
+  return Math.round(tot.calories)+' kcal  ·  '+t('nutriProtein')+' '+aiMealFmt(tot.protein)+'g  ·  '+t('nutriFat')+' '+aiMealFmt(tot.fat)+'g  ·  '+t('nutriCarbs')+' '+aiMealFmt(tot.carbs)+'g';
+}
 function aiMealRefreshTotals(){
   var am = state.aiMeal, el = document.getElementById('aimeal-total');
   if(!am || !am.items || !el) return;
   el.textContent = aiMealTotalsText(am);
 }
-function aiMealTotalsText(am){
-  var tot = {calories:0, protein:0, fat:0, carbs:0};
-  am.items.forEach(function(it){ AI_MEAL_CORE.forEach(function(k){ tot[k] += (it.n[k]||0); }); });
-  return Math.round(tot.calories)+' kcal  ·  '+t('nutriProtein')+' '+aiMealFmt(tot.protein)+'g  ·  '+t('nutriFat')+' '+aiMealFmt(tot.fat)+'g  ·  '+t('nutriCarbs')+' '+aiMealFmt(tot.carbs)+'g';
+function aiMealSumHtml(row){
+  var cl = aiMealCalcRow(row);
+  if(cl.state==='est' || cl.state==='skip') return '';
+  if(cl.state==='pending') return '<div class="hint" style="margin:0;">'+t('aiMealNutriLoading')+'</div>';
+  if(cl.state==='bad'){
+    var why = cl.why==='amount' ? t('aiMealBadAmount') : cl.why==='usdafail' ? t('aiMealUsdaFail') : cl.why==='gone' ? t('aiMealBadGone') : t('aiMealBadUnit');
+    return '<div style="font-size:14px;color:var(--warn,#C2542D);line-height:1.5;">'+esc(why)+'</div>';
+  }
+  var n = cl.nutrition;
+  var note = cl.converted ? '<div class="hint" style="margin:6px 0 0;">'+t('aiMealConvertedNote').replace('{w}', aiMealFmt(cl.effAmount)+'g')+'</div>' : '';
+  return '<div style="font-size:15px;font-weight:600;color:var(--cocoa);">'+Math.round(n.calories||0)+' kcal</div>'+
+    '<div class="hint" style="margin:2px 0 0;">'+t('nutriProtein')+' '+aiMealFmt(n.protein||0)+'g · '+t('nutriFat')+' '+aiMealFmt(n.fat||0)+'g · '+t('nutriCarbs')+' '+aiMealFmt(n.carbs||0)+'g</div>'+note;
+}
+function aiMealCandsHtml(am, i){
+  var row = am.items[i];
+  var rows = row.cands.map(function(c, j){
+    var sub = c.sub;
+    if(c.type==='usda' && c.loading) sub += ' · '+t('aiMealNutriLoading');
+    if(c.type==='usda' && c.failed) sub += ' · '+t('aiMealUsdaFail');
+    return '<div class="aimeal-cand'+(row.sel===j?' sel':'')+'" onclick="aiMealPick('+i+','+j+')"><span class="aimeal-radio"></span>'+
+      '<div style="min-width:0;"><div class="aimeal-cand-name">'+esc(c.label)+'</div><div class="hint aimeal-cand-sub">'+esc(sub)+'</div></div></div>';
+  }).join('');
+  var usdaLine = '';
+  if(row.usdaState==='loading') usdaLine = '<div class="hint" style="margin:6px 0 0;">'+t('aiMealUsdaLoading')+'</div>';
+  else if(row.usdaState==='fail') usdaLine = '<div class="hint" style="margin:6px 0 0;">'+t('aiMealUsdaFail')+' <a onclick="aiMealUsdaSearchBtn('+i+')" style="color:var(--deep-caramel);text-decoration:underline;">'+t('aiMealUsdaRetry')+'</a></div>';
+  else if(row.usdaState==='empty') usdaLine = '<div class="hint" style="margin:6px 0 0;">'+t('aiMealUsdaEmpty')+'</div>';
+  else if(!row.cands.some(function(c){ return c.type==='usda'; })) usdaLine = '<div style="margin-top:6px;"><a class="hint" onclick="aiMealUsdaSearchBtn('+i+')" style="color:var(--deep-caramel);text-decoration:underline;">'+t('aiMealUsdaSearchBtn')+'</a></div>';
+  return rows+
+    '<div class="aimeal-cand'+(row.sel===-1?' sel':'')+'" onclick="aiMealPick('+i+',-1)"><span class="aimeal-radio"></span><div class="aimeal-cand-name">'+t('aiMealCandEst')+'</div></div>'+
+    '<div class="aimeal-cand'+(row.sel===-2?' sel':'')+'" onclick="aiMealPick('+i+',-2)"><span class="aimeal-radio"></span><div class="aimeal-cand-name">'+t('aiMealCandSkip')+'</div></div>'+
+    usdaLine;
+}
+function aiMealRefreshCands(am, row){
+  var i = am.items.indexOf(row), el = document.getElementById('aimeal-cands-'+i);
+  if(el) el.innerHTML = aiMealCandsHtml(am, i);
+}
+function aiMealRefreshRow(i){
+  var am = state.aiMeal;
+  if(!am || !am.items || i<0 || !am.items[i]) return;
+  var row = am.items[i];
+  var c = document.getElementById('aimeal-cands-'+i); if(c) c.innerHTML = aiMealCandsHtml(am, i);
+  var s = document.getElementById('aimeal-sum-'+i); if(s) s.innerHTML = aiMealSumHtml(row);
+  aiMealRefreshTotals();
+}
+function aiMealUnitChips(row){
+  var c = row.cands[row.sel];
+  if(!c) return [];
+  if(c.type==='inventory'){
+    var g = itemsInGroupKeySorted(c.id);
+    var ch = defaultBatchForGroup(g) || g[0];
+    if(!ch) return [];
+    // 这条库存"适用的单位"都列出来：自己记的单位(主单位/规格/副单位)+同一类的重量/体积单位；按份消耗的只列自己的单位。g 一直保底带上。
+    var us = deductableUnitsForItem(ch).slice(0,10);
+    if(us.indexOf('g')===-1) us.push('g');
+    return us;
+  }
+  if(c.type==='recipe'){
+    var r = state.recipes.find(function(x){ return x.id===c.id; });
+    var o = [];
+    if(r && r.servings>0) o.push('份');
+    if(r && r.cooked_weight>0) o.push('g');
+    return o;
+  }
+  if(c.type==='external') return ['g','ml'];
+  if(c.type==='usda'){
+    var sv = aiMealUsdaCached(c.id);
+    return usdaUnitOptions(sv && sv.density_g_per_ml>0 ? sv.density_g_per_ml : null, false);
+  }
+  if(c.type==='mealset') return ['份'];
+  return [];
+}
+function aiMealUnitChipsHtml(i){
+  var am = state.aiMeal, row = am.items[i];
+  var chips = aiMealUnitChips(row);
+  if(!chips.length) return '';
+  return chips.map(function(u){
+    var on = String(row.unit)===u || (u==='份' && AI_MEAL_SERVING_WORDS.indexOf(String(row.unit))!==-1);
+    return '<span class="aimeal-chip'+(on?' on':'')+'" onclick="aiMealUnitPick('+i+','+aj(u)+')">'+esc(u)+'</span>';
+  }).join('');
+}
+
+// ---- 用户操作 ----
+function aiMealPick(i, j){
+  var am = state.aiMeal; if(!am || !am.items || !am.items[i]) return;
+  var row = am.items[i];
+  row.sel = j; row.touched = true; row.review = false;
+  if(j>=0 && row.cands[j] && row.cands[j].type==='usda') aiMealEnsureUsda(am, row);
+  render(); // 选哪一条会改变整张卡片的内容(估算输入框/单位快捷键)，这里整页重画没问题——是一次点击、不是在打字
+}
+function aiMealUnitPick(i, u){
+  var am = state.aiMeal; if(!am || !am.items || !am.items[i]) return;
+  am.items[i].unit = u;
+  var el = document.getElementById('aimeal-unit-'+i); if(el) el.value = u;
+  var chips = document.getElementById('aimeal-chips-'+i); if(chips) chips.innerHTML = aiMealUnitChipsHtml(i);
+  aiMealRefreshRow(i);
 }
 function aiMealSetName(i, v){ var am = state.aiMeal; if(am && am.items && am.items[i]) am.items[i].name = v; }
-function aiMealSetUnit(i, v){ var am = state.aiMeal; if(am && am.items && am.items[i]) am.items[i].unit = v; }
+function aiMealSetUnit(i, v){
+  var am = state.aiMeal; if(!am || !am.items || !am.items[i]) return;
+  am.items[i].unit = v;
+  var chips = document.getElementById('aimeal-chips-'+i); if(chips) chips.innerHTML = aiMealUnitChipsHtml(i);
+  aiMealRefreshRow(i);
+}
 function aiMealSetN(i, k, v){
   var am = state.aiMeal; if(!am || !am.items || !am.items[i]) return;
   am.items[i].n[k] = aiMealParse(v);
   aiMealRefreshTotals();
 }
-// 改重量/数量：这一项所有已有的营养数字按 新数量÷旧数量 等比缩放；之前没有数量(留空)就只改数量、不缩放。
+// 改数量：这一项\"AI估算\"的营养数字按 新数量÷旧数量 等比缩放(不管当前选的是不是估算，免得之后切回估算时数字对不上数量)；
+// 选了库存/食谱/套餐/USDA的，营养是按真实数据现算的，改数量就直接重算，不需要缩放。
 function aiMealSetAmount(i, v){
   var am = state.aiMeal; if(!am || !am.items || !am.items[i]) return;
   var it = am.items[i];
@@ -16795,14 +17168,15 @@ function aiMealSetAmount(i, v){
   it.amount = nv;
   if(nv>0 && prev>0 && nv!==prev){
     var f = nv/prev;
+    if(it.grams>0) it.grams = it.grams*f;
     AI_MEAL_ALL.forEach(function(k){
       if(it.n[k]==null) return;
       it.n[k] = it.n[k]*f;
       var el = document.getElementById('aimeal-n-'+i+'-'+k);
       if(el) el.value = aiMealFmt(it.n[k], k);
     });
-    aiMealRefreshTotals();
   }
+  aiMealRefreshRow(i);
 }
 function aiMealToggleMore(i){ var am = state.aiMeal; if(am && am.items && am.items[i]){ am.items[i].open = !am.items[i].open; render(); } }
 function aiMealRemoveItem(i){
@@ -16814,7 +17188,7 @@ function aiMealAddItem(){
   var am = state.aiMeal; if(!am) return;
   var n = {}; AI_MEAL_ALL.forEach(function(k){ n[k] = null; });
   if(!am.items) am.items = [];
-  am.items.push({name:'', amount:null, unit:'g', n:n, open:false});
+  am.items.push({name:'', amount:null, unit:'g', n:n, open:false, cands:[], sel:-1, review:false, touched:true, usdaQ:'', usdaState:'', wantUsdaDefault:false});
   render();
 }
 
@@ -16824,52 +17198,32 @@ function aiMealItemName(it){
   if(it.amount>0) nm += ' ' + aiMealFmt(it.amount) + (it.unit||'');
   return nm;
 }
-function aiMealBuildNutrition(it){
-  var nutrition = emptyNutrition(), extra = {};
-  AI_MEAL_ALL.forEach(function(k){
-    var v = it.n[k];
-    if(v==null || isNaN(v)) return;
-    v = k==='calories' ? Math.round(v*10)/10 : Math.round(v*100)/100;
-    if(NUTRI_KEYS.indexOf(k)!==-1) nutrition[k] = v;
-    else if(v>0) extra[k] = {unit: AI_MEAL_UNIT[k], value: v};
-  });
-  return {nutrition: nutrition, extra: extra};
-}
 function aiMealCommit(){
   var am = state.aiMeal;
   if(!am || am.loading || am.committed) return;
   if(!am.items || !am.items.length){ showToast(t('aiMealNeedItems')); return; }
+  var live = am.items.filter(function(r){ return r.sel!==-2; });
+  if(!live.length){ showToast(t('aiMealNeedItems')); return; }
   for(var i=0;i<am.items.length;i++){
-    var c = am.items[i].n.calories;
-    if(c==null || isNaN(c) || c<=0){
-      showToast(t('aiMealNeedCal').replace('{name}', (am.items[i].name||'').trim() || String(i+1)));
+    var row = am.items[i];
+    var prob = aiMealRowProblem(row);
+    if(prob){
+      showToast(t('aiMealProblemRow').replace('{name}', (row.name||'').trim() || String(i+1)).replace('{why}', prob));
       return;
     }
   }
   am.committed = true;
   var date = am.date, slot = am.slot;
+  _restockCollected = [];
+  var calcs = live.map(function(r){ return {row:r, cl:aiMealCalcRow(r)}; });
   if(am.mode==='set'){
-    var subs = am.items.map(function(it){
-      var b = aiMealBuildNutrition(it);
-      return {id: uid(), source_type:'custom', source_id:null, name: aiMealItemName(it), amount:1, unit:'',
-        nutrition: b.nutrition, nutrition_extra: b.extra, nutrition_snapshot: b.nutrition, nutrition_extra_snapshot: b.extra, deduct:false};
-    });
+    var subs = [];
+    calcs.forEach(function(x){ aiMealPushSubItems(subs, x.row, x.cl); });
     var setName = (am.setName||'').trim() || am.mealName || t('aiMealDefaultSetName');
     commitMealsetLogEntry(date, slot, null, setName, subs);
   } else {
     var ts = nowLocalIso();
-    am.items.forEach(function(it){
-      var b = aiMealBuildNutrition(it);
-      var nm = aiMealItemName(it);
-      var nn = b.nutrition;
-      state.mealLogs.push({
-        id: uid(), date: date, slot: slot, name: nm, amount:null, unit:'',
-        nutrition: nn, nutrition_extra: b.extra, created_at: ts,
-        source_type:'custom',
-        custom_calories: nn.calories, custom_carbs: nn.carbs||null, custom_protein: nn.protein||null, custom_fat: nn.fat||null, custom_name: nm,
-        ai_estimated: true
-      });
-    });
+    calcs.forEach(function(x){ aiMealWriteEntry(x.row, x.cl, date, slot, ts); });
     saveMealLogs();
   }
   state.aiMeal = null;
@@ -16877,6 +17231,74 @@ function aiMealCommit(){
   state.mealsUI.selectedSlot = slot;
   showToast(t('aiMealAdded'));
   navigate('meals');
+  showRestockForItems(_restockCollected); // 跟快速勾选添加一样：这次扣库存触发的补货提醒合并成一个弹窗
+  _restockCollected = [];
+}
+// 逐条添加：一个食物一条三餐记录，写法跟 commitOneQuickPick 一致
+function aiMealWriteEntry(row, cl, date, slot, ts){
+  if(cl.state==='est'){
+    var nm = aiMealItemName(row), nn = cl.nutrition;
+    state.mealLogs.push({
+      id: uid(), date: date, slot: slot, name: nm, amount:null, unit:'',
+      nutrition: nn, nutrition_extra: cl.extra, created_at: ts,
+      source_type:'custom',
+      custom_calories: nn.calories, custom_carbs: nn.carbs||null, custom_protein: nn.protein||null, custom_fat: nn.fat||null, custom_name: nm,
+      ai_estimated: true
+    });
+    return;
+  }
+  var c = cl.cand;
+  if(c.type==='inventory'){
+    var chosen = cl.item;
+    var entry = {id: uid(), date: date, slot: slot, name: itemDisplayNameRaw(chosen), amount: cl.effAmount, unit: cl.effUnit,
+      nutrition: cl.nutrition, nutrition_extra: cl.extra, created_at: ts, source_type:'inventory', source_id: chosen.id};
+    var res = deductFromItem(chosen, cl.effAmount, cl.effUnit);
+    if(res && res.ok){ entry.deductItemId = chosen.id; entry.deductAmount = cl.effAmount; entry.deductUnit = cl.effUnit; saveItems(); _restockCollect(chosen); }
+    state.mealLogs.push(entry);
+    if(entry.deductItemId){ pushMealUsageLog(chosen, cl.effAmount, cl.effUnit, entry.id, null, slot, date, ts); saveItems(); }
+    bumpPickFrequency('inventory', chosen.id);
+  } else if(c.type==='recipe'){
+    state.mealLogs.push({id: uid(), date: date, slot: slot, name: cl.recipe.name, amount: cl.effAmount,
+      unit: cl.recipeUnit==='g' ? 'g' : t('servingsUnit'), nutrition: cl.nutrition, nutrition_extra: cl.extra, created_at: ts,
+      source_type:'recipe', source_id: cl.recipe.id});
+    bumpPickFrequency('recipe', cl.recipe.id);
+  } else if(c.type==='usda'){
+    state.mealLogs.push({id: uid(), date: date, slot: slot, name: cl.saved.description || c.label, amount: cl.effAmount, unit: cl.effUnit,
+      nutrition: cl.nutrition, nutrition_extra: cl.extra, created_at: ts, source_type:'usda', source_id: c.id});
+    bumpPickFrequency('usda', c.id);
+  } else if(c.type==='external'){
+    state.mealLogs.push({id: uid(), date: date, slot: slot, name: cl.ing.name, amount: cl.effAmount, unit: cl.effUnit,
+      nutrition: cl.nutrition, nutrition_extra: cl.extra, created_at: ts, source_type:'external', source_id: cl.ing.id});
+    bumpPickFrequency('external', cl.ing.id);
+  } else if(c.type==='mealset'){
+    // 套餐本身就是一条\"套餐记录\"，里面按份数缩放过的每一项；commitMealsetLogEntry自己会存、会扣库存
+    commitMealsetLogEntry(date, slot, cl.mealset.id, cl.mealset.name, cl.items);
+  }
+}
+// 作为套餐添加：每个食物变成这条套餐记录里的一个子项(库存子项会在 commitMealsetLogEntry 里自动扣库存)
+function aiMealPushSubItems(subs, row, cl){
+  if(cl.state==='est'){
+    subs.push({id: uid(), source_type:'custom', source_id:null, name: aiMealItemName(row), amount:1, unit:'',
+      nutrition: cl.nutrition, nutrition_extra: cl.extra, nutrition_snapshot: cl.nutrition, nutrition_extra_snapshot: cl.extra, deduct:false});
+    return;
+  }
+  var c = cl.cand;
+  if(c.type==='mealset'){ cl.items.forEach(function(it){ subs.push(it); }); return; }
+  if(c.type==='inventory'){
+    subs.push({id: uid(), source_type:'inventory', source_id: cl.item.id, name: itemDisplayNameRaw(cl.item), amount: cl.effAmount, unit: cl.effUnit,
+      nutrition: cl.nutrition, nutrition_extra: cl.extra, deduct:true});
+  } else if(c.type==='external'){
+    subs.push({id: uid(), source_type:'external', source_id: cl.ing.id, name: cl.ing.name, amount: cl.effAmount, unit: cl.effUnit,
+      nutrition: cl.nutrition, nutrition_extra: cl.extra, deduct:false});
+  } else if(c.type==='recipe'){
+    subs.push({id: uid(), source_type:'recipe', source_id: cl.recipe.id, name: cl.recipe.name, amount: cl.effAmount, unit: cl.recipeUnit,
+      nutrition: cl.nutrition, nutrition_extra: cl.extra, deduct:false});
+  } else if(c.type==='usda'){
+    subs.push({id: uid(), source_type:'usda', source_id: c.id, name: cl.saved.description || c.label, amount: cl.effAmount, unit: cl.effUnit,
+      nutrition: cl.nutrition, nutrition_extra: cl.extra, deduct:false,
+      nutrition_snapshot_per100g: cl.pseudo.nutrition_snapshot_per100g, nutrition_extra_snapshot_per100g: cl.pseudo.nutrition_extra_snapshot_per100g,
+      usda_density_g_per_ml: cl.pseudo.usda_density_g_per_ml});
+  }
 }
 
 // ---- 页面 ----
@@ -16894,36 +17316,40 @@ function aiMealInputHtml(am, follow){
     (follow ? '' : '<p class="hint" style="margin:10px 0 0;">'+t('aiMealVoiceTip')+'</p>')+
   '</div>';
 }
-function aiMealItemHtml(it, i){
-  var coreCells = AI_MEAL_CORE.map(function(k){
-    return '<div style="flex:1;min-width:0;">'+
+function aiMealNutriCellsHtml(it, i, keys, widthCss){
+  return keys.map(function(k){
+    return '<div style="'+widthCss+'min-width:0;">'+
       '<div class="hint" style="font-size:12px;margin:0 0 3px;">'+aiMealLabel(k)+'<span style="opacity:.7;"> '+AI_MEAL_UNIT[k]+'</span></div>'+
       '<input class="aimeal-in" style="padding:8px 6px;" type="text" inputmode="decimal" id="aimeal-n-'+i+'-'+k+'" value="'+esc(aiMealFmt(it.n[k], k))+'" oninput="aiMealSetN('+i+',\''+k+'\',this.value)">'+
     '</div>';
   }).join('');
-  var more = '';
-  if(it.open){
-    more = '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">'+AI_MEAL_MORE.map(function(k){
-      return '<div style="width:calc(33.3% - 6px);min-width:0;">'+
-        '<div class="hint" style="font-size:12px;margin:0 0 3px;">'+aiMealLabel(k)+'<span style="opacity:.7;"> '+AI_MEAL_UNIT[k]+'</span></div>'+
-        '<input class="aimeal-in" style="padding:8px 6px;" type="text" inputmode="decimal" id="aimeal-n-'+i+'-'+k+'" value="'+esc(aiMealFmt(it.n[k], k))+'" oninput="aiMealSetN('+i+',\''+k+'\',this.value)">'+
-      '</div>';
-    }).join('')+'</div>';
+}
+function aiMealItemHtml(it, i){
+  var skipped = it.sel===-2;
+  var estBody = '';
+  if(it.sel===-1){
+    estBody = '<div style="display:flex;gap:6px;margin-top:10px;">'+aiMealNutriCellsHtml(it, i, AI_MEAL_CORE, 'flex:1;')+'</div>'+
+      (it.open ? '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">'+aiMealNutriCellsHtml(it, i, AI_MEAL_MORE, 'width:calc(33.3% - 6px);')+'</div>' : '')+
+      '<button type="button" class="btn btn-outline btn-sm" style="width:100%;margin-top:10px;" onclick="aiMealToggleMore('+i+')">'+t('aiMealMore')+(it.open?' ▴':' ▾')+'</button>';
   }
-  return '<div class="form-group">'+
+  var sumBox = (it.sel>=0) ? '<div id="aimeal-sum-'+i+'" style="margin-top:10px;padding:10px 12px;border-radius:9px;background:var(--cream);">'+aiMealSumHtml(it)+'</div>' : '<div id="aimeal-sum-'+i+'"></div>';
+  return '<div class="form-group"'+(skipped?' style="opacity:.55;"':'')+'>'+
     '<div style="display:flex;gap:8px;align-items:center;">'+
       '<input class="aimeal-in" style="flex:1;min-width:0;font-weight:600;" type="text" placeholder="'+t('aiMealNamePh')+'" value="'+esc(it.name)+'" oninput="aiMealSetName('+i+',this.value)">'+
       '<button type="button" class="icon-btn" onclick="aiMealRemoveItem('+i+')" aria-label="'+t('delete')+'">'+ic('trash',18)+'</button>'+
     '</div>'+
-    '<div style="display:flex;gap:8px;margin:10px 0;">'+
+    (it.review && !skipped ? '<div style="margin-top:6px;"><span class="aimeal-review">'+t('aiMealReview')+'</span></div>' : '')+
+    '<div style="display:flex;gap:8px;margin:10px 0 6px;">'+
       '<div style="flex:1;min-width:0;"><div class="hint" style="font-size:12px;margin:0 0 3px;">'+t('aiMealAmountLabel')+'</div>'+
         '<input class="aimeal-in" type="text" inputmode="decimal" value="'+esc(it.amount>0 ? aiMealFmt(it.amount) : '')+'" onchange="aiMealSetAmount('+i+',this.value)"></div>'+
       '<div style="width:84px;"><div class="hint" style="font-size:12px;margin:0 0 3px;">'+t('aiMealUnitPh')+'</div>'+
-        '<input class="aimeal-in" type="text" value="'+esc(it.unit)+'" oninput="aiMealSetUnit('+i+',this.value)"></div>'+
+        '<input class="aimeal-in" type="text" id="aimeal-unit-'+i+'" value="'+esc(it.unit)+'" oninput="aiMealSetUnit('+i+',this.value)"></div>'+
     '</div>'+
-    '<div style="display:flex;gap:6px;">'+coreCells+'</div>'+
-    more+
-    '<button type="button" class="btn btn-outline btn-sm" style="width:100%;margin-top:10px;" onclick="aiMealToggleMore('+i+')">'+t('aiMealMore')+(it.open?' ▴':' ▾')+'</button>'+
+    '<div id="aimeal-chips-'+i+'" class="aimeal-chips">'+(it.sel>=0 ? aiMealUnitChipsHtml(i) : '')+'</div>'+
+    '<div class="hint" style="font-size:12px;margin:10px 0 4px;">'+t('aiMealPickTitle')+'</div>'+
+    '<div id="aimeal-cands-'+i+'">'+aiMealCandsHtml(state.aiMeal, i)+'</div>'+
+    sumBox+
+    estBody+
   '</div>';
 }
 function aiMealResultHtml(am){
@@ -16931,6 +17357,7 @@ function aiMealResultHtml(am){
     return '<div class="meal-tab'+(s===am.slot?' active':'')+'" onclick="aiMealSetSlot('+aj(s)+')"><div class="mt-name" style="font-size:16px;">'+t('mealSlot_'+s)+'</div></div>';
   }).join('');
   var effSetName = am.setName || am.mealName || t('aiMealDefaultSetName');
+  var anyInv = am.items.some(function(r){ var c = r.cands[r.sel]; return r.sel>=0 && c && (c.type==='inventory' || c.type==='mealset'); });
   return '<div id="aimeal-result" class="section-title" style="margin-top:6px;">'+t('aiMealResultTitle')+'</div>'+
     '<p class="hint" style="margin:0 0 10px;">'+t('aiMealResultHint')+'</p>'+
     (am.assumptions ? '<div class="form-group" style="background:var(--cream);"><div class="hint" style="margin:0 0 4px;font-weight:600;">'+t('aiMealAssumptions')+'</div><div style="font-size:14px;line-height:1.5;">'+esc(am.assumptions)+'</div></div>' : '')+
@@ -16941,7 +17368,8 @@ function aiMealResultHtml(am){
     am.items.map(aiMealItemHtml).join('')+
     '<button type="button" class="btn btn-outline" style="width:100%;margin-bottom:14px;" onclick="aiMealAddItem()">'+ic('plus',16)+' '+t('aiMealAddRow')+'</button>'+
     '<div class="form-group"><div class="hint" style="margin:0 0 4px;">'+t('aiMealTotal')+'</div>'+
-      '<div id="aimeal-total" style="font-size:16px;font-weight:700;color:var(--cocoa);">'+esc(aiMealTotalsText(am))+'</div></div>'+
+      '<div id="aimeal-total" style="font-size:16px;font-weight:700;color:var(--cocoa);">'+esc(aiMealTotalsText(am))+'</div>'+
+      (anyInv ? '<p class="hint" style="margin:8px 0 0;">'+t('aiMealDeductHint')+'</p>' : '')+'</div>'+
     '<div class="section-title">'+t('aiMealHowAdd')+'</div>'+
     '<div class="meal-tabs" style="margin:0 0 6px;">'+
       '<div class="meal-tab'+(am.mode==='item'?' active':'')+'" onclick="aiMealSetMode(\'item\')"><div class="mt-name" style="font-size:16px;">'+t('aiMealModeItem')+'</div></div>'+
