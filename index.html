@@ -952,7 +952,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.239';
+var BUILD_VERSION = '9.240';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2648,6 +2648,7 @@ var I18N = {
     aiMealTitle:'AI 加餐', aiMealFabLabel:'AI 加餐',
     aiMealLocalFallbackReply:'AI 没认出具体的食物，但在你自己的套餐/食谱/库存里找到了下面这些，请选一下。',
     aiMealBadUnitMealset:'套餐是按「份」来加的：单位请选「份」、数量填几份（比如 1）。',
+    aiMealLocalAllReply:'直接在你自己的套餐/食谱里找到了，没有用到 AI。请确认份数后添加。',
     aiMealIntro:'说说你吃了什么：可以带上重量和做法，也可以拍照。AI 会先到你自己的库存、食谱、套餐里找对应的东西，找不到再查 USDA 或估算。你确认或修改后才会加进三餐。',
     aiMealPickTitle:'对应到哪一条', aiMealCandEst:'用 AI 估算（自定条目）', aiMealCandSkip:'跳过这一项', aiMealReview:'请确认',
     aiMealUsdaLoading:'正在查 USDA…', aiMealUsdaFail:'USDA 暂时查不到', aiMealUsdaRetry:'重试', aiMealUsdaEmpty:'USDA 里没找到合适的', aiMealUsdaSearchBtn:'再查一下 USDA',
@@ -2983,6 +2984,7 @@ var I18N = {
     aiMealTitle:'AI meal entry', aiMealFabLabel:'AI meal entry',
     aiMealLocalFallbackReply:'The AI didn\'t recognise specific foods, but these were found in your own meal sets / recipes / inventory - please pick one.',
     aiMealBadUnitMealset:'Meal sets are added by serving: set the unit to "份" and the amount to how many servings (e.g. 1).',
+    aiMealLocalAllReply:'Found directly in your own meal sets / recipes - the AI wasn\'t used. Check the servings, then add.',
     aiMealIntro:'Tell me what you ate - include weights and how it was cooked if you know, or take a photo. AI first looks in your own inventory, recipes and meal sets, then USDA, then estimates. Nothing is added until you confirm.',
     aiMealPickTitle:'Which entry?', aiMealCandEst:'Use AI estimate (custom entry)', aiMealCandSkip:'Skip this one', aiMealReview:'Please check',
     aiMealUsdaLoading:'Checking USDA…', aiMealUsdaFail:'USDA is unavailable right now', aiMealUsdaRetry:'Retry', aiMealUsdaEmpty:'No good match in USDA', aiMealUsdaSearchBtn:'Check USDA too',
@@ -6989,6 +6991,10 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.240', items:[
+    {t:'new', zh:'你说的话正好是自己已有的套餐/食谱的名字时（比如只说「奶咖」），现在直接在本地找到并选好，不再让 AI 重新解释成别的东西，也不占用 AI 次数。', en:'When what you say is exactly the name of one of your own meal sets or recipes (e.g. just "奶咖"), it is now found and selected on the phone, without the AI reinterpreting it or using up AI quota.'},
+    {t:'tweak', zh:'AI 认出的食物如果对应你自己的套餐/食谱，卡片标题改用你自己起的名字。', en:'When an AI-recognised food maps to one of your own meal sets or recipes, the card now shows your own name for it.'}
+  ]},
   {v:'9.239', items:[
     {t:'fix', zh:'修复「AI 加餐」里选了套餐/食谱却算不出营养、加不进三餐的问题：现在选中套餐会自动改成「1 份」，不会再用 AI 估的「350 ml」去算。', en:'Fixed AI meal entry failing to add a meal set / recipe you picked: choosing one now switches the amount to "1 serving" automatically instead of using the AI\'s "350 ml".'},
     {t:'tweak', zh:'名字前面带表情符号（比如「☕奶咖」）也能被当成完全同名，自动选上。', en:'Names with a leading emoji (e.g. "☕奶咖") now count as an exact match and are selected automatically.'}
@@ -16804,6 +16810,11 @@ function aiMealMakeRow(raw){
   var exacts = row.cands.filter(function(c){ return c.exact; });
   if(exacts.length===1) row.sel = row.cands.indexOf(exacts[0]);
   aiMealApplyCandUnit(row);
+  // README 9.240: 默认选中的是用户自己的套餐/食谱时，卡片标题用用户自己起的名字(而不是AI对这句话的另一种说法，比如"拿铁咖啡")；
+  // 改选别的时(见 aiMealPick)再还原成AI的说法
+  if(row.sel>=0 && (row.cands[row.sel].type==='mealset' || row.cands[row.sel].type==='recipe')){
+    row.aiName = row.name; row.name = row.cands[row.sel].label; row.nameFromCand = row.name;
+  }
   row.review = (row.sel===-1 && row.cands.length>0) || raw.confidence!=='high';
   if(!row.cands.length && row.usdaQ) row.wantUsdaDefault = (raw.confidence==='high');
   return row;
@@ -16886,10 +16897,30 @@ async function aiMealSend(){
   var text = (am.draft||'').trim();
   var imgs = am.images.slice();
   if(!text && !imgs.length){ showToast(t('aiMealNeedInput')); return; }
+  var isFollow = !!am.items;
+  // README 9.240: 本地优先——口述里整段话正好等于自己某个套餐/食谱的名字(忽略表情符号和标点)时，不让AI去解释它
+  // (AI不认识这些名字，会把"奶咖"理解成"拿铁咖啡")，直接在本地做成卡片、选好；这部分话不发给AI。
+  // 剩下的话(如果还有)才发给AI，两边的卡片合并到同一个确认页；整句话都是名字、又没附图片时，完全不调用AI。
+  var pre = (!isFollow && text) ? aiMealPreMatchNames(text) : {rows:[], rest:text};
+  var aiText = pre.rows.length ? pre.rest : text;
+  if(pre.rows.length && !(aiText||'').trim() && !imgs.length){
+    am.firstText = text;
+    am.messages.push({role:'user', text: text, imgs: []});
+    am.messages.push({role:'ai', text: t('aiMealLocalAllReply')});
+    am.draft = ''; am.images = [];
+    am.items = pre.rows; am.assumptions = '';
+    if(state.view==='aiMeal'){
+      render();
+      requestAnimationFrame(function(){
+        var el = document.getElementById('aimeal-result');
+        if(el) window.scrollTo(0, Math.max(0, el.getBoundingClientRect().top + (window.scrollY||0) - 70));
+      });
+    }
+    return;
+  }
   var base = usdaWorkerBase();
   if(!base){ showToast(t('aiMealNoProxy')); return; }
-  var isFollow = !!am.items;
-  var sendText = text || t('aiMealImageOnlyPrompt');
+  var sendText = (aiText||'').trim() || t('aiMealImageOnlyPrompt');
   var payloadText = sendText;
   if(isFollow){
     // 每次请求都是独立的一条消息：把\"当前清单\"(含用户手动改过的数字、当前选的对应)一起发过去，AI只在这个清单上改。
@@ -16933,27 +16964,30 @@ async function aiMealSend(){
   // README 9.238: AI不认识用户自己存的套餐/食谱的名字(比如只说"工作日午餐")，可能一个食物都不返回。这时不能就此作罢——
   // 名字就在本地，直接拿用户说的话去本地搜(见 aiMealLocalFallbackRows)，搜到的照样做成卡片让用户选。
   var fbRows = [];
-  if(!(result.items && result.items.length) && !isFollow) fbRows = aiMealLocalFallbackRows(text);
-  am.messages.push({role:'ai', text: fbRows.length ? t('aiMealLocalFallbackReply') : (result.reply || '')});
-  if(fbRows.length){
-    if(result.date) am.date = result.date;
-    if(result.slot) am.slot = result.slot;
-    am.assumptions = '';
-    am.items = fbRows;
-  } else if(result.items && result.items.length){
-    if(result.date) am.date = result.date;
-    if(result.slot) am.slot = result.slot;
-    if(result.meal_name) am.mealName = result.meal_name;
-    am.assumptions = result.assumptions || '';
+  if(!(result.items && result.items.length) && !isFollow) fbRows = aiMealLocalFallbackRows(aiText);
+  var aiRows = null;
+  if(result.items && result.items.length){
     // 跟AI继续说(isFollow)时，同名的食物沿用用户之前的选择(选了哪个候选、查过的USDA结果)，不让一次小修改把用户选好的全冲掉
     var oldByName = {};
-    (am.items||[]).forEach(function(r){ oldByName[r.name] = r; });
-    am.items = result.items.map(function(it){
+    (am.items||[]).forEach(function(r){ oldByName[r.aiName || r.name] = r; });
+    aiRows = result.items.map(function(it){
       var row = aiMealMakeRow(it);
-      var o = isFollow ? oldByName[row.name] : null;
+      var o = isFollow ? oldByName[row.aiName || row.name] : null;
       if(o){ row.cands = o.cands; row.sel = o.sel; row.touched = o.touched; row.review = o.review; row.usdaState = o.usdaState; row.wantUsdaDefault = false; row.usdaQ = o.usdaQ || row.usdaQ; aiMealApplyCandUnit(row); }
       return row;
     });
+  }
+  var allRows = pre.rows.concat(aiRows || fbRows);
+  var replyText = aiRows ? (result.reply || '') : (allRows.length ? (fbRows.length ? t('aiMealLocalFallbackReply') : t('aiMealLocalAllReply')) : (result.reply || ''));
+  am.messages.push({role:'ai', text: replyText});
+  if(allRows.length){
+    if(result.date) am.date = result.date;
+    if(result.slot) am.slot = result.slot;
+    if(aiRows){
+      if(result.meal_name) am.mealName = result.meal_name;
+      am.assumptions = result.assumptions || '';
+    } else { am.assumptions = ''; }
+    am.items = allRows;
   } else if(!isFollow){
     am.firstText = ''; // AI没认出任何食物：下次当作第一次描述
   }
@@ -16964,7 +16998,7 @@ async function aiMealSend(){
       if(el) window.scrollTo(0, Math.max(0, el.getBoundingClientRect().top + (window.scrollY||0) - 70));
     });
     // 页面画出来之后，再去查USDA(AI说\"目录里没有、是通用食材\"的那几行)，查到了原地更新、不重画整页
-    if(am.items && result.items && result.items.length){
+    if(am.items){
       am.items.forEach(function(row){ if(row.usdaQ && !row.cands.length && !row.usdaState) aiMealUsdaSearch(am, row); });
     }
   }
@@ -16992,6 +17026,69 @@ function aiMealNameWindows(seg){
     if(out.length) return out.slice(0,6); // 取最长的、有命中的那一档
   }
   return out;
+}
+// README 9.240: 口述里"整段话正好等于某个套餐/食谱的名字"的部分，直接在本地识别。
+// 先按标点/空格/加号把话切成段；再尝试把相邻的几段拼回去跟名字比(名字本身可能带"+""，"，如"沙拉+奶咖，工作日午餐")，
+// 从长到短，拼起来(忽略表情符号和标点)正好等于某个套餐/食谱名字的就算命中，这几段不再往后传；
+// 没命中的段落如果含"和/与/跟/及/还有"，再按这些词拆开各自试一次(名字里本身带"和"的在上一步已经整体命中过)。
+// 命中的做成卡片：库存里同名的、部分相同的也一并列成候选；只有"完全同名的恰好一条"才默认选中，其余让用户点。
+// 返回 {rows:[已做好的卡片], rest:"没命中的剩余话，要发给AI的"}。
+function aiMealPreMatchNames(text){
+  var map = {};
+  function addName(type, id, label){
+    var k = aiMealNorm(label);
+    if(k.length<2) return;
+    (map[k] = map[k] || []).push({type:type, id:id, label:label});
+  }
+  (state.mealsets||[]).forEach(function(m){ addName('mealset', m.id, m.name||''); });
+  (state.recipes||[]).forEach(function(r){ addName('recipe', r.id, r.name||''); });
+  var segs = String(text||'').split(/[，,、；;。.！!？?\s+＋]+/).map(function(x){ return x.trim(); }).filter(Boolean).slice(0,30);
+  var hitsList = [], rest = [];
+  var i = 0;
+  while(i<segs.length){
+    var matched = false;
+    for(var k=segs.length; k>i; k--){
+      var joined = aiMealNorm(segs.slice(i,k).join(''));
+      if(joined.length>=2 && map[joined]){ hitsList.push(map[joined]); i = k; matched = true; break; }
+    }
+    if(matched) continue;
+    var parts = segs[i].split(/还有|以及|和|与|跟|及/).map(function(x){ return x.trim(); }).filter(Boolean);
+    var got = false, left = [];
+    if(parts.length>1){
+      parts.forEach(function(p){
+        var kk = aiMealNorm(p);
+        if(kk.length>=2 && map[kk]){ hitsList.push(map[kk]); got = true; } else left.push(p);
+      });
+    }
+    if(got) rest = rest.concat(left); else rest.push(segs[i]);
+    i++;
+  }
+  var rows = [];
+  var usedKey = {};
+  hitsList.forEach(function(hits){
+    var key = hits.map(function(h){ return h.type+':'+h.id; }).join('|');
+    if(usedKey[key]) return;       // 同一个名字口述了两遍，只做一张卡片
+    usedKey[key] = 1;
+    rows.push(aiMealLocalRow(hits));
+  });
+  return {rows:rows, rest:rest.join('，')};
+}
+function aiMealLocalRow(hits){
+  var label = hits[0].label;
+  var cands = aiMealSearchLocal([label]);
+  hits.forEach(function(h){
+    if(!cands.some(function(c){ return c.type===h.type && c.id===h.id; })){
+      cands.unshift({type:h.type, id:h.id, label:h.label, sub:(h.type==='mealset' ? t('sourceMealset') : t('sourceRecipe')), exact:true});
+    }
+  });
+  var n = {}; AI_MEAL_ALL.forEach(function(k){ n[k] = null; });
+  var row = {name:label, amount:1, unit:'份', grams:null, n:n, open:false, cands:cands, sel:-1, review:false, touched:false,
+    usdaQ:'', usdaState:'', wantUsdaDefault:false, autoSwitched:false, baseAmount:null, baseUnit:null, local:true};
+  var exacts = cands.filter(function(c){ return c.exact; });
+  if(exacts.length===1) row.sel = cands.indexOf(exacts[0]);
+  else row.review = true; // 同名的不止一条(比如套餐和库存都叫这个名字)：不替用户选
+  aiMealApplyCandUnit(row);
+  return row;
 }
 function aiMealLocalFallbackRows(text){
   var rows = [], used = {};
@@ -17232,6 +17329,10 @@ function aiMealPick(i, j){
   var row = am.items[i];
   row.sel = j; row.touched = true; row.review = false;
   aiMealApplyCandUnit(row);
+  var nc = j>=0 ? row.cands[j] : null;
+  if(row.aiName && row.nameFromCand && row.name===row.nameFromCand && !(nc && (nc.type==='mealset' || nc.type==='recipe'))){
+    row.name = row.aiName; row.nameFromCand = null; // 不再是套餐/食谱了：标题还原成AI的说法(用户手动改过标题的不动)
+  }
   if(j>=0 && row.cands[j] && row.cands[j].type==='usda') aiMealEnsureUsda(am, row);
   render(); // 选哪一条会改变整张卡片的内容(估算输入框/单位快捷键)，这里整页重画没问题——是一次点击、不是在打字
 }
