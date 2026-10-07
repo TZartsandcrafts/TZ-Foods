@@ -952,7 +952,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.242';
+var BUILD_VERSION = '9.243';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -6999,6 +6999,9 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.243', items:[
+    {t:'new', zh:'已经记进某一餐的套餐，现在可以直接在它的详情页里「添加食材」了：只加在这一次记录里，不会改动套餐本身。加进来的库存食材会按数量从库存里扣掉。', en:'A meal set already logged to a meal now has an "Add ingredient" button on its detail page: it only adds to that one log entry and never changes the meal set itself. Inventory ingredients you add are deducted from stock.'}
+  ]},
   {v:'9.242', items:[
     {t:'fix', zh:'添加/编辑食材时，名称栏下面的搜索结果不会再在你收起键盘之后自己展开、挡住别的东西：收起键盘后只留一行「查看 N 条匹配结果」，点一下才展开；点选某条结果时会先问一句再覆盖名称和营养标签，不会一碰就被改掉。', en:'In the add/edit ingredient form, the search results under the name field no longer pop open after you close the keyboard: they collapse to one "View N matches" line you tap to expand, and picking a result now asks before replacing the name and nutrition label.'}
   ]},
@@ -13725,6 +13728,7 @@ function renderMealLogEntryDetail(){
   // button below still removes the whole entry (and reverses every remaining subItem's
   // deduction at once via reverseMealLogDeductions).
   if(m.source_type==='mealset'){
+    consumeMealsetAppend(id); // README 9.243: 从"添加食材"选餐页回来时，把选好的食材并进这条记录
     var itemsHtml = (m.subItems||[]).map(function(si, idx){
       return '<div class="list-row" style="cursor:pointer;" onclick="editMealsetLogSubItem('+aj(id)+','+idx+')">'+
         '<div class="row-label">'+esc(si.name)+(si.amount!=null?('<div class="hint" style="margin-top:2px;">'+fmtAmount(si.amount,si.unit)+esc(si.unit)+'</div>'):'')+'</div>'+
@@ -13746,7 +13750,9 @@ function renderMealLogEntryDetail(){
     }
     return '<div class="page-header"><button class="back-btn" onclick="navigate(\'meals\')">'+ic('back',22)+'</button><h1>'+esc(m.name)+'</h1></div>'+
     '<div class="content">'+
-      '<div class="form-group">'+(itemsHtml||'')+'</div>'+
+      '<div class="form-group">'+(itemsHtml||'')+
+        '<button class="btn btn-outline btn-sm" style="width:100%;margin-top:6px;" onclick="openMealsetLogAppend('+aj(id)+')">'+ic('plus',15)+' '+t('addIngredientBtn')+'</button>'+
+      '</div>'+
       '<div id="meal-entry-nutrition-preview">'+mealEntryNutritionPreviewHtml(m.nutrition)+'</div>'+
       '<div style="margin-top:16px;">'+mealsetTplLinkHtml+mealEntryMoveSectionHtml(ee0)+'</div>'+
       '<button class="btn btn-danger" style="width:100%;" onclick="deleteMealLogEntryFromDetail('+aj(id)+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
@@ -14346,6 +14352,68 @@ function bumpInventoryPickFrequency(groupKey, repId){
 function inventoryPickFreqKey(groupKey, repId){
   return isRecipeIngredientCtx() ? ('recipeIngItem:'+groupKey) : ('inventory:'+repId);
 }
+// ===================== README 9.243: 给"已经记进某一餐的套餐"追加食材(一次性) =====================
+// Lynn：已加入某餐次的套餐，在餐次列表里点进去想再加食材，但详情页没有入口——只想加在这一次记录里，
+// 不是改套餐本身。做法：详情页加一个"添加食材"按钮，打开跟别处同款的tab选餐页面(ingPicker，
+// pickerKind沿用'mealsetDraft'：选中的食材原样写进state.mealsUI.addFood.mealsetLogItems)，只是
+// 这次的addFood是现建的一个临时上下文，并带着mealsetAppendEntryId=这条记录的id；选完所有"返回"
+// 路径(ipBack/数量页保存/自定保存/快速勾选/套餐展开)统一经ipNavigateReturn回到这条记录的详情页，
+// 详情页渲染时(consumeMealsetAppend)再把攒下的食材并进这条记录的subItems——库存食材照常扣库存
+// (跟新记一份套餐同一套deductFromItem/pushMealUsageLog，之后改数量/删除也能把库存加回去)，
+// 总营养重新汇总(resumeMealsetEntryNutrition)。套餐模板(state.mealsets)完全不碰。
+function openMealsetLogAppend(entryId){
+  var m = state.mealLogs.find(function(x){ return x.id===entryId; });
+  if(!m) return;
+  state.mealsUI.addFood = {date:m.date, slot:m.slot, tab:'inventory', step:'search', query:'', picked:null, amountText:'', deduct:true, quickPicks:{}, matchTabs:null, mealsetPhase:null, mealsetLogItems:[], mealsetAppendEntryId:entryId};
+  openIngPicker('mealsetDraft');
+}
+function ipNavigateReturn(view){
+  var af = state.mealsUI.addFood;
+  if(view==='mealAddFood' && af && af.mealsetAppendEntryId){
+    navigate('mealLogEntryDetail', {id: af.mealsetAppendEntryId});
+    return;
+  }
+  navigate(view);
+}
+function consumeMealsetAppend(entryId){
+  var af = state.mealsUI.addFood;
+  if(!af || af.mealsetAppendEntryId!==entryId) return;
+  var items = af.mealsetLogItems || [];
+  if(!items.length) return;
+  af.mealsetLogItems = [];
+  var m = state.mealLogs.find(function(x){ return x.id===entryId; });
+  if(!m || m.source_type!=='mealset') return;
+  var ts = nowLocalIso();
+  var newSubs = items.map(function(it){
+    return {id: it.id||uid(), source_type:it.source_type, source_id:it.source_id, name:it.name, amount:it.amount, unit:it.unit, nutrition:it.nutrition, nutrition_extra:it.nutrition_extra||{},
+      nutrition_snapshot_per100g: it.nutrition_snapshot_per100g, nutrition_extra_snapshot_per100g: it.nutrition_extra_snapshot_per100g, usda_density_g_per_ml: it.usda_density_g_per_ml,
+      nutrition_snapshot: it.nutrition_snapshot, nutrition_extra_snapshot: it.nutrition_extra_snapshot};
+  });
+  _restockCollected = [];
+  var anyDeducted = false;
+  items.forEach(function(it, idx){
+    if(it.source_type!=='inventory') return;
+    var item = state.items.find(function(x){ return x.id===it.source_id; });
+    if(!item) return;
+    var res = deductFromItem(item, it.amount, it.unit);
+    if(res && res.ok){
+      newSubs[idx].deductItemId = item.id;
+      newSubs[idx].deductAmount = it.amount;
+      newSubs[idx].deductUnit = it.unit;
+      pushMealUsageLog(item, it.amount, it.unit, m.id, newSubs[idx].id, m.slot, m.date, ts);
+      anyDeducted = true;
+      _restockCollect(item);
+    }
+  });
+  if(anyDeducted) saveItems();
+  var rsItems = _restockCollected; _restockCollected = [];
+  if(rsItems.length) setTimeout(function(){ showRestockForItems(rsItems); }, 0); // 补货提醒：渲染结束后再弹
+  m.subItems = (m.subItems||[]).concat(newSubs);
+  resumeMealsetEntryNutrition(m);
+  saveMealLogs();
+  showToast(t('mealLoggedToast'));
+}
+// ===================== / 追加食材 =====================
 // README 9.200: 套餐"添加食材"入口——pickerKind是'mealsetTemplate'(套餐模板编辑页，写进
 // state.mealsetDraft.items)或'mealsetDraft'(三餐里正在编辑的套餐草稿，写进
 // state.mealsUI.addFood.mealsetLogItems)之一，决定最终选中的食材写去哪、要不要显示"加到哪一
@@ -14373,7 +14441,7 @@ function ipBack(){
   if(ip && ip.tab==='custom' && ip.step==='customEdit'){ backFromCustomEdit(); return; }
   var returnView = (ip && ip.pickerKind==='mealsetTemplate') ? 'mealsetForm' : (ip && ip.pickerKind==='recipeIngredients') ? 'recipeForm' : 'mealAddFood';
   state.mealsUI.ingPicker = null;
-  navigate(returnView);
+  ipNavigateReturn(returnView);
 }
 // README 9.193: tabs数组抽成独立函数(mealAddTabsList)——renderMealAddFood整页渲染、
 // refreshMealAddTabsBar单独刷新tab条这两处都要用同一份tab列表，抽出来避免以后改tab列表
@@ -14593,7 +14661,7 @@ function ipPickMealset(id){
   af.mealsetLogItems = (af.mealsetLogItems||[]).concat(newItems);
   bumpPickFrequency('mealset', id);
   state.mealsUI.ingPicker = null;
-  navigate('mealAddFood');
+  ipNavigateReturn('mealAddFood');
 }
 function selectMealsetForLog(id){
   var m = state.mealsets.find(function(x){ return x.id===id; });
@@ -16040,7 +16108,7 @@ function ipSaveCustomItem(){
   }
   var returnView = (af.pickerKind==='mealsetTemplate') ? 'mealsetForm' : (af.pickerKind==='recipeIngredients') ? 'recipeForm' : 'mealAddFood';
   state.mealsUI.ingPicker = null;
-  navigate(returnView);
+  ipNavigateReturn(returnView);
 }
 // picking an amount (addFoodAmountBodyHtml) and the actual save (saveMealLogEntry) - Lynn's
 // original note (item 1) asked for this at the point of ADDING, not just after the fact once
@@ -16646,7 +16714,7 @@ function ipConfirmAmountPick(){
   else if(p.type==='usda') bumpPickFrequency('usda', p.fdcId);
   var returnView = (af.pickerKind==='mealsetTemplate') ? 'mealsetForm' : (af.pickerKind==='recipeIngredients') ? 'recipeForm' : 'mealAddFood';
   state.mealsUI.ingPicker = null;
-  navigate(returnView);
+  ipNavigateReturn(returnView);
 }
 // ===================== README 9.193: 快速勾选添加 - 批量确认 =====================
 // 把af.quickPicks里攒的每一条('inventory:'+groupKey / 'recipe:'+id / 'external:'+id /
@@ -16822,7 +16890,7 @@ function ipConfirmQuickAddSelection(){
   showToast(failCount ? t('quickAddPartialToast').replace('{n}', okCount) : t('mealLoggedToast'));
   var returnView = (ip.pickerKind==='mealsetTemplate') ? 'mealsetForm' : (ip.pickerKind==='recipeIngredients') ? 'recipeForm' : 'mealAddFood';
   state.mealsUI.ingPicker = null;
-  navigate(returnView);
+  ipNavigateReturn(returnView);
 }
 // ===================== / 快速勾选添加 - 批量确认 =====================
 
