@@ -952,7 +952,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.241';
+var BUILD_VERSION = '9.242';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2611,7 +2611,7 @@ var I18N = {
     usdaSectionOfficial:'USDA 官方数据', usdaSectionBranded:'品牌食品', usdaNoOfficialMatch:'没有找到匹配的官方数据',
     usdaSearchBrandedLabel:'搜索品牌食品', usdaNoBrandedMatch:'没有找到匹配的品牌食品',
     usdaSearchError:'搜索失败，请检查网络或稍后再试', usdaSearchApplyToast:'已填入 USDA 数据，可自行调整',
-    usdaTranslating:'翻译中…', usdaSavedSectionTitle:'常用', usdaFavoriteToggle:'收藏',
+    usdaTranslating:'翻译中…', usdaSavedSectionTitle:'常用', usdaCollapsedChip:'查看 {n} 条匹配结果', usdaPickConfirmMsg:'用「{name}」覆盖当前的名称和营养标签？', usdaPickConfirmBtn:'覆盖', usdaFavoriteToggle:'收藏',
     usdaDataTypeFoundation:'官方实测', usdaDataTypeSRLegacy:'官方数据', usdaDataTypeBranded:'品牌食品',
     usdaDetailBasis:'每100g', usdaDetailMissingHint:'本地缓存里没有找到这条食品的营养数据（可能是缓存被清掉了），重新在USDA里搜一次这个食品即可再次查看。', usdaDetailFallbackTitle:'USDA 食品详情',
     // recipe detail
@@ -2950,7 +2950,7 @@ var I18N = {
     usdaSectionOfficial:'USDA reference data', usdaSectionBranded:'Branded foods', usdaNoOfficialMatch:'No matching reference data found',
     usdaSearchBrandedLabel:'Search branded foods', usdaNoBrandedMatch:'No matching branded foods found',
     usdaSearchError:'Search failed, check your connection and try again', usdaSearchApplyToast:'Filled in USDA data - feel free to adjust',
-    usdaTranslating:'Translating…', usdaSavedSectionTitle:'Frequently used', usdaFavoriteToggle:'Favorite',
+    usdaTranslating:'Translating…', usdaSavedSectionTitle:'Frequently used', usdaCollapsedChip:'View {n} matches', usdaPickConfirmMsg:'Replace the current name and nutrition label with "{name}"?', usdaPickConfirmBtn:'Replace', usdaFavoriteToggle:'Favorite',
     usdaDataTypeFoundation:'USDA Lab-Tested', usdaDataTypeSRLegacy:'USDA Data', usdaDataTypeBranded:'Branded',
     usdaDetailBasis:'Per 100g', usdaDetailMissingHint:'This food\\u2019s nutrition data isn\\u2019t in the local cache (it may have been cleared) \\u2014 search for it again on USDA to view it here.', usdaDetailFallbackTitle:'USDA food details',
     cookThis:"I made this dish", cookConfirmTitle:'Confirm inventory deduction',
@@ -6999,6 +6999,9 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.242', items:[
+    {t:'fix', zh:'添加/编辑食材时，名称栏下面的搜索结果不会再在你收起键盘之后自己展开、挡住别的东西：收起键盘后只留一行「查看 N 条匹配结果」，点一下才展开；点选某条结果时会先问一句再覆盖名称和营养标签，不会一碰就被改掉。', en:'In the add/edit ingredient form, the search results under the name field no longer pop open after you close the keyboard: they collapse to one "View N matches" line you tap to expand, and picking a result now asks before replacing the name and nutrition label.'}
+  ]},
   {v:'9.241', items:[
     {t:'new', zh:'三餐「自定」里，之前填过的自定义食物会被记住，直接排在列表里，显示名称和热量；点一条就能打开、改里面的数字再保存。左划可以删掉不要的。', en:'The Custom tab now remembers the custom foods you entered before and lists them with name and calories. Tap one to open it, change the numbers and save. Swipe left to delete.'}
   ]},
@@ -8251,6 +8254,43 @@ var usdaAutocompleteSeq = 0; // 用来丢弃"用户又继续打字"之后才姗�
 // 文件后面 document.addEventListener('click', ...) 那段，跟"数量/单位"下拉框关闭用的是同一套
 // 已有模式，看那段自己的注释）。
 var usdaDropdownCache = {};
+// README 9.242: 名称栏下拉防误触。Lynn：打完名称点键盘"完成"收键盘后，搜索结果才(或仍然)展开，
+// 手指正好在附近，误点一条就会把已经填好的名称和营养标签整个覆盖掉。三层处理：
+//  1) 只有输入框处于聚焦(正在打字)时才展开成完整列表(usdaDropdownExpanded)；失焦后折叠成一行
+//     「查看 N 条匹配结果」，要看的话主动点一下才展开；失焦后才到的搜索结果也只更新这一行，不弹列表；
+//  2) 重新点回名称栏，列表自动再展开；
+//  3) 点选某条结果后不直接覆盖，先在下拉区域内联问一句「用…覆盖当前名称和营养标签？」(不用弹窗：
+//     食谱「添加外部食材」本身就是弹窗，再叠一个确认弹窗会把它顶掉)，确认才真正应用。
+var usdaDropdownExpanded = {};
+var usdaDropdownCount = {};
+var usdaDropdownDesc = {};
+function usdaDropdownShownHtml(dropdownId){
+  var h = usdaDropdownCache[dropdownId];
+  if(!h) return '';
+  if(usdaDropdownExpanded[dropdownId]) return h;
+  var n = usdaDropdownCount[dropdownId] || 0;
+  if(!n) return '';
+  return '<div class="usda-collapsed-chip" style="margin-top:6px;padding:9px 12px;border:1px solid var(--line);border-radius:10px;font-size:14px;color:var(--cocoa);background:var(--card, #fff);" onclick="expandUsdaDropdown('+aj(dropdownId)+')">'+esc(t('usdaCollapsedChip').replace('{n}', n))+' ▾</div>';
+}
+function setUsdaDropdownEl(dropdownId){
+  var el = document.getElementById(dropdownId);
+  if(el) el.innerHTML = usdaDropdownShownHtml(dropdownId);
+}
+function expandUsdaDropdown(dropdownId){
+  usdaDropdownExpanded[dropdownId] = true;
+  setUsdaDropdownEl(dropdownId);
+}
+function usdaAskPick(dropdownId, fdcId, confirmedFnName){
+  var el = document.getElementById(dropdownId);
+  if(!el) return;
+  var desc = usdaDropdownDesc[fdcId] || '';
+  el.innerHTML = '<div class="usda-autocomplete-list">'+
+    '<p class="hint" style="padding:10px 12px 6px;margin:0;">'+esc(t('usdaPickConfirmMsg').replace('{name}', desc))+'</p>'+
+    '<div class="btn-row" style="padding:0 12px 12px;">'+
+      '<button class="btn btn-outline" onmousedown="event.preventDefault();setUsdaDropdownEl('+aj(dropdownId)+')">'+esc(t('cancel'))+'</button>'+
+      '<button class="btn btn-primary" onmousedown="event.preventDefault();'+confirmedFnName+'('+aj(fdcId)+')">'+esc(t('usdaPickConfirmBtn'))+'</button>'+
+    '</div></div>';
+}
 function usdaAutocompleteDropdownHtml(inner){
   return '<div class="usda-autocomplete-list">'+inner+'</div>';
 }
@@ -8265,19 +8305,21 @@ function usdaAutocompleteRowHtml(food, onPickFnName){
     '<div class="usda-result-sub hint">'+sub+'</div>'+
   '</div>';
 }
-function usdaAutocompleteInput(dropdownId, query, onPickFnName){
+function usdaAutocompleteInput(dropdownId, query, onPickFnName, startCollapsed){
   clearTimeout(usdaAutocompleteTimer);
   var q = (query||'').trim();
+  usdaDropdownExpanded[dropdownId] = !startCollapsed; // 正在打字=展开；程序自动搜(扫码条码)没人在打字=折叠
   if(!usdaWorkerBase() || q.length<2){
     usdaDropdownCache[dropdownId] = '';
+    usdaDropdownCount[dropdownId] = 0;
     var el0 = document.getElementById(dropdownId);
     if(el0) el0.innerHTML = '';
     return;
   }
   var loadingHtml = usdaAutocompleteDropdownHtml('<p class="hint" style="padding:10px 12px;margin:0;">'+t('usdaSearchLoading')+'</p>');
   usdaDropdownCache[dropdownId] = loadingHtml;
-  var el = document.getElementById(dropdownId);
-  if(el) el.innerHTML = loadingHtml;
+  usdaDropdownCount[dropdownId] = 0;
+  setUsdaDropdownEl(dropdownId);
   usdaAutocompleteTimer = setTimeout(function(){
     usdaAutocompleteRun(q, dropdownId, onPickFnName);
   }, 450);
@@ -8291,8 +8333,9 @@ async function usdaAutocompleteRun(q, dropdownId, onPickFnName){
       ? usdaAutocompleteDropdownHtml('<p class="hint" style="padding:10px 12px;margin:0;">'+t('usdaSearchNoResults')+'</p>')
       : usdaAutocompleteDropdownHtml(results.slice(0,12).map(function(f){ return usdaAutocompleteRowHtml(f, onPickFnName); }).join(''));
     usdaDropdownCache[dropdownId] = html;
-    var el = document.getElementById(dropdownId);
-    if(el) el.innerHTML = html;
+    usdaDropdownCount[dropdownId] = results.length;
+    results.slice(0,12).forEach(function(f){ usdaDropdownDesc[f.fdcId] = f.description; });
+    setUsdaDropdownEl(dropdownId);
   }catch(e){
     if(mySeq !== usdaAutocompleteSeq) return;
     usdaDropdownCache[dropdownId] = '';
@@ -8302,15 +8345,13 @@ async function usdaAutocompleteRun(q, dropdownId, onPickFnName){
 }
 function usdaAutocompleteClear(dropdownId){
   usdaDropdownCache[dropdownId] = '';
+  usdaDropdownCount[dropdownId] = 0;
   var el = document.getElementById(dropdownId);
   if(el) el.innerHTML = '';
 }
 // 名称输入框失焦时调用这个，而不是直接 render() —— 见上面 usdaDropdownCache 的注释。
 function reinjectUsdaDropdown(dropdownId){
-  var html = usdaDropdownCache[dropdownId];
-  if(!html) return;
-  var el = document.getElementById(dropdownId);
-  if(el) el.innerHTML = html;
+  setUsdaDropdownEl(dropdownId);
 }
 
 /* ---- Entry point 1: inventory item form (state.itemDraft) ---- */
@@ -8319,10 +8360,13 @@ function onItemNameInput(val){
   usdaAutocompleteInput('item-name-usda-dropdown', val, 'onItemUsdaAutocompletePick');
 }
 function onItemNameBlur(){
+  usdaDropdownExpanded['item-name-usda-dropdown'] = false;
   render();
   reinjectUsdaDropdown('item-name-usda-dropdown');
 }
-async function onItemUsdaAutocompletePick(fdcId){
+function onItemNameFocus(){ expandUsdaDropdown('item-name-usda-dropdown'); }
+function onItemUsdaAutocompletePick(fdcId){ usdaAskPick('item-name-usda-dropdown', fdcId, 'onItemUsdaAutocompleteConfirmed'); }
+async function onItemUsdaAutocompleteConfirmed(fdcId){
   usdaAutocompleteClear('item-name-usda-dropdown');
   try{
     var detail = await usdaFetchFoodDetail(fdcId);
@@ -8366,7 +8410,7 @@ function applyUsdaDetailToItemDraft(detail){
 function maybeAutoSearchUsdaFromBarcode(){
   var d = state.itemDraft;
   if(d && (d.barcode||'').trim() && !(d.name||'').trim() && usdaWorkerBase()){
-    usdaAutocompleteInput('item-name-usda-dropdown', d.barcode.trim(), 'onItemUsdaAutocompletePick');
+    usdaAutocompleteInput('item-name-usda-dropdown', d.barcode.trim(), 'onItemUsdaAutocompletePick', true);
   }
 }
 
@@ -8376,10 +8420,13 @@ function onExtIngNameInput(val){
   usdaAutocompleteInput('exting-name-usda-dropdown', val, 'onExtIngUsdaAutocompletePick');
 }
 function onExtIngNameBlur(){
+  usdaDropdownExpanded['exting-name-usda-dropdown'] = false;
   renderExternalIngredientModal();
   reinjectUsdaDropdown('exting-name-usda-dropdown');
 }
-async function onExtIngUsdaAutocompletePick(fdcId){
+function onExtIngNameFocus(){ expandUsdaDropdown('exting-name-usda-dropdown'); }
+function onExtIngUsdaAutocompletePick(fdcId){ usdaAskPick('exting-name-usda-dropdown', fdcId, 'onExtIngUsdaAutocompleteConfirmed'); }
+async function onExtIngUsdaAutocompleteConfirmed(fdcId){
   usdaAutocompleteClear('exting-name-usda-dropdown');
   try{
     var detail = await usdaFetchFoodDetail(fdcId);
@@ -8642,7 +8689,7 @@ function renderItemForm(){
     '<div class="section-title">'+t('sectionBasic')+'</div>'+
     '<div class="form-group">'+
       '<div class="field"><label>'+t('fieldBrand')+'</label><input type="text" autocapitalize="words" value="'+esc(d.brand)+'" placeholder="'+t('fieldBrandPh')+'" oninput="d_str(\'brand\',this.value)" onblur="render()"></div>'+
-      '<div class="field" style="position:relative;"><label>'+t('fieldName')+' *</label><input type="text" autocapitalize="words" value="'+esc(d.name)+'" placeholder="'+t('fieldNamePh')+'" oninput="onItemNameInput(this.value)" onblur="onItemNameBlur()">'+
+      '<div class="field" style="position:relative;"><label>'+t('fieldName')+' *</label><input type="text" autocapitalize="words" value="'+esc(d.name)+'" placeholder="'+t('fieldNamePh')+'" oninput="onItemNameInput(this.value)" onfocus="onItemNameFocus()" onblur="onItemNameBlur()">'+
         '<div id="item-name-usda-dropdown"></div>'+
       '</div>'+
       '<div class="field"><label>'+t('fieldSource')+'</label><input type="text" autocapitalize="words" value="'+esc(d.source||'')+'" placeholder="'+t('fieldSourcePh')+'" oninput="d_str(\'source\',this.value)"></div>'+
@@ -11316,7 +11363,7 @@ function openNewExternalIngredientModal(){
   usdaDropdownCache['exting-name-usda-dropdown'] = ''; // don't carry a stale dropdown in from a previous session
   state.extIngUI = {mode:'new', id:null, name:carriedName, nutrition:{}, nutrition_extra:{}, amount:null, unit:'g', expandedGroups:{}, openDropdown:null, freshRefDismissed:false};
   renderExternalIngredientModal();
-  if(carriedName) usdaAutocompleteInput('exting-name-usda-dropdown', carriedName, 'onExtIngUsdaAutocompletePick');
+  if(carriedName) usdaAutocompleteInput('exting-name-usda-dropdown', carriedName, 'onExtIngUsdaAutocompletePick', true);
 }
 // Edits the external ingredient's own library attributes (name + its per-100g nutrition
 // values) - NOT the amount/unit of any particular use of it in a recipe. Since
@@ -11375,7 +11422,7 @@ function renderExternalIngredientModal(){
     '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select">'+WEIGHT_UNITS.concat(VOLUME_UNITS).map(function(u){ return '<div class="tag-option '+(u===ui.unit?'active':'')+'" onclick="onExtIngUnitPick('+aj(u)+')">'+u+'</div>'; }).join('')+'</div></div>'
     : '';
   showModal(isNew ? t('createNewIngredient') : t('editIngredientTitle'),
-    '<div class="field" style="position:relative;"><label>'+t('newIngName')+'</label><input type="text" autocapitalize="words" value="'+esc(ui.name)+'" placeholder="'+t('newIngName')+'" oninput="onExtIngNameInput(this.value)" onblur="onExtIngNameBlur()">'+
+    '<div class="field" style="position:relative;"><label>'+t('newIngName')+'</label><input type="text" autocapitalize="words" value="'+esc(ui.name)+'" placeholder="'+t('newIngName')+'" oninput="onExtIngNameInput(this.value)" onfocus="onExtIngNameFocus()" onblur="onExtIngNameBlur()">'+
       '<div id="exting-name-usda-dropdown"></div>'+
     '</div>'+
     extIngFreshRefCardHtml()+
@@ -19804,6 +19851,7 @@ document.addEventListener('click', function(e){
     var inputEl = dropdownEl && dropdownEl.previousElementSibling;
     if(inputEl && inputEl===e.target) return; // tapped back into the same name input - still typing, leave it open
     usdaDropdownCache[id] = '';
+    usdaDropdownCount[id] = 0;
     if(dropdownEl) dropdownEl.innerHTML = '';
   });
 }, true);
