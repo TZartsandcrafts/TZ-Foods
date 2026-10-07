@@ -952,7 +952,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.243';
+var BUILD_VERSION = '9.244';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -3253,7 +3253,9 @@ async function loadAll(){
     storageGet('restockRules', []),
     storageGet('restockRulesMeta', {}),
     // README 9.241: 三餐「自定」tab记住的自定义食物(本机独立数据，不走云同步，跟usdaSaved同理)。
-    storageGet('customSaved', {})
+    storageGet('customSaved', {}),
+    // README 9.244: "自定"列表一次性回溯是否已经做过。
+    storageGet('customSavedBackfilled', false)
   ]);
   // README 9.125: categoryGroups is the new two-level (母分类/子分类) structure for inventory
   // categories, architecturally matching state.recipeCategoryGroups but without any color
@@ -3349,6 +3351,11 @@ async function loadAll(){
   if(JSON.stringify(state.restockRules) !== JSON.stringify(_rrRaw)) storageSet('restockRules', state.restockRules);
   state.restockRulesUpdatedAt = (results[36] && results[36].updatedAt) || '';
   state.customSaved = results[37] || {};
+  var _csBackfilled = !!results[38];
+  // README 9.244: 一次性回溯(见backfillCustomSavedFromMealLogs)，做完记一个标记，以后不再跑。
+  if(!_csBackfilled){
+    try{ backfillCustomSavedFromMealLogs(); storageSet('customSavedBackfilled', true); }catch(e){}
+  }
   state.loaded = true;
 }
 // Old data shape had a single secondary_qty/secondary_unit/unit_ratio triplet per item. The
@@ -6999,6 +7006,9 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.244', items:[
+    {t:'new', zh:'「自定」里的列表会自动补上你以前记进三餐的自定义食物（只补一次）：同一个食物记得越多次排得越靠前。AI 估算出来的不算在内。', en:'The Custom tab list now fills itself once with the custom foods you logged to meals before (one time only); the more often a food was logged the higher it ranks. AI estimates are not included.'}
+  ]},
   {v:'9.243', items:[
     {t:'new', zh:'已经记进某一餐的套餐，现在可以直接在它的详情页里「添加食材」了：只加在这一次记录里，不会改动套餐本身。加进来的库存食材会按数量从库存里扣掉。', en:'A meal set already logged to a meal now has an "Add ingredient" button on its detail page: it only adds to that one log entry and never changes the meal set itself. Inventory ingredients you add are deducted from stock.'}
   ]},
@@ -15939,6 +15949,48 @@ function rememberCustomSaved(name, cals, carbs, protein, fat, editId){
     ids.slice(0, ids.length-50).forEach(function(id){ delete saved[id]; });
   }
   saveCustomSaved();
+}
+// README 9.244: 一次性回溯——把9.241之前(以及之后没经过记忆流程的)已经记进三餐的自定义条目补进
+// "自定"列表。只看三餐记录里source_type==='custom'且带着原始填写值(custom_calories)的顶层条目；
+// AI估算出来的(ai_estimated)不算——那是估的数，不是Lynn自己手填的；套餐里面的自定子项只存了营养
+// 快照、没有"名称+原始数值"，也不算。按时间从早到晚扫：同一个食物(去重规则同rememberCustomSaved)
+// 出现几次count就是几，last取最近一次，有名字的取最新一次的数值；已经在列表里的(9.241之后保存的)
+// 不动，免得重复计数。扫完同样只留50条。只在第一次加载时跑一次(标记存在'customSavedBackfilled')。
+function backfillCustomSavedFromMealLogs(){
+  var saved = state.customSaved || (state.customSaved = {});
+  var existingKeys = {};
+  Object.keys(saved).forEach(function(id){ existingKeys[saved[id].key] = true; });
+  var logs = (state.mealLogs||[]).filter(function(m){
+    return m && m.source_type==='custom' && !m.ai_estimated && m.custom_calories>0;
+  }).sort(function(a,b){
+    var ka = String(a.created_at || a.date || ''), kb = String(b.created_at || b.date || '');
+    return ka < kb ? -1 : (ka > kb ? 1 : 0);
+  });
+  var fresh = {};
+  logs.forEach(function(m){
+    var name = (m.custom_name||'').trim();
+    var key = customSavedKey(name, m.custom_calories, m.custom_carbs, m.custom_protein, m.custom_fat);
+    if(existingKeys[key]) return;
+    var when = String(m.created_at || m.date || '');
+    var f = fresh[key];
+    if(f){
+      f.count++; f.last = when;
+      f.calories = m.custom_calories; f.carbs = m.custom_carbs||null; f.protein = m.custom_protein||null; f.fat = m.custom_fat||null;
+    } else {
+      fresh[key] = {id:uid(), key:key, name:name, calories:m.custom_calories, carbs:m.custom_carbs||null, protein:m.custom_protein||null, fat:m.custom_fat||null, count:1, last:when};
+    }
+  });
+  Object.keys(fresh).forEach(function(k){ saved[fresh[k].id] = fresh[k]; });
+  var ids = Object.keys(saved);
+  if(ids.length>50){
+    ids.sort(function(a,b){
+      var ca = saved[a].count||0, cb = saved[b].count||0;
+      if(ca!==cb) return ca-cb;
+      return String(saved[a].last||'') < String(saved[b].last||'') ? -1 : 1;
+    });
+    ids.slice(0, ids.length-50).forEach(function(id){ delete saved[id]; });
+  }
+  if(Object.keys(fresh).length) saveCustomSaved();
 }
 function customSavedSortedList(){
   var saved = state.customSaved || {};
