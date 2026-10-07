@@ -952,7 +952,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.240';
+var BUILD_VERSION = '9.241';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2470,6 +2470,7 @@ var I18N = {
     quickCalLabel:'热量 (kcal)', requiredPh:'必填', optionalPh:'选填',
     fieldMealCarbs:'碳水 (g)', fieldMealProtein:'蛋白质 (g)', fieldMealFat:'脂肪 (g)', fieldMealName:'名称',
     quickCalDefaultName:'快速记录',
+    customSavedSectionTitle:'以前填过的', newCustomBtn:'新建自定义', customSavedEmptyHint:'还没有记住的自定义食物，点上方新建一个；保存过的会出现在这里',
     viewSourceDetail:'查看详情', moveOrCopyEntry:'移动/复制到其它日期', mealSlotLabel:'餐次',
     copyEntryBtn:'复制到这里', moveEntryBtn:'移动到这里',
     copyNoDeductHint:'复制不会重复扣减库存；移动不会改变已扣减的库存。',
@@ -2817,6 +2818,7 @@ var I18N = {
     quickCalLabel:'Calories (kcal)', requiredPh:'required', optionalPh:'optional',
     fieldMealCarbs:'Carbs (g)', fieldMealProtein:'Protein (g)', fieldMealFat:'Fat (g)', fieldMealName:'Name',
     quickCalDefaultName:'Quick entry',
+    customSavedSectionTitle:'Previously entered', newCustomBtn:'New custom item', customSavedEmptyHint:'No remembered custom foods yet - create one above and it will show up here',
     viewSourceDetail:'View details', moveOrCopyEntry:'Move/copy to another date', mealSlotLabel:'Meal',
     copyEntryBtn:'Copy here', moveEntryBtn:'Move here',
     copyNoDeductHint:"Copying won't deduct inventory again; moving won't change any inventory already deducted.",
@@ -3249,7 +3251,9 @@ async function loadAll(){
     storageGet('cloudSyncMealsetPushMap', {}),
     // README 9.225: 补货提醒规则(按产品+位置存一份，不跟某个批次走)，以及它的最后修改时间(云同步用)。
     storageGet('restockRules', []),
-    storageGet('restockRulesMeta', {})
+    storageGet('restockRulesMeta', {}),
+    // README 9.241: 三餐「自定」tab记住的自定义食物(本机独立数据，不走云同步，跟usdaSaved同理)。
+    storageGet('customSaved', {})
   ]);
   // README 9.125: categoryGroups is the new two-level (母分类/子分类) structure for inventory
   // categories, architecturally matching state.recipeCategoryGroups but without any color
@@ -3344,6 +3348,7 @@ async function loadAll(){
   state.restockRules = normalizeRestockRules(_rrRaw); // README 9.226: 旧的 产品+位置 规则合并成按产品
   if(JSON.stringify(state.restockRules) !== JSON.stringify(_rrRaw)) storageSet('restockRules', state.restockRules);
   state.restockRulesUpdatedAt = (results[36] && results[36].updatedAt) || '';
+  state.customSaved = results[37] || {};
   state.loaded = true;
 }
 // Old data shape had a single secondary_qty/secondary_unit/unit_ratio triplet per item. The
@@ -3452,6 +3457,7 @@ function saveMealsets(){
 function saveRecipeCookLogs(){ return storageSet('recipeCookLogs', state.recipeCookLogs); }
 function savePickFrequency(){ return storageSet('pickFrequency', state.pickFrequency); }
 function saveUsdaSaved(){ return storageSet('usdaSaved', state.usdaSaved); }
+function saveCustomSaved(){ return storageSet('customSaved', state.customSaved); }
 function saveUsdaTranslationCache(){ return storageSet('usdaTranslationCache', state.usdaTranslationCache); }
 function saveMealAddItemPrefs(){ return storageSet('mealAddItemPrefs', state.mealAddItemPrefs); }
 function saveMealAddLastAmount(){ return storageSet('mealAddLastAmount', state.mealAddLastAmount); }
@@ -5412,6 +5418,8 @@ function openSettings(fromView){
       // 函数，脏了才弹确认。
       else if(state.view==='mealsetForm') cancelMealsetForm();
       else if(state.view==='exerciseLogForm') cancelExerciseLogForm();
+      // README 9.241: 自定tab的编辑步骤右划返回，先退回自定义列表(并回到原来的滚动位置)。
+      else if((state.view==='mealAddFood' || state.view==='ingPicker') && activeAddCtx() && activeAddCtx().tab==='custom' && activeAddCtx().step==='customEdit') backFromCustomEdit();
       // README 9.138: 从哪里来回哪里去 - while still choosing an amount (or mid-USDA-lookup) on
       // the 三餐加食物 page, swipe-back should return to the search step within THIS SAME page,
       // not exit the whole flow back to 三餐. Only the search step itself (nothing left to step
@@ -6991,6 +6999,9 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.241', items:[
+    {t:'new', zh:'三餐「自定」里，之前填过的自定义食物会被记住，直接排在列表里，显示名称和热量；点一条就能打开、改里面的数字再保存。左划可以删掉不要的。', en:'The Custom tab now remembers the custom foods you entered before and lists them with name and calories. Tap one to open it, change the numbers and save. Swipe left to delete.'}
+  ]},
   {v:'9.240', items:[
     {t:'new', zh:'你说的话正好是自己已有的套餐/食谱的名字时（比如只说「奶咖」），现在直接在本地找到并选好，不再让 AI 重新解释成别的东西，也不占用 AI 次数。', en:'When what you say is exactly the name of one of your own meal sets or recipes (e.g. just "奶咖"), it is now found and selected on the phone, without the AI reinterpreting it or using up AI quota.'},
     {t:'tweak', zh:'AI 认出的食物如果对应你自己的套餐/食谱，卡片标题改用你自己起的名字。', en:'When an AI-recognised food maps to one of your own meal sets or recipes, the card now shows your own name for it.'}
@@ -14312,6 +14323,7 @@ function renderIngPicker(){
 function ipBack(){
   var ip = state.mealsUI.ingPicker;
   if(ip && ip.step==='amount'){ ip.step='search'; ip.picked=null; render(); restoreAddFoodSearchScroll(); return; }
+  if(ip && ip.tab==='custom' && ip.step==='customEdit'){ backFromCustomEdit(); return; }
   var returnView = (ip && ip.pickerKind==='mealsetTemplate') ? 'mealsetForm' : (ip && ip.pickerKind==='recipeIngredients') ? 'recipeForm' : 'mealAddFood';
   state.mealsUI.ingPicker = null;
   navigate(returnView);
@@ -14389,6 +14401,8 @@ function toggleQuickPick(key){
 // arrow, and the swipe listener below is updated to call this same function for consistency.
 function mealAddFoodBack(){
   var af = state.mealsUI.addFood;
+  // README 9.241: 自定tab里点开某一条(或新建)进入的编辑步骤，返回先退回这个页面自己的列表。
+  if(af.tab==='custom' && af.step==='customEdit'){ backFromCustomEdit(); return; }
   if(af.tab==='mealset' && af.mealsetPhase==='draft'){
     af.mealsetPhase = null;
     af.mealsetLogItems = null;
@@ -14424,7 +14438,7 @@ function setMealAddFoodTab(tabId){
 }
 function mealAddFoodContentHtml(){
   var af = activeAddCtx();
-  if(af.tab==='custom') return customMealFieldsHtml(af);
+  if(af.tab==='custom') return af.step==='customEdit' ? customMealFieldsHtml(af) : customSavedTabHtml(af);
   if(af.tab==='mealset'){
     if(af.mealsetPhase==='draft') return mealsetDraftHtml(af);
     return mealsetTabListHtml(af);
@@ -14854,7 +14868,8 @@ function mealScanDeclineAddToInventory(code){
     af.tab = 'custom';
     af.customName = '';
     af.customCalories = ''; af.customCarbs=''; af.customProtein=''; af.customFat='';
-    af.step = 'search';
+    af.customEditId = null;
+    af.step = 'customEdit'; // README 9.241: 扫码没查到→直接进空白的自定义填写页
   }
   render();
   focusAddFoodAmountInput();
@@ -15767,6 +15782,120 @@ function setAddFoodBatch(itemId){
   p.id = itemId;
   render();
 }
+// ===================== README 9.241: 自定tab的"记住以前填过的自定义食物" =====================
+// Lynn：自定tab里以前填过的食物要记住，直接在tab下面排成列表(名称+热量)，点一条打开新的填写页、
+// 里面的值可以改。做法：
+//  - state.customSaved(storage key 'customSaved'，本机独立数据，不走云同步，跟usdaSaved同理)，
+//    每条 {id,name,calories,carbs,protein,fat,count,last}；
+//  - 有名字的按名字去重(同名=同一个食物，记最新一次填的数)，没名字的按 热量+碳水+蛋白+脂肪 去重，
+//    这样同一个东西反复记不会堆出一排；从某条记忆点进去改了数字再保存→(有名字的)更新这一条，改了名字→算新的一条；
+//  - 列表按"记过几次"从多到少排，次数一样的最近用的在前；最多留50条，超出的把次数最少/最久没用的挤掉；
+//  - 点一条/新建→af.step='customEdit'(跟'amount'步骤一样是同一个页面内的一步，不是新的view)，
+//    返回/右划返回都先退回列表并回到原来的滚动位置(见backFromCustomEdit)；
+//  - 左划删除沿用USDA常用列表同一套item-card-swipe，只删本机这份记忆，已经记进三餐的记录不受影响。
+function customSavedKey(name, cals, carbs, protein, fat){
+  var n = (name||'').trim();
+  if(n) return 'n:'+n;
+  return 'v:'+[cals||0, carbs||0, protein||0, fat||0].join('|');
+}
+function rememberCustomSaved(name, cals, carbs, protein, fat, editId){
+  var saved = state.customSaved || (state.customSaved = {});
+  var key = customSavedKey(name, cals, carbs, protein, fat);
+  var cleanName = (name||'').trim();
+  var existing = null;
+  Object.keys(saved).forEach(function(id){ if(saved[id].key===key) existing = saved[id]; });
+  // 改了名字再保存：旧的那条保持原样，改后的作为新的一条(或并入已有的同名那条)；没名字的条目改了数字就算新的一条。
+  var nowIso = nowLocalIso();
+  if(existing){
+    existing.name = cleanName; existing.calories = cals;
+    existing.carbs = carbs||null; existing.protein = protein||null; existing.fat = fat||null;
+    existing.count = (existing.count||0)+1; existing.last = nowIso;
+  } else {
+    var id = uid();
+    saved[id] = {id:id, key:key, name:cleanName, calories:cals, carbs:carbs||null, protein:protein||null, fat:fat||null, count:1, last:nowIso};
+  }
+  var ids = Object.keys(saved);
+  if(ids.length>50){
+    ids.sort(function(a,b){
+      var ca = saved[a].count||0, cb = saved[b].count||0;
+      if(ca!==cb) return ca-cb;
+      return String(saved[a].last||'') < String(saved[b].last||'') ? -1 : 1;
+    });
+    ids.slice(0, ids.length-50).forEach(function(id){ delete saved[id]; });
+  }
+  saveCustomSaved();
+}
+function customSavedSortedList(){
+  var saved = state.customSaved || {};
+  var list = Object.keys(saved).map(function(k){ return saved[k]; });
+  list.sort(function(a,b){
+    var ca = a.count||0, cb = b.count||0;
+    if(ca!==cb) return cb-ca;
+    return String(a.last||'') < String(b.last||'') ? 1 : -1;
+  });
+  return list;
+}
+function customSavedRowHtml(f){
+  var name = f.name || t('quickCalDefaultName');
+  return '<div class="item-card-swipe" data-item-id="custom:'+esc(f.id)+'">'+
+    '<div class="item-swipe-actions">'+
+      '<button class="swipe-action-btn action-delete" onclick="event.stopPropagation();removeCustomSavedFromSwipe('+aj(f.id)+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button>'+
+    '</div>'+
+    '<div class="item-card" style="flex-direction:row;align-items:center;justify-content:space-between;gap:10px;border-left:none;box-shadow:none;border:1px solid var(--line);padding:15px 16px;margin-bottom:0;" onclick="openCustomSavedEdit('+aj(f.id)+')">'+
+      '<div style="flex:1;min-width:0;"><div class="row-label">'+esc(name)+'</div></div>'+
+      '<div style="flex-shrink:0;font-size:15px;font-weight:600;color:var(--cocoa);">'+Math.round(f.calories||0)+' kcal</div>'+
+    '</div>'+
+  '</div>';
+}
+function customSavedListInnerHtml(){
+  var list = customSavedSortedList();
+  if(!list.length) return '<p class="hint" style="margin:14px 2px;">'+esc(t('customSavedEmptyHint'))+'</p>';
+  return '<p class="hint" style="margin:4px 2px 6px;">'+esc(t('customSavedSectionTitle'))+'</p>'+
+    list.map(customSavedRowHtml).join('');
+}
+function customSavedTabHtml(af){
+  return '<button class="btn btn-outline" style="width:100%;margin-bottom:16px;" onclick="openNewCustomEdit()">'+ic('plus',15)+' '+esc(t('newCustomBtn'))+'</button>'+
+    '<div id="add-food-custom-list">'+customSavedListInnerHtml()+'</div>';
+}
+function openCustomSavedEdit(id){
+  var f = (state.customSaved||{})[id];
+  var af = activeAddCtx();
+  if(!f || !af) return;
+  af.customEditId = id;
+  af.customName = f.name || '';
+  af.customCalories = f.calories!=null ? String(f.calories) : '';
+  af.customCarbs = f.carbs!=null ? String(f.carbs) : '';
+  af.customProtein = f.protein!=null ? String(f.protein) : '';
+  af.customFat = f.fat!=null ? String(f.fat) : '';
+  af.step = 'customEdit';
+  render();
+  scrollAppToTop();
+}
+function openNewCustomEdit(){
+  var af = activeAddCtx();
+  if(!af) return;
+  af.customEditId = null;
+  af.customName = ''; af.customCalories = ''; af.customCarbs = ''; af.customProtein = ''; af.customFat = '';
+  af.step = 'customEdit';
+  render();
+  scrollAppToTop();
+}
+function backFromCustomEdit(){
+  var af = activeAddCtx();
+  if(!af) return;
+  af.step = 'search';
+  af.customEditId = null;
+  render();
+  restoreAddFoodSearchScroll();
+}
+function removeCustomSavedFromSwipe(id){
+  closeItemSwipeRow('custom:'+id);
+  if(state.customSaved) delete state.customSaved[id];
+  saveCustomSaved();
+  var el = document.getElementById('add-food-custom-list');
+  if(el) el.innerHTML = customSavedListInnerHtml();
+}
+// ===================== / 自定tab记忆 =====================
 // README 9.132: 自定 tab - MyNetDiary's "Quick Calories" equivalent (see the screenshots Lynn
 // sent). Only calories is required; everything else (carbs/protein/fat/name) is optional and
 // simply omitted from the logged nutrition rather than defaulted to 0, same spirit as an
@@ -15809,6 +15938,7 @@ function saveCustomMealLogEntry(){
   if(carbs) nutrition.carbs = carbs;
   if(protein) nutrition.protein = protein;
   if(fat) nutrition.fat = fat;
+  rememberCustomSaved(af.customName, cals, carbs, protein, fat, af.customEditId);
   var entry = {
     id: uid(), date: af.date, slot: af.slot, name: af.customName || t('quickCalDefaultName'), amount:null, unit:'',
     nutrition: nutrition, created_at: nowLocalIso(),
@@ -15841,6 +15971,7 @@ function ipSaveCustomItem(){
   if(protein) nutrition.protein = protein;
   if(fat) nutrition.fat = fat;
   var name = af.customName || t('quickCalDefaultName');
+  rememberCustomSaved(af.customName, cals, carbs, protein, fat, af.customEditId);
   if(af.pickerKind==='mealsetTemplate' || af.pickerKind==='recipeIngredients'){
     var tplItem = {id:uid(), source_type:'custom', source_id:null, name_snapshot:name, amount:1, unit:'', nutrition_snapshot:nutrition, nutrition_extra_snapshot:{}};
     if(af.pickerKind==='recipeIngredients'){
