@@ -952,7 +952,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.245';
+var BUILD_VERSION = '9.246';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2650,7 +2650,7 @@ var I18N = {
     aiMealTitle:'AI 加餐', aiMealFabLabel:'AI 加餐',
     aiMealLocalFallbackReply:'AI 没认出具体的食物，但在你自己的套餐/食谱/库存里找到了下面这些，请选一下。',
     aiMealBadUnitMealset:'套餐是按「份」来加的：单位请选「份」、数量填几份（比如 1）。',
-    aiMealLocalAllReply:'直接在你自己的套餐/食谱里找到了，没有用到 AI。请确认份数后添加。',
+    aiMealLocalAllReply:'直接在你自己的库存/食谱/套餐里找到了，没有用到 AI。请确认数量后添加。',
     aiMealIntro:'说说你吃了什么：可以带上重量和做法，也可以拍照。AI 会先到你自己的库存、食谱、套餐里找对应的东西，找不到再查 USDA 或估算。你确认或修改后才会加进三餐。',
     aiMealPickTitle:'对应到哪一条', aiMealCandEst:'用 AI 估算（自定条目）', aiMealCandSkip:'跳过这一项', aiMealReview:'请确认',
     aiMealUsdaLoading:'正在查 USDA…', aiMealUsdaFail:'USDA 暂时查不到', aiMealUsdaRetry:'重试', aiMealUsdaEmpty:'USDA 里没找到合适的', aiMealUsdaSearchBtn:'再查一下 USDA',
@@ -2988,7 +2988,7 @@ var I18N = {
     aiMealTitle:'AI meal entry', aiMealFabLabel:'AI meal entry',
     aiMealLocalFallbackReply:'The AI didn\'t recognise specific foods, but these were found in your own meal sets / recipes / inventory - please pick one.',
     aiMealBadUnitMealset:'Meal sets are added by serving: set the unit to "份" and the amount to how many servings (e.g. 1).',
-    aiMealLocalAllReply:'Found directly in your own meal sets / recipes - the AI wasn\'t used. Check the servings, then add.',
+    aiMealLocalAllReply:'Found directly in your own inventory / recipes / meal sets - the AI wasn\'t used. Check the amounts, then add.',
     aiMealIntro:'Tell me what you ate - include weights and how it was cooked if you know, or take a photo. AI first looks in your own inventory, recipes and meal sets, then USDA, then estimates. Nothing is added until you confirm.',
     aiMealPickTitle:'Which entry?', aiMealCandEst:'Use AI estimate (custom entry)', aiMealCandSkip:'Skip this one', aiMealReview:'Please check',
     aiMealUsdaLoading:'Checking USDA…', aiMealUsdaFail:'USDA is unavailable right now', aiMealUsdaRetry:'Retry', aiMealUsdaEmpty:'No good match in USDA', aiMealUsdaSearchBtn:'Check USDA too',
@@ -7008,6 +7008,9 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.246', items:[
+    {t:'new', zh:'AI 加餐更偏向用你自己的东西：说得简单的（比如「2 egg」「鸡蛋 100g」「牛奶」）会先在库存、食材库、食谱、套餐里直接找，全部找到就不用等 AI，马上出结果；找得也更宽松了（忽略英文复数、鸡蛋/egg 中英文互认、去掉「煮/生」这类词）。AI 说的是单一食材、你库存里有对应的，也会默认选中库存那一条（卡片上仍标请确认）。', en:'AI meal entry now prefers your own stuff: simple inputs (e.g. "2 egg", "鸡蛋 100g", "milk") are matched against inventory, ingredient library, recipes and meal sets first, and if everything is found the AI is not called at all. Matching is looser too (plural s, Chinese/English names like 鸡蛋/egg, cooking words like boiled). When the AI names a single ingredient you have in stock, the inventory entry is selected by default (still marked for review).'}
+  ]},
   {v:'9.245', items:[
     {t:'new', zh:'「自定」条目现在可以带「数量」（比如 158 g）：再次选这条时，改数量，热量和碳水、蛋白质、脂肪会按原来的数值自动换算。换算出来的新数值只记进这一餐，列表里还是原来那一套。', en:'Custom items can now carry an amount (e.g. 158 g). When you pick one again and change the amount, calories and macros are recalculated from the saved values. The new numbers only go into that meal; the list keeps the original set.'}
   ]},
@@ -17116,31 +17119,93 @@ function aiMealInvName(it){
 // 对每个关键词，在 库存(含食材库)/食谱/套餐 里按名称包含关键词搜索(跟添加食物页搜索框同一套函数，已按常用程度排序)。
 // exact=名字跟关键词完全相同(不分大小写)。完全同名的排前面，同名之间保持原来的顺序。最多6条。
 // 比较"名字是否完全相同"时忽略表情符号、标点和空格：套餐名"☕奶咖"跟关键词"奶咖"算完全同名
+// README 9.246: 放宽本地匹配——对每个关键词先算出一组"变体"再去搜：
+//  - 去掉做法词(煮/生/炒…、boiled/raw/cooked…)：\"煮鸡蛋\"→\"鸡蛋\"；
+//  - 英文去复数：eggs→egg、tomatoes→tomato；
+//  - 内置一份常见食物中英文对照(AI_MEAL_DICT)：egg↔鸡蛋、milk↔牛奶……所以说\"egg\"能找到叫\"鸡蛋\"的库存，
+//    说\"鸡蛋\"也能找到英文名\"Eggs\"的库存。
+// 原来的词永远是第一个变体、规则不变；变体只是多搜几遍。单字(中文<2、英文<3)的变体不用，免得\"面\"\"糖\"满屏命中。
+// 名字跟任何一个变体完全相同(忽略表情/标点/空格/大小写)都算exact。
+var AI_MEAL_DICT = [
+  ['egg','鸡蛋'],['milk','牛奶'],['rice','米饭'],['chicken breast','鸡胸肉','鸡胸'],['chicken','鸡肉'],['beef','牛肉'],['pork','猪肉'],['lamb','羊肉'],
+  ['duck','鸭肉'],['fish','鱼肉'],['salmon','三文鱼'],['tuna','金枪鱼'],['cod','鳕鱼'],['shrimp','虾仁','大虾'],['tofu','豆腐'],['tomato','番茄','西红柿'],
+  ['potato','土豆','马铃薯'],['sweet potato','红薯','地瓜'],['carrot','胡萝卜'],['broccoli','西兰花'],['spinach','菠菜'],['cabbage','卷心菜','包菜'],
+  ['lettuce','生菜'],['cucumber','黄瓜'],['onion','洋葱'],['garlic','大蒜'],['ginger','生姜'],['mushroom','蘑菇'],['corn','玉米'],['apple','苹果'],
+  ['banana','香蕉'],['orange','橙子'],['grape','葡萄'],['strawberry','草莓'],['blueberry','蓝莓'],['avocado','牛油果'],['lemon','柠檬'],['watermelon','西瓜'],
+  ['mango','芒果'],['peach','桃子'],['noodle','面条'],['pasta','意面','意大利面'],['oat','燕麦','燕麦片'],['oatmeal','燕麦片','燕麦'],['yogurt','酸奶'],
+  ['cheese','奶酪','芝士'],['butter','黄油'],['olive oil','橄榄油'],['sugar','白糖'],['salt','食盐'],['flour','面粉'],['coffee','咖啡'],['juice','果汁'],
+  ['peanut','花生'],['almond','杏仁'],['walnut','核桃'],['honey','蜂蜜'],['soy milk','豆浆'],['bacon','培根'],['sausage','香肠'],['ham','火腿'],
+  ['steak','牛排'],['pumpkin','南瓜'],['eggplant','茄子'],['celery','芹菜'],['bread','面包'],['toast','吐司']
+];
+var AI_MEAL_COOK_CN = ['水煮','白煮','煮','煎','炒','蒸','烤','炸','新鲜','熟','生'];
+function aiMealStripCook(s){
+  var x = String(s||'').trim();
+  x = x.replace(/\b(boiled|cooked|raw|fried|scrambled|fresh|steamed|baked|roasted|grilled)\b/gi, ' ').replace(/\s+/g, ' ').trim();
+  for(var i=0;i<AI_MEAL_COOK_CN.length;i++){
+    var w = AI_MEAL_COOK_CN[i];
+    if(x.indexOf(w)===0 && x.length-w.length>=2){ x = x.slice(w.length); break; }
+  }
+  return x;
+}
+function aiMealSingular(s){
+  var parts = String(s||'').toLowerCase().trim().split(/\s+/);
+  var w = parts.pop() || '';
+  if(/ies$/.test(w) && w.length>4) w = w.slice(0,-3)+'y';
+  else if(/(ch|sh|ss|x|o)es$/.test(w)) w = w.slice(0,-2);
+  else if(/[^s]s$/.test(w) && !/(us|is)$/.test(w) && w.length>3) w = w.slice(0,-1);
+  parts.push(w);
+  return parts.join(' ');
+}
+function aiMealTermVariants(term){
+  var raw = String(term||'').trim();
+  if(!raw) return [];
+  var out = [raw];
+  function push(v){
+    v = String(v||'').trim();
+    if(!v || out.indexOf(v)!==-1) return;
+    var cn = /[\u4e00-\u9fff]/.test(v);
+    if((cn && v.length>=2) || (!cn && v.length>=3)) out.push(v);
+  }
+  var stripped = aiMealStripCook(raw);
+  push(stripped);
+  var sing = aiMealSingular(stripped);
+  push(sing);
+  [raw.toLowerCase(), stripped.toLowerCase(), sing].forEach(function(base){
+    AI_MEAL_DICT.forEach(function(g){
+      if(g.indexOf(base)!==-1) g.forEach(push);
+    });
+  });
+  return out;
+}
 function aiMealNorm(x){ return String(x||'').toLowerCase().replace(/[^\p{L}\p{N}]/gu, ''); }
 function aiMealSearchLocal(terms){
-  var out = [], seen = {};
+  var out = [], idx = {};
   function add(c, exact){
     var k = c.type+':'+c.id;
-    if(seen[k]) return;
-    seen[k] = 1; c.exact = !!exact; out.push(c);
+    if(idx[k]){ if(exact) idx[k].exact = true; return; }
+    c.exact = !!exact; idx[k] = c; out.push(c);
   }
   (terms||[]).forEach(function(term){
     var q = String(term||'').trim();
     if(!q) return;
-    var ql = q.toLowerCase();
-    var qn = aiMealNorm(q);
-    var inv = searchInventoryFoods(q);
-    inv.groups.slice(0,4).forEach(function(gr){
-      add({type:'inventory', id:gr.key, label:aiMealInvName(gr.rep), sub:t('sourceInventory')}, aiMealNorm(itemDisplayNameRaw(gr.rep))===qn);
-    });
-    inv.externals.slice(0,3).forEach(function(ing){
-      add({type:'external', id:ing.id, label:ing.name, sub:t('sourceExternal')}, aiMealNorm(ing.name)===qn);
-    });
-    searchRecipeFoods(q).slice(0,3).forEach(function(r){
-      add({type:'recipe', id:r.id, label:r.label, sub:t('sourceRecipe')}, aiMealNorm(r.label)===qn);
-    });
-    (state.mealsets||[]).filter(function(m){ return (m.name||'').toLowerCase().indexOf(ql)>=0; }).slice(0,3).forEach(function(m){
-      add({type:'mealset', id:m.id, label:m.name, sub:t('sourceMealset')}, aiMealNorm(m.name)===qn);
+    var vars = aiMealTermVariants(q);
+    var qns = vars.map(aiMealNorm);
+    function isExact(name){ return qns.indexOf(aiMealNorm(name))!==-1; }
+    vars.forEach(function(v){
+      var vl = v.toLowerCase();
+      var inv = searchInventoryFoods(v);
+      inv.groups.slice(0,4).forEach(function(gr){
+        add({type:'inventory', id:gr.key, label:aiMealInvName(gr.rep), sub:t('sourceInventory')}, isExact(itemDisplayNameRaw(gr.rep)));
+      });
+      inv.externals.slice(0,3).forEach(function(ing){
+        add({type:'external', id:ing.id, label:ing.name, sub:t('sourceExternal')}, isExact(ing.name));
+      });
+      searchRecipeFoods(v).slice(0,3).forEach(function(r){
+        add({type:'recipe', id:r.id, label:r.label, sub:t('sourceRecipe')}, isExact(r.label));
+      });
+      (state.mealsets||[]).filter(function(m){ return (m.name||'').toLowerCase().indexOf(vl)>=0; }).slice(0,3).forEach(function(m){
+        add({type:'mealset', id:m.id, label:m.name, sub:t('sourceMealset')}, isExact(m.name));
+      });
     });
   });
   out.sort(function(a,b){ return (b.exact?1:0) - (a.exact?1:0); });
@@ -17176,13 +17241,19 @@ function aiMealMakeRow(raw){
     usdaQ:raw.usda_query||'', usdaState:'', wantUsdaDefault:false, autoSwitched:false, baseAmount:null, baseUnit:null};
   var exacts = row.cands.filter(function(c){ return c.exact; });
   if(exacts.length===1) row.sel = row.cands.indexOf(exacts[0]);
+  // README 9.246: AI说这是单一的通用食材(给了usda_query)、而你的库存/食材库里有对应的(哪怕名字不是完全相同)：
+  // 默认选中其中最靠前(同名优先、再按常用程度)的那一条，不再停在"AI估算"；卡片仍标"请确认"。
+  if(row.sel===-1 && raw.usda_query){
+    var invc = row.cands.filter(function(c){ return c.type==='inventory' || c.type==='external'; });
+    if(invc.length){ row.sel = row.cands.indexOf(invc[0]); row.autoPicked = true; }
+  }
   aiMealApplyCandUnit(row);
   // README 9.240: 默认选中的是用户自己的套餐/食谱时，卡片标题用用户自己起的名字(而不是AI对这句话的另一种说法，比如"拿铁咖啡")；
   // 改选别的时(见 aiMealPick)再还原成AI的说法
   if(row.sel>=0 && (row.cands[row.sel].type==='mealset' || row.cands[row.sel].type==='recipe')){
     row.aiName = row.name; row.name = row.cands[row.sel].label; row.nameFromCand = row.name;
   }
-  row.review = (row.sel===-1 && row.cands.length>0) || raw.confidence!=='high';
+  row.review = (row.sel===-1 && row.cands.length>0) || raw.confidence!=='high' || !!row.autoPicked;
   if(!row.cands.length && row.usdaQ) row.wantUsdaDefault = (raw.confidence==='high');
   return row;
 }
@@ -17269,6 +17340,11 @@ async function aiMealSend(){
   // (AI不认识这些名字，会把"奶咖"理解成"拿铁咖啡")，直接在本地做成卡片、选好；这部分话不发给AI。
   // 剩下的话(如果还有)才发给AI，两边的卡片合并到同一个确认页；整句话都是名字、又没附图片时，完全不调用AI。
   var pre = (!isFollow && text) ? aiMealPreMatchNames(text) : {rows:[], rest:text};
+  // README 9.246: 再在库存/食材库/食谱/套餐里本地找(带数量、宽松匹配)，找到的不用等AI；有图片或是跟AI继续聊时不做
+  if(!isFollow && text && !imgs.length){
+    var lf = aiMealLocalFirst(pre.rows.length ? pre.rest : text);
+    if(lf.rows.length) pre = {rows: pre.rows.concat(lf.rows), rest: lf.rest};
+  }
   var aiText = pre.rows.length ? pre.rest : text;
   if(pre.rows.length && !(aiText||'').trim() && !imgs.length){
     am.firstText = text;
@@ -17409,14 +17485,24 @@ function aiMealPreMatchNames(text){
   }
   (state.mealsets||[]).forEach(function(m){ addName('mealset', m.id, m.name||''); });
   (state.recipes||[]).forEach(function(r){ addName('recipe', r.id, r.name||''); });
-  var segs = String(text||'').split(/[，,、；;。.！!？?\s+＋]+/).map(function(x){ return x.trim(); }).filter(Boolean).slice(0,30);
-  var hitsList = [], rest = [];
+  var src = String(text||'');
+  // README 9.246: 记下每一段在原文里的位置，没匹配上的部分按\"原文片段\"还给后面(本地找库存/发给AI)，
+  // 不再把\"2 egg\"这种带空格的话拆碎成\"2，egg\"。
+  var segs = [], pos = [];
+  var re = /[^，,、；;。.！!？?\s+＋]+/g, mm;
+  while((mm = re.exec(src)) && segs.length<30){ segs.push(mm[0].trim()); pos.push([mm.index, mm.index+mm[0].length]); }
+  var hitsList = [], restPieces = [], run = null;
+  function flush(){ if(run){ restPieces.push(src.slice(run.a, run.b)); run = null; } }
+  function leftover(i){
+    if(run && run.last===i-1){ run.b = pos[i][1]; run.last = i; }
+    else { flush(); run = {a:pos[i][0], b:pos[i][1], last:i}; }
+  }
   var i = 0;
   while(i<segs.length){
     var matched = false;
     for(var k=segs.length; k>i; k--){
       var joined = aiMealNorm(segs.slice(i,k).join(''));
-      if(joined.length>=2 && map[joined]){ hitsList.push(map[joined]); i = k; matched = true; break; }
+      if(joined.length>=2 && map[joined]){ flush(); hitsList.push(map[joined]); i = k; matched = true; break; }
     }
     if(matched) continue;
     var parts = segs[i].split(/还有|以及|和|与|跟|及/).map(function(x){ return x.trim(); }).filter(Boolean);
@@ -17427,9 +17513,10 @@ function aiMealPreMatchNames(text){
         if(kk.length>=2 && map[kk]){ hitsList.push(map[kk]); got = true; } else left.push(p);
       });
     }
-    if(got) rest = rest.concat(left); else rest.push(segs[i]);
+    if(got){ flush(); restPieces = restPieces.concat(left); } else leftover(i);
     i++;
   }
+  flush();
   var rows = [];
   var usedKey = {};
   hitsList.forEach(function(hits){
@@ -17438,7 +17525,132 @@ function aiMealPreMatchNames(text){
     usedKey[key] = 1;
     rows.push(aiMealLocalRow(hits));
   });
-  return {rows:rows, rest:rest.join('，')};
+  return {rows:rows, rest:restPieces.join('，')};
+}
+// ===================== README 9.246: 本地先行(带数量) =====================
+// Lynn：向AI发\"egg\"这种库存里明明有的东西，要等十几秒、结果还不是库存里的。以前只有\"整句话正好等于套餐/食谱的名字\"
+// 才会不经过AI；库存根本不参与，所以简单的话也要先等AI(AI还要把十几项营养都估一遍)。现在加一层：
+// 按标点把话切成一小段一小段，每段认\"数量+单位+名字\"(2 egg / 2个鸡蛋 / 鸡蛋100g / 200克鸡胸肉 / 半杯牛奶 / 只有名字)，
+// 名字在 库存/食材库/食谱/套餐 里找(含 aiMealSearchLocal 的宽松匹配)：
+//  - 有名字完全相同的→选它(同名不止一条→选排第一的、标请确认)；
+//  - 没有完全同名但库存/食材库有包含这个词的→选最常用的那条、标请确认；只命中食谱/套餐的非同名→不算找到(交给AI)；
+//  - 名字太短(中文<2字、英文<3字母)不算。
+// 整段话每一小段都找到了(而且没有图片、不是跟AI继续聊)→完全不调用AI；有找不到的小段→找到的做成卡片，
+// 找不到的原样发给AI。话里带日期/餐次词(今天/昨天/早餐…)时不在本地处理：这些要AI来理解，免得日期餐次丢了。
+var AI_MEAL_UNITS = 'kg|g|克|千克|公斤|ml|毫升|升|l|个|只|颗|枚|片|杯|碗|份|块|根|勺|匙|瓶|盒|袋|条|粒|oz|lb|cups?|tbsp|tsp|pcs?|slices?|pieces?';
+var AI_MEAL_CN_NUM = '[零一二两三四五六七八九十半]+';
+function aiMealCnNum(s){
+  s = String(s||'');
+  if(/^\d/.test(s)) return parseFloat(s);
+  if(s==='半') return 0.5;
+  var d = {'零':0,'一':1,'二':2,'两':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9};
+  if(s==='十') return 10;
+  var i = s.indexOf('十');
+  if(i===0) return 10 + (d[s.slice(1)]||0);
+  if(i>0) return (d[s.slice(0,i)]||0)*10 + (s.length>i+1 ? (d[s.slice(i+1)]||0) : 0);
+  return d[s]!=null ? d[s] : NaN;
+}
+function aiMealNormUnit(u){
+  var x = String(u||'').toLowerCase();
+  var map = {'克':'g','千克':'kg','公斤':'kg','毫升':'ml','升':'l','pc':'个','pcs':'个','piece':'个','pieces':'个','slice':'片','slices':'片','cup':'杯','cups':'杯'};
+  return map[x] || x;
+}
+function aiMealParseQty(str){
+  var s = String(str||'').trim().replace(/^(吃了|喝了|吃|喝|一些|一点)\s*/, '');
+  if(!s) return null;
+  var m;
+  var N = '(\\d+(?:\\.\\d+)?)', U = '('+AI_MEAL_UNITS+')';
+  // 数量在前：2个鸡蛋 / 2 egg / 200g 鸡蛋
+  m = new RegExp('^'+N+'\\s*'+U+'?\\s*(?:的)?\\s*(.+)$','i').exec(s);
+  if(m && !/^\d/.test(m[3])) return aiMealQtyResult(m[3], parseFloat(m[1]), m[2]);
+  // 中文数字在前(必须带单位，免得\"三文鱼\"被当成\"三\"+\"文鱼\")：两个鸡蛋 / 半杯牛奶
+  m = new RegExp('^('+AI_MEAL_CN_NUM+')\\s*'+U+'\\s*(?:的)?\\s*(.+)$','i').exec(s);
+  if(m) return aiMealQtyResult(m[3], aiMealCnNum(m[1]), m[2]);
+  // 数量在后：鸡蛋2个 / egg 100g / 鸡蛋 200
+  m = new RegExp('^(.+?)\\s*'+N+'\\s*'+U+'?$','i').exec(s);
+  if(m) return aiMealQtyResult(m[1], parseFloat(m[2]), m[3]);
+  m = new RegExp('^(.+?)\\s*('+AI_MEAL_CN_NUM+')\\s*'+U+'$','i').exec(s);
+  if(m) return aiMealQtyResult(m[1], aiMealCnNum(m[2]), m[3]);
+  return {name:s, amount:null, unit:null};
+}
+function aiMealQtyResult(name, amount, unit){
+  name = String(name||'').trim();
+  if(!name || !(amount>0)) return null;
+  var u = unit ? aiMealNormUnit(unit) : (amount<=20 ? '个' : 'g');
+  return {name:name, amount:amount, unit:u};
+}
+// 一小段(标点之间)可能的几种拆法：整段当一个食物 / 按\"和、还有、and\"拆开 / 按空格拆成\"数量+名字\"的几组
+function aiMealChunkParses(chunk){
+  var list = [];
+  var one = aiMealParseQty(chunk);
+  if(one) list.push([one]);
+  var cparts = chunk.split(/还有|以及|和|与|跟|及|\s+(?:and|&)\s+/i).map(function(x){ return x.trim(); }).filter(Boolean);
+  if(cparts.length>1){
+    var items = cparts.map(aiMealParseQty);
+    if(items.every(Boolean)) list.push(items);
+  }
+  if(/\s/.test(chunk)){
+    var toks = chunk.split(/\s+/).filter(Boolean), merged = [];
+    var unitOnly = new RegExp('^('+AI_MEAL_UNITS+')$','i');
+    toks.forEach(function(tk){
+      if(merged.length && unitOnly.test(tk) && /^\d+(?:\.\d+)?$/.test(merged[merged.length-1])) merged[merged.length-1] += tk;
+      else merged.push(tk);
+    });
+    var isQty = function(tk){ return new RegExp('^\\d+(?:\\.\\d+)?\\s*(?:'+AI_MEAL_UNITS+')?$','i').test(tk) || new RegExp('^'+AI_MEAL_CN_NUM+'(?:'+AI_MEAL_UNITS+')$','i').test(tk); };
+    var groups = [], j = 0, ok = true;
+    while(j<merged.length){
+      var cur = merged[j], nxt = merged[j+1];
+      if(isQty(cur) && nxt!=null && !isQty(nxt)){ groups.push(cur+' '+nxt); j += 2; }
+      else if(!isQty(cur) && nxt!=null && isQty(nxt)){ groups.push(cur+' '+nxt); j += 2; }
+      else if(!isQty(cur)){ groups.push(cur); j += 1; }
+      else { ok = false; break; }
+    }
+    if(ok && groups.length>1){
+      var items2 = groups.map(aiMealParseQty);
+      if(items2.every(Boolean)) list.push(items2);
+    }
+  }
+  return list;
+}
+function aiMealLocalResolve(item){
+  var nn = aiMealNorm(item.name);
+  var cn = /[\u4e00-\u9fff]/.test(nn);
+  if(cn ? nn.length<2 : nn.length<3) return null;
+  var cands = aiMealSearchLocal([item.name]);
+  if(!cands.length) return null;
+  var exacts = cands.filter(function(c){ return c.exact; });
+  var pick = null, review = false;
+  if(exacts.length===1) pick = exacts[0];
+  else if(exacts.length>1){ pick = exacts[0]; review = true; }
+  else {
+    var invs = cands.filter(function(c){ return c.type==='inventory' || c.type==='external'; });
+    if(!invs.length) return null;
+    pick = invs[0]; review = true;
+  }
+  var n = {}; AI_MEAL_ALL.forEach(function(k){ n[k] = null; });
+  var portion = (pick.type==='mealset' || pick.type==='recipe');
+  var row = {name:item.name, amount:item.amount, unit:item.unit || 'g', grams:null, n:n, open:false, cands:cands, sel:cands.indexOf(pick), review:review, touched:false,
+    usdaQ:'', usdaState:'', wantUsdaDefault:false, autoSwitched:false, baseAmount:null, baseUnit:null, local:true};
+  if(portion && !(row.amount>0)){ row.amount = 1; row.unit = '份'; }
+  aiMealApplyCandUnit(row);
+  if(portion){ row.aiName = item.name; row.name = pick.label; row.nameFromCand = row.name; }
+  return row;
+}
+function aiMealLocalFirst(text){
+  var src = String(text||'');
+  if(!src.trim()) return {rows:[], rest:src};
+  if(/今天|昨天|前天|早餐|早饭|早上|午餐|午饭|中午|晚餐|晚饭|晚上|加餐|零食|宵夜|夜宵|周[一二三四五六日天]|星期|breakfast|lunch|dinner|snack|today|yesterday/i.test(src)) return {rows:[], rest:src};
+  var chunks = src.split(/[，,、；;。！!？?+＋\n]+/).map(function(x){ return x.trim(); }).filter(Boolean).slice(0,12);
+  var rows = [], restPieces = [];
+  chunks.forEach(function(chunk){
+    var parses = aiMealChunkParses(chunk), got = null;
+    for(var i=0;i<parses.length && !got;i++){
+      var rs = parses[i].map(aiMealLocalResolve);
+      if(rs.every(Boolean)) got = rs;
+    }
+    if(got) rows = rows.concat(got); else restPieces.push(chunk);
+  });
+  return {rows:rows, rest:restPieces.join('，')};
 }
 function aiMealLocalRow(hits){
   var label = hits[0].label;
