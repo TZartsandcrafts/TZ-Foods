@@ -952,7 +952,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.246';
+var BUILD_VERSION = '9.249';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2494,7 +2494,7 @@ var I18N = {
     scanAdd:'扫码添加', manualAdd:'手动添加',
     addItemPickerTitle:'添加食材', addItemPickerScan:'扫码', addItemPickerSearch:'搜索', addItemPickerManual:'手动',
     searchAddTitle:'搜索添加', searchAddPh:'搜索品牌或名称',
-    statusExpired:'已过期', statusSoonPrefix:'', statusSoonDays:'天内', statusFresh:'新鲜', statusToday:'今天到期', statusUsedUp:'已用完',
+    statusExpired:'已过期', statusSoonPrefix:'', statusSoonDays:'天内', statusFresh:'新鲜', statusToday:'今天到期', statusUsedUp:'已用完', autoArchivedOne:'「{name}」已用完，已自动存档', autoArchivedMany:'{n} 项已用完，已自动存档', autoArchiveUndo:'撤销', autoArchiveSweepToast:'已把 {n} 个已用完的批次存档',
     // item form
     itemFormTitleAdd:'添加食材', itemFormTitleEdit:'编辑食材',
     fieldName:'名称', fieldNamePh:'例如：鸡蛋', fieldBrand:'品牌', fieldBrandPh:'例如：某某牧场',
@@ -2710,7 +2710,7 @@ var I18N = {
     plainDragHint:'长按抓手图标可拖拽排序',
     nestHasSubsWarn:'该分类下还有子分类，无法归入其它分类', nestedToast:'已将"{name}"归入"{target}"',
     // sidebars
-    statTotal:'总数', statExpired:'过期', statSoon:'临期', statUsedUp:'用完',
+    statTotal:'总数', statExpired:'过期', statSoon:'临期', statUsedUp:'用完', statArchived:'存档',
     fieldRecipeCategory:'分类', fieldRecipeSubCategory:'子分类',
     recipeCategoryLabel:'分类',
     // archive
@@ -2838,7 +2838,7 @@ var I18N = {
     scanAdd:'Scan to add', manualAdd:'Add manually',
     addItemPickerTitle:'Add Item', addItemPickerScan:'Scan', addItemPickerSearch:'Search', addItemPickerManual:'Manual',
     searchAddTitle:'Search & Add', searchAddPh:'Search brand or name',
-    statusExpired:'Expired', statusSoonPrefix:'', statusSoonDays:'d left', statusFresh:'Fresh', statusToday:'Due today', statusUsedUp:'Used up',
+    statusExpired:'Expired', statusSoonPrefix:'', statusSoonDays:'d left', statusFresh:'Fresh', statusToday:'Due today', statusUsedUp:'Used up', autoArchivedOne:'"{name}" used up - archived', autoArchivedMany:'{n} items used up - archived', autoArchiveUndo:'Undo', autoArchiveSweepToast:'Archived {n} used-up batches',
     itemFormTitleAdd:'Add item', itemFormTitleEdit:'Edit item',
     fieldName:'Name', fieldNamePh:'e.g. Eggs', fieldBrand:'Brand', fieldBrandPh:'e.g. Farm Co.',
     fieldSource:'Source', fieldSourcePh:'e.g. Costco, gift, homegrown',
@@ -3048,7 +3048,7 @@ var I18N = {
     plainDragHint:'Long-press the grip handle to reorder.',
     nestHasSubsWarn:"This category still has subcategories, so it can't be nested into another one", nestedToast:'Moved "{name}" into "{target}"',
     // sidebars
-    statTotal:'Total items', statExpired:'Expired', statSoon:'Expiring soon', statUsedUp:'Used up',
+    statTotal:'Total items', statExpired:'Expired', statSoon:'Expiring soon', statUsedUp:'Used up', statArchived:'Archived',
     fieldRecipeCategory:'Category', fieldRecipeSubCategory:'Sub-category',
     recipeCategoryLabel:'Category',
     // archive
@@ -3257,7 +3257,11 @@ async function loadAll(){
     // README 9.241: 三餐「自定」tab记住的自定义食物(本机独立数据，不走云同步，跟usdaSaved同理)。
     storageGet('customSaved', {}),
     // README 9.244: "自定"列表一次性回溯是否已经做过。
-    storageGet('customSavedBackfilled', false)
+    storageGet('customSavedBackfilled', false),
+    // README 9.247: "已经是0件的批次一次性存档"是否做过。
+    storageGet('autoArchiveSweepDone', false),
+    // README 9.249: "套餐上次用量记忆里已经过时的"一次性清理是否做过。
+    storageGet('mealsetLastSwept', false)
   ]);
   // README 9.125: categoryGroups is the new two-level (母分类/子分类) structure for inventory
   // categories, architecturally matching state.recipeCategoryGroups but without any color
@@ -3354,9 +3358,17 @@ async function loadAll(){
   state.restockRulesUpdatedAt = (results[36] && results[36].updatedAt) || '';
   state.customSaved = results[37] || {};
   var _csBackfilled = !!results[38];
+  var _aaSweepDone = !!results[39];
+  var _mlSwept = !!results[40];
   // README 9.244: 一次性回溯(见backfillCustomSavedFromMealLogs)，做完记一个标记，以后不再跑。
   if(!_csBackfilled){
     try{ backfillCustomSavedFromMealLogs(); storageSet('customSavedBackfilled', true); }catch(e){}
+  }
+  if(!_aaSweepDone){
+    try{ sweepUsedUpItemsOnce(); storageSet('autoArchiveSweepDone', true); }catch(e){}
+  }
+  if(!_mlSwept){
+    try{ sweepStaleMealsetLastItems(); storageSet('mealsetLastSwept', true); }catch(e){}
   }
   state.loaded = true;
 }
@@ -3428,6 +3440,7 @@ function migrateItemCategory(it, categoryGroups){
 }
 function migrateItem(it, categoryGroups){ return migrateItemCategory(migrateNutritionBasis(migrateItemQtyGroups(it)), categoryGroups); }
 function saveItems(){
+  processAutoArchive(); // README 9.247
   var p = storageSet('items', state.items);
   cloudSyncPushChanges();
   return p;
@@ -3779,6 +3792,96 @@ function daysUntil(dateStr){
 function isUsedUp(item){
   return item.primary_qty != null && item.primary_qty <= 1e-9;
 }
+// ===================== README 9.247: 用完自动存档 =====================
+// Lynn：转移位置之后变成 0 件的食材一直灰着停在原位，要手动删或存档——这种"用完了"的批次直接自动存档。
+// 查了一遍：所有会把库存扣到 0 的路径(三餐扣库存/套餐子项/AI加餐/快速加餐、做菜确认、取用、调整余量、转移位置)
+// 全部汇到applyPrimaryEquivalentDelta，所以只在这里记一笔"这个批次刚刚从有变成了0"(_emptiedPending)，
+// 下一次saveItems时统一存档(processAutoArchive)——这样只处理\"刚用完\"的，不会因为别处的保存(导入、改分类名…)
+// 误动别的条目；手动在编辑页把数量改成0也不算(那是你自己在编辑)。三个必须处理的坑：
+//  1) 撤销/编辑/删除三餐记录或用量记录会往原批次加回库存，而存档的详情页是只读的→自动存档的条目(archived_auto)
+//     库存一旦又大于0就自动回到库存(见applyPrimaryEquivalentDelta末尾)；
+//  2) 统计按存档条目的购买数量累加：转移清空的源批次存档后会和目标位置那批重复计数→存档时按最后一条用量记录
+//     是不是move_location记成archived_reason='moved'，统计里跳过；
+//  3) 侧栏\"已用完\"那一格以后基本是0，保留不动(手动编辑成0的、或之前手动撤销恢复的仍会出现在里面)。
+var _emptiedPending = {};
+function autoArchiveReason(item){
+  var log = item.usage_log || [];
+  var last = log.length ? log[log.length-1] : null;
+  return (last && last.destination_type==='move_location') ? 'moved' : 'used';
+}
+function archiveUsedUpItem(it, archivedAt){
+  it.archived = true;
+  it.archived_at = archivedAt || nowLocalIso();
+  it.archived_auto = true;
+  it.archived_reason = autoArchiveReason(it);
+  it.updated_at = nowLocalIso();
+}
+function unarchiveItemFlags(it){
+  it.archived = false;
+  it.archived_at = null;
+  delete it.archived_auto;
+  delete it.archived_reason;
+}
+function processAutoArchive(){
+  var ids = Object.keys(_emptiedPending);
+  if(!ids.length) return;
+  _emptiedPending = {};
+  var done = [];
+  ids.forEach(function(id){
+    var it = state.items.find(function(i){ return i.id===id; });
+    if(it && !it.archived && isUsedUp(it)){ archiveUsedUpItem(it); done.push(it); }
+  });
+  if(!done.length) return;
+  autoArchiveToast(done);
+}
+function autoArchiveToast(done){
+  var doneIds = done.map(function(i){ return i.id; });
+  var msg = done.length===1
+    ? t('autoArchivedOne').replace('{name}', itemDisplayNameRaw(done[0]) || '')
+    : t('autoArchivedMany').replace('{n}', done.length);
+  showUndoToast(msg, function(){
+    doneIds.forEach(function(id){
+      var it = state.items.find(function(i){ return i.id===id; });
+      if(it && it.archived && it.archived_auto){ unarchiveItemFlags(it); it.updated_at = nowLocalIso(); }
+    });
+    saveItems();
+    render();
+  });
+}
+// 第一次打开新版时，把当时已经是0件的批次一次性存档(存档日期用它最后一次变动的时间，统计里的\"用完日期\"才接近真实)。
+function sweepUsedUpItemsOnce(){
+  var n = 0;
+  state.items.forEach(function(it){
+    if(!it.archived && isUsedUp(it)){ archiveUsedUpItem(it, it.updated_at || nowLocalIso()); it.updated_at = it.archived_at; n++; }
+  });
+  if(n){
+    saveItems();
+    setTimeout(function(){ showToast(t('autoArchiveSweepToast').replace('{n}', n)); }, 900);
+  }
+}
+var _undoToastFn = null;
+function showUndoToast(msg, onUndo){
+  var root = document.getElementById('undo-toast-root');
+  if(!root){
+    root = document.createElement('div');
+    root.id = 'undo-toast-root';
+    document.body.appendChild(root);
+  }
+  _undoToastFn = onUndo;
+  root.innerHTML = '<div class="toast" style="bottom:calc(150px + var(--safe-bottom));display:flex;align-items:center;gap:14px;white-space:nowrap;max-width:92vw;">'+
+    '<span style="overflow:hidden;text-overflow:ellipsis;">'+esc(msg)+'</span>'+
+    '<button style="background:none;border:none;color:#FFD9A0;font-size:14px;font-weight:700;padding:0;" onclick="runUndoToast()">'+esc(t('autoArchiveUndo'))+'</button></div>';
+  clearTimeout(showUndoToast._t);
+  showUndoToast._t = setTimeout(function(){ root.innerHTML=''; _undoToastFn = null; }, 6000);
+}
+function runUndoToast(){
+  var fn = _undoToastFn;
+  _undoToastFn = null;
+  var root = document.getElementById('undo-toast-root');
+  if(root) root.innerHTML = '';
+  clearTimeout(showUndoToast._t);
+  if(fn) fn();
+}
 function expiryStatus(item){
   if(isUsedUp(item)) return {level:'usedup', label: t('statusUsedUp')};
   if(!item.expiry_date) return {level:'fresh', label: t('unset')};
@@ -4041,12 +4144,21 @@ function findQtyGroup(item, unit){
 // deductFromItem, addBackToItem, and the location-move feature's undo path below, so all three
 // stay mathematically consistent with each other by construction instead of by convention.
 function applyPrimaryEquivalentDelta(item, primaryDelta){
-  item.primary_qty = Math.max(0, (item.primary_qty||0) + primaryDelta);
+  var before = item.primary_qty||0;
+  item.primary_qty = Math.max(0, before + primaryDelta);
   (item.secondary_units||[]).forEach(function(g){
     if(g.qty == null || !g.ratio) return;
     g.qty = Math.max(0, g.qty + primaryDelta/g.ratio);
   });
   item.updated_at = nowLocalIso();
+  // README 9.247: 见isUsedUp旁边的说明——刚从有变成0的记下来，下次保存时自动存档；
+  // 库存又大于0了：撤销待存档，并且如果这条是被自动存档的，让它自动回到库存。
+  if(before>1e-9 && item.primary_qty<=1e-9 && !item.archived){
+    _emptiedPending[item.id] = true;
+  } else if(item.primary_qty>1e-9){
+    delete _emptiedPending[item.id];
+    if(item.archived && item.archived_auto) unarchiveItemFlags(item);
+  }
 }
 // amount+unit (as a person would type/pick them) -> the equivalent count in the item's own
 // primary unit, or null if this item has no known conversion for that unit at all.
@@ -4220,8 +4332,7 @@ function restoreArchivedItem(id){
   if(!it) return;
   var cameFromDetail = (state.view === 'itemViewOnly');
   showConfirmModal(t('restoreArchivedConfirmMsg'), function(){
-    it.archived = false;
-    it.archived_at = null;
+    unarchiveItemFlags(it);
     it.updated_at = nowLocalIso();
     saveItems();
     if(cameFromDetail) navigate('archive'); else render();
@@ -4880,6 +4991,7 @@ var ICONS = {
   note:'<path d="M6 3h9l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M15 3v5h5"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="15.5" x2="16" y2="15.5"/><line x1="8" y1="9" x2="11" y2="9"/>',
   link:'<path d="M9 15l6-6"/><path d="M13 5l1.5-1.5a3.5 3.5 0 0 1 5 5L18 10"/><path d="M11 19l-1.5 1.5a3.5 3.5 0 0 1-5-5L6 14"/>',
   menu:'<line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="14" y2="17"/>',
+  cart:'<circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/>',
   archive:'<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M4 8v10a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V8"/><line x1="10" y1="12" x2="14" y2="12"/>',
   grip:'<circle cx="9" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="9" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="9" cy="18" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="18" r="1.4" fill="currentColor" stroke="none"/>',
   minusCircle:'<circle cx="12" cy="12" r="9"/><line x1="8" y1="12" x2="16" y2="12"/>',
@@ -5242,7 +5354,14 @@ function menuButtonHtml(page, showSettingsGear){
   var gearBtn = showSettingsGear
     ? '<button class="icon-btn" onclick="openSettings('+aj(page)+')" aria-label="'+t('navSettings')+'">'+ic('cog',20)+'</button>'
     : '';
-  return '<div class="topbar-actions">'+gearBtn+'<button class="icon-btn" onclick="toggleSidebar('+aj(page)+')" aria-label="'+t('navMenu')+'">'+ic('menu',20)+'</button></div>';
+  // README 9.248: 购物清单入口从侧边栏挪到库存页右上角(库存页=page 'home')，跟设置、侧边栏图标并排；有待买的显示数量。
+  var cartBtn = '';
+  if(page==='home'){
+    var pend = shoppingPendingCount();
+    cartBtn = '<button class="icon-btn" style="position:relative;" onclick="openShoppingList()" aria-label="'+t('navShopping')+'">'+ic('cart',20)+
+      (pend ? '<span style="position:absolute;top:-5px;right:-5px;min-width:17px;height:17px;border-radius:9px;background:var(--danger);color:#fff;font-size:10px;font-weight:700;line-height:17px;text-align:center;padding:0 4px;box-sizing:border-box;">'+(pend>99?'99+':pend)+'</span>' : '')+'</button>';
+  }
+  return '<div class="topbar-actions">'+cartBtn+gearBtn+'<button class="icon-btn" onclick="toggleSidebar('+aj(page)+')" aria-label="'+t('navMenu')+'">'+ic('menu',20)+'</button></div>';
 }
 // Settings is no longer a bottom-nav tab (README 9.94) - it's reached via the gear icon (see
 // menuButtonHtml above) or the odd inline "go configure this" link (e.g. the scan page's
@@ -6554,12 +6673,12 @@ function renderHomeSidebarContent(){
   var total = activeItems().length;
   var expired = activeItems().filter(function(it){ return expiryStatus(it).level==='expired'; }).length;
   var soon = activeItems().filter(function(it){ return expiryStatus(it).level==='soon'; }).length;
-  var usedup = activeItems().filter(function(it){ return expiryStatus(it).level==='usedup'; }).length;
+  var archivedCount = getArchivedItems().length; // README 9.248: "用完"那一格换成"存档"
   var statsHtml = '<div class="sidebar-stat-row">'+
     '<div class="sidebar-stat-card clickable" onclick="openHomeStatFilter(\'total\')"><div class="sidebar-stat-num">'+total+'</div><div class="sidebar-stat-label">'+t('statTotal')+'</div></div>'+
     '<div class="sidebar-stat-card clickable" onclick="openHomeStatFilter(\'expired\')"><div class="sidebar-stat-num" style="color:var(--danger);">'+expired+'</div><div class="sidebar-stat-label">'+t('statExpired')+'</div></div>'+
     '<div class="sidebar-stat-card clickable" onclick="openHomeStatFilter(\'soon\')"><div class="sidebar-stat-num" style="color:var(--warn);">'+soon+'</div><div class="sidebar-stat-label">'+t('statSoon')+'</div></div>'+
-    '<div class="sidebar-stat-card clickable" onclick="openHomeStatFilter(\'usedup\')"><div class="sidebar-stat-num" style="color:var(--usedup);">'+usedup+'</div><div class="sidebar-stat-label">'+t('statUsedUp')+'</div></div>'+
+    '<div class="sidebar-stat-card clickable" onclick="closeSidebar();navigate(\'archive\')"><div class="sidebar-stat-num" style="color:var(--usedup);">'+archivedCount+'</div><div class="sidebar-stat-label">'+t('statArchived')+'</div></div>'+
   '</div>';
   var catOpen = !state.home.sidebarCollapsed.category;
   var locOpen = !state.home.sidebarCollapsed.location;
@@ -6642,11 +6761,9 @@ function renderHomeSidebarContent(){
         (locCounts[l] ? '<span class="sidebar-item-count">'+locCounts[l]+'</span>' : '')+
       '</div>';
     }).join('')) : '');
-  var shopCount = shoppingPendingCount(); // README 9.231
-  var toolsHtml = '<div class="sidebar-section-title collapsible" onclick="toggleHomeSidebarSection(\'tools\')"><span style="display:flex;align-items:center;gap:6px;">'+t('sidebarToolsLabel')+(!toolsOpen && shopCount ? '<span class="sidebar-item-count">'+shopCount+'</span>' : '')+'</span>'+
+  var toolsHtml = '<div class="sidebar-section-title collapsible" onclick="toggleHomeSidebarSection(\'tools\')"><span style="display:flex;align-items:center;gap:6px;">'+t('sidebarToolsLabel')+'</span>'+
       ic('chevronRight',15,'style="transform:rotate('+(toolsOpen?'90':'0')+'deg);transition:transform .15s;"')+'</div>'+
     (toolsOpen ? (
-      '<div class="sidebar-item" style="display:flex;align-items:center;justify-content:space-between;gap:6px;" onclick="closeSidebar();openShoppingList()"><span>🛒 '+t('navShopping')+'</span>'+(shopCount ? '<span class="sidebar-item-count">'+shopCount+'</span>' : '')+'</div>'+
       '<div class="sidebar-item" onclick="closeSidebar();navigate(\'archive\')">'+t('navArchive')+'</div>'+
       '<div class="sidebar-item" onclick="closeSidebar();navigate(\'priceHistory\')">'+t('navPriceHistory')+'</div>'+
       '<div class="sidebar-item" onclick="closeSidebar();navigate(\'stats\')">'+t('navStats')+'</div>'+
@@ -7008,6 +7125,19 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.249', items:[
+    {t:'new', zh:'「自定」页现在支持营养标签上的全部 23 项营养（热量、脂肪、饱和/反式/单不饱和/多不饱和脂肪、胆固醇、钠、碳水、纤维、糖、添加糖、蛋白质，以及维生素 D、钾、钙、铁、维生素 A/C/E/B12、镁、锌），全部选填；USDA 查不到的生鲜食材可以直接放在「自定」里。保存的条目会记住全部营养，按数量换算时一起按比例变。', en:'The Custom page now supports all 23 nutrients from the nutrition label (all optional), so fresh foods that USDA does not have can live under Custom. Saved items remember every nutrient and all of them scale together with the amount.'},
+    {t:'fix', zh:'修好了：在套餐模板里改了食材/数量并保存后，再去加餐页添加这个套餐，仍然是改之前的内容。原因是勾选快速添加用的是这个套餐「上次用量」的记忆，没有跟着模板更新；现在改动模板的食材清单保存时会清掉这份记忆，新加的套餐按改后的模板来。', en:'Fixed: after editing a meal set template (ingredients/amounts) and saving, adding that meal set from the meal page still used the old content. Quick-add was using the meal set\'s "last used" memory, which was not refreshed when the template changed; saving a changed template now clears that memory so new entries follow the edited template.'},
+    {t:'new', zh:'AI 加餐也认你保存过的自定条目：说「蒜苔 100g」会先在这些条目里找，找到就直接用它的全部营养并按数量换算（不用等 AI）。', en:'AI meal entry also recognizes your saved custom items: "蒜苔 100g" is matched against them first and scaled by amount, without waiting for the AI.'}
+  ]},
+  {v:'9.248', items:[
+    {t:'new', zh:'库存页右上角加了购物车图标（跟设置、侧边栏图标放在一起），点开就是购物清单，有待买的东西时图标上显示数量；侧边栏里原来的购物清单入口去掉了。', en:'A shopping-cart icon now sits at the top right of the inventory page next to the settings and sidebar icons (with a count of items still to buy); the old sidebar entry is gone.'},
+    {t:'change', zh:'侧边栏统计里的「用完」换成了「存档」：显示已存档的批次数量，点一下直接打开存档页。', en:'The "Used up" tile in the sidebar stats is now "Archive": it shows how many batches are archived and opens the archive page.'},
+    {t:'change', zh:'在食材编辑页把数量手动改成 0 保存时，也会直接存档（跟其他用完的情况一样，弹提示、可撤销）。', en:'Manually changing an item\'s quantity to 0 in the edit page and saving now archives it too (with the same undo toast).'}
+  ]},
+  {v:'9.247', items:[
+    {t:'new', zh:'库存里扣到 0 件的批次（吃掉、做菜用掉、取用、调整余量、转移位置清空）会自动存档，不用再手动删或存档；弹一句「已用完，已自动存档」，带「撤销」。转移位置清空的批次存档后不计入统计，避免重复计数。如果之后撤销了那次用量、或删掉对应的三餐记录让库存加回来，自动存档的批次会自动回到库存。第一次打开新版时，把现在已经是 0 件的批次也一次性存档。', en:'Inventory batches that reach 0 (eaten, cooked, taken out, adjusted to 0, or emptied by a location move) are now archived automatically, with an "Undo" toast. Batches emptied by a move are excluded from stats to avoid double counting. If the usage is undone or the meal entry deleted so stock comes back, the auto-archived batch returns to inventory by itself. On first launch, batches that are already at 0 are archived once.'}
+  ]},
   {v:'9.246', items:[
     {t:'new', zh:'AI 加餐更偏向用你自己的东西：说得简单的（比如「2 egg」「鸡蛋 100g」「牛奶」）会先在库存、食材库、食谱、套餐里直接找，全部找到就不用等 AI，马上出结果；找得也更宽松了（忽略英文复数、鸡蛋/egg 中英文互认、去掉「煮/生」这类词）。AI 说的是单一食材、你库存里有对应的，也会默认选中库存那一条（卡片上仍标请确认）。', en:'AI meal entry now prefers your own stuff: simple inputs (e.g. "2 egg", "鸡蛋 100g", "milk") are matched against inventory, ingredient library, recipes and meal sets first, and if everything is found the AI is not called at all. Matching is looser too (plural s, Chinese/English names like 鸡蛋/egg, cooking words like boiled). When the AI names a single ingredient you have in stock, the inventory entry is selected by default (still marked for review).'}
   ]},
@@ -9032,6 +9162,12 @@ function saveItemForm(){
   if(restockErr){ showToast(t(restockErr)); return; }
   d.updated_at = nowLocalIso();
   var idx = state.items.findIndex(function(i){ return i.id===d.id; });
+  // README 9.248: 编辑已有食材时把数量从大于0手动改成0 → 跟其他用完的情况一样直接存档(新增食材、本来就是0的不算)。
+  var autoArchivedNow = false;
+  if(idx!==-1 && !d.archived && d.primary_qty!=null && d.primary_qty<=1e-9 && (state.items[idx].primary_qty||0)>1e-9){
+    archiveUsedUpItem(d);
+    autoArchivedNow = true;
+  }
   if(idx===-1){
     // purchased_qty is a one-time snapshot of "how much was bought this purchase" — unlike
     // primary_qty (which gets eaten away by recipe deductions/manual edits over time), this
@@ -9051,6 +9187,7 @@ function saveItemForm(){
   var savedId = d.id, savedArchived = d.archived;
   state.itemDraft=null;
   showToast(state.lang==='zh'?'已保存':'Saved');
+  if(autoArchivedNow) autoArchiveToast([d]);
   // README 9.112: batches of the same product (same name+brand+barcode - see itemGroupKey, the
   // same key the inventory list already groups by) are separate item records, each with their
   // own full copy of unit/nutrition config - editing one doesn't touch the others. Rather than
@@ -10110,6 +10247,7 @@ function computeStats(){
   var range = getStatsDateRange();
   var matches = state.items.filter(function(it){
     if(!it.archived || !it.archived_at) return false;
+    if(it.archived_reason==='moved') return false; // README 9.247: 转移清空的批次，数量已经算在目标位置那批里，不重复计入
     var hay = ((it.name||'')+' '+(it.brand||'')).toLowerCase();
     if(hay.indexOf(q)===-1) return false;
     var d = it.archived_at.slice(0,10);
@@ -11714,6 +11852,21 @@ function refreshMealsetItemSnapshots(mealset){
     };
   });
 }
+// README 9.249: 一次性清理——以前改了套餐模板没清"上次用量"，已经留下的过时记忆：套餐已经不存在了、或者记忆里的食材
+// 跟模板现在的食材(按来源，不看数量)对不上的，直接丢掉(下次从模板开始)。只改了数量、食材没换的，无从判断，不动。
+function sweepStaleMealsetLastItems(){
+  var last = state.mealsetLastItems || {};
+  var changed = false;
+  function idSet(arr){ return (arr||[]).map(function(it){ return it.source_type+':'+(it.source_id||it.name_snapshot||''); }).sort().join('|'); }
+  Object.keys(last).forEach(function(id){
+    var m = (state.mealsets||[]).find(function(x){ return x.id===id; });
+    if(!m || idSet(m.items)!==idSet(last[id])){ delete last[id]; changed = true; }
+  });
+  if(changed) saveMealsetLastItems();
+}
+function mealsetItemsSignature(items){
+  return (items||[]).map(function(it){ return [it.source_type, it.source_id||it.name_snapshot||'', it.amount, it.unit].join(':'); }).join('|');
+}
 function saveMealsetForm(){
   var d = state.mealsetDraft;
   if(!(d.name||'').trim()){ showToast(state.lang==='zh'?'请输入套餐名称':'Please enter a name'); return; }
@@ -11721,6 +11874,12 @@ function saveMealsetForm(){
   var idx = state.mealsets.findIndex(function(m){ return m.id===d.id; });
   d.updated_at = nowLocalIso();
   delete d._isNew;
+  // README 9.249: 改了套餐模板的食材清单(增删/换食材/改数量单位)，这个套餐的"上次用量"记忆(mealsetLastItems，
+  // 勾选快速添加直接用它)就过时了——不清掉的话，快速添加出来的永远是改之前的内容。模板没变(只改了名字/图标等)不动它，
+  // 免得丢掉你上次手动调整过的用量。
+  if(idx!==-1 && mealsetItemsSignature(state.mealsets[idx].items) !== mealsetItemsSignature(d.items)){
+    if(state.mealsetLastItems && state.mealsetLastItems[d.id]){ delete state.mealsetLastItems[d.id]; saveMealsetLastItems(); }
+  }
   if(idx===-1) state.mealsets.push(d); else state.mealsets[idx]=d;
   saveMealsets();
   showToast(t('mealsetSavedToast'));
@@ -11732,6 +11891,7 @@ function deleteMealsetFromForm(){
   showConfirmModal(t('deleteMealsetConfirm'), function(){
     state.mealsets = state.mealsets.filter(function(m){ return m.id!==d.id; });
     saveMealsets();
+    if(state.mealsetLastItems && state.mealsetLastItems[d.id]){ delete state.mealsetLastItems[d.id]; saveMealsetLastItems(); }
     closeModal();
     var target = (state.params && state.params.from) || {view:'mealAddFood'};
     navigate(target.view, target.params);
@@ -15002,7 +15162,7 @@ function mealScanDeclineAddToInventory(code){
     af.customName = '';
     af.customCalories = ''; af.customCarbs=''; af.customProtein=''; af.customFat='';
     af.customEditId = null;
-    af.customQty = ''; af.customUnit = 'g'; af.customBase = null;
+    af.customQty = ''; af.customUnit = 'g'; af.customBase = null; af.customMore = {};
     af.step = 'customEdit'; // README 9.241: 扫码没查到→直接进空白的自定义填写页
   }
   render();
@@ -15927,12 +16087,69 @@ function setAddFoodBatch(itemId){
 //  - 点一条/新建→af.step='customEdit'(跟'amount'步骤一样是同一个页面内的一步，不是新的view)，
 //    返回/右划返回都先退回列表并回到原来的滚动位置(见backFromCustomEdit)；
 //  - 左划删除沿用USDA常用列表同一套item-card-swipe，只删本机这份记忆，已经记进三餐的记录不受影响。
+// README 9.249: 自定条目支持营养标签上的全部23项(顺序跟营养标签一致)。热量/碳水/蛋白质/脂肪仍然是af.customCalories等四个字段
+// (老代码、条目编辑页都在用)，其余19项放在af.customMore[key]里；存进"以前填过的"列表时同理：四项在条目上，其余在f.more[key]。
+// 维生素/矿物质的单位固定用营养标签上的默认单位(mcg/mg)，这里不提供IU/%DV切换。
+var CUSTOM_NUTRI_ORDER = ['calories','fat','saturated_fat','trans_fat','monounsaturated_fat','polyunsaturated_fat','cholesterol','sodium','carbs','fiber','sugar','added_sugar','protein','vitamin_d','potassium','calcium','iron','vitamin_a','vitamin_c','vitamin_e','magnesium','zinc','vitamin_b12'];
+var CUSTOM_CORE_KEYS = ['calories','carbs','protein','fat'];
+function customAfField(k){ return {calories:'customCalories', carbs:'customCarbs', protein:'customProtein', fat:'customFat'}[k] || null; }
+function customNutriLabel(k){
+  var L = nutriLabels();
+  if(L[k]) return L[k];
+  var d = nutriExtraDefs()[k];
+  return d ? t(d.labelKey) : k;
+}
+function customNutriUnit(k){
+  var U = nutriUnits();
+  if(U[k]) return U[k];
+  var d = nutriExtraDefs()[k];
+  return d ? d.units[0] : '';
+}
+function customGetStr(af, k){
+  var f = customAfField(k);
+  if(f) return af[f] || '';
+  return (af.customMore || {})[k] || '';
+}
+function customSetStr(af, k, v){
+  var f = customAfField(k);
+  if(f){ af[f] = v; return; }
+  af.customMore = af.customMore || {};
+  af.customMore[k] = v;
+}
+function onCustomNutriInput(k, v){ customSetStr(activeAddCtx(), k, v); }
+// 把填写页上所有填了的营养项收成 {key:数字}(没填的不在里面)
+function customCollect(af){
+  var vals = {};
+  CUSTOM_NUTRI_ORDER.forEach(function(k){
+    var str = customGetStr(af, k);
+    if(str==='' || str==null) return;
+    var v = parseAmountInput(str);
+    if(v!=null && !isNaN(v) && v>=0) vals[k] = v;
+  });
+  return vals;
+}
+function customMoreFromVals(vals){
+  var more = {}, any = false;
+  Object.keys(vals).forEach(function(k){ if(CUSTOM_CORE_KEYS.indexOf(k)===-1){ more[k] = vals[k]; any = true; } });
+  return any ? more : null;
+}
+// vals -> 三餐记录用的 nutrition(13项主要营养) + nutrition_extra(维生素矿物质，{unit,value}，只存大于0的)
+function customBuildNutrition(vals){
+  var nutrition = emptyNutrition(), extra = {};
+  CUSTOM_NUTRI_ORDER.forEach(function(k){
+    var v = vals[k];
+    if(v==null) return;
+    if(NUTRI_KEYS.indexOf(k)!==-1) nutrition[k] = v;
+    else if(v>0) extra[k] = {unit: customNutriUnit(k), value: v};
+  });
+  return {nutrition: nutrition, extra: extra};
+}
 function customSavedKey(name, cals, carbs, protein, fat){
   var n = (name||'').trim();
   if(n) return 'n:'+n;
   return 'v:'+[cals||0, carbs||0, protein||0, fat||0].join('|');
 }
-function rememberCustomSaved(name, cals, carbs, protein, fat, editId, qty, unit){
+function rememberCustomSaved(name, cals, carbs, protein, fat, editId, qty, unit, more){
   var saved = state.customSaved || (state.customSaved = {});
   var key = customSavedKey(name, cals, carbs, protein, fat);
   var cleanName = (name||'').trim();
@@ -15952,6 +16169,7 @@ function rememberCustomSaved(name, cals, carbs, protein, fat, editId, qty, unit)
       target.key = key; target.calories = cals;
       target.carbs = carbs||null; target.protein = protein||null; target.fat = fat||null;
       target.qty = qty||null; target.unit = qty ? unit : null;
+      target.more = more || null;
     }
     saveCustomSaved();
     return;
@@ -15959,11 +16177,11 @@ function rememberCustomSaved(name, cals, carbs, protein, fat, editId, qty, unit)
   if(existing){
     existing.name = cleanName; existing.calories = cals;
     existing.carbs = carbs||null; existing.protein = protein||null; existing.fat = fat||null;
-    existing.qty = qty||null; existing.unit = qty ? unit : null;
+    existing.qty = qty||null; existing.unit = qty ? unit : null; existing.more = more || null;
     existing.count = (existing.count||0)+1; existing.last = nowIso;
   } else {
     var id = uid();
-    saved[id] = {id:id, key:key, name:cleanName, calories:cals, carbs:carbs||null, protein:protein||null, fat:fat||null, qty:qty||null, unit:qty?unit:null, count:1, last:nowIso};
+    saved[id] = {id:id, key:key, name:cleanName, calories:cals, carbs:carbs||null, protein:protein||null, fat:fat||null, qty:qty||null, unit:qty?unit:null, more:more||null, count:1, last:nowIso};
   }
   var ids = Object.keys(saved);
   if(ids.length>50){
@@ -16062,7 +16280,9 @@ function openCustomSavedEdit(id){
   af.customFat = f.fat!=null ? String(f.fat) : '';
   af.customQty = f.qty>0 ? String(f.qty) : '';
   af.customUnit = f.qty>0 ? (f.unit||'g') : 'g';
-  af.customBase = f.qty>0 ? {qty:f.qty, unit:(f.unit||'g'), cal:f.calories, carbs:f.carbs, protein:f.protein, fat:f.fat} : null;
+  af.customMore = {};
+  Object.keys(f.more||{}).forEach(function(k){ if(f.more[k]!=null) af.customMore[k] = String(f.more[k]); });
+  af.customBase = f.qty>0 ? {qty:f.qty, unit:(f.unit||'g'), cal:f.calories, carbs:f.carbs, protein:f.protein, fat:f.fat, more:(f.more||{})} : null;
   af.step = 'customEdit';
   render();
   scrollAppToTop();
@@ -16072,7 +16292,7 @@ function openNewCustomEdit(){
   if(!af) return;
   af.customEditId = null;
   af.customName = ''; af.customCalories = ''; af.customCarbs = ''; af.customProtein = ''; af.customFat = '';
-  af.customQty = ''; af.customUnit = 'g'; af.customBase = null;
+  af.customQty = ''; af.customUnit = 'g'; af.customBase = null; af.customMore = {};
   af.step = 'customEdit';
   render();
   scrollAppToTop();
@@ -16109,16 +16329,18 @@ function customUnitLabel(u){ return u==='serving' ? t('servingsUnit') : (u||'');
 function customMealFieldsHtml(af){
   var unit = af.customUnit || 'g';
   // README 9.245: 数量(选填)+单位。从列表里点开一条带数量的已有条目时(af.customBase有值)，数量栏默认
-  // 聚焦并选中，改数字→下面热量/碳水/蛋白质/脂肪按那条已有数值等比换算(见onCustomQtyInput)。
+  // 聚焦并选中，改数字→下面的营养按那条已有数值等比换算(见onCustomQtyInput)。
   var qtyHtml = '<div class="field"><label>'+t('fieldMealAmount')+'</label><div style="display:flex;gap:8px;align-items:center;">'+
     '<input type="number" inputmode="decimal" id="custom-field-qty" enterkeyhint="next"'+(af.customBase?' autofocus':'')+' placeholder="'+t('optionalPh')+'" value="'+esc(af.customQty||'')+'" oninput="onCustomQtyInput(this.value)" onkeydown="focusNextCustomField(event,\'custom-field-calories\')" style="flex:1;min-width:0;">'+
     '<div class="tag-select" style="flex-shrink:0;margin:0;">'+['g','ml','serving'].map(function(u){ return '<div class="tag-option '+(unit===u?'active':'')+'" onclick="onCustomUnitPick(\''+u+'\')">'+esc(customUnitLabel(u))+'</div>'; }).join('')+'</div>'+
     '</div>'+(af.customBase ? '<p class="hint" style="margin:6px 0 0;">'+esc(t('customScaleHint'))+'</p>' : '')+'</div>';
-  return qtyHtml +
-    '<div class="field"><label>'+t('quickCalLabel')+'</label><input type="number" inputmode="decimal" id="custom-field-calories" enterkeyhint="next"'+(af.customBase?'':' autofocus')+' placeholder="'+t('requiredPh')+'" value="'+esc(af.customCalories||'')+'" oninput="af_str(\'customCalories\',this.value)" onkeydown="focusNextCustomField(event,\'custom-field-carbs\')"></div>'+
-    '<div class="field"><label>'+t('fieldMealCarbs')+'</label><input type="number" inputmode="decimal" id="custom-field-carbs" enterkeyhint="next" placeholder="'+t('optionalPh')+'" value="'+esc(af.customCarbs||'')+'" oninput="af_str(\'customCarbs\',this.value)" onkeydown="focusNextCustomField(event,\'custom-field-protein\')"></div>'+
-    '<div class="field"><label>'+t('fieldMealProtein')+'</label><input type="number" inputmode="decimal" id="custom-field-protein" enterkeyhint="next" placeholder="'+t('optionalPh')+'" value="'+esc(af.customProtein||'')+'" oninput="af_str(\'customProtein\',this.value)" onkeydown="focusNextCustomField(event,\'custom-field-fat\')"></div>'+
-    '<div class="field"><label>'+t('fieldMealFat')+'</label><input type="number" inputmode="decimal" id="custom-field-fat" enterkeyhint="next" placeholder="'+t('optionalPh')+'" value="'+esc(af.customFat||'')+'" oninput="af_str(\'customFat\',this.value)" onkeydown="focusNextCustomField(event,\'custom-field-name\')"></div>'+
+  // README 9.249: 营养标签上的全部23项，顺序跟营养标签一致，只有热量必填。
+  var nutriHtml = CUSTOM_NUTRI_ORDER.map(function(k, i){
+    var nextId = i<CUSTOM_NUTRI_ORDER.length-1 ? 'custom-field-'+CUSTOM_NUTRI_ORDER[i+1] : 'custom-field-name';
+    var isCal = k==='calories';
+    return '<div class="field"><label>'+esc(customNutriLabel(k))+' ('+esc(customNutriUnit(k))+')</label><input type="number" inputmode="decimal" id="custom-field-'+k+'" enterkeyhint="next"'+((isCal && !af.customBase)?' autofocus':'')+' placeholder="'+t(isCal?'requiredPh':'optionalPh')+'" value="'+esc(customGetStr(af,k))+'" oninput="onCustomNutriInput(\''+k+'\',this.value)" onkeydown="focusNextCustomField(event,\''+nextId+'\')"></div>';
+  }).join('');
+  return qtyHtml + nutriHtml +
     '<div class="field"><label>'+t('fieldMealName')+'</label><input type="text" id="custom-field-name" enterkeyhint="done" autocapitalize="words" placeholder="'+t('optionalPh')+'" value="'+esc(af.customName||'')+'" oninput="af_str(\'customName\',this.value)" onkeydown="focusNextCustomField(event,null)"></div>'+
     '<button class="btn btn-primary" style="margin-top:14px;width:100%;" onclick="'+(af.pickerKind?'ipSaveCustomItem()':'saveCustomMealLogEntry()')+'">'+t('save')+'</button>';
 }
@@ -16133,11 +16355,15 @@ function customRecalcFromBase(af){
   var q = parseAmountInput(af.customQty);
   if(!q || q<=0) return;
   var f = q / b.qty;
-  function sc(v){ return v==null ? '' : String(Math.round(v*f*10)/10); }
+  function sc(v){ return v==null ? '' : String(Math.round(v*f*100)/100); }
   af.customCalories = sc(b.cal); af.customCarbs = sc(b.carbs); af.customProtein = sc(b.protein); af.customFat = sc(b.fat);
-  [['custom-field-calories','customCalories'],['custom-field-carbs','customCarbs'],['custom-field-protein','customProtein'],['custom-field-fat','customFat']].forEach(function(pr){
-    var el = document.getElementById(pr[0]);
-    if(el) el.value = af[pr[1]];
+  af.customMore = af.customMore || {};
+  CUSTOM_NUTRI_ORDER.forEach(function(k){
+    if(CUSTOM_CORE_KEYS.indexOf(k)===-1) af.customMore[k] = sc((b.more||{})[k]);
+  });
+  CUSTOM_NUTRI_ORDER.forEach(function(k){
+    var el = document.getElementById('custom-field-'+k);
+    if(el) el.value = customGetStr(af, k);
   });
 }
 function onCustomQtyInput(val){
@@ -16163,27 +16389,24 @@ function focusNextCustomField(event, nextId){
 }
 function saveCustomMealLogEntry(){
   var af = state.mealsUI.addFood;
-  var cals = parseAmountInput(af.customCalories);
+  var vals = customCollect(af);
+  var cals = vals.calories;
   if(!cals || cals<=0){ showToast(t('caloriesRequiredToast')); return; }
-  var nutrition = emptyNutrition();
-  nutrition.calories = cals;
-  var carbs = af.customCarbs ? parseAmountInput(af.customCarbs) : null;
-  var protein = af.customProtein ? parseAmountInput(af.customProtein) : null;
-  var fat = af.customFat ? parseAmountInput(af.customFat) : null;
-  if(carbs) nutrition.carbs = carbs;
-  if(protein) nutrition.protein = protein;
-  if(fat) nutrition.fat = fat;
+  var built = customBuildNutrition(vals);
+  var nutrition = built.nutrition;
+  var carbs = vals.carbs || null, protein = vals.protein || null, fat = vals.fat || null;
   var cQty = parseAmountInput(af.customQty); if(!cQty || cQty<=0) cQty = null;
   var cUnit = cQty ? (af.customUnit||'g') : '';
-  rememberCustomSaved(af.customName, cals, carbs, protein, fat, af.customEditId, cQty, cUnit);
+  rememberCustomSaved(af.customName, cals, carbs, protein, fat, af.customEditId, cQty, cUnit, customMoreFromVals(vals));
   var entry = {
     id: uid(), date: af.date, slot: af.slot, name: af.customName || t('quickCalDefaultName'), amount:null, unit:'',
-    nutrition: nutrition, created_at: nowLocalIso(),
+    nutrition: nutrition, nutrition_extra: built.extra, created_at: nowLocalIso(),
     // README 9.136: source_type:'custom' plus the raw field values (not just the derived
     // `nutrition` object) - the entry detail/edit page re-shows these exact fields for editing,
     // same shape as when the entry was first created, rather than trying to reverse-engineer
     // carbs/protein/fat back out of `nutrition` (which would be lossy for a field left blank -
-    // there'd be no way to tell "left blank" apart from "typed 0").
+    // there'd be no way to tell \"left blank\" apart from \"typed 0\").
+    // README 9.249: 其它营养项(饱和脂肪、钠、维生素…)直接存在nutrition/nutrition_extra里，编辑页改热量等四项时原样保留。
     source_type: 'custom',
     custom_calories: cals, custom_carbs: carbs, custom_protein: protein, custom_fat: fat, custom_name: af.customName || '',
     custom_qty: cQty, custom_unit: cUnit
@@ -16198,21 +16421,17 @@ function saveCustomMealLogEntry(){
 // recomputeMealsetLogItemNutrition的custom分支原样读回，不随amount缩放(理由见该函数注释)。
 function ipSaveCustomItem(){
   var af = state.mealsUI.ingPicker;
-  var cals = parseAmountInput(af.customCalories);
+  var vals = customCollect(af);
+  var cals = vals.calories;
   if(!cals || cals<=0){ showToast(t('caloriesRequiredToast')); return; }
-  var nutrition = emptyNutrition();
-  nutrition.calories = cals;
-  var carbs = af.customCarbs ? parseAmountInput(af.customCarbs) : null;
-  var protein = af.customProtein ? parseAmountInput(af.customProtein) : null;
-  var fat = af.customFat ? parseAmountInput(af.customFat) : null;
-  if(carbs) nutrition.carbs = carbs;
-  if(protein) nutrition.protein = protein;
-  if(fat) nutrition.fat = fat;
+  var built = customBuildNutrition(vals);
+  var nutrition = built.nutrition, extra = built.extra;
+  var carbs = vals.carbs || null, protein = vals.protein || null, fat = vals.fat || null;
   var name = af.customName || t('quickCalDefaultName');
   var cQty2 = parseAmountInput(af.customQty); if(!cQty2 || cQty2<=0) cQty2 = null;
-  rememberCustomSaved(af.customName, cals, carbs, protein, fat, af.customEditId, cQty2, cQty2 ? (af.customUnit||'g') : '');
+  rememberCustomSaved(af.customName, cals, carbs, protein, fat, af.customEditId, cQty2, cQty2 ? (af.customUnit||'g') : '', customMoreFromVals(vals));
   if(af.pickerKind==='mealsetTemplate' || af.pickerKind==='recipeIngredients'){
-    var tplItem = {id:uid(), source_type:'custom', source_id:null, name_snapshot:name, amount:1, unit:'', nutrition_snapshot:nutrition, nutrition_extra_snapshot:{}};
+    var tplItem = {id:uid(), source_type:'custom', source_id:null, name_snapshot:name, amount:1, unit:'', nutrition_snapshot:nutrition, nutrition_extra_snapshot:extra};
     if(af.pickerKind==='recipeIngredients'){
       var list = state.recipeDraft.ingredients || (state.recipeDraft.ingredients=[]);
       var groupIdx = state.recipeFormUI && state.recipeFormUI.activeIngredientGroupIdx;
@@ -16228,7 +16447,7 @@ function ipSaveCustomItem(){
     }
   } else {
     var outerAf = state.mealsUI.addFood;
-    outerAf.mealsetLogItems = (outerAf.mealsetLogItems||[]).concat([{id:uid(), source_type:'custom', source_id:null, name:name, amount:null, unit:'', nutrition:nutrition, nutrition_extra:{}, nutrition_snapshot:nutrition, nutrition_extra_snapshot:{}}]);
+    outerAf.mealsetLogItems = (outerAf.mealsetLogItems||[]).concat([{id:uid(), source_type:'custom', source_id:null, name:name, amount:null, unit:'', nutrition:nutrition, nutrition_extra:extra, nutrition_snapshot:nutrition, nutrition_extra_snapshot:extra}]);
   }
   var returnView = (af.pickerKind==='mealsetTemplate') ? 'mealsetForm' : (af.pickerKind==='recipeIngredients') ? 'recipeForm' : 'mealAddFood';
   state.mealsUI.ingPicker = null;
@@ -17206,6 +17425,11 @@ function aiMealSearchLocal(terms){
       (state.mealsets||[]).filter(function(m){ return (m.name||'').toLowerCase().indexOf(vl)>=0; }).slice(0,3).forEach(function(m){
         add({type:'mealset', id:m.id, label:m.name, sub:t('sourceMealset')}, isExact(m.name));
       });
+      // README 9.249: 你保存过的"自定"条目(USDA没有的生鲜食材等)也参与：名字包含这个词就算，同名为exact
+      var csd = state.customSaved || {};
+      Object.keys(csd).map(function(id){ return csd[id]; }).filter(function(f){ return f.name && f.name.toLowerCase().indexOf(vl)>=0; }).slice(0,3).forEach(function(f){
+        add({type:'custom', id:f.id, label:f.name, sub:t('tabCustom')}, isExact(f.name));
+      });
     });
   });
   out.sort(function(a,b){ return (b.exact?1:0) - (a.exact?1:0); });
@@ -17227,8 +17451,14 @@ function aiMealApplyCandUnit(row){
       var countLike = row.amount>0 && weightUnitToG(row.unit)==null && volumeUnitToMl(row.unit)==null;
       row.amount = countLike ? row.amount : 1; row.unit = '份'; row.autoSwitched = true;
     }
-  } else if(row.autoSwitched){
-    row.amount = row.baseAmount; row.unit = row.baseUnit || 'g'; row.autoSwitched = false;
+  } else {
+    if(row.autoSwitched){ row.amount = row.baseAmount; row.unit = row.baseUnit || 'g'; row.autoSwitched = false; }
+    // README 9.249: 选中的是自定条目、又没说数量(只说了"蒜苔")：默认用这条保存时的基准量(没有基准量就按1份)
+    if(c && c.type==='custom' && !(row.amount>0)){
+      var cf = (state.customSaved||{})[c.id];
+      if(cf && cf.qty>0){ row.amount = cf.qty; row.unit = cf.unit==='serving' ? '份' : cf.unit; }
+      else if(cf){ row.amount = 1; row.unit = '份'; }
+    }
   }
 }
 // AI返回的一个食物 -> 确认页上的一张卡片
@@ -17244,7 +17474,7 @@ function aiMealMakeRow(raw){
   // README 9.246: AI说这是单一的通用食材(给了usda_query)、而你的库存/食材库里有对应的(哪怕名字不是完全相同)：
   // 默认选中其中最靠前(同名优先、再按常用程度)的那一条，不再停在"AI估算"；卡片仍标"请确认"。
   if(row.sel===-1 && raw.usda_query){
-    var invc = row.cands.filter(function(c){ return c.type==='inventory' || c.type==='external'; });
+    var invc = row.cands.filter(function(c){ return c.type==='inventory' || c.type==='external' || c.type==='custom'; });
     if(invc.length){ row.sel = row.cands.indexOf(invc[0]); row.autoPicked = true; }
   }
   aiMealApplyCandUnit(row);
@@ -17623,7 +17853,7 @@ function aiMealLocalResolve(item){
   if(exacts.length===1) pick = exacts[0];
   else if(exacts.length>1){ pick = exacts[0]; review = true; }
   else {
-    var invs = cands.filter(function(c){ return c.type==='inventory' || c.type==='external'; });
+    var invs = cands.filter(function(c){ return c.type==='inventory' || c.type==='external' || c.type==='custom'; });
     if(!invs.length) return null;
     pick = invs[0]; review = true;
   }
@@ -17715,6 +17945,31 @@ function aiMealUnitUsable(src, unit){
   if(src.primary_unit!==undefined && resolveDeductionTarget(src, unit)) return true; // 只有库存(有主单位/副单位)才有这套换算
   return !!countBasisMatch(src, 1, unit);
 }
+// README 9.249: 自定条目按数量换算——有基准量(f.qty+f.unit)：g/kg/oz…按克比，ml/…按毫升比，份按份比；没有基准量：
+// 只能按份数(1份=保存的那一套)。单位对不上就算不出来(返回null→卡片提示\"单位对不上\"，可点单位快捷键换)。
+function aiMealIsServingUnit(unit){ return AI_MEAL_SERVING_WORDS.indexOf(String(unit))!==-1 || unit===t('servingsUnit'); }
+function aiMealCustomRatio(f, amt, unit){
+  if(!(amt>0)) return null;
+  if(f.qty>0){
+    if(f.unit==='g'){ var gm = weightUnitToG(unit); return gm!=null ? amt*gm/f.qty : null; }
+    if(f.unit==='ml'){ var ml = volumeUnitToMl(unit); return ml!=null ? amt*ml/f.qty : null; }
+    return aiMealIsServingUnit(unit) ? amt/f.qty : null;
+  }
+  return aiMealIsServingUnit(unit) ? amt : null;
+}
+function aiMealCustomNutrition(f, ratio){
+  var nutrition = emptyNutrition(), extra = {};
+  function put(k, v0){
+    if(v0==null || isNaN(v0)) return;
+    var v = v0*ratio;
+    v = k==='calories' ? Math.round(v*10)/10 : Math.round(v*100)/100;
+    if(NUTRI_KEYS.indexOf(k)!==-1) nutrition[k] = v;
+    else if(v>0) extra[k] = {unit: customNutriUnit(k), value: v};
+  }
+  put('calories', f.calories); put('carbs', f.carbs); put('protein', f.protein); put('fat', f.fat);
+  Object.keys(f.more||{}).forEach(function(k){ put(k, f.more[k]); });
+  return {nutrition: nutrition, extra: extra};
+}
 // 算某个候选在给定数量+单位下的营养。state: ok / pending(USDA营养还在加载) / bad(why: amount|unit|gone|usdafail)
 function aiMealCalcWith(row, c, amt, unit){
   var pseudo;
@@ -17752,6 +18007,14 @@ function aiMealCalcWith(row, c, amt, unit){
     if(!rec) return {state:'bad', why:'gone', cand:c};
     pseudo = {source_type:'recipe', source_id:rec.id, amount:amt, unit:ru};
     return aiMealFinishCalc(recomputeMealsetLogItemNutrition(pseudo), c, {recipe:rec, recipeUnit:ru});
+  }
+  if(c.type==='custom'){
+    var cf2 = (state.customSaved||{})[c.id];
+    if(!cf2) return {state:'bad', why:'gone', cand:c};
+    var ratio = aiMealCustomRatio(cf2, amt, unit);
+    if(ratio==null) return {state:'bad', why:'unit', cand:c};
+    var cb = aiMealCustomNutrition(cf2, ratio);
+    return {state:'ok', nutrition:cb.nutrition, extra:cb.extra, cand:c, custom:cf2, ratio:ratio};
   }
   if(c.type==='usda'){
     var sv = aiMealUsdaCached(c.id);
@@ -17890,6 +18153,11 @@ function aiMealUnitChips(row){
     return usdaUnitOptions(sv && sv.density_g_per_ml>0 ? sv.density_g_per_ml : null, false);
   }
   if(c.type==='mealset') return ['份'];
+  if(c.type==='custom'){
+    var cf3 = (state.customSaved||{})[c.id];
+    if(cf3 && cf3.qty>0 && cf3.unit!=='serving') return [cf3.unit];
+    return ['份'];
+  }
   return [];
 }
 function aiMealUnitChipsHtml(i){
@@ -18045,6 +18313,14 @@ function aiMealWriteEntry(row, cl, date, slot, ts){
     state.mealLogs.push({id: uid(), date: date, slot: slot, name: cl.ing.name, amount: cl.effAmount, unit: cl.effUnit,
       nutrition: cl.nutrition, nutrition_extra: cl.extra, created_at: ts, source_type:'external', source_id: cl.ing.id});
     bumpPickFrequency('external', cl.ing.id);
+  } else if(c.type==='custom'){
+    // README 9.249: 用了保存过的自定条目：写成一条自定记录(跟手动填的自定条目同一种)，换算后的营养整套带上；记一次使用
+    var cfw = cl.custom, nnw = cl.nutrition;
+    state.mealLogs.push({id: uid(), date: date, slot: slot, name: cfw.name, amount:null, unit:'',
+      nutrition: nnw, nutrition_extra: cl.extra, created_at: ts, source_type:'custom',
+      custom_calories: nnw.calories, custom_carbs: nnw.carbs||null, custom_protein: nnw.protein||null, custom_fat: nnw.fat||null, custom_name: cfw.name,
+      custom_qty: cfw.qty>0 ? Math.round(cfw.qty*cl.ratio*100)/100 : null, custom_unit: cfw.qty>0 ? cfw.unit : ''});
+    cfw.count = (cfw.count||0)+1; cfw.last = nowLocalIso(); saveCustomSaved();
   } else if(c.type==='mealset'){
     // 套餐本身就是一条\"套餐记录\"，里面按份数缩放过的每一项；commitMealsetLogEntry自己会存、会扣库存
     commitMealsetLogEntry(date, slot, cl.mealset.id, cl.mealset.name, cl.items);
@@ -18068,6 +18344,10 @@ function aiMealPushSubItems(subs, row, cl){
   } else if(c.type==='recipe'){
     subs.push({id: uid(), source_type:'recipe', source_id: cl.recipe.id, name: cl.recipe.name, amount: cl.effAmount, unit: cl.recipeUnit,
       nutrition: cl.nutrition, nutrition_extra: cl.extra, deduct:false});
+  } else if(c.type==='custom'){
+    subs.push({id: uid(), source_type:'custom', source_id:null, name: cl.custom.name, amount:1, unit:'',
+      nutrition: cl.nutrition, nutrition_extra: cl.extra, nutrition_snapshot: cl.nutrition, nutrition_extra_snapshot: cl.extra, deduct:false});
+    cl.custom.count = (cl.custom.count||0)+1; cl.custom.last = nowLocalIso(); saveCustomSaved();
   } else if(c.type==='usda'){
     subs.push({id: uid(), source_type:'usda', source_id: c.id, name: cl.saved.description || c.label, amount: cl.effAmount, unit: cl.effUnit,
       nutrition: cl.nutrition, nutrition_extra: cl.extra, deduct:false,
