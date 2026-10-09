@@ -857,9 +857,12 @@
   .recipe-card-body{ flex:1; min-width:0; }
 
   .ing-row{ display:flex; align-items:center; gap:10px; background:var(--card-bg); border:1px solid var(--line); border-radius:11px; padding:12px 14px; margin-bottom:9px; cursor:pointer; }
-  .ing-row .ing-info{ flex:1; min-width:0; display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+  .ing-row .ing-info{ flex:1; min-width:0; display:flex; align-items:center; justify-content:space-between; gap:10px; }
   .ing-row .ing-name{ font-size:15px; font-weight:500; color:var(--cocoa); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .ing-row .ing-amt{ font-size:12.5px; color:var(--deep-caramel); flex-shrink:0; }
+  .ing-row .ing-right{ display:flex; flex-direction:column; align-items:flex-end; flex-shrink:0; }
+  .ing-row .ing-kcal{ font-size:14px; font-weight:600; color:var(--cocoa); }
+  .ing-row .ing-right .ing-amt{ margin-top:2px; }
   .ing-group-header{ font-size:14.5px; font-weight:700; color:var(--fresh); margin:14px 2px 6px; cursor:pointer; }
   .ing-group-header:first-child{ margin-top:2px; }
   /* Recipe detail page ingredient list (see README): plain menu-style rows, name/dots/amount,
@@ -952,7 +955,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.250';
+var BUILD_VERSION = '9.251';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -7129,6 +7132,9 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.251', items:[
+    {t:'new', zh:'编辑食谱时，食材列表里每一条现在除了数量，还会同时显示这条食材的热量（跟三餐页添加的条目一样：热量在上、数量在下）。', en:'While editing a recipe, each ingredient row now shows its calories as well as its amount (calories on top, amount below, same as entries on the meal page).'}
+  ]},
   {v:'9.250', items:[
     {t:'fix', zh:'修好了：编辑食谱时添加的「自定」食材不显示数量、也没法修改的问题。现在食谱里的自定食材会显示数量（添加时填了数量就按那个数，没填就算 1 份），点开可以改数量，营养按添加时填的数值等比换算；以前加过的自定食材也一样能改了。', en:'Fixed: Custom ingredients added while editing a recipe showed no amount and could not be edited. They now show their amount (the one entered when adding, or 1 serving if none), can be edited, and the nutrition scales proportionally; previously added custom ingredients can be edited too.'},
     {t:'new', zh:'「自定」填写页里，矿物质和维生素分别折叠起来，默认只展开热量和宏量等主要营养，保存键不再被挤到很下面；折叠栏上会显示里面已经填了几项。', en:'On the Custom page, Minerals and Vitamins are now collapsed separately; only calories and the main nutrients are expanded by default so the Save button stays reachable. Each collapsed header shows how many fields are filled.'}
@@ -12103,6 +12109,7 @@ function ingredientGroupsEditorHtml(){
       // data-arr-idx 挪到最外层(9.206 的拖拽引擎按"列表的直接子元素"定位、读这个属性)，把手仍然
       // 在行内；点行本体照旧打开 editRecipeIngredient 编辑框。
       var swipeKey = r.ri.id || ('ri'+r.idx);
+      var rowKcal = recipeIngredientRowKcal(r.ri);
       return '<div class="item-card-swipe ing-swipe" data-item-id="'+esc(swipeKey)+'" data-arr-idx="'+r.idx+'">'+
         '<div class="item-swipe-actions"><button class="swipe-action-btn action-delete" onclick="event.stopPropagation();deleteRecipeIngredientFromSwipe('+aj(swipeKey)+','+r.idx+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button></div>'+
         '<div class="item-card ing-row" onclick="editRecipeIngredient('+r.idx+')"><div class="ing-info"><span class="ing-name">'+esc(recipeIngredientDisplayName(r.ri))+
@@ -12110,7 +12117,7 @@ function ingredientGroupsEditorHtml(){
         (r.ri.source_type==='recipe' ? ' <span style="font-size:11px;color:var(--almond);">('+t('navRecipes')+(r.ri.use_existing?(' · '+t('recipeIngUseExisting')):'')+')</span>' : '')+
         (r.ri.source_type==='usda' ? ' <span style="font-size:11px;color:var(--almond);">(USDA)</span>' : '')+
         (r.ri.source_type==='custom' ? ' <span style="font-size:11px;color:var(--almond);">('+t('tabCustom')+')</span>' : '')+
-        '</span><span class="ing-amt">'+amtHtml+'</span></div>'+
+        '</span><span class="ing-right">'+(rowKcal!=null ? '<span class="ing-kcal">'+Math.round(rowKcal)+' kcal</span>' : '')+'<span class="ing-amt">'+amtHtml+'</span></span></div>'+
         '<span class="sidebar-drag-handle" onclick="event.stopPropagation()">'+ic('grip',15)+'</span>'+
       '</div></div>';
     }).join('');
@@ -12209,6 +12216,17 @@ function editRecipeIngredient(idx){
 // 新的nutrition_snapshot——calcRecipeNutrition照旧只读nutrition_snapshot，不用动。
 // 老数据(没有custom_base)在这里按需推出基准：有数量+单位的(比如扫描"仅记录这一次")以当前数量为基准，
 // 没有的(amount:1,unit:'')按"1 份"为基准。
+// README 9.251: 食谱编辑页每条食材显示自己的热量(跟三餐页条目一样热量在上、数量在下)。
+// 直接拿这一条食材单独组成一份临时食谱去算，复用calcRecipeNutrition里全部来源/单位/子食谱的处理，
+// 不另写一套；换算不出来(有警告)时返回null，这一行就只显示数量，不显示一个错的热量。
+function recipeIngredientRowKcal(ri){
+  try{
+    var res = calcRecipeNutrition({id:'__row__', ingredients:[ri], servings:1});
+    if((res.warnings||[]).length) return null;
+    var c = res.total && res.total.calories;
+    return (c==null || isNaN(c)) ? null : c;
+  }catch(e){ return null; }
+}
 function recipeCustomBase(ri){
   if(ri.custom_base && ri.custom_base.qty>0 && ri.custom_base.unit) return ri.custom_base;
   if(ri.amount>0 && ri.unit){
