@@ -952,7 +952,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.249';
+var BUILD_VERSION = '9.250';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2471,6 +2471,8 @@ var I18N = {
     fieldMealCarbs:'碳水 (g)', fieldMealProtein:'蛋白质 (g)', fieldMealFat:'脂肪 (g)', fieldMealName:'名称',
     quickCalDefaultName:'快速记录',
     customScaleHint:'改上面的数量，下面的热量和营养会按这条已有的数值自动换算；只影响这一次记录，列表里的原值不变',
+    customGroupMineral:'矿物质', customGroupVitamin:'维生素', customGroupFilledPre:'已填 ', customGroupFilledSuf:' 项',
+    recipeCustomScaleHintPre:'改数量，这条食材的营养会按添加时填的数值等比换算（基准：', recipeCustomScaleHintSuf:'）',
     customSavedSectionTitle:'以前填过的', newCustomBtn:'新建自定义', customSavedEmptyHint:'还没有记住的自定义食物，点上方新建一个；保存过的会出现在这里',
     viewSourceDetail:'查看详情', moveOrCopyEntry:'移动/复制到其它日期', mealSlotLabel:'餐次',
     copyEntryBtn:'复制到这里', moveEntryBtn:'移动到这里',
@@ -2820,6 +2822,8 @@ var I18N = {
     fieldMealCarbs:'Carbs (g)', fieldMealProtein:'Protein (g)', fieldMealFat:'Fat (g)', fieldMealName:'Name',
     quickCalDefaultName:'Quick entry',
     customScaleHint:'Change the amount above and the calories/nutrition below are recalculated from the saved values; this only affects this entry - the saved original stays',
+    customGroupMineral:'Minerals', customGroupVitamin:'Vitamins', customGroupFilledPre:'Filled: ', customGroupFilledSuf:'',
+    recipeCustomScaleHintPre:'Change the amount and this ingredient\'s nutrition scales from the values entered when it was added (base: ', recipeCustomScaleHintSuf:')',
     customSavedSectionTitle:'Previously entered', newCustomBtn:'New custom item', customSavedEmptyHint:'No remembered custom foods yet - create one above and it will show up here',
     viewSourceDetail:'View details', moveOrCopyEntry:'Move/copy to another date', mealSlotLabel:'Meal',
     copyEntryBtn:'Copy here', moveEntryBtn:'Move here',
@@ -7125,6 +7129,10 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.250', items:[
+    {t:'fix', zh:'修好了：编辑食谱时添加的「自定」食材不显示数量、也没法修改的问题。现在食谱里的自定食材会显示数量（添加时填了数量就按那个数，没填就算 1 份），点开可以改数量，营养按添加时填的数值等比换算；以前加过的自定食材也一样能改了。', en:'Fixed: Custom ingredients added while editing a recipe showed no amount and could not be edited. They now show their amount (the one entered when adding, or 1 serving if none), can be edited, and the nutrition scales proportionally; previously added custom ingredients can be edited too.'},
+    {t:'new', zh:'「自定」填写页里，矿物质和维生素分别折叠起来，默认只展开热量和宏量等主要营养，保存键不再被挤到很下面；折叠栏上会显示里面已经填了几项。', en:'On the Custom page, Minerals and Vitamins are now collapsed separately; only calories and the main nutrients are expanded by default so the Save button stays reachable. Each collapsed header shows how many fields are filled.'}
+  ]},
   {v:'9.249', items:[
     {t:'new', zh:'「自定」页现在支持营养标签上的全部 23 项营养（热量、脂肪、饱和/反式/单不饱和/多不饱和脂肪、胆固醇、钠、碳水、纤维、糖、添加糖、蛋白质，以及维生素 D、钾、钙、铁、维生素 A/C/E/B12、镁、锌），全部选填；USDA 查不到的生鲜食材可以直接放在「自定」里。保存的条目会记住全部营养，按数量换算时一起按比例变。', en:'The Custom page now supports all 23 nutrients from the nutrition label (all optional), so fresh foods that USDA does not have can live under Custom. Saved items remember every nutrient and all of them scale together with the amount.'},
     {t:'fix', zh:'修好了：在套餐模板里改了食材/数量并保存后，再去加餐页添加这个套餐，仍然是改之前的内容。原因是勾选快速添加用的是这个套餐「上次用量」的记忆，没有跟着模板更新；现在改动模板的食材清单保存时会清掉这份记忆，新加的套餐按改后的模板来。', en:'Fixed: after editing a meal set template (ingredients/amounts) and saving, adding that meal set from the meal page still used the old content. Quick-add was using the meal set\'s "last used" memory, which was not refreshed when the template changed; saving a changed template now clears that memory so new entries follow the edited template.'},
@@ -12087,7 +12095,7 @@ function ingredientGroupsEditorHtml(){
       // README 9.202: usda/custom两种新来源的名称标签，跟external/recipe那两个已有的标签是
       // 同一套写法；amtHtml这一列的custom分支照抄套餐那边的处理(mealsetItemTagHtml/
       // renderMealsetForm)——自定条目是固定营养值，没有"数量+单位"这个概念可以显示。
-      var amtHtml = r.ri.source_type==='custom' ? '' : (fmtAmount(r.ri.amount, r.ri.unit)+' '+esc(recipeUnitLabel(r.ri.unit)));
+      var amtHtml = r.ri.source_type==='custom' ? esc(recipeCustomAmtText(r.ri)) : (fmtAmount(r.ri.amount, r.ri.unit)+' '+esc(recipeUnitLabel(r.ri.unit)));
       // README 9.206: 把手(.sidebar-drag-handle)是长按拖拽的唯一触发区，跟点击行本体打开编辑框
       // (editRecipeIngredient)分开——把手自己的onclick用stopPropagation挡掉冒泡，避免只是点了
       // 一下把手(没有真的长按拖动)也顺带弹出编辑框。
@@ -12157,9 +12165,15 @@ function editRecipeIngredient(idx){
   // README 9.202: 自定条目(source_type==='custom')是手动填写的固定营养值，没有"活的"来源可以
   // 按数量/单位现算——跟套餐那边(editMealsetTplItem)完全一样的处理，编辑框只留删除。
   if(ri.source_type==='custom'){
+    // README 9.250: 食谱里的自定食材现在也有数量可改——以添加时填的数值(custom_base)为基准等比换算营养。
+    var cb = recipeCustomBase(ri), cur = recipeCustomCurrent(ri);
     showModal(esc(recipeIngredientDisplayName(ri)),
-      '<p class="hint" style="margin:0 0 10px;">'+t('customMealsetItemHint')+'</p>'+
-      '<div class="btn-row"><button class="btn btn-danger" style="width:100%;" onclick="deleteRecipeIngredientFromModal('+idx+')">'+ic('trash',16)+' '+t('delete')+'</button></div>'
+      '<div class="field"><label>'+t('ingAmountLabel')+'</label><div style="display:flex;gap:8px;align-items:center;"><input type="text" id="ing-amount" autofocus inputmode="decimal" placeholder="'+t('ingAmountPh')+'" value="'+fmtAmount(cur.amount, cur.unit)+'" style="flex:1;min-width:0;"><span style="flex-shrink:0;color:var(--almond);">'+esc(recipeUnitLabel(cb.unit))+'</span></div>'+
+      '<p class="hint" style="margin:6px 0 0;">'+esc(t('recipeCustomScaleHintPre')+fmtAmount(cb.qty, cb.unit)+' '+recipeUnitLabel(cb.unit)+t('recipeCustomScaleHintSuf'))+'</p></div>'+
+      '<div class="btn-row" style="margin-top:14px;">'+
+        '<button class="btn btn-danger btn-sm" style="flex:1;" onclick="deleteRecipeIngredientFromModal('+idx+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
+        '<button class="btn btn-primary btn-sm" style="flex:1;" onclick="confirmEditRecipeCustomIngredient('+idx+')">'+t('save')+'</button>'+
+      '</div>'
     );
     return;
   }
@@ -12188,6 +12202,52 @@ function editRecipeIngredient(idx){
       '<button class="btn btn-primary btn-sm" style="flex:1;" onclick="confirmEditIngredient('+idx+')">'+t('save')+'</button>'+
     '</div>'
   );
+}
+// README 9.250: 食谱里的「自定」食材(source_type==='custom')原来只存一组固定营养值(nutrition_snapshot)，
+// 数量/单位没存(amount:1,unit:'')，所以行上不显示数量、编辑框也只剩删除。现在给它一个"基准"
+// (custom_base={qty,unit,nutrition,extra}：这组营养值对应多少数量)，改数量就以基准等比换算出
+// 新的nutrition_snapshot——calcRecipeNutrition照旧只读nutrition_snapshot，不用动。
+// 老数据(没有custom_base)在这里按需推出基准：有数量+单位的(比如扫描"仅记录这一次")以当前数量为基准，
+// 没有的(amount:1,unit:'')按"1 份"为基准。
+function recipeCustomBase(ri){
+  if(ri.custom_base && ri.custom_base.qty>0 && ri.custom_base.unit) return ri.custom_base;
+  if(ri.amount>0 && ri.unit){
+    return {qty: ri.amount, unit: ri.unit, nutrition: ri.nutrition_snapshot || emptyNutrition(), extra: ri.nutrition_extra_snapshot || {}};
+  }
+  return {qty: 1, unit: 'serving', nutrition: ri.nutrition_snapshot || emptyNutrition(), extra: ri.nutrition_extra_snapshot || {}};
+}
+function recipeCustomCurrent(ri){
+  if(ri.amount>0 && ri.unit) return {amount: ri.amount, unit: ri.unit};
+  var b = recipeCustomBase(ri);
+  return {amount: b.qty, unit: b.unit};
+}
+function recipeCustomAmtText(ri){
+  var c = recipeCustomCurrent(ri);
+  return fmtAmount(c.amount, c.unit)+' '+recipeUnitLabel(c.unit);
+}
+function confirmEditRecipeCustomIngredient(idx){
+  var amount = parseAmountInput(document.getElementById('ing-amount').value);
+  if(!amount || amount<=0){ showToast(state.lang==='zh'?'请输入用量':'Please enter an amount'); return; }
+  var ri = state.recipeDraft.ingredients[idx];
+  if(ri){
+    var base = recipeCustomBase(ri);
+    var f = amount / base.qty;
+    var nutrition = emptyNutrition();
+    NUTRI_KEYS.forEach(function(k){
+      var v = (base.nutrition||{})[k];
+      nutrition[k] = (v==null) ? null : Math.round(v*f*1000)/1000;
+    });
+    var extra = {};
+    Object.keys(base.extra||{}).forEach(function(k){
+      var e = base.extra[k];
+      if(e && e.value!=null) extra[k] = {unit: e.unit, value: Math.round(Number(e.value)*f*1000)/1000};
+    });
+    ri.custom_base = {qty: base.qty, unit: base.unit, nutrition: base.nutrition, extra: base.extra};
+    ri.amount = amount; ri.unit = base.unit;
+    ri.nutrition_snapshot = nutrition; ri.nutrition_extra_snapshot = extra;
+  }
+  closeModal();
+  render();
 }
 function confirmEditIngredient(idx){
   var amount = parseAmountInput(document.getElementById('ing-amount').value);
@@ -12743,7 +12803,7 @@ function renderRecipeDetail(){
     return '<div class="ing-list-row"'+attrs+'>'+
         '<span class="ing-list-name">'+esc(recipeIngredientDisplayName(ri))+'</span>'+
         '<span class="ing-list-dots"></span>'+
-        '<span class="ing-list-amt">'+fmtAmount(ri.amount, ri.unit)+' '+esc(recipeUnitLabel(ri.unit))+'</span>'+
+        '<span class="ing-list-amt">'+(ri.source_type==='custom' ? esc(recipeCustomAmtText(ri)) : (fmtAmount(ri.amount, ri.unit)+' '+esc(recipeUnitLabel(ri.unit))))+'</span>'+
         ((linkedItem || linkedRecipe) ? ic('chevronRight',15,'class="ing-list-chevron" style="color:#B79B78;"') : '')+
       '</div>';
   }).join('');
@@ -16116,7 +16176,7 @@ function customSetStr(af, k, v){
   af.customMore = af.customMore || {};
   af.customMore[k] = v;
 }
-function onCustomNutriInput(k, v){ customSetStr(activeAddCtx(), k, v); }
+function onCustomNutriInput(k, v){ var af0 = activeAddCtx(); customSetStr(af0, k, v); customRefreshFoldBadges(af0); }
 // 把填写页上所有填了的营养项收成 {key:数字}(没填的不在里面)
 function customCollect(af){
   var vals = {};
@@ -16283,6 +16343,7 @@ function openCustomSavedEdit(id){
   af.customMore = {};
   Object.keys(f.more||{}).forEach(function(k){ if(f.more[k]!=null) af.customMore[k] = String(f.more[k]); });
   af.customBase = f.qty>0 ? {qty:f.qty, unit:(f.unit||'g'), cal:f.calories, carbs:f.carbs, protein:f.protein, fat:f.fat, more:(f.more||{})} : null;
+  af.customOpen = {};
   af.step = 'customEdit';
   render();
   scrollAppToTop();
@@ -16292,7 +16353,7 @@ function openNewCustomEdit(){
   if(!af) return;
   af.customEditId = null;
   af.customName = ''; af.customCalories = ''; af.customCarbs = ''; af.customProtein = ''; af.customFat = '';
-  af.customQty = ''; af.customUnit = 'g'; af.customBase = null; af.customMore = {};
+  af.customQty = ''; af.customUnit = 'g'; af.customBase = null; af.customMore = {}; af.customOpen = {};
   af.step = 'customEdit';
   render();
   scrollAppToTop();
@@ -16334,15 +16395,60 @@ function customMealFieldsHtml(af){
     '<input type="number" inputmode="decimal" id="custom-field-qty" enterkeyhint="next"'+(af.customBase?' autofocus':'')+' placeholder="'+t('optionalPh')+'" value="'+esc(af.customQty||'')+'" oninput="onCustomQtyInput(this.value)" onkeydown="focusNextCustomField(event,\'custom-field-calories\')" style="flex:1;min-width:0;">'+
     '<div class="tag-select" style="flex-shrink:0;margin:0;">'+['g','ml','serving'].map(function(u){ return '<div class="tag-option '+(unit===u?'active':'')+'" onclick="onCustomUnitPick(\''+u+'\')">'+esc(customUnitLabel(u))+'</div>'; }).join('')+'</div>'+
     '</div>'+(af.customBase ? '<p class="hint" style="margin:6px 0 0;">'+esc(t('customScaleHint'))+'</p>' : '')+'</div>';
-  // README 9.249: 营养标签上的全部23项，顺序跟营养标签一致，只有热量必填。
-  var nutriHtml = CUSTOM_NUTRI_ORDER.map(function(k, i){
-    var nextId = i<CUSTOM_NUTRI_ORDER.length-1 ? 'custom-field-'+CUSTOM_NUTRI_ORDER[i+1] : 'custom-field-name';
+  // README 9.249: 营养标签上的全部23项，只有热量必填。
+  // README 9.250: 矿物质、维生素各自折叠(默认收起)，默认展开的只有热量和宏量等主要营养(NUTRI_KEYS那13项)；
+  // 折叠栏上显示里面已填几项。回车链按页面实际顺序走，遇到收起的组就跳过(见focusNextCustomField)。
+  function fieldHtml(k){
     var isCal = k==='calories';
-    return '<div class="field"><label>'+esc(customNutriLabel(k))+' ('+esc(customNutriUnit(k))+')</label><input type="number" inputmode="decimal" id="custom-field-'+k+'" enterkeyhint="next"'+((isCal && !af.customBase)?' autofocus':'')+' placeholder="'+t(isCal?'requiredPh':'optionalPh')+'" value="'+esc(customGetStr(af,k))+'" oninput="onCustomNutriInput(\''+k+'\',this.value)" onkeydown="focusNextCustomField(event,\''+nextId+'\')"></div>';
-  }).join('');
+    return '<div class="field"><label>'+esc(customNutriLabel(k))+' ('+esc(customNutriUnit(k))+')</label><input type="number" inputmode="decimal" id="custom-field-'+k+'" enterkeyhint="next"'+((isCal && !af.customBase)?' autofocus':'')+' placeholder="'+t(isCal?'requiredPh':'optionalPh')+'" value="'+esc(customGetStr(af,k))+'" oninput="onCustomNutriInput(\''+k+'\',this.value)" onkeydown="focusNextCustomField(event,\''+customNextId(k)+'\')"></div>';
+  }
+  function foldHtml(g, labelKey){
+    var open = !!(af.customOpen && af.customOpen[g]);
+    var n = customGroupFilledCount(af, g);
+    return '<div class="custom-fold-head" onclick="toggleCustomGroup(\''+g+'\')" style="display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:4px 0 12px;cursor:pointer;user-select:none;">'+
+        '<span id="custom-fold-chev-'+g+'" style="display:flex;transition:transform .15s;transform:rotate('+(open?90:0)+'deg);">'+ic('chevronRight',15)+'</span>'+
+        '<span style="flex:1;font-weight:600;">'+esc(t(labelKey))+'</span>'+
+        '<span id="custom-fold-badge-'+g+'" class="hint" style="margin:0;">'+(n>0 ? esc(t('customGroupFilledPre')+n+t('customGroupFilledSuf')) : '')+'</span>'+
+      '</div>'+
+      '<div id="custom-fold-body-'+g+'" style="display:'+(open?'block':'none')+';">'+CUSTOM_GROUPS[g].map(fieldHtml).join('')+'</div>';
+  }
+  var nutriHtml = CUSTOM_MAIN_ORDER.map(fieldHtml).join('') + foldHtml('mineral','customGroupMineral') + foldHtml('vitamin','customGroupVitamin');
   return qtyHtml + nutriHtml +
     '<div class="field"><label>'+t('fieldMealName')+'</label><input type="text" id="custom-field-name" enterkeyhint="done" autocapitalize="words" placeholder="'+t('optionalPh')+'" value="'+esc(af.customName||'')+'" oninput="af_str(\'customName\',this.value)" onkeydown="focusNextCustomField(event,null)"></div>'+
     '<button class="btn btn-primary" style="margin-top:14px;width:100%;" onclick="'+(af.pickerKind?'ipSaveCustomItem()':'saveCustomMealLogEntry()')+'">'+t('save')+'</button>';
+}
+// README 9.250: 填写页的显示顺序 = 主要营养 + 矿物质组 + 维生素组；回车链(customNextId)和折叠栏计数都按它来。
+var CUSTOM_GROUPS = {
+  mineral: ['potassium','calcium','iron','magnesium','zinc'],
+  vitamin: ['vitamin_d','vitamin_a','vitamin_c','vitamin_e','vitamin_b12']
+};
+var CUSTOM_MAIN_ORDER = CUSTOM_NUTRI_ORDER.filter(function(k){ return CUSTOM_GROUPS.mineral.indexOf(k)===-1 && CUSTOM_GROUPS.vitamin.indexOf(k)===-1; });
+var CUSTOM_RENDER_ORDER = CUSTOM_MAIN_ORDER.concat(CUSTOM_GROUPS.mineral, CUSTOM_GROUPS.vitamin);
+function customNextId(k){
+  var i = CUSTOM_RENDER_ORDER.indexOf(k);
+  return (i>=0 && i<CUSTOM_RENDER_ORDER.length-1) ? 'custom-field-'+CUSTOM_RENDER_ORDER[i+1] : 'custom-field-name';
+}
+function customGroupFilledCount(af, g){
+  return CUSTOM_GROUPS[g].filter(function(k){ var v = customGetStr(af,k); return v!=='' && v!=null; }).length;
+}
+function customRefreshFoldBadges(af){
+  ['mineral','vitamin'].forEach(function(g){
+    var el = document.getElementById('custom-fold-badge-'+g);
+    if(!el) return;
+    var n = customGroupFilledCount(af, g);
+    el.textContent = n>0 ? (t('customGroupFilledPre')+n+t('customGroupFilledSuf')) : '';
+  });
+}
+// 直接改DOM展开/收起，不整页重渲染(免得滚动位置和输入焦点被打断)；输入的值本来就实时存在af里，不会丢。
+function toggleCustomGroup(g){
+  var af = activeAddCtx();
+  if(!af) return;
+  af.customOpen = af.customOpen || {};
+  af.customOpen[g] = !af.customOpen[g];
+  var body = document.getElementById('custom-fold-body-'+g);
+  if(body) body.style.display = af.customOpen[g] ? 'block' : 'none';
+  var chev = document.getElementById('custom-fold-chev-'+g);
+  if(chev) chev.style.transform = 'rotate('+(af.customOpen[g]?90:0)+'deg)';
 }
 // README 9.245: 按"打开这条已有条目时的那一套数值"(af.customBase，数量+单位+热量/宏量)等比换算。
 // 只在单位跟基准单位一致、新数量是有效正数时才算(g和ml之间没法互换，不乱猜)；直接改DOM里的输入框
@@ -16365,6 +16471,7 @@ function customRecalcFromBase(af){
     var el = document.getElementById('custom-field-'+k);
     if(el) el.value = customGetStr(af, k);
   });
+  customRefreshFoldBadges(af);
 }
 function onCustomQtyInput(val){
   var af = activeAddCtx();
@@ -16382,6 +16489,14 @@ function focusNextCustomField(event, nextId){
   event.preventDefault();
   if(nextId){
     var el = document.getElementById(nextId);
+    // README 9.250: 下一项在收起的折叠组里(看不见)就继续往后找第一个看得见的，最后落到名称栏。
+    var guard = 0;
+    while(el && el.offsetParent===null && guard++<40){
+      var kk = nextId.replace('custom-field-','');
+      nextId = customNextId(kk);
+      el = document.getElementById(nextId);
+      if(nextId==='custom-field-name') break;
+    }
     if(el){ el.focus(); if(el.select) try{ el.select(); }catch(e){} }
   } else if(event.target && event.target.blur){
     event.target.blur();
@@ -16433,6 +16548,10 @@ function ipSaveCustomItem(){
   if(af.pickerKind==='mealsetTemplate' || af.pickerKind==='recipeIngredients'){
     var tplItem = {id:uid(), source_type:'custom', source_id:null, name_snapshot:name, amount:1, unit:'', nutrition_snapshot:nutrition, nutrition_extra_snapshot:extra};
     if(af.pickerKind==='recipeIngredients'){
+      // README 9.250: 食谱里的自定食材带上数量(填了就用，没填算1份)和换算基准，之后可以在食谱里改数量。
+      var rcQty = cQty2 || 1, rcUnit = cQty2 ? (af.customUnit||'g') : 'serving';
+      tplItem.amount = rcQty; tplItem.unit = rcUnit;
+      tplItem.custom_base = {qty: rcQty, unit: rcUnit, nutrition: JSON.parse(JSON.stringify(nutrition)), extra: JSON.parse(JSON.stringify(extra))};
       var list = state.recipeDraft.ingredients || (state.recipeDraft.ingredients=[]);
       var groupIdx = state.recipeFormUI && state.recipeFormUI.activeIngredientGroupIdx;
       if(groupIdx!=null && list[groupIdx] && list[groupIdx].type==='group'){
