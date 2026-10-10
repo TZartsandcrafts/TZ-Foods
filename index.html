@@ -955,7 +955,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.254';
+var BUILD_VERSION = '9.255';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -7148,6 +7148,9 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.255', items:[
+    {t:'fix', zh:'修好了：三餐页侧边栏「历史」里点某一天，第一次出现的是上次看过的日期页面，要再进一次历史、再点一次才对。现在点哪一天就直接进哪一天。', en:'Fixed: tapping a day in the meals sidebar History first showed the previously viewed date; you had to open History and tap again. It now opens the tapped day right away.'}
+  ]},
   {v:'9.254', items:[
     {t:'fix', zh:'USDA 有些条目（比如 Cabbage, napa, leaf, destemmed, raw）本身就没有热量/脂肪/碳水数据，以前会显示成 0。现在这类条目：搜索列表里标「数据不全」；进入数量页会提示「USDA 没有这条的热量/脂肪/碳水」，并提供三个办法——找同类（换成数据完整的同类条目）、AI 估算（每 100g，标注为 AI 估算）、手动填写；不满意可以随时换另一种。补的值只用在你自己，不会改 USDA 的数据。', en:'Some USDA entries (e.g. Cabbage, napa, leaf, destemmed, raw) simply have no calories/fat/carbs data and used to show 0. Now such entries are tagged "incomplete" in search results, and the amount page explains what is missing and offers three ways to fill it: switch to a similar complete entry, an AI estimate (per 100g, labelled as such), or manual entry - you can switch between them. Filled values stay local.'}
   ]},
@@ -18875,7 +18878,7 @@ function renderMealsHistory(){
   var dates = Object.keys(byDate).sort();
   var chartHtml = dates.length>=2 ? mealsCalorieChartSvg(dates, byDate) : '<p class="hint">'+t('weightChartEmptyHint')+'</p>';
   var rows = dates.slice().reverse().map(function(d){
-    return '<div class="list-row" onclick="navigate(\'meals\');setMealsDate('+aj(d)+')" style="cursor:pointer;"><div class="row-label">'+esc(fmtDateDots(d))+'</div><div>'+Math.round(byDate[d])+' kcal</div></div>';
+    return '<div class="list-row" onclick="setMealsDate('+aj(d)+');navigate(\'meals\')" style="cursor:pointer;"><div class="row-label">'+esc(fmtDateDots(d))+'</div><div>'+Math.round(byDate[d])+' kcal</div></div>';
   }).join('') || '<div class="empty-state">'+ic('spoon',36)+'<p>'+t('noMealLoggedHint')+'</p></div>';
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'meals\')">'+ic('back',22)+'</button><h1>'+t('mealsHistoryBtn')+'</h1></div>'+
