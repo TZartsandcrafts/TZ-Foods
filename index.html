@@ -955,7 +955,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.251';
+var BUILD_VERSION = '9.252';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2474,6 +2474,7 @@ var I18N = {
     fieldMealCarbs:'碳水 (g)', fieldMealProtein:'蛋白质 (g)', fieldMealFat:'脂肪 (g)', fieldMealName:'名称',
     quickCalDefaultName:'快速记录',
     customScaleHint:'改上面的数量，下面的热量和营养会按这条已有的数值自动换算；只影响这一次记录，列表里的原值不变',
+    customRemoteTag:'（对方）',
     customGroupMineral:'矿物质', customGroupVitamin:'维生素', customGroupFilledPre:'已填 ', customGroupFilledSuf:' 项',
     recipeCustomScaleHintPre:'改数量，这条食材的营养会按添加时填的数值等比换算（基准：', recipeCustomScaleHintSuf:'）',
     customSavedSectionTitle:'以前填过的', newCustomBtn:'新建自定义', customSavedEmptyHint:'还没有记住的自定义食物，点上方新建一个；保存过的会出现在这里',
@@ -2825,6 +2826,7 @@ var I18N = {
     fieldMealCarbs:'Carbs (g)', fieldMealProtein:'Protein (g)', fieldMealFat:'Fat (g)', fieldMealName:'Name',
     quickCalDefaultName:'Quick entry',
     customScaleHint:'Change the amount above and the calories/nutrition below are recalculated from the saved values; this only affects this entry - the saved original stays',
+    customRemoteTag:' (partner)',
     customGroupMineral:'Minerals', customGroupVitamin:'Vitamins', customGroupFilledPre:'Filled: ', customGroupFilledSuf:'',
     recipeCustomScaleHintPre:'Change the amount and this ingredient\'s nutrition scales from the values entered when it was added (base: ', recipeCustomScaleHintSuf:')',
     customSavedSectionTitle:'Previously entered', newCustomBtn:'New custom item', customSavedEmptyHint:'No remembered custom foods yet - create one above and it will show up here',
@@ -3268,7 +3270,11 @@ async function loadAll(){
     // README 9.247: "已经是0件的批次一次性存档"是否做过。
     storageGet('autoArchiveSweepDone', false),
     // README 9.249: "套餐上次用量记忆里已经过时的"一次性清理是否做过。
-    storageGet('mealsetLastSwept', false)
+    storageGet('mealsetLastSwept', false),
+    // README 9.252: 「自定」列表云同步——本机设备号、收到的对方条目缓存、本机\"删掉\"的对方条目。
+    storageGet('customFoodsDeviceId', ''),
+    storageGet('customRemote', {}),
+    storageGet('customRemoteHidden', {})
   ]);
   // README 9.125: categoryGroups is the new two-level (母分类/子分类) structure for inventory
   // categories, architecturally matching state.recipeCategoryGroups but without any color
@@ -3367,6 +3373,10 @@ async function loadAll(){
   var _csBackfilled = !!results[38];
   var _aaSweepDone = !!results[39];
   var _mlSwept = !!results[40];
+  state.customDeviceId = results[41] || '';
+  if(!state.customDeviceId){ state.customDeviceId = 'd'+uid(); storageSet('customFoodsDeviceId', state.customDeviceId); }
+  state.customRemote = results[42] || {};
+  state.customRemoteHidden = results[43] || {};
   // README 9.244: 一次性回溯(见backfillCustomSavedFromMealLogs)，做完记一个标记，以后不再跑。
   if(!_csBackfilled){
     try{ backfillCustomSavedFromMealLogs(); storageSet('customSavedBackfilled', true); }catch(e){}
@@ -3486,7 +3496,11 @@ function saveMealsets(){
 function saveRecipeCookLogs(){ return storageSet('recipeCookLogs', state.recipeCookLogs); }
 function savePickFrequency(){ return storageSet('pickFrequency', state.pickFrequency); }
 function saveUsdaSaved(){ return storageSet('usdaSaved', state.usdaSaved); }
-function saveCustomSaved(){ return storageSet('customSaved', state.customSaved); }
+function saveCustomSaved(){
+  var p = storageSet('customSaved', state.customSaved);
+  try{ cloudSyncPushCustomFoods(); }catch(e){}
+  return p;
+}
 function saveUsdaTranslationCache(){ return storageSet('usdaTranslationCache', state.usdaTranslationCache); }
 function saveMealAddItemPrefs(){ return storageSet('mealAddItemPrefs', state.mealAddItemPrefs); }
 function saveMealAddLastAmount(){ return storageSet('mealAddLastAmount', state.mealAddLastAmount); }
@@ -7132,6 +7146,9 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.252', items:[
+    {t:'new', zh:'「自定」里以前填过的食物，现在两台手机之间共享了（走云同步）：对方记过的自定食物会出现在你的列表里，名字后面标「（对方）」，点开可以直接用或改一改存成自己的。删除不会互相影响，记过几次和排序各自保留。两台手机都要更新到这个版本才会互相看到。', en:'Custom foods you have entered before are now shared between the two phones via cloud sync: the other person\'s custom foods appear in your list tagged "(partner)", and you can use them or edit and save your own copy. Deleting does not affect the other phone; usage counts and ordering stay separate. Both phones need this version to see each other\'s.'}
+  ]},
   {v:'9.251', items:[
     {t:'new', zh:'编辑食谱时，食材列表里每一条现在除了数量，还会同时显示这条食材的热量（跟三餐页添加的条目一样：热量在上、数量在下）。', en:'While editing a recipe, each ingredient row now shows its calories as well as its amount (calories on top, amount below, same as entries on the meal page).'}
   ]},
@@ -16322,7 +16339,21 @@ function customSavedSortedList(){
     if(ca!==cb) return cb-ca;
     return String(a.last||'') < String(b.last||'') ? 1 : -1;
   });
-  return list;
+  // README 9.252: 对方共享过来的条目排在自己的后面(按名称)，已经被本机删掉的不显示，跟自己某条名称+数值完全一样的不重复显示。
+  var sameSig = function(f){ return JSON.stringify([f.name||'', f.calories, f.carbs||null, f.protein||null, f.fat||null, f.qty||null, f.unit||null, f.more||null]); };
+  var ownSigs = {}; list.forEach(function(f){ ownSigs[sameSig(f)] = true; });
+  var hidden = state.customRemoteHidden || {};
+  var remote = Object.keys(state.customRemote||{}).map(function(k){ return state.customRemote[k]; }).filter(function(f){
+    return !hidden[f.id] && !saved[f.id] && !ownSigs[sameSig(f)];
+  });
+  remote.sort(function(a,b){ return String(a.name||'').localeCompare(String(b.name||'')); });
+  return list.concat(remote.map(function(f){ return Object.assign({}, f, {remote:true}); }));
+}
+function findCustomSavedAny(id){
+  var f = (state.customSaved||{})[id];
+  if(f) return f;
+  var r = (state.customRemote||{})[id];
+  return (r && !(state.customRemoteHidden||{})[id]) ? r : null;
 }
 function customSavedRowHtml(f){
   var name = f.name || t('quickCalDefaultName');
@@ -16331,7 +16362,7 @@ function customSavedRowHtml(f){
       '<button class="swipe-action-btn action-delete" onclick="event.stopPropagation();removeCustomSavedFromSwipe('+aj(f.id)+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button>'+
     '</div>'+
     '<div class="item-card" style="flex-direction:row;align-items:center;justify-content:space-between;gap:10px;border-left:none;box-shadow:none;border:1px solid var(--line);padding:15px 16px;margin-bottom:0;" onclick="openCustomSavedEdit('+aj(f.id)+')">'+
-      '<div style="flex:1;min-width:0;"><div class="row-label">'+esc(name)+(f.qty>0 ? '<div class="hint" style="margin-top:2px;">'+esc(fmtNum(f.qty,1))+esc(customUnitLabel(f.unit))+'</div>' : '')+'</div></div>'+
+      '<div style="flex:1;min-width:0;"><div class="row-label">'+esc(name)+(f.remote ? '<span class="hint" style="margin-left:4px;">'+esc(t('customRemoteTag'))+'</span>' : '')+(f.qty>0 ? '<div class="hint" style="margin-top:2px;">'+esc(fmtNum(f.qty,1))+esc(customUnitLabel(f.unit))+'</div>' : '')+'</div></div>'+
       '<div style="flex-shrink:0;font-size:15px;font-weight:600;color:var(--cocoa);">'+Math.round(f.calories||0)+' kcal</div>'+
     '</div>'+
   '</div>';
@@ -16347,7 +16378,7 @@ function customSavedTabHtml(af){
     '<div id="add-food-custom-list">'+customSavedListInnerHtml()+'</div>';
 }
 function openCustomSavedEdit(id){
-  var f = (state.customSaved||{})[id];
+  var f = findCustomSavedAny(id);
   var af = activeAddCtx();
   if(!f || !af) return;
   af.customEditId = id;
@@ -16387,8 +16418,14 @@ function backFromCustomEdit(){
 }
 function removeCustomSavedFromSwipe(id){
   closeItemSwipeRow('custom:'+id);
-  if(state.customSaved) delete state.customSaved[id];
-  saveCustomSaved();
+  if(state.customSaved && state.customSaved[id]){
+    delete state.customSaved[id];
+    saveCustomSaved();
+  } else if((state.customRemote||{})[id]){
+    // README 9.252: 删对方共享过来的条目=只在本机隐藏，不动对方那边。
+    (state.customRemoteHidden || (state.customRemoteHidden = {}))[id] = true;
+    storageSet('customRemoteHidden', state.customRemoteHidden);
+  }
   var el = document.getElementById('add-food-custom-list');
   if(el) el.innerHTML = customSavedListInnerHtml();
 }
@@ -20953,11 +20990,23 @@ function saveCloudSyncMetaPushMap(){ return storageSet('cloudSyncMetaPushMap', C
 function subscribeCloudMeta(){
   if(CLOUD.metaUnsub){ CLOUD.metaUnsub(); CLOUD.metaUnsub = null; }
   CLOUD.metaUnsub = metaCollectionRef().onSnapshot(function(snapshot){
-    var changed = false;
+    var changed = false, customChanged = false;
     snapshot.docChanges().forEach(function(change){
       if(change.type === 'removed') return;
+      // README 9.252: 每台手机把自己的「自定」列表写进自己那份文档(customFoods_设备号)，互相只读对方的，
+      // 不会两边抢着改同一份；不走applyRemoteMeta(那套是整份列表last-write-wins，不适用)。
+      if(change.doc.id.indexOf('customFoods_')===0){
+        if(applyRemoteCustomFoods(change.doc.id, change.doc.data())) customChanged = true;
+        return;
+      }
       if(applyRemoteMeta(change.doc.id, change.doc.data())) changed = true;
     });
+    if(customChanged){
+      storageSet('customRemote', state.customRemote);
+      var _afc = activeAddCtx && activeAddCtx();
+      var _lel = document.getElementById('add-food-custom-list');
+      if(_lel) _lel.innerHTML = customSavedListInnerHtml();
+    }
     saveCloudSyncMetaPushMap();
     if(changed){
       storageSet('categoryGroups', state.categoryGroups);
@@ -20976,6 +21025,52 @@ function subscribeCloudMeta(){
     cloudSyncSafeRender();
   });
 }
+// ===== README 9.252: 「自定」以前填过的食物 共享给另一台手机 =====
+// 做法：每台手机只写自己的一份文档 meta/customFoods_<设备号> = {list:[自己列表里的条目(只含名称/营养/数量，
+// 不含记过几次和最近使用时间)], updated_at}；对方的文档只读。收到的对方条目存进本机缓存(state.customRemote，
+// 以条目id为键)。三个约定(Lynn确认的)：
+//  - 删除不互相影响：本机缓存只\"新增/更新\"、不会因为对方把某条从自己的列表删了就跟着删；本机删掉对方条目
+//    只记进state.customRemoteHidden(以后收到同一条也不再显示)，不动对方；
+//  - 同名都保留：对方的条目不并进自己的(哪怕同名)，列表里单独一行，名字后面标「（对方）」；(名称和数值/数量
+//    完全一样的才算重复，不显示对方那条)；
+//  - 次数和排序各自保留：同步内容里没有count/last，对方条目排在自己的后面，按名称排。
+function customFoodsSyncList(){
+  var saved = state.customSaved || {};
+  return Object.keys(saved).sort().map(function(id){
+    var f = saved[id];
+    return {id:f.id, name:f.name||'', calories:f.calories, carbs:f.carbs==null?null:f.carbs, protein:f.protein==null?null:f.protein, fat:f.fat==null?null:f.fat, qty:f.qty||null, unit:f.unit||null, more:f.more||null};
+  });
+}
+async function cloudSyncPushCustomFoods(){
+  if(!cloudSyncActive() || !state.customDeviceId) return;
+  var list = customFoodsSyncList();
+  var sig = JSON.stringify(list);
+  if(CLOUD.customFoodsSig === sig) return;
+  if(!list.length && CLOUD.customFoodsSig===undefined){ CLOUD.customFoodsSig = sig; return; } // 一直是空的就不用建文档
+  try{
+    await metaCollectionRef().doc('customFoods_'+state.customDeviceId).set({list:list, device:state.customDeviceId, updated_at: nowLocalIso()});
+    CLOUD.customFoodsSig = sig;
+  }catch(e){ console.error('cloud sync customFoods push failed', e); } // 单独失败只记日志，不动整体同步状态
+}
+function applyRemoteCustomFoods(docId, data){
+  var dev = docId.slice('customFoods_'.length);
+  if(!dev || dev===state.customDeviceId || !data || !Array.isArray(data.list)) return false;
+  var cache = state.customRemote || (state.customRemote = {});
+  var changed = false;
+  data.list.forEach(function(e){
+    if(!e || !e.id) return;
+    var ne = {id:e.id, name:e.name||'', calories:e.calories, carbs:e.carbs==null?null:e.carbs, protein:e.protein==null?null:e.protein, fat:e.fat==null?null:e.fat, qty:e.qty||null, unit:e.unit||null, more:e.more||null, by:dev, seen:data.updated_at||''};
+    var old = cache[e.id];
+    if(!old || JSON.stringify(Object.assign({}, old, {seen:''})) !== JSON.stringify(Object.assign({}, ne, {seen:''}))){ cache[e.id] = ne; changed = true; }
+  });
+  var ids = Object.keys(cache);
+  if(ids.length>100){
+    ids.sort(function(a,b){ return String(cache[a].seen||'') < String(cache[b].seen||'') ? -1 : 1; });
+    ids.slice(0, ids.length-100).forEach(function(id){ delete cache[id]; });
+    changed = true;
+  }
+  return changed;
+}
 // key is 'categoryGroups', 'locations', or 'recipeCategoryGroups'. Returns true if local state
 // actually changed.
 function applyRemoteMeta(key, data){
@@ -20992,6 +21087,7 @@ function applyRemoteMeta(key, data){
 }
 async function cloudSyncPushMeta(){
   if(!cloudSyncActive()) return;
+  cloudSyncPushCustomFoods(); // README 9.252: 「自定」列表也一并推上去
   cloudSyncPushRestockRules(); // README 9.225: 补货提醒规则也走meta集合(整份last-write-wins)，首次开启云同步时一并推上去
   var toPush = [];
   [['categoryGroups', state.categoryGroupsUpdatedAt], ['locations', state.locationsUpdatedAt], ['recipeCategoryGroups', state.recipeCategoryGroupsUpdatedAt]].forEach(function(pair){
