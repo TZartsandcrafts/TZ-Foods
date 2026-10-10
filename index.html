@@ -955,7 +955,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.252';
+var BUILD_VERSION = '9.254';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2455,6 +2455,7 @@ var I18N = {
     macroOverLabel:'超标', addFoodSearchPh:'搜索库存/食谱/食材，或输入英文查USDA',
     dailyNutrientDetailLabel:'当日营养摄入详情', nutriTargetNotSet:'未设置目标',
     sourceInventory:'库存', sourceRecipe:'食谱', sourceExternal:'外部食材库', sourceMealset:'套餐', sourceScan:'扫描',
+    usdaIncompleteTag:'数据不全', usdaMissTitlePre:'USDA 没有这条的', usdaMissTitleSuf:'数据', usdaMissHint:'上面显示的 0 不是真实值，可以换同类条目、让 AI 估算，或者自己填（都是每 100g）。', usdaFilledTitlePre:'USDA 缺的', usdaFilledTitleMid:'已按', usdaFilledTitleSuf:'补上（每 100g）', usdaFillSrcAi:'AI 估算', usdaFillSrcManual:'你填的值', usdaFillModeSimilar:'找同类', usdaFillModeAi:'AI 估算', usdaFillModeManual:'手动填写', usdaFillApply:'应用', usdaFillAiBtn:'让 AI 估算（每 100g）', usdaFillAiBusy:'估算中…', usdaFillAiFail:'估算失败，可以重试，或改用同类条目 / 手动填写', usdaFillAiNote:'AI 估算仅供参考，不满意可以改用同类条目，或在「手动填写」里改数。', usdaFillAiNoProxy:'还没有配置 AI 代理地址', usdaFillNeedNum:'请至少填一项数字', usdaSimilarBusy:'查找中…', usdaSimilarNone:'没有找到数据完整的同类条目，可以试试 AI 估算或手动填写', usdaSimilarFail:'查找失败，请重试', usdaSimilarHint:'下面是名称相近、数据完整的 USDA 条目，点一条就换成它；不合适可以回来用 AI 估算或手填。', usdaSwitchedFromPre:'已改用同类条目。不合适？', usdaSwitchBack:'换回原条目', usdaFillCalories:'热量 (kcal)', usdaFillFat:'总脂肪 (g)', usdaFillCarbs:'总碳水 (g)', usdaPer100g:'每 100g', 
     tabCustom:'自定', usdaOnlySearchPh:'搜索 USDA 食物数据库（英文）', usdaNoVolumeHint:'这条 USDA 食品没有体积（杯/汤匙等）换算数据，只能按克记录',
     quickAddClearBtn:'清空', quickAddConfirmBtn:'添加',
     quickAddPartialToast:'已添加{n}项，部分条目已失效未添加', quickAddFailedToast:'添加失败，请重试',
@@ -2478,7 +2479,7 @@ var I18N = {
     customGroupMineral:'矿物质', customGroupVitamin:'维生素', customGroupFilledPre:'已填 ', customGroupFilledSuf:' 项',
     recipeCustomScaleHintPre:'改数量，这条食材的营养会按添加时填的数值等比换算（基准：', recipeCustomScaleHintSuf:'）',
     customSavedSectionTitle:'以前填过的', newCustomBtn:'新建自定义', customSavedEmptyHint:'还没有记住的自定义食物，点上方新建一个；保存过的会出现在这里',
-    viewSourceDetail:'查看详情', moveOrCopyEntry:'移动/复制到其它日期', mealSlotLabel:'餐次',
+    viewSourceDetail:'查看详情', moveOrCopyEntry:'移动/复制', mealSlotLabel:'餐次',
     copyEntryBtn:'复制到这里', moveEntryBtn:'移动到这里',
     copyNoDeductHint:'复制不会重复扣减库存；移动不会改变已扣减的库存。',
     mealMovedToast:'已移动', mealCopiedToast:'已复制',
@@ -2807,6 +2808,7 @@ var I18N = {
     macroOverLabel:'over', addFoodSearchPh:'Search inventory/recipes/ingredients, or an English term for USDA',
     dailyNutrientDetailLabel:'Daily Nutrient Detail', nutriTargetNotSet:'No target set',
     sourceInventory:'Inventory', sourceRecipe:'Recipe', sourceExternal:'External Ingredients', sourceMealset:'Mealset', sourceScan:'Scan',
+    usdaIncompleteTag:'incomplete', usdaMissTitlePre:'USDA has no ', usdaMissTitleSuf:' data for this entry', usdaMissHint:'The 0 shown above is not a real value. Switch to a similar entry, let AI estimate, or enter it yourself (all per 100g).', usdaFilledTitlePre:'Missing USDA values (', usdaFilledTitleMid:') filled from ', usdaFilledTitleSuf:' (per 100g)', usdaFillSrcAi:'an AI estimate', usdaFillSrcManual:'your entry', usdaFillModeSimilar:'Similar', usdaFillModeAi:'AI estimate', usdaFillModeManual:'Manual', usdaFillApply:'Apply', usdaFillAiBtn:'Ask AI to estimate (per 100g)', usdaFillAiBusy:'Estimating…', usdaFillAiFail:'Estimate failed - retry, or use a similar entry / enter manually', usdaFillAiNote:'AI estimates are rough. Not happy? Use a similar entry, or edit the numbers under Manual.', usdaFillAiNoProxy:'AI proxy address is not configured', usdaFillNeedNum:'Enter at least one number', usdaSimilarBusy:'Searching…', usdaSimilarNone:'No similar entry with complete data found - try AI estimate or manual entry', usdaSimilarFail:'Search failed, please retry', usdaSimilarHint:'Similar USDA entries with complete data - tap one to switch; if none fits, come back for an AI estimate or manual entry.', usdaSwitchedFromPre:'Switched to a similar entry. Not right? ', usdaSwitchBack:'Switch back to the original', usdaFillCalories:'Calories (kcal)', usdaFillFat:'Total fat (g)', usdaFillCarbs:'Total carbs (g)', usdaPer100g:'per 100g', 
     tabCustom:'Custom', usdaOnlySearchPh:'Search the USDA food database', usdaNoVolumeHint:'USDA has no volume (cup/spoon) conversion data for this food - grams only',
     quickAddClearBtn:'Clear', quickAddConfirmBtn:'Add',
     quickAddPartialToast:'{n} items added; some entries were no longer valid and were skipped', quickAddFailedToast:'Failed to add, please try again',
@@ -2830,7 +2832,7 @@ var I18N = {
     customGroupMineral:'Minerals', customGroupVitamin:'Vitamins', customGroupFilledPre:'Filled: ', customGroupFilledSuf:'',
     recipeCustomScaleHintPre:'Change the amount and this ingredient\'s nutrition scales from the values entered when it was added (base: ', recipeCustomScaleHintSuf:')',
     customSavedSectionTitle:'Previously entered', newCustomBtn:'New custom item', customSavedEmptyHint:'No remembered custom foods yet - create one above and it will show up here',
-    viewSourceDetail:'View details', moveOrCopyEntry:'Move/copy to another date', mealSlotLabel:'Meal',
+    viewSourceDetail:'View details', moveOrCopyEntry:'Move/copy', mealSlotLabel:'Meal',
     copyEntryBtn:'Copy here', moveEntryBtn:'Move here',
     copyNoDeductHint:"Copying won't deduct inventory again; moving won't change any inventory already deducted.",
     mealMovedToast:'Moved', mealCopiedToast:'Copied',
@@ -3271,7 +3273,7 @@ async function loadAll(){
     storageGet('autoArchiveSweepDone', false),
     // README 9.249: "套餐上次用量记忆里已经过时的"一次性清理是否做过。
     storageGet('mealsetLastSwept', false),
-    // README 9.252: 「自定」列表云同步——本机设备号、收到的对方条目缓存、本机\"删掉\"的对方条目。
+    // README 9.252: 「自定」列表云同步——本机设备号、收到的对方条目缓存、本机"删掉"的对方条目。
     storageGet('customFoodsDeviceId', ''),
     storageGet('customRemote', {}),
     storageGet('customRemoteHidden', {})
@@ -3817,13 +3819,13 @@ function isUsedUp(item){
 // Lynn：转移位置之后变成 0 件的食材一直灰着停在原位，要手动删或存档——这种"用完了"的批次直接自动存档。
 // 查了一遍：所有会把库存扣到 0 的路径(三餐扣库存/套餐子项/AI加餐/快速加餐、做菜确认、取用、调整余量、转移位置)
 // 全部汇到applyPrimaryEquivalentDelta，所以只在这里记一笔"这个批次刚刚从有变成了0"(_emptiedPending)，
-// 下一次saveItems时统一存档(processAutoArchive)——这样只处理\"刚用完\"的，不会因为别处的保存(导入、改分类名…)
+// 下一次saveItems时统一存档(processAutoArchive)——这样只处理"刚用完"的，不会因为别处的保存(导入、改分类名…)
 // 误动别的条目；手动在编辑页把数量改成0也不算(那是你自己在编辑)。三个必须处理的坑：
 //  1) 撤销/编辑/删除三餐记录或用量记录会往原批次加回库存，而存档的详情页是只读的→自动存档的条目(archived_auto)
 //     库存一旦又大于0就自动回到库存(见applyPrimaryEquivalentDelta末尾)；
 //  2) 统计按存档条目的购买数量累加：转移清空的源批次存档后会和目标位置那批重复计数→存档时按最后一条用量记录
 //     是不是move_location记成archived_reason='moved'，统计里跳过；
-//  3) 侧栏\"已用完\"那一格以后基本是0，保留不动(手动编辑成0的、或之前手动撤销恢复的仍会出现在里面)。
+//  3) 侧栏"已用完"那一格以后基本是0，保留不动(手动编辑成0的、或之前手动撤销恢复的仍会出现在里面)。
 var _emptiedPending = {};
 function autoArchiveReason(item){
   var log = item.usage_log || [];
@@ -3869,7 +3871,7 @@ function autoArchiveToast(done){
     render();
   });
 }
-// 第一次打开新版时，把当时已经是0件的批次一次性存档(存档日期用它最后一次变动的时间，统计里的\"用完日期\"才接近真实)。
+// 第一次打开新版时，把当时已经是0件的批次一次性存档(存档日期用它最后一次变动的时间，统计里的"用完日期"才接近真实)。
 function sweepUsedUpItemsOnce(){
   var n = 0;
   state.items.forEach(function(it){
@@ -5439,9 +5441,9 @@ function openSettings(fromView){
       var t0 = e.touches[0];
       startX = t0.clientX; startY = t0.clientY;
     }, {passive:true});
-    // README 9.216: Lynn反馈——点侧栏外面的遮罩收起侧栏时，总是会\"穿透\"点中遮罩底下列表里的某个条目。
+    // README 9.216: Lynn反馈——点侧栏外面的遮罩收起侧栏时，总是会"穿透"点中遮罩底下列表里的某个条目。
     // 根因就是上面这个9.122加的touchend直接关闭：touchend一触发就closeSidebar()，遮罩立刻失去
-    // .open(pointer-events变成none)；随后iOS对这次点按合成的click事件，才发现遮罩已经\"不存在\"了，
+    // .open(pointer-events变成none)；随后iOS对这次点按合成的click事件，才发现遮罩已经"不存在"了，
     // 于是这个click落到了遮罩底下的元素(列表条目)上，就把条目点开了(这条路径以前一直存在，只是侧栏
     // 现在点母分类后会保持打开、用户更常用点遮罩收起，才明显起来)。两层修法，任何一层生效都够：
     //  1) touchend监听改成非passive，关闭时调用preventDefault()——阻止浏览器给这次点按合成click；
@@ -6664,10 +6666,10 @@ function sidebarSetHomeCategoryFilter(groupId, sub){
 // README 9.215: 库存侧栏有子分类的母分类，点整行(名字/数量/箭头都算这一行)一次完成两件事：筛选整个母分类
 // + 展开它的子分类，侧栏保持打开——背后的列表立刻变成该分类下全部，同时能接着点某个子分类(点子分类才筛选
 // 子分类并关闭侧栏)。之前(9.188)名字=筛选并关闭侧栏、右边16px的小箭头=展开，两个动作分在两个部位，箭头
-// 又小不好点，想\"先看看有哪些子分类再选\"要先关一次侧栏再打开。已经展开、且当前正好是\"整个母分类\"的筛选
+// 又小不好点，想"先看看有哪些子分类再选"要先关一次侧栏再打开。已经展开、且当前正好是"整个母分类"的筛选
 // 状态时再点一次=只收起子分类(筛选不变)；展开着但当前选的是某个子分类时再点=切回整个母分类并保持展开。
 // 从归档/统计等不是库存列表的页面点：设置好筛选和展开状态后跳回库存主页(侧栏随跳转关闭)，跟原来一致。
-// 没有子分类的母分类、子分类行、\"全部\"行的行为不变(筛选并关闭侧栏)。
+// 没有子分类的母分类、子分类行、"全部"行的行为不变(筛选并关闭侧栏)。
 function sidebarTapHomeCategoryGroup(id){
   var wholeActive = state.home.categoryGroup===id && !state.home.categorySub;
   var expanded = !!state.home.expandedCategoryGroups[id];
@@ -7146,6 +7148,12 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.254', items:[
+    {t:'fix', zh:'USDA 有些条目（比如 Cabbage, napa, leaf, destemmed, raw）本身就没有热量/脂肪/碳水数据，以前会显示成 0。现在这类条目：搜索列表里标「数据不全」；进入数量页会提示「USDA 没有这条的热量/脂肪/碳水」，并提供三个办法——找同类（换成数据完整的同类条目）、AI 估算（每 100g，标注为 AI 估算）、手动填写；不满意可以随时换另一种。补的值只用在你自己，不会改 USDA 的数据。', en:'Some USDA entries (e.g. Cabbage, napa, leaf, destemmed, raw) simply have no calories/fat/carbs data and used to show 0. Now such entries are tagged "incomplete" in search results, and the amount page explains what is missing and offers three ways to fill it: switch to a similar complete entry, an AI estimate (per 100g, labelled as such), or manual entry - you can switch between them. Filled values stay local.'}
+  ]},
+  {v:'9.253', items:[
+    {t:'new', zh:'三餐页点开已添加条目，底部的「移动/复制到其它日期」按钮改名为「移动/复制」（功能不变，因为它也可以移动/复制到其它餐次）。', en:'On the meal page, the bottom button of an entry\'s edit page is now just "Move/copy" (same function - it can also move/copy to another meal, not only another date).'}
+  ]},
   {v:'9.252', items:[
     {t:'new', zh:'「自定」里以前填过的食物，现在两台手机之间共享了（走云同步）：对方记过的自定食物会出现在你的列表里，名字后面标「（对方）」，点开可以直接用或改一改存成自己的。删除不会互相影响，记过几次和排序各自保留。两台手机都要更新到这个版本才会互相看到。', en:'Custom foods you have entered before are now shared between the two phones via cloud sync: the other person\'s custom foods appear in your list tagged "(partner)", and you can use them or edit and save your own copy. Deleting does not affect the other phone; usage counts and ordering stay separate. Both phones need this version to see each other\'s.'}
   ]},
@@ -8395,7 +8403,13 @@ function renderUsdaFoodDetail(){
     bodyHtml = '<p class="hint" style="margin:0;">'+t('usdaDetailMissingHint')+'</p>';
   } else {
     var metaLine = usdaDataTypeLabel(f.dataType)+(f.brandName?(' · '+esc(f.brandName)):'');
-    bodyHtml = (metaLine ? '<p class="hint" style="margin:0 0 10px;">'+esc(metaLine)+'</p>' : '') +
+    var _missNote = '';
+    if(f.missing && f.missing.length){
+      _missNote = f.filled && f.filled.keys && f.filled.keys.length
+        ? '<p class="hint" style="margin:0 0 10px;">'+esc(t('usdaFilledTitlePre')+usdaMissLabels(f.filled.keys)+t('usdaFilledTitleMid')+(f.filled.source==='ai'?t('usdaFillSrcAi'):t('usdaFillSrcManual'))+t('usdaFilledTitleSuf'))+'</p>'
+        : '<p class="hint" style="margin:0 0 10px;">'+esc(t('usdaMissTitlePre')+usdaMissLabels(f.missing)+t('usdaMissTitleSuf'))+'</p>';
+    }
+    bodyHtml = (metaLine ? '<p class="hint" style="margin:0 0 10px;">'+esc(metaLine)+'</p>' : '') + _missNote +
       recipeNutritionFactsBoxHtml(f.nutrition||{}, t('usdaDetailBasis'), f.nutrition_extra||{});
   }
   return '' +
@@ -11287,8 +11301,8 @@ function sidebarSetRecipeFilter(groupId, sub){
   render();
 }
 // README 9.215: 食谱侧栏跟库存侧栏(见sidebarTapHomeCategoryGroup)统一——有子分类的母分类点整行=筛选整个
-// 母分类 + 展开子分类，侧栏保持打开；已展开且当前是\"整个母分类\"筛选时再点=收起；展开着但选的是某个子分类时
-// 再点=切回整个母分类并保持展开。原来(9.124)点行只展开/收起、要筛选整个母分类得点展开后置顶的\"整个分类\"
+// 母分类 + 展开子分类，侧栏保持打开；已展开且当前是"整个母分类"筛选时再点=收起；展开着但选的是某个子分类时
+// 再点=切回整个母分类并保持展开。原来(9.124)点行只展开/收起、要筛选整个母分类得点展开后置顶的"整个分类"
 // 那一行，现在这一行多余了，去掉。从别的食谱页(详情/编辑页)点：设置好筛选和展开状态后跳回食谱主页。
 function sidebarTapRecipeGroup(id){
   var wholeActive = state.recipesUI.groupId===id && !state.recipesUI.sub;
@@ -13862,7 +13876,7 @@ function mealEntryUnitOptions(m){
   if(opts.length>1 && mealEntryUnitFactor(m, cur)==null) return [cur];
   return opts.filter(function(u){ return u===cur || mealEntryUnitFactor(m, u)!=null; });
 }
-// 这条记录里\"1个[这个单位]\"对应的营养量(只用来跟另一个单位按比例换算，数值本身没有单位)。换算不了返回null。
+// 这条记录里"1个[这个单位]"对应的营养量(只用来跟另一个单位按比例换算，数值本身没有单位)。换算不了返回null。
 function mealEntryUnitFactor(m, unit){
   if(m.source_type==='inventory'){
     var item = state.items.find(function(x){ return x.id===m.source_id; });
@@ -13918,7 +13932,7 @@ function setMealEntryUnit(u){
   var qo = mealEntryUnitFactor(m, oldU), qn = mealEntryUnitFactor(m, u);
   if(qo==null || qn==null){ showToast(t('unitConversionUnavailable')); render(); return; }
   var cur = parseAmountInput(ee.amountText);
-  // 已经输入了数量就按\"同样多的量\"换算成新单位(营养不变)，没输入就留空
+  // 已经输入了数量就按"同样多的量"换算成新单位(营养不变)，没输入就留空
   if(cur!=null && !isNaN(cur) && cur>0) ee.amountText = fmtAmount(Math.round(cur*qo/qn*1000)/1000, u);
   ee.unit = u;
   render();
@@ -15835,6 +15849,8 @@ function usdaResultRowHtml(f){
   var saved = (state.usdaSaved||{})[f.fdcId];
   var starred = !!(saved && saved.starred);
   var sub = usdaDataTypeLabel(f.dataType)+(f.brandName?(' · '+esc(f.brandName)):'');
+  // README 9.254: USDA没给热量/脂肪/碳水的条目，列表里就标一个简单的小标记(需要worker.js 9.254才有这个信息)。
+  if(f.missing && f.missing.length) sub += ' · <span style="color:var(--deep-caramel);">'+esc(t('usdaIncompleteTag'))+'</span>';
   var qa = (saved && saved.lastAmount) ? computeQuickAddNutritionForUsda(f.fdcId) : null;
   var key = 'usda:'+f.fdcId;
   return '<div class="list-row">'+
@@ -15961,19 +15977,53 @@ function cacheUsdaFoodDetail(fdcId, detail){
   var saved = state.usdaSaved || (state.usdaSaved = {});
   var existing = saved[fdcId] || {};
   var df = usdaDensityFieldsFrom(detail, existing);
+  // README 9.254: 热量/脂肪/碳水里USDA没给的(missing)；用户给这几项补过值(filled)的话，重新联网查到的USDA数据
+  // 还是缺的那几项继续用用户补的值(不被0盖掉)，USDA后来补上了真数据的那几项就用USDA的、不再算补的。
+  var missing = usdaMissingCore(detail.nutrition, detail.nutrition_missing);
+  var nut = detail.nutrition, filled = existing.filled || null;
+  if(filled && filled.keys && existing.nutrition){
+    var keep = filled.keys.filter(function(k){ return missing.indexOf(k)!==-1; });
+    if(keep.length){
+      nut = Object.assign({}, detail.nutrition);
+      keep.forEach(function(k){ nut[k] = existing.nutrition[k]; });
+      filled = {source: filled.source, keys: keep};
+    } else filled = null;
+  } else filled = null;
   saved[fdcId] = {
     fdcId: fdcId,
     description: detail.description || existing.description || '',
     dataType: detail.dataType || existing.dataType || null,
     brandName: detail.brandOwner || existing.brandName || null,
-    nutrition: detail.nutrition,
+    nutrition: nut,
     nutrition_extra: detail.nutrition_extra || {},
     density_g_per_ml: df.density_g_per_ml, density_note: df.density_note, density_checked: df.density_checked,
-    starred: existing.starred || false
+    starred: existing.starred || false,
+    missing: missing
   };
+  if(filled) saved[fdcId].filled = filled;
   if(existing.lastAmount) saved[fdcId].lastAmount = existing.lastAmount;
   if(existing.lastUnit) saved[fdcId].lastUnit = existing.lastUnit;
   saveUsdaSaved();
+}
+// ===== README 9.254: USDA条目缺热量/脂肪/碳水 =====
+// 有些USDA条目(比如Foundation里的Cabbage, napa, leaf, destemmed, raw)USDA自己就没有记录热量、脂肪、碳水，
+// worker以前把"没有"当成0返回，App就显示成0 kcal。现在worker会带nutrition_missing(哪几项缺)；用旧版worker时
+// 没有这个字段，就按"热量是0、却有别的营养数据"这个不可能的组合推断热量缺了(脂肪、碳水都是0时一并当缺)。
+function usdaMissingCore(nutrition, workerMissing){
+  if(Array.isArray(workerMissing)) return workerMissing.filter(function(k){ return k==='calories'||k==='fat'||k==='carbs'; });
+  var n = nutrition || {};
+  var others = (n.protein>0)||(n.carbs>0)||(n.fat>0)||(n.fiber>0)||(n.sugar>0)||(n.sodium>0);
+  if(!(n.calories>0) && others){
+    var out = ['calories'];
+    if(!(n.fat>0) && !(n.carbs>0)) out.push('fat','carbs');
+    return out;
+  }
+  return [];
+}
+function usdaMissLabels(keys){
+  var m = {calories:'usdaFillCalories', fat:'usdaFillFat', carbs:'usdaFillCarbs'};
+  var short = {calories: state.lang==='zh'?'热量':'calories', fat: state.lang==='zh'?'脂肪':'fat', carbs: state.lang==='zh'?'碳水':'carbs'};
+  return keys.map(function(k){ return short[k]; }).join(state.lang==='zh'?'、':', ');
 }
 // README 9.185: 库存tab选餐这次改成先选产品、批次留到数量页再选（见pickLocalFoodForMeal的
 // 'item'分支/addFoodAmountBodyHtml新加的批次下拉）——这两个小工具函数：
@@ -16047,6 +16097,190 @@ function pickLocalFoodForMeal(type, id){
   if(type==='item' && af===state.mealsUI.addFood && typeof chosen!=='undefined' && chosen) _rsShown = showRestockOnPick(chosen);
   if(!_rsShown) focusAddFoodAmountInput();
 }
+// ===== README 9.254: USDA条目缺数据时，数量页上的提示条 + 三个补救办法(找同类/AI估算/手动填写) =====
+// 三个办法随时可以切换：补的值只放在这次选中的条目(af.picked.nutrition)和本机USDA缓存里(usdaSaved[fdcId]，
+// 标filled)，所以以后再选这条、食谱/套餐里用这条都沿用，不会去改USDA那边的数据。
+function usdaMissingBannerHtml(af){
+  var p = af.picked;
+  if(!p || p.type!=='usda') return '';
+  var fillSt = af.usdaFill || (af.usdaFill = {mode:null, busy:false, err:'', similar:null});
+  var origHtml = '';
+  if(p.orig){
+    origHtml = '<p class="hint" style="margin:0 0 8px;">'+esc(t('usdaSwitchedFromPre'))+'<a style="color:var(--deep-caramel);text-decoration:underline;cursor:pointer;" onclick="usdaSwitchBackToOrig()">'+esc(t('usdaSwitchBack'))+'</a></p>';
+  }
+  if(!p.missing || !p.missing.length) return origHtml ? '<div style="margin:6px 0 12px;">'+origHtml+'</div>' : '';
+  var filledKeys = (p.filled && p.filled.keys) || [];
+  var titleHtml;
+  if(filledKeys.length){
+    var srcName = p.filled.source==='ai' ? t('usdaFillSrcAi') : t('usdaFillSrcManual');
+    titleHtml = '<div style="font-weight:600;">'+esc(t('usdaFilledTitlePre')+usdaMissLabels(filledKeys)+t('usdaFilledTitleMid')+srcName+t('usdaFilledTitleSuf'))+'</div>';
+  } else {
+    titleHtml = '<div style="font-weight:600;">'+esc(t('usdaMissTitlePre')+usdaMissLabels(p.missing)+t('usdaMissTitleSuf'))+'</div>'+
+      '<p class="hint" style="margin:4px 0 0;">'+esc(t('usdaMissHint'))+'</p>';
+  }
+  function modeBtn(mode, key){
+    return '<button class="btn btn-sm '+(fillSt.mode===mode?'btn-primary':'btn-outline')+'" style="flex:1;" onclick="setUsdaFillMode(\''+mode+'\')">'+esc(t(key))+'</button>';
+  }
+  var panel = '';
+  if(fillSt.mode==='manual'){
+    var labels = {calories:'usdaFillCalories', fat:'usdaFillFat', carbs:'usdaFillCarbs'};
+    var cur = p.nutrition || {};
+    panel = p.missing.map(function(k){
+      var v = (filledKeys.indexOf(k)!==-1 || cur[k]>0) ? String(Math.round(cur[k]*10)/10) : '';
+      return '<div class="field" style="margin:8px 0 0;"><label>'+esc(t(labels[k])+' · '+t('usdaPer100g'))+'</label><input type="number" inputmode="decimal" id="usda-fill-'+k+'" placeholder="-" value="'+esc(v)+'"></div>';
+    }).join('')+
+    '<button class="btn btn-primary btn-sm" style="width:100%;margin-top:10px;" onclick="applyUsdaManualFill()">'+esc(t('usdaFillApply'))+'</button>';
+  } else if(fillSt.mode==='ai'){
+    panel = '<button class="btn btn-primary btn-sm" style="width:100%;" '+(fillSt.busy?'disabled':'')+' onclick="usdaAiEstimate()">'+esc(fillSt.busy ? t('usdaFillAiBusy') : t('usdaFillAiBtn'))+'</button>'+
+      (fillSt.err ? '<p class="hint" style="margin:8px 0 0;color:var(--danger,#B3402A);">'+esc(fillSt.err)+'</p>' : '')+
+      (p.filled && p.filled.source==='ai' ? '<p class="hint" style="margin:8px 0 0;">'+esc(t('usdaFillAiNote'))+'</p>' : '');
+  } else if(fillSt.mode==='similar'){
+    if(fillSt.busy){
+      panel = '<p class="hint" style="margin:0;">'+esc(t('usdaSimilarBusy'))+'</p>';
+    } else if(fillSt.err){
+      panel = '<p class="hint" style="margin:0;color:var(--danger,#B3402A);">'+esc(fillSt.err)+'</p>';
+    } else if(fillSt.similar && !fillSt.similar.length){
+      panel = '<p class="hint" style="margin:0;">'+esc(t('usdaSimilarNone'))+'</p>';
+    } else if(fillSt.similar){
+      panel = '<p class="hint" style="margin:0 0 6px;">'+esc(t('usdaSimilarHint'))+'</p>'+
+        fillSt.similar.map(function(f){
+          var sub = usdaDataTypeLabel(f.dataType)+(f.kcal!=null ? (' · '+Math.round(f.kcal)+' kcal / 100g') : '');
+          return '<div class="list-row" style="cursor:pointer;" onclick="pickUsdaSimilar('+aj(f.fdcId)+','+aj(f.description)+')"><div class="row-label" style="flex:1;min-width:0;">'+esc(f.description)+'<div class="hint" style="margin-top:2px;">'+esc(sub)+'</div></div></div>';
+        }).join('');
+    }
+  }
+  return '<div style="border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:6px 0 12px;">'+
+    origHtml+titleHtml+
+    '<div style="display:flex;gap:8px;margin-top:10px;">'+modeBtn('similar','usdaFillModeSimilar')+modeBtn('ai','usdaFillModeAi')+modeBtn('manual','usdaFillModeManual')+'</div>'+
+    (panel ? '<div style="margin-top:10px;">'+panel+'</div>' : '')+
+  '</div>';
+}
+function setUsdaFillMode(mode){
+  var af = activeAddCtx();
+  if(!af || !af.picked) return;
+  var st = af.usdaFill || (af.usdaFill = {mode:null, busy:false, err:'', similar:null});
+  st.mode = (st.mode===mode) ? null : mode;
+  st.err = '';
+  render();
+  if(st.mode==='similar' && !st.similar && !st.busy) usdaLoadSimilar();
+}
+// 把补的值写进这次选中的条目和本机USDA缓存。vals: {calories/fat/carbs: 数字}；source: 'manual'|'ai'
+function usdaApplyFill(vals, source){
+  var af = activeAddCtx();
+  if(!af || !af.picked) return;
+  var p = af.picked;
+  var nut = Object.assign({}, p.nutrition);
+  var keys = [];
+  Object.keys(vals).forEach(function(k){ nut[k] = vals[k]; keys.push(k); });
+  // 之前已经补过、这次没动的那几项继续算补的
+  ((p.filled && p.filled.keys) || []).forEach(function(k){ if(keys.indexOf(k)===-1) keys.push(k); });
+  p.nutrition = nut;
+  p.filled = {source: source, keys: keys};
+  var saved = state.usdaSaved || (state.usdaSaved = {});
+  if(!saved[p.fdcId]){
+    saved[p.fdcId] = {fdcId:p.fdcId, description:p.name, dataType:p.dataType||null, brandName:p.brandName||null, nutrition:nut, nutrition_extra:p.nutrition_extra||{}, starred:false};
+  }
+  saved[p.fdcId].nutrition = nut;
+  saved[p.fdcId].missing = p.missing;
+  saved[p.fdcId].filled = {source: source, keys: keys};
+  saveUsdaSaved();
+  render();
+}
+function applyUsdaManualFill(){
+  var af = activeAddCtx();
+  if(!af || !af.picked) return;
+  var vals = {}, any = false;
+  af.picked.missing.forEach(function(k){
+    var el = document.getElementById('usda-fill-'+k);
+    var v = el ? parseFloat(el.value) : NaN;
+    if(!isNaN(v) && v>=0){ vals[k] = Math.round(v*100)/100; any = true; }
+  });
+  if(!any){ showToast(t('usdaFillNeedNum')); return; }
+  usdaApplyFill(vals, 'manual');
+}
+// AI估算：复用现成的/meal-ai接口(不用改worker)，让它估"100g这个食物"的热量/脂肪/碳水，并把条目里USDA已有的
+// 蛋白质/纤维/糖/钠告诉它，让估算跟已知值自洽。估出来直接补进缺的几项(标AI估算)，不满意可以在"手动填写"里改数，
+// 或者换同类条目。
+async function usdaAiEstimate(){
+  var af = activeAddCtx();
+  if(!af || !af.picked) return;
+  var st = af.usdaFill || (af.usdaFill = {mode:'ai', busy:false, err:'', similar:null});
+  if(st.busy) return;
+  var base = usdaWorkerBase();
+  if(!base){ st.err = t('usdaFillAiNoProxy'); render(); return; }
+  var p = af.picked, n = p.nutrition || {};
+  var known = [];
+  if(n.protein>0) known.push('protein '+n.protein+'g'); if(n.fiber>0) known.push('fiber '+n.fiber+'g');
+  if(n.sugar>0) known.push('sugars '+n.sugar+'g'); if(n.sodium>0) known.push('sodium '+n.sodium+'mg');
+  var text = '请估算 100 g 的「'+p.name+'」（这是 USDA 食物数据库的条目名，按条目名里的状态，如 raw 就是生的）的热量、总脂肪、总碳水化合物。'+
+    'amount 填 100，unit 填 g，营养数字就是每 100g 的值。'+
+    (known.length ? '这条 USDA 条目已知每 100g 含：'+known.join('，')+'；请让你的估算跟这些已知值自洽。' : '')+
+    '参考 USDA 同类食物的常见数值。';
+  st.busy = true; st.err = ''; render();
+  var ctrl = (typeof AbortController!=='undefined') ? new AbortController() : null;
+  var timer = ctrl ? setTimeout(function(){ ctrl.abort(); }, 60000) : null;
+  var item = null;
+  try{
+    var res = await fetch(base+'/meal-ai', {method:'POST', headers:{'Content-Type':'application/json'}, signal: ctrl?ctrl.signal:undefined,
+      body: JSON.stringify({messages:[{role:'user', text:text, images:[]}], today: todayStr()})});
+    var data = await res.json();
+    item = (res.ok && data && data.result && data.result.items && data.result.items[0]) || null;
+  }catch(e){ item = null; }
+  if(timer) clearTimeout(timer);
+  st.busy = false;
+  var af2 = activeAddCtx();
+  if(!af2 || af2.picked!==p){ return; } // 估算期间已经退出/换了条目，丢掉结果
+  if(!item || !(item.calories>=0)){ st.err = t('usdaFillAiFail'); render(); return; }
+  // AI有时不按100g返回：按它返回的amount(克)折回每100g
+  var f = (item.amount>0 && (item.unit==='g' || !item.unit)) ? 100/item.amount : 1;
+  var vals = {};
+  p.missing.forEach(function(k){
+    var v = item[k];
+    if(v!=null && !isNaN(v)) vals[k] = Math.round(v*f*10)/10;
+  });
+  if(!Object.keys(vals).length){ st.err = t('usdaFillAiFail'); render(); return; }
+  usdaApplyFill(vals, 'ai');
+}
+// 找同类：用条目名的主体词(第一段，加上raw/cooked这类状态词)在Foundation/SR Legacy里搜，排掉自己和同样数据不全的
+// (需要worker.js 9.254才知道哪些不全；旧版worker没有这个信息，就只排掉自己)。
+function usdaSimilarQuery(name){
+  var nm = String(name||'');
+  var first = nm.split(',')[0].replace(/\([^)]*\)/g,'').trim();
+  var low = nm.toLowerCase();
+  var state0 = /\braw\b/.test(low) ? ' raw' : (/\bcooked\b/.test(low) ? ' cooked' : '');
+  return first+state0;
+}
+async function usdaLoadSimilar(){
+  var af = activeAddCtx();
+  if(!af || !af.picked) return;
+  var st = af.usdaFill;
+  var p = af.picked;
+  st.busy = true; st.err = ''; render();
+  var list = null;
+  try{
+    list = await usdaSearchOfficialRanked(usdaSimilarQuery(p.name), 40);
+  }catch(e){ list = null; }
+  st.busy = false;
+  var af2 = activeAddCtx();
+  if(!af2 || af2.picked!==p) return;
+  if(!list){ st.err = t('usdaSimilarFail'); render(); return; }
+  st.similar = list.filter(function(f){ return f.fdcId!==p.fdcId && !(f.missing && f.missing.length); }).slice(0, 8);
+  render();
+}
+function pickUsdaSimilar(fdcId, name){
+  var af = activeAddCtx();
+  if(!af || !af.picked) return;
+  // 记下原条目：换过去之后顶上有"换回原条目"；原条目被换掉再换回去时，仍然有三个补救办法可用
+  af._pendingOrig = af.picked.orig || {fdcId: af.picked.fdcId, name: af.picked.name};
+  pickUsdaFoodForMeal(fdcId);
+}
+function usdaSwitchBackToOrig(){
+  var af = activeAddCtx();
+  if(!af || !af.picked || !af.picked.orig) return;
+  var o = af.picked.orig;
+  af._pendingOrig = null;
+  pickUsdaFoodForMeal(o.fdcId);
+}
 async function pickUsdaFoodForMeal(fdcId){
   var af = activeAddCtx();
   // README 9.177: 这条之前已经缓存过完整营养数据(用过/收藏过) - 直接跳过网络请求进入数量步骤。
@@ -16056,6 +16290,12 @@ async function pickUsdaFoodForMeal(fdcId){
   var cached = (state.usdaSaved||{})[fdcId];
   function goAmountStep(name, nutrition, nutritionExtra, density, lastUnit){
     af.picked = {type:'usda', name:name, nutrition:nutrition, nutrition_extra:nutritionExtra||{}, fdcId:fdcId, usda_density_g_per_ml:density||null};
+    // README 9.254: 缺数据提示用的信息(来自缓存里这条食品的missing/filled)；从"同类"换过来的带上原条目，方便换回去
+    var _sv = (state.usdaSaved||{})[fdcId] || {};
+    af.picked.missing = _sv.missing || usdaMissingCore(nutrition, null);
+    af.picked.filled = _sv.filled || null;
+    af.picked.orig = af._pendingOrig || null; af._pendingOrig = null;
+    af.usdaFill = {mode:null, busy:false, err:'', similar:null};
     af.amountText = '100';
     // 默认单位：这条上次用的单位(如果这次还能用)，否则g
     af.amountUnit = (lastUnit && usdaUnitOptions(density, false).indexOf(lastUnit)!==-1) ? lastUnit : 'g';
@@ -16080,6 +16320,7 @@ async function pickUsdaFoodForMeal(fdcId){
     if(cached && cached.nutrition){
       goAmountStep(cached.description, cached.nutrition, cached.nutrition_extra, cached.density_g_per_ml, cached.lastUnit);
     } else {
+      af._pendingOrig = null;
       af.step = 'search';
       showToast(t('usdaSearchError'));
     }
@@ -16508,7 +16749,7 @@ function toggleCustomGroup(g){
 // README 9.245: 按"打开这条已有条目时的那一套数值"(af.customBase，数量+单位+热量/宏量)等比换算。
 // 只在单位跟基准单位一致、新数量是有效正数时才算(g和ml之间没法互换，不乱猜)；直接改DOM里的输入框
 // 而不整页重渲染，免得打字时焦点被换掉。换算结果只写进当前这次填写的af字段，列表里那条原值不动
-// (保存时见rememberCustomSaved的\"按比例使用\"分支)。
+// (保存时见rememberCustomSaved的"按比例使用"分支)。
 function customRecalcFromBase(af){
   var b = af && af.customBase;
   if(!b || !(b.qty>0)) return;
@@ -16575,7 +16816,7 @@ function saveCustomMealLogEntry(){
     // `nutrition` object) - the entry detail/edit page re-shows these exact fields for editing,
     // same shape as when the entry was first created, rather than trying to reverse-engineer
     // carbs/protein/fat back out of `nutrition` (which would be lossy for a field left blank -
-    // there'd be no way to tell \"left blank\" apart from \"typed 0\").
+    // there'd be no way to tell "left blank" apart from "typed 0").
     // README 9.249: 其它营养项(饱和脂肪、钠、维生素…)直接存在nutrition/nutrition_extra里，编辑页改热量等四项时原样保留。
     source_type: 'custom',
     custom_calories: cals, custom_carbs: carbs, custom_protein: protein, custom_fat: fat, custom_name: af.customName || '',
@@ -16899,6 +17140,7 @@ function addFoodAmountBodyHtml(af){
       '</div>'+
       (usdaUnits && usdaUnits.length===1 ? '<p class="hint" style="margin:-4px 2px 10px;">'+t('usdaNoVolumeHint')+'</p>' : '')
     )+
+    (p.type==='usda' ? usdaMissingBannerHtml(af) : '')+
     quickAddDateField+
     mealSlotField+
     (isItem && !af.pickerKind ?
@@ -17513,11 +17755,11 @@ function aiMealInvName(it){
 // exact=名字跟关键词完全相同(不分大小写)。完全同名的排前面，同名之间保持原来的顺序。最多6条。
 // 比较"名字是否完全相同"时忽略表情符号、标点和空格：套餐名"☕奶咖"跟关键词"奶咖"算完全同名
 // README 9.246: 放宽本地匹配——对每个关键词先算出一组"变体"再去搜：
-//  - 去掉做法词(煮/生/炒…、boiled/raw/cooked…)：\"煮鸡蛋\"→\"鸡蛋\"；
+//  - 去掉做法词(煮/生/炒…、boiled/raw/cooked…)："煮鸡蛋"→"鸡蛋"；
 //  - 英文去复数：eggs→egg、tomatoes→tomato；
-//  - 内置一份常见食物中英文对照(AI_MEAL_DICT)：egg↔鸡蛋、milk↔牛奶……所以说\"egg\"能找到叫\"鸡蛋\"的库存，
-//    说\"鸡蛋\"也能找到英文名\"Eggs\"的库存。
-// 原来的词永远是第一个变体、规则不变；变体只是多搜几遍。单字(中文<2、英文<3)的变体不用，免得\"面\"\"糖\"满屏命中。
+//  - 内置一份常见食物中英文对照(AI_MEAL_DICT)：egg↔鸡蛋、milk↔牛奶……所以说"egg"能找到叫"鸡蛋"的库存，
+//    说"鸡蛋"也能找到英文名"Eggs"的库存。
+// 原来的词永远是第一个变体、规则不变；变体只是多搜几遍。单字(中文<2、英文<3)的变体不用，免得"面""糖"满屏命中。
 // 名字跟任何一个变体完全相同(忽略表情/标点/空格/大小写)都算exact。
 var AI_MEAL_DICT = [
   ['egg','鸡蛋'],['milk','牛奶'],['rice','米饭'],['chicken breast','鸡胸肉','鸡胸'],['chicken','鸡肉'],['beef','牛肉'],['pork','猪肉'],['lamb','羊肉'],
@@ -17675,7 +17917,7 @@ async function aiMealUsdaSearch(am, row){
   aiMealRefreshCands(am, row);
   try{
     var q = encodeURIComponent(row.usdaQ);
-    // 先只在\"原料类\"(Foundation/SR Legacy)里找——这类条目是通用食材，比品牌商品更靠谱；一条都没有再放开到品牌商品
+    // 先只在"原料类"(Foundation/SR Legacy)里找——这类条目是通用食材，比品牌商品更靠谱；一条都没有再放开到品牌商品
     var data = await aiMealFetchJson(base+'/food-search?q='+q+'&dataType='+encodeURIComponent('Foundation,SR Legacy')+'&pageSize=4');
     var foods = (data && data.foods) || [];
     if(!foods.length){
@@ -17770,7 +18012,7 @@ async function aiMealSend(){
   var sendText = (aiText||'').trim() || t('aiMealImageOnlyPrompt');
   var payloadText = sendText;
   if(isFollow){
-    // 每次请求都是独立的一条消息：把\"当前清单\"(含用户手动改过的数字、当前选的对应)一起发过去，AI只在这个清单上改。
+    // 每次请求都是独立的一条消息：把"当前清单"(含用户手动改过的数字、当前选的对应)一起发过去，AI只在这个清单上改。
     payloadText = '用户的新要求：' + sendText +
       (am.firstText ? '\n\n（最初的描述：' + am.firstText + '）' : '') +
       '\n\n当前清单（可能已被用户手动修改，以此为准）：\n' + JSON.stringify({date:am.date, slot:am.slot, meal_name:am.mealName, items:aiMealItemsForAi(am)});
@@ -17844,7 +18086,7 @@ async function aiMealSend(){
       var el = document.getElementById(am.items ? 'aimeal-result' : 'aimeal-input');
       if(el) window.scrollTo(0, Math.max(0, el.getBoundingClientRect().top + (window.scrollY||0) - 70));
     });
-    // 页面画出来之后，再去查USDA(AI说\"目录里没有、是通用食材\"的那几行)，查到了原地更新、不重画整页
+    // 页面画出来之后，再去查USDA(AI说"目录里没有、是通用食材"的那几行)，查到了原地更新、不重画整页
     if(am.items){
       am.items.forEach(function(row){ if(row.usdaQ && !row.cands.length && !row.usdaState) aiMealUsdaSearch(am, row); });
     }
@@ -17890,8 +18132,8 @@ function aiMealPreMatchNames(text){
   (state.mealsets||[]).forEach(function(m){ addName('mealset', m.id, m.name||''); });
   (state.recipes||[]).forEach(function(r){ addName('recipe', r.id, r.name||''); });
   var src = String(text||'');
-  // README 9.246: 记下每一段在原文里的位置，没匹配上的部分按\"原文片段\"还给后面(本地找库存/发给AI)，
-  // 不再把\"2 egg\"这种带空格的话拆碎成\"2，egg\"。
+  // README 9.246: 记下每一段在原文里的位置，没匹配上的部分按"原文片段"还给后面(本地找库存/发给AI)，
+  // 不再把"2 egg"这种带空格的话拆碎成"2，egg"。
   var segs = [], pos = [];
   var re = /[^，,、；;。.！!？?\s+＋]+/g, mm;
   while((mm = re.exec(src)) && segs.length<30){ segs.push(mm[0].trim()); pos.push([mm.index, mm.index+mm[0].length]); }
@@ -17932,9 +18174,9 @@ function aiMealPreMatchNames(text){
   return {rows:rows, rest:restPieces.join('，')};
 }
 // ===================== README 9.246: 本地先行(带数量) =====================
-// Lynn：向AI发\"egg\"这种库存里明明有的东西，要等十几秒、结果还不是库存里的。以前只有\"整句话正好等于套餐/食谱的名字\"
+// Lynn：向AI发"egg"这种库存里明明有的东西，要等十几秒、结果还不是库存里的。以前只有"整句话正好等于套餐/食谱的名字"
 // 才会不经过AI；库存根本不参与，所以简单的话也要先等AI(AI还要把十几项营养都估一遍)。现在加一层：
-// 按标点把话切成一小段一小段，每段认\"数量+单位+名字\"(2 egg / 2个鸡蛋 / 鸡蛋100g / 200克鸡胸肉 / 半杯牛奶 / 只有名字)，
+// 按标点把话切成一小段一小段，每段认"数量+单位+名字"(2 egg / 2个鸡蛋 / 鸡蛋100g / 200克鸡胸肉 / 半杯牛奶 / 只有名字)，
 // 名字在 库存/食材库/食谱/套餐 里找(含 aiMealSearchLocal 的宽松匹配)：
 //  - 有名字完全相同的→选它(同名不止一条→选排第一的、标请确认)；
 //  - 没有完全同名但库存/食材库有包含这个词的→选最常用的那条、标请确认；只命中食谱/套餐的非同名→不算找到(交给AI)；
@@ -17967,7 +18209,7 @@ function aiMealParseQty(str){
   // 数量在前：2个鸡蛋 / 2 egg / 200g 鸡蛋
   m = new RegExp('^'+N+'\\s*'+U+'?\\s*(?:的)?\\s*(.+)$','i').exec(s);
   if(m && !/^\d/.test(m[3])) return aiMealQtyResult(m[3], parseFloat(m[1]), m[2]);
-  // 中文数字在前(必须带单位，免得\"三文鱼\"被当成\"三\"+\"文鱼\")：两个鸡蛋 / 半杯牛奶
+  // 中文数字在前(必须带单位，免得"三文鱼"被当成"三"+"文鱼")：两个鸡蛋 / 半杯牛奶
   m = new RegExp('^('+AI_MEAL_CN_NUM+')\\s*'+U+'\\s*(?:的)?\\s*(.+)$','i').exec(s);
   if(m) return aiMealQtyResult(m[3], aiMealCnNum(m[1]), m[2]);
   // 数量在后：鸡蛋2个 / egg 100g / 鸡蛋 200
@@ -17983,7 +18225,7 @@ function aiMealQtyResult(name, amount, unit){
   var u = unit ? aiMealNormUnit(unit) : (amount<=20 ? '个' : 'g');
   return {name:name, amount:amount, unit:u};
 }
-// 一小段(标点之间)可能的几种拆法：整段当一个食物 / 按\"和、还有、and\"拆开 / 按空格拆成\"数量+名字\"的几组
+// 一小段(标点之间)可能的几种拆法：整段当一个食物 / 按"和、还有、and"拆开 / 按空格拆成"数量+名字"的几组
 function aiMealChunkParses(chunk){
   var list = [];
   var one = aiMealParseQty(chunk);
@@ -18120,7 +18362,7 @@ function aiMealUnitUsable(src, unit){
   return !!countBasisMatch(src, 1, unit);
 }
 // README 9.249: 自定条目按数量换算——有基准量(f.qty+f.unit)：g/kg/oz…按克比，ml/…按毫升比，份按份比；没有基准量：
-// 只能按份数(1份=保存的那一套)。单位对不上就算不出来(返回null→卡片提示\"单位对不上\"，可点单位快捷键换)。
+// 只能按份数(1份=保存的那一套)。单位对不上就算不出来(返回null→卡片提示"单位对不上"，可点单位快捷键换)。
 function aiMealIsServingUnit(unit){ return AI_MEAL_SERVING_WORDS.indexOf(String(unit))!==-1 || unit===t('servingsUnit'); }
 function aiMealCustomRatio(f, amt, unit){
   if(!(amt>0)) return null;
@@ -18376,7 +18618,7 @@ function aiMealSetN(i, k, v){
   am.items[i].n[k] = aiMealParse(v);
   aiMealRefreshTotals();
 }
-// 改数量：这一项\"AI估算\"的营养数字按 新数量÷旧数量 等比缩放(不管当前选的是不是估算，免得之后切回估算时数字对不上数量)；
+// 改数量：这一项"AI估算"的营养数字按 新数量÷旧数量 等比缩放(不管当前选的是不是估算，免得之后切回估算时数字对不上数量)；
 // 选了库存/食谱/套餐/USDA的，营养是按真实数据现算的，改数量就直接重算，不需要缩放。
 function aiMealSetAmount(i, v){
   var am = state.aiMeal; if(!am || !am.items || !am.items[i]) return;
@@ -18496,7 +18738,7 @@ function aiMealWriteEntry(row, cl, date, slot, ts){
       custom_qty: cfw.qty>0 ? Math.round(cfw.qty*cl.ratio*100)/100 : null, custom_unit: cfw.qty>0 ? cfw.unit : ''});
     cfw.count = (cfw.count||0)+1; cfw.last = nowLocalIso(); saveCustomSaved();
   } else if(c.type==='mealset'){
-    // 套餐本身就是一条\"套餐记录\"，里面按份数缩放过的每一项；commitMealsetLogEntry自己会存、会扣库存
+    // 套餐本身就是一条"套餐记录"，里面按份数缩放过的每一项；commitMealsetLogEntry自己会存、会扣库存
     commitMealsetLogEntry(date, slot, cl.mealset.id, cl.mealset.name, cl.items);
   }
 }
@@ -21029,7 +21271,7 @@ function subscribeCloudMeta(){
 // 做法：每台手机只写自己的一份文档 meta/customFoods_<设备号> = {list:[自己列表里的条目(只含名称/营养/数量，
 // 不含记过几次和最近使用时间)], updated_at}；对方的文档只读。收到的对方条目存进本机缓存(state.customRemote，
 // 以条目id为键)。三个约定(Lynn确认的)：
-//  - 删除不互相影响：本机缓存只\"新增/更新\"、不会因为对方把某条从自己的列表删了就跟着删；本机删掉对方条目
+//  - 删除不互相影响：本机缓存只"新增/更新"、不会因为对方把某条从自己的列表删了就跟着删；本机删掉对方条目
 //    只记进state.customRemoteHidden(以后收到同一条也不再显示)，不动对方；
 //  - 同名都保留：对方的条目不并进自己的(哪怕同名)，列表里单独一行，名字后面标「（对方）」；(名称和数值/数量
 //    完全一样的才算重复，不显示对方那条)；
@@ -21168,7 +21410,7 @@ function cloudSyncPhotoStatusText(){
   if(down > 0) return zh ? ('等待下载图片：'+down+' 张') : ('Waiting to download photos: '+down);
   return zh ? '图片已同步' : 'Photos in sync';
 }
-// 用户自己换图/删图时调用(见 deletePhotoRef)：只有\"这张图曾经传到云端过\"才需要排队删云端那份。
+// 用户自己换图/删图时调用(见 deletePhotoRef)：只有"这张图曾经传到云端过"才需要排队删云端那份。
 function cloudSyncPhotoQueueDelete(id){
   if(!CLOUD.photoPushMap[id]) return;
   delete CLOUD.photoPushMap[id];
@@ -21306,8 +21548,8 @@ async function cloudSyncPhotoRun(){
   if(CLOUD.photoRerun){ CLOUD.photoRerun = false; cloudSyncPhotoSchedule(500); }
 }
 // 升级到支持图片同步之前，云端的食材/食谱记录里图片引用是被清空的，而这些记录的修改时间没变，
-// 不会自动重新推送。所以每台设备在\"第一次收到云端数据之后\"(不是启动那一刻——免得拿旧数据盖掉对方
-// 刚改的新数据)，把本机有图片的记录标成\"还没推送过\"，重推一次带上图片引用；只做一次。
+// 不会自动重新推送。所以每台设备在"第一次收到云端数据之后"(不是启动那一刻——免得拿旧数据盖掉对方
+// 刚改的新数据)，把本机有图片的记录标成"还没推送过"，重推一次带上图片引用；只做一次。
 function cloudSyncPhotoBackfillReset(kind){
   if(CLOUD.photoBackfill[kind]) return;
   if(kind === 'items'){
