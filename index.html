@@ -956,7 +956,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.259';
+var BUILD_VERSION = '9.262';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2568,6 +2568,7 @@ var I18N = {
     detailQtyLabel:'当前库存',
     usageBtn:'取用', usageLogTitle:'取用记录', usageLogAddTitle:'记录使用', usageLogEmpty:'还没有取用记录',
     viewUsageHistoryBtn:'查看取用记录',
+    usageLogReadOnlyBanner:'这是已存档食材的取用记录，只能查看。',
     usageTypePickerTitle:'选择取用类型', usageTypeMoveDesc:'移动到其它位置', usageTypeRecipeDesc:'关联到某个食谱', usageTypeAdjustDesc:'手动调整剩余量', usageTypeFreeDesc:'其它去向',
     usageDate:'日期', usageDestination:'去向', usageDestFree:'自由输入', usageDestRecipe:'关联食谱', usageDestMove:'移动位置', usageDestAdjust:'调整余量', usageDestMealPrefix:'三餐 · ',
     usageNotesLabel:'备注',
@@ -2743,6 +2744,7 @@ var I18N = {
     archivedAt:'存档于', archiveConfirmMsg:'确定要存档这条记录吗？存档后会从库存列表移出，可以在"存档"页面查看、编辑或恢复。',
     archiveBtn:'存档', archivedToast:'已存档', restoreBtn:'恢复', restoredToast:'已恢复到库存',
     restoreArchivedConfirmMsg:'恢复这条记录到库存？恢复后会重新出现在库存列表中。',
+    restoreQtyHint:'这个食材已经用完，数量是 0。填一个数量可以直接带回库存；留空就恢复成数量为 0。', restoreQtyLabel:'恢复后的数量（可留空）', restoreQtyInvalid:'请输入大于 0 的数量，或者留空',
     deleteArchivedConfirmMsg:'确定要永久删除这条存档记录吗？此操作无法撤销。',
     sidebarToolsLabel:'更多',
     bulkEditEntry:'批量设置分类/位置',
@@ -2930,6 +2932,7 @@ var I18N = {
     detailQtyLabel:'Current stock',
     usageBtn:'Use', usageLogTitle:'Usage Log', usageLogAddTitle:'Log Usage', usageLogEmpty:'No usage logged yet',
     viewUsageHistoryBtn:'View Usage History',
+    usageLogReadOnlyBanner:'Usage history of an archived item - view only.',
     usageTypePickerTitle:'What kind of usage?', usageTypeMoveDesc:'Move to another location', usageTypeRecipeDesc:'Used in a recipe', usageTypeAdjustDesc:'Manually correct the amount', usageTypeFreeDesc:'Something else',
     usageDate:'Date', usageDestination:'Where it went', usageDestFree:'Free text', usageDestRecipe:'Link a recipe', usageDestMove:'Move to another location', usageDestAdjust:'Adjust remaining', usageDestMealPrefix:'Meals · ',
     usageNotesLabel:'Note',
@@ -3101,6 +3104,7 @@ var I18N = {
     archivedAt:'Archived on', archiveConfirmMsg:'Archive this item? It will move out of your active inventory list into Archive, where you can view, edit, or restore it.',
     archiveBtn:'Archive', archivedToast:'Archived', restoreBtn:'Restore', restoredToast:'Restored to inventory',
     restoreArchivedConfirmMsg:'Restore this record to your active inventory? It will reappear in your inventory list.',
+    restoreQtyHint:'This item is used up (quantity 0). Enter a quantity to bring it back into stock, or leave it empty to restore it at 0.', restoreQtyLabel:'Quantity after restoring (optional)', restoreQtyInvalid:'Enter a quantity greater than 0, or leave it empty',
     deleteArchivedConfirmMsg:'Permanently delete this archived record? This cannot be undone.',
     sidebarToolsLabel:'More',
     bulkEditEntry:'Bulk set category/location',
@@ -4234,12 +4238,21 @@ function deductFromItem(item, amount, unit){
   var amountInPrimary = primaryEquivalentAmount(item, amount, unit);
   if(amountInPrimary == null) return {ok:false, reason:'no_conversion', insufficient:false};
   var insufficient = (item.primary_qty||0) < amountInPrimary - 1e-9;
+  var deductedPrimary = Math.min(amountInPrimary, item.primary_qty||0); // README 9.261: 实际扣掉的(库存不够时比申请的少)
   applyPrimaryEquivalentDelta(item, -amountInPrimary);
-  return {ok:true, insufficient:insufficient};
+  return {ok:true, insufficient:insufficient, deductedPrimary:deductedPrimary};
 }
 // Mirrors deductFromItem exactly but adds instead of subtracts - used when a usage-log entry
 // is restored (undone) or edited, to put the previously-deducted amount back before applying
 // whatever the new amount is.
+// README 9.261: 取用记录页里的取用记录(自由输入/关联食谱)撤销/编辑时把东西加回去：库存不够时那次只实际扣掉了
+// 一部分(库存扣到0为止)，记录里写的却是整个用量，原来撤销会加回整个用量，库存凭空多出来。现在不够时记下实际扣掉
+// 的数量(entry.deducted_primary)，撤销就只加回这么多；够的时候不记这个字段，行为跟以前完全一样。
+function giveBackUsageEntry(item, entry){
+  if(entry.deducted_primary != null) applyPrimaryEquivalentDelta(item, entry.deducted_primary);
+  else addBackToItem(item, entry.amount, entry.unit);
+  delete entry.deducted_primary;
+}
 function addBackToItem(item, amount, unit){
   if(amount <= 0) return {ok:true};
   var amountInPrimary = primaryEquivalentAmount(item, amount, unit);
@@ -4383,10 +4396,51 @@ function deleteArchivedItem(id){
 // "only navigate away if this came from the item's own (read-only) detail page" rule as
 // archiveItem/deleteItemDetail above - swipe-restore from the archive list itself should just
 // re-render that list in place (the item drops out of it), not force a navigation.
+function confirmRestoreWithQty(id, cameFromDetail){
+  var it = state.items.find(function(i){ return i.id===id; });
+  if(!it){ closeModal(); return; }
+  var el = document.getElementById('restore-qty');
+  var raw = el ? String(el.value||'').trim() : '';
+  var q = 0;
+  if(raw){
+    q = parseAmountInput(raw);
+    if(q==null || isNaN(q) || q<=0){ showToast(t('restoreQtyInvalid')); return; }
+  }
+  if(q>0){
+    // 先写调整记录再加库存：delta_primary = 之前(0) - 之后(q)，跟取用记录页里的调整余量同一种，之后能在记录页恢复
+    it.usage_log = it.usage_log || [];
+    it.usage_log.push({id: uid(), date: todayStr(), destination_type:'adjust', amount: q, unit: it.primary_unit,
+      delta_primary: (it.primary_qty||0) - q, created_at: nowLocalIso()});
+    applyPrimaryEquivalentDelta(it, q - (it.primary_qty||0)); // 副单位的数量也按换算比例一起加
+  }
+  unarchiveItemFlags(it);
+  it.updated_at = nowLocalIso();
+  saveItems();
+  closeModal();
+  if(cameFromDetail) navigate('archive'); else render();
+  showToast(t('restoredToast'));
+}
 function restoreArchivedItem(id){
   var it = state.items.find(function(i){ return i.id===id; });
   if(!it) return;
   var cameFromDetail = (state.view === 'itemViewOnly');
+  // README 9.262: 数量已经是 0 的存档食材(典型：用完自动存档的)，原来恢复只是去掉存档标记，得到一条没用的 0 件灰条。
+  // 现在先问一下"恢复后的数量"：填了就直接带回库存(并留一条「调整余量」取用记录)，留空就跟以前一样恢复成 0。
+  // 还有库存的(比如误存档的)不受影响：数量原样保留，仍然走原来的确认框。
+  if(it.primary_qty != null && it.primary_qty <= 1e-9){
+    showModal(t('restoreBtn'),
+      '<p class="hint" style="margin:0 0 12px;">'+esc(t('restoreQtyHint'))+'</p>'+
+      '<div class="field"><label>'+esc(t('restoreQtyLabel'))+'</label>'+
+        '<div style="display:flex;gap:8px;align-items:center;">'+
+          '<input type="text" id="restore-qty" inputmode="decimal" style="flex:1;min-width:0;">'+
+          '<span style="flex-shrink:0;">'+esc(it.primary_unit||'')+'</span>'+
+        '</div></div>'+
+      '<div class="btn-row" style="margin-top:14px;">'+
+        '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="closeModal()">'+esc(t('cancel'))+'</button>'+
+        '<button class="btn btn-primary btn-sm" style="flex:1;" onclick="confirmRestoreWithQty('+aj(id)+','+(cameFromDetail?'true':'false')+')">'+esc(t('restoreBtn'))+'</button>'+
+      '</div>');
+    return;
+  }
   showConfirmModal(t('restoreArchivedConfirmMsg'), function(){
     unarchiveItemFlags(it);
     it.updated_at = nowLocalIso();
@@ -5534,7 +5588,9 @@ function openSettings(fromView){
   function backTarget(){
     if(state.view==='itemDetail') return (state.params && state.params.from) || {view:'home'};
     if(state.view==='itemViewOnly') return {view: state.params.from || 'archive'};
-    if(state.view==='usageLog') return {view:'itemDetail', params:{id:state.params.id, from: state.params.from}};
+    if(state.view==='usageLog') return state.params.readOnly
+      ? {view:'itemViewOnly', params:{id:state.params.id, from: state.params.viewFrom}} // README 9.260: 存档食材的只读取用记录回存档详情页
+      : {view:'itemDetail', params:{id:state.params.id, from: state.params.from}};
     if(state.view==='usageLogAdd') return {view:'usageLog', params:{id:state.params.id, from: state.params.from}};
     if(state.view==='itemForm') return (state.itemFormUI && state.itemFormUI.returnTo) || {view:'home'};
     if(state.view==='pickExternal') return {view:'recipeForm'};
@@ -6962,6 +7018,15 @@ function copyItemToNewForm(id){
   delete clone.updated_at;
   delete clone.usage_log;
   delete clone.purchased_qty;
+  // README 9.261: 从存档里复制 = "重新买了一份"。以前整条原样抄过来，连"已存档"标记也抄了，保存后新条目又留在存档里，
+  // 而且数量(用完的是0)、保质期、购买日期都是上一份的。现在：去掉存档标记；数量清空待填；购买日期=今天；
+  // 保质期至/生产日期清空(是上一份的)；盘点日期清掉；副单位的数量清空(换算比例保留)；其余(名称、品牌、分类、位置、
+  // 价格、营养、保质期时长等)照抄。这些被删掉的字段在 openItemForm 里会落回空白新条目的默认值(购买日期=今天)。
+  if(existing.archived){
+    delete clone.archived; delete clone.archived_at; delete clone.archived_auto; delete clone.archived_reason;
+    delete clone.primary_qty; delete clone.purchase_date; delete clone.expiry_date; delete clone.production_date; delete clone.last_recount_at;
+    (clone.secondary_units||[]).forEach(function(g){ g.qty = null; });
+  }
   var srcPhoto = clone.photo_url;
   clone.photo_url = '';
   duplicatePhotoRef(srcPhoto).then(function(newRef){
@@ -7017,7 +7082,14 @@ function restockBatches(rule){
 // 真正扣库存之前预估"扣完之后"(套餐确认弹窗用)。一个批次都算不出来(没记录数量/这个单位换算不了)时返回null。
 function restockTotal(rule, overrides){
   var total = 0, any = false;
-  restockBatches(rule).forEach(function(it){
+  var batches = restockBatches(rule);
+  // README 9.261: 这个产品没有任何在库(未存档)的批次了——典型情况是最后一批用完被自动存档(9.247)。
+  // 以前这里算不出库存(null)，补货提醒就跟着消失了，而"用完了"恰恰是最该提醒的时候。现在只要这个产品
+  // 还有记录(哪怕全在存档里)，就按库存 0 算；一条记录都没有(比如数据还没加载)仍然是 null，不会误触发。
+  if(!batches.length){
+    return state.items.some(function(it){ return itemGroupKey(it)===rule.key; }) ? 0 : null;
+  }
+  batches.forEach(function(it){
     if(it.primary_qty == null) return;
     var target = resolveDeductionTarget(it, rule.unit);
     if(!target || !target.toPrimaryRatio) return;
@@ -7212,6 +7284,18 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.262', items:[
+    {t:'tweak', zh:'存档里恢复一个已经用完（数量是 0）的食材时，会先问一下“恢复后的数量”：填了就直接带回库存（并留一条「调整余量」取用记录），留空就跟以前一样恢复成 0。还有库存的食材（比如误存档的）恢复时仍然原样保留数量。', en:'Restoring a used-up (quantity 0) item from the archive now asks for the quantity after restoring: enter one to bring it straight back into stock (with an \"adjust stock\" usage record), or leave it empty to restore it at 0 as before. Items that still have stock (e.g. archived by mistake) keep their quantity as before.'}
+  ]},
+  {v:'9.261', items:[
+    {t:'fix', zh:'存档里复制食材：现在会去掉“已存档”标记，打开预填好的新增表单——数量清空待你填、购买日期是今天、保质期至清空，其余照抄；以前复制出来的新食材保存后又留在存档里。', en:'Copying an item from the archive now drops the \"archived\" flag and opens a prefilled new-item form: quantity cleared, purchase date = today, expiry cleared, everything else copied. Before, the copy was saved straight back into the archive.'},
+    {t:'fix', zh:'用完自动存档之后，补货提醒/购物清单提醒不再消失：只要设了补货规则，整个产品都用完（或只剩存档）也按库存 0 触发提醒。', en:'Restock reminders no longer vanish when the last batch is used up and auto-archived: with a restock rule set, a fully used-up (or archive-only) product now counts as stock 0 and triggers the reminder.'},
+    {t:'fix', zh:'在编辑页手动改食材数量（包括改成 0）时，会自动留一条「调整余量」取用记录，之前这种修改在取用记录和存档里都查不到。', en:'Manually changing an item\'s quantity in the edit page (including to 0) now leaves an \"adjust stock\" usage record. Before, such a change left no trace in the usage history or the archive.'},
+    {t:'fix', zh:'取用记录页里：取用量超过库存时（比如只剩 5g、记了 15g），之后撤销/恢复这条记录只会加回实际扣掉的 5g，不再把库存多加出 10g。', en:'In the usage log: when a usage entry exceeded the remaining stock (e.g. 5g left, 15g logged), undoing it now gives back only what was actually deducted instead of inflating stock.'}
+  ]},
+  {v:'9.260', items:[
+    {t:'fix', zh:'已存档的食材现在也能查看取用记录了：在存档里点开某个食材，详情页里有「查看取用记录」（只读）。之前用完自动存档的食材（比如最后一笔取用把它用到 0）一进存档，之前所有的取用记录——包括最后那笔“自由输入”——都看不到了，其实记录一直都在，只是没有入口。', en:'Archived items can now show their usage history too: open an item in the archive and tap \"View Usage History\" (read only). Items that were auto-archived when used up (e.g. by a last usage entry that took them to 0) lost every way to see their usage history - including that last free-input entry. The records were always there, there was just no entry point.'}
+  ]},
   {v:'9.259', items:[
     {t:'new', zh:'食谱的新建/编辑页右下角多了一个「AI」悬浮按钮：点开后用一句话列出食材和用量（比如“鸡蛋2个、低筋面粉200g、牛奶150ml”），AI 帮你拆开，并到你自己的库存、食材库、食谱里找对应的；找不到的可以查 USDA、用 AI 估算，或者跳过。在确认页检查、修改后，点「添加到食谱」才会加进这个食谱（不会扣库存）。你的库存和食谱内容不会发给 AI。', en:'The recipe add/edit page now has a floating \"AI\" button. List the ingredients and amounts in one sentence (e.g. \"2 eggs, 200g cake flour, 150ml milk\"); the AI splits them and matches them against your own inventory, ingredient library and recipes. Anything not found can use USDA, an AI estimate, or be skipped. After you check and edit them on the confirm page, tap \"Add to recipe\" to add them (stock is not deducted). Your inventory and recipes are not sent to the AI.'}
   ]},
@@ -9286,6 +9370,18 @@ function saveItemForm(){
   if(restockErr){ showToast(t(restockErr)); return; }
   d.updated_at = nowLocalIso();
   var idx = state.items.findIndex(function(i){ return i.id===d.id; });
+  // README 9.261: 在编辑页手动改已有食材的数量(包括改成0)，自动留一条「调整余量」取用记录(跟取用记录页里的调整余量
+  // 同一种，之后能在记录页看到、也能恢复)。以前这里改数量完全不留痕：记录页和存档里都查不到。
+  // 要放在下面"改成0自动存档"之前：autoArchiveReason 按最后一条记录判断原因。单位也改了的不记(前后数量没法比)；
+  // 原来没记录数量的(null)也不记。
+  if(idx!==-1){
+    var oldQ = state.items[idx].primary_qty, newQ = d.primary_qty;
+    if(oldQ!=null && newQ!=null && state.items[idx].primary_unit===d.primary_unit && Math.abs(oldQ-newQ) > 1e-9){
+      d.usage_log = d.usage_log || [];
+      d.usage_log.push({id: uid(), date: todayStr(), destination_type:'adjust', amount: newQ, unit: d.primary_unit,
+        delta_primary: oldQ - newQ, created_at: nowLocalIso()});
+    }
+  }
   // README 9.248: 编辑已有食材时把数量从大于0手动改成0 → 跟其他用完的情况一样直接存档(新增食材、本来就是0的不算)。
   var autoArchivedNow = false;
   if(idx!==-1 && !d.archived && d.primary_qty!=null && d.primary_qty<=1e-9 && (state.items[idx].primary_qty||0)>1e-9){
@@ -9582,15 +9678,22 @@ function openUsageLog(id){
   // landing back on the plain inventory list instead of wherever the person actually came from.
   navigate('usageLog', {id:id, from: state.params.from});
 }
+// README 9.260: 存档食材的取用记录(只读)。viewFrom 记的是存档详情页(itemViewOnly)自己的来源('archive'/'aiSearch'...)，
+// 返回键和右划返回都靠它回到原来的存档详情页。
+function openUsageLogReadOnly(id){
+  state.usageLogUI = { showAll:false };
+  navigate('usageLog', {id:id, readOnly:true, viewFrom: state.params.from});
+}
 function renderUsageLog(){
   var id = state.params.id;
+  var ro = !!state.params.readOnly;
   var it = state.items.find(function(i){ return i.id===id; });
   if(!it) return renderHome();
   var log = (it.usage_log||[]).slice().sort(function(a,b){ return (b.created_at||'').localeCompare(a.created_at||''); });
   var showAll = state.usageLogUI && state.usageLogUI.showAll;
   var RECENT_COUNT = 6;
   var visible = showAll ? log : log.slice(0,RECENT_COUNT);
-  var rowsHtml = visible.length ? visible.map(function(entry){ return usageLogRowHtml(entry, id); }).join('') :
+  var rowsHtml = visible.length ? visible.map(function(entry){ return usageLogRowHtml(entry, id, ro); }).join('') :
     '<div class="empty-state">'+ic('history',36)+'<p>'+t('usageLogEmpty')+'</p></div>';
   var moreBtn = '';
   if(log.length > RECENT_COUNT){
@@ -9599,18 +9702,19 @@ function renderUsageLog(){
       : ('<button class="btn btn-outline" style="margin-top:6px;" onclick="toggleUsageLogShowAll()">'+ic('chevronRight',15,'style="transform:rotate(90deg);"')+' '+t('usageShowMore')+' ('+(log.length-RECENT_COUNT)+')</button>');
   }
   return '' +
-  '<div class="page-header"><button class="back-btn" onclick="navigate(\'itemDetail\',{id:'+aj(id)+'})">'+ic('back',22)+'</button><h1>'+itemDisplayName(it)+' · '+t('usageLogTitle')+'</h1></div>'+
+  '<div class="page-header"><button class="back-btn" onclick="'+(ro ? 'navigate(\'itemViewOnly\',{id:'+aj(id)+',from:'+aj(state.params.viewFrom||'archive')+'})' : 'navigate(\'itemDetail\',{id:'+aj(id)+'})')+'">'+ic('back',22)+'</button><h1>'+itemDisplayName(it)+' · '+t('usageLogTitle')+'</h1></div>'+
   '<div class="content" style="padding-bottom:90px;">'+
+    (ro ? '<div class="readonly-banner">'+ic('archive',14)+' '+t('usageLogReadOnlyBanner')+'</div>' : '')+
     rowsHtml+
     moreBtn+
   '</div>'+
-  '<button class="usage-fab" onclick="openUsageLogAdd('+aj(id)+')" aria-label="'+t('usageLogAddTitle')+'">'+ic('plus',26)+'</button>'+
+  (ro ? '' : '<button class="usage-fab" onclick="openUsageLogAdd('+aj(id)+')" aria-label="'+t('usageLogAddTitle')+'">'+ic('plus',26)+'</button>')+
   bottomNav();
 }
 // Reuses the exact same swipe-to-reveal mechanics as the inventory list cards (.item-card-swipe
 // / .item-card / initItemSwipeGestures below) - the gesture engine is generic and keyed purely
 // by data-item-id, so no JS changes were needed to make it work here too.
-function usageLogRowHtml(entry, itemId){
+function usageLogRowHtml(entry, itemId, readOnly){
   var isMove = entry.destination_type==='move_location';
   var isRecipe = entry.destination_type==='recipe';
   var isTransferIn = entry.destination_type==='transfer_in';
@@ -9640,7 +9744,10 @@ function usageLogRowHtml(entry, itemId){
   // (see README 9.78 / performLocationMove) - there's nothing here to edit, delete, or restore
   // independently of that source entry, so it skips the .item-card-swipe wrapper entirely
   // (no swipe actions to reveal) rather than offering buttons that would only half-work.
-  if(isTransferIn){
+  // README 9.260: 存档食材的取用记录是只读的——跟 transfer_in 一样不带左划操作(删除/恢复会改库存)，也不可点
+  // (点进食谱/三餐详情再返回会回到可编辑的取用记录页)。
+  if(readOnly){ cardClickAttr = ''; }
+  if(isTransferIn || readOnly){
     return '<div class="item-card"'+cardClickAttr+'>'+
       '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">'+
         '<div style="min-width:0;display:flex;align-items:center;gap:4px;">'+
@@ -10050,7 +10157,7 @@ async function saveUsageLogEntry(itemId){
     if(entry){
       // Put back whatever the OLD amount deducted, then apply the new amount fresh - this
       // way editing an entry's amount/unit stays consistent no matter what changed.
-      addBackToItem(it, entry.amount, entry.unit);
+      giveBackUsageEntry(it, entry);
       entry.date = d.date || todayStr();
       entry.destination_type = d.destination_type;
       entry.destination_text = d.destination_type==='free' ? d.destination_text.trim() : '';
@@ -10058,6 +10165,7 @@ async function saveUsageLogEntry(itemId){
       entry.amount = d.amount;
       entry.unit = d.unit;
       result = deductFromItem(it, d.amount, d.unit);
+      if(result.ok && result.insufficient) entry.deducted_primary = result.deductedPrimary;
     } else {
       result = {ok:false};
     }
@@ -10074,6 +10182,7 @@ async function saveUsageLogEntry(itemId){
     };
     it.usage_log.push(freeEntry);
     result = deductFromItem(it, d.amount, d.unit);
+    if(result.ok && result.insufficient) freeEntry.deducted_primary = result.deductedPrimary;
   }
   saveItems();
   showToast(!result.ok ? t('usageNoConversionWarn') : (result.insufficient ? t('usageInsufficientWarn') : t('usageDeductedToast')));
@@ -10118,7 +10227,7 @@ function restoreUsageLogEntry(itemId, entryId){
       // below the way every other entry type can.
       applyPrimaryEquivalentDelta(it, entry.delta_primary);
     } else {
-      addBackToItem(it, entry.amount, entry.unit);
+      giveBackUsageEntry(it, entry);
       // README 9.156: this usage_log entry came from a 三餐 deduction (destination_type==='meal')
       // - the stock is now back, so the meal log entry's own deductItemId/deductAmount/deductUnit
       // (or, for a 套餐 subItem, the same three fields on that subItem) needs to be cleared too,
@@ -10335,6 +10444,8 @@ function renderItemViewOnly(){
       '<div class="list-row" style="border:none;padding:0;margin-bottom:10px;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldLocation')+'</span><span>'+esc(it.location||t('unset'))+'</span></div>'+
       '<div class="list-row" style="border:none;padding:0;margin-bottom:10px;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldPurchaseDate')+'</span><span>'+esc(it.purchase_date||'-')+'</span></div>'+
       '<div class="list-row" style="border:none;padding:0;margin-bottom:0;"><span class="row-label" style="font-size:14px;color:var(--deep-caramel);">'+t('fieldPrice')+'</span><span>'+formatPrice(it)+'</span></div>'+
+      // README 9.260: 存档的食材也能查看取用记录(只读)
+      '<button class="text-link-btn" style="margin-top:10px;" onclick="openUsageLogReadOnly('+aj(it.id)+')">'+ic('history',15)+'<span>'+t('viewUsageHistoryBtn')+'</span></button>'+
     '</div>'+
     '<div class="nf-section-title">'+t('sectionNutrition')+'</div>'+
     nutritionFactsBoxHtml(it)+
