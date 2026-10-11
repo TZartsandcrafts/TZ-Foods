@@ -955,7 +955,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.255';
+var BUILD_VERSION = '9.256';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2456,6 +2456,7 @@ var I18N = {
     dailyNutrientDetailLabel:'当日营养摄入详情', nutriTargetNotSet:'未设置目标',
     sourceInventory:'库存', sourceRecipe:'食谱', sourceExternal:'外部食材库', sourceMealset:'套餐', sourceScan:'扫描',
     usdaIncompleteTag:'数据不全', usdaMissTitlePre:'USDA 没有这条的', usdaMissTitleSuf:'数据', usdaMissHint:'上面显示的 0 不是真实值，可以换同类条目、让 AI 估算，或者自己填（都是每 100g）。', usdaFilledTitlePre:'USDA 缺的', usdaFilledTitleMid:'已按', usdaFilledTitleSuf:'补上（每 100g）', usdaFillSrcAi:'AI 估算', usdaFillSrcManual:'你填的值', usdaFillModeSimilar:'找同类', usdaFillModeAi:'AI 估算', usdaFillModeManual:'手动填写', usdaFillApply:'应用', usdaFillAiBtn:'让 AI 估算（每 100g）', usdaFillAiBusy:'估算中…', usdaFillAiFail:'估算失败，可以重试，或改用同类条目 / 手动填写', usdaFillAiNote:'AI 估算仅供参考，不满意可以改用同类条目，或在「手动填写」里改数。', usdaFillAiNoProxy:'还没有配置 AI 代理地址', usdaFillNeedNum:'请至少填一项数字', usdaSimilarBusy:'查找中…', usdaSimilarNone:'没有找到数据完整的同类条目，可以试试 AI 估算或手动填写', usdaSimilarFail:'查找失败，请重试', usdaSimilarHint:'下面是名称相近、数据完整的 USDA 条目，点一条就换成它；不合适可以回来用 AI 估算或手填。', usdaSwitchedFromPre:'已改用同类条目。不合适？', usdaSwitchBack:'换回原条目', usdaFillCalories:'热量 (kcal)', usdaFillFat:'总脂肪 (g)', usdaFillCarbs:'总碳水 (g)', usdaPer100g:'每 100g', 
+    archiveContinuePre:'在已存档中继续搜索「', archiveContinueSuf:'」', archiveContinueCount:' 条匹配',
     tabCustom:'自定', usdaOnlySearchPh:'搜索 USDA 食物数据库（英文）', usdaNoVolumeHint:'这条 USDA 食品没有体积（杯/汤匙等）换算数据，只能按克记录',
     quickAddClearBtn:'清空', quickAddConfirmBtn:'添加',
     quickAddPartialToast:'已添加{n}项，部分条目已失效未添加', quickAddFailedToast:'添加失败，请重试',
@@ -2809,6 +2810,7 @@ var I18N = {
     dailyNutrientDetailLabel:'Daily Nutrient Detail', nutriTargetNotSet:'No target set',
     sourceInventory:'Inventory', sourceRecipe:'Recipe', sourceExternal:'External Ingredients', sourceMealset:'Mealset', sourceScan:'Scan',
     usdaIncompleteTag:'incomplete', usdaMissTitlePre:'USDA has no ', usdaMissTitleSuf:' data for this entry', usdaMissHint:'The 0 shown above is not a real value. Switch to a similar entry, let AI estimate, or enter it yourself (all per 100g).', usdaFilledTitlePre:'Missing USDA values (', usdaFilledTitleMid:') filled from ', usdaFilledTitleSuf:' (per 100g)', usdaFillSrcAi:'an AI estimate', usdaFillSrcManual:'your entry', usdaFillModeSimilar:'Similar', usdaFillModeAi:'AI estimate', usdaFillModeManual:'Manual', usdaFillApply:'Apply', usdaFillAiBtn:'Ask AI to estimate (per 100g)', usdaFillAiBusy:'Estimating…', usdaFillAiFail:'Estimate failed - retry, or use a similar entry / enter manually', usdaFillAiNote:'AI estimates are rough. Not happy? Use a similar entry, or edit the numbers under Manual.', usdaFillAiNoProxy:'AI proxy address is not configured', usdaFillNeedNum:'Enter at least one number', usdaSimilarBusy:'Searching…', usdaSimilarNone:'No similar entry with complete data found - try AI estimate or manual entry', usdaSimilarFail:'Search failed, please retry', usdaSimilarHint:'Similar USDA entries with complete data - tap one to switch; if none fits, come back for an AI estimate or manual entry.', usdaSwitchedFromPre:'Switched to a similar entry. Not right? ', usdaSwitchBack:'Switch back to the original', usdaFillCalories:'Calories (kcal)', usdaFillFat:'Total fat (g)', usdaFillCarbs:'Total carbs (g)', usdaPer100g:'per 100g', 
+    archiveContinuePre:'Keep searching in Archive for "', archiveContinueSuf:'"', archiveContinueCount:' match(es)',
     tabCustom:'Custom', usdaOnlySearchPh:'Search the USDA food database', usdaNoVolumeHint:'USDA has no volume (cup/spoon) conversion data for this food - grams only',
     quickAddClearBtn:'Clear', quickAddConfirmBtn:'Add',
     quickAddPartialToast:'{n} items added; some entries were no longer valid and were skipped', quickAddFailedToast:'Failed to add, please try again',
@@ -6332,6 +6334,7 @@ function renderHome(){
         '<input type="text" placeholder="'+t('searchPlaceholder')+'" value="'+esc(state.home.search)+'" oninput="onHomeSearch(this.value);toggleSearchClearBtn(this)">'+
         '<button type="button" class="search-clear-btn" style="display:'+(state.home.search?'flex':'none')+';" onclick="clearSearchInput(this,\'onHomeSearch\')" aria-label="'+t('clearSearchBtn')+'">'+ic('x',14)+'</button>'+
       '</div>'+
+      '<div id="home-archive-link">'+homeArchiveLinkHtml()+'</div>'+
       activeFilterHtml +
       '<div class="sort-row">'+
         '<div class="sort-pills">'+
@@ -6830,7 +6833,33 @@ function onHomeSearch(v){
   onHomeSearch._t = setTimeout(function(){
     var c = document.getElementById('item-list-container');
     if(c) c.innerHTML = renderItemListHtml(getFilteredSortedItems());
+    var a = document.getElementById('home-archive-link');
+    if(a) a.innerHTML = homeArchiveLinkHtml();
   }, 200);
+}
+// README 9.256: 库存页搜索栏下面的一行"在已存档中继续搜索"——有搜索词时才出现，带着同一个关键词跳到存档页
+// (存档页的搜索框直接就是这个词)，库存里搜不到时一键就能接着在已存档的食材里找。匹配条数用存档页同一套规则
+// (名称+品牌，不分大小写)数一下，让人点之前就知道存档里有没有。
+function homeArchiveMatchCount(q){
+  q = (q||'').trim().toLowerCase();
+  if(!q) return 0;
+  return getArchivedItems().filter(function(it){
+    return (((it.name||'')+' '+(it.brand||'')).toLowerCase()).indexOf(q) !== -1;
+  }).length;
+}
+function homeArchiveLinkHtml(){
+  var q = (state.home.search||'').trim();
+  if(!q) return '';
+  var n = homeArchiveMatchCount(q);
+  return '<div onclick="openArchiveSearchFromHome()" style="display:flex;align-items:center;gap:8px;padding:9px 12px;margin:0 0 8px;border:1px dashed var(--deep-caramel);border-radius:12px;color:var(--deep-caramel);font-size:14px;cursor:pointer;">'+
+    ic('archive',16)+
+    '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(t('archiveContinuePre')+q+t('archiveContinueSuf'))+'</span>'+
+    '<span style="flex-shrink:0;opacity:.8;">'+n+esc(t('archiveContinueCount'))+'</span>'+
+  '</div>';
+}
+function openArchiveSearchFromHome(){
+  state.archiveUI.search = (state.home.search||'').trim();
+  navigate('archive');
 }
 function toggleLang(){
   state.lang = state.lang==='zh' ? 'en' : 'zh';
@@ -7148,6 +7177,9 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.256', items:[
+    {t:'new', zh:'库存页搜索时，搜索栏下面会多一行「在已存档中继续搜索「xxx」」（带已存档里匹配的条数）；在库存里搜不到时，点一下就带着同样的关键词跳到存档页继续搜。', en:'When you search on the Inventory page, a row under the search bar - "Keep searching in Archive for xxx" (with the number of matches) - takes you to the Archive page with the same keyword in one tap.'}
+  ]},
   {v:'9.255', items:[
     {t:'fix', zh:'修好了：三餐页侧边栏「历史」里点某一天，第一次出现的是上次看过的日期页面，要再进一次历史、再点一次才对。现在点哪一天就直接进哪一天。', en:'Fixed: tapping a day in the meals sidebar History first showed the previously viewed date; you had to open History and tap again. It now opens the tapped day right away.'}
   ]},
