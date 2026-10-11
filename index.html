@@ -248,6 +248,7 @@
 
   .ai-fab{ position:fixed; right:calc(50% - min(50%, 240px) + 16px); bottom:calc(92px + var(--safe-bottom)); width:52px; height:52px; border-radius:50%; border:none; background:var(--deep-caramel); color:#fff; font-size:16px; font-weight:700; letter-spacing:.5px; box-shadow:0 3px 10px rgba(74,46,30,0.3); z-index:29; cursor:pointer; }
   .ai-fab:active{ transform:scale(.94); }
+  .ai-fab.ai-fab-low{ bottom:calc(24px + var(--safe-bottom)); }
   .aimeal-in{ width:100%; font-size:16px; padding:10px 12px; border-radius:9px; border:1px solid var(--line); background:#fff; color:var(--cocoa); }
   textarea.aimeal-in{ resize:none; line-height:1.5; display:block; }
   /* README 9.237: iOS 上日期框自带一个固定的最小宽度，会把右边顶出卡片——跟 .field input[type=date] 同一个处理(去掉原生外观、允许收缩)。 */
@@ -955,7 +956,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.258';
+var BUILD_VERSION = '9.259';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2690,6 +2691,12 @@ var I18N = {
     aiSearchFailed:'AI 暂时没有回应，已直接用你输入的字在本地搜索。', aiSearchTermsLabel:'搜索词：',
     aiSearchActive:'有货', aiSearchArchived:'已存档', aiSearchRecipes:'食谱',
     aiSearchNone:'没有找到匹配的内容，可以换个说法再试试。', aiSearchMore:'还有 {n} 条没有显示，可以把描述写得更具体些。',
+    aiRecipeFabLabel:'AI 加食材', aiRecipeIngTitle:'AI 添加食材',
+    aiRecipeIntro:'一句话说说这个食谱要用哪些食材和用量，比如“鸡蛋2个、低筋面粉200g、牛奶150ml”。AI 只负责拆开并想出关键词，再到你自己的库存、食材库、食谱里找对应的；找不到的可以查 USDA、用 AI 估算或跳过。你的库存和食谱内容不会发给 AI。确认后才会加进这个食谱。',
+    aiRecipePlaceholder:'例：鸡蛋2个、低筋面粉200g、牛奶150ml、细砂糖60g',
+    aiRecipeResultHint:'下面是 AI 拆出来的食材：每一项都可以改对应的是哪一条（你的库存/食材库/食谱，或 USDA、AI 估算、跳过）和用量。点最下面的按钮后才会加进食谱；加进食谱不会扣库存。',
+    aiRecipeCommit:'添加到食谱', aiRecipeAdded:'已添加 {n} 项食材',
+    aiRecipeDiscardConfirm:'这次的描述和 AI 的结果还没有添加到食谱，退出后会丢失。',
     updTitle:'已更新到 {v}', updGotIt:'知道了', updTagNew:'新功能', updTagFix:'修复', updTagTweak:'调整',
     storagePersistYes:'已启用(浏览器已同意保护本应用数据，减少被系统清理的概率)',
     storagePersistNo:'未启用(浏览器拒绝了持久化请求，数据存在被系统清理的风险，建议定期在上方导出备份)',
@@ -3042,6 +3049,12 @@ var I18N = {
     aiSearchFailed:'The AI did not respond, so your own words were searched locally instead.', aiSearchTermsLabel:'Search terms: ',
     aiSearchActive:'In stock', aiSearchArchived:'Archived', aiSearchRecipes:'Recipes',
     aiSearchNone:'Nothing matched - try describing it another way.', aiSearchMore:'{n} more not shown - try a more specific description.',
+    aiRecipeFabLabel:'AI add ingredients', aiRecipeIngTitle:'AI add ingredients',
+    aiRecipeIntro:'Describe the ingredients and amounts in one sentence, e.g. \"2 eggs, 200g cake flour, 150ml milk\". The AI only splits them up and thinks of keywords; the matching runs on your own inventory, ingredient library and recipes. Anything not found can use USDA, an AI estimate, or be skipped. Your inventory and recipes are not sent to the AI. Nothing is added to the recipe until you confirm.',
+    aiRecipePlaceholder:'e.g. 2 eggs, 200g cake flour, 150ml milk, 60g caster sugar',
+    aiRecipeResultHint:'These are the ingredients the AI picked out: for each one you can change which entry it matches (your inventory / ingredient library / recipes, or USDA, an AI estimate, or skip) and the amount. Nothing is added until you tap the button at the bottom; adding to a recipe does not deduct stock.',
+    aiRecipeCommit:'Add to recipe', aiRecipeAdded:'Added {n} ingredients',
+    aiRecipeDiscardConfirm:'This description and the AI result have not been added to the recipe yet and will be lost if you leave.',
     updTitle:'Updated to {v}', updGotIt:'Got it', updTagNew:'New', updTagFix:'Fixed', updTagTweak:'Changed',
     storagePersistYes:'Enabled (the browser agreed to protect this app\'s data, lowering the risk of automatic cleanup)',
     storagePersistNo:'Not enabled (the browser declined the persistence request — data is at risk of being cleared by the system; export a backup regularly using the buttons above)',
@@ -5561,7 +5574,7 @@ function openSettings(fromView){
     if(state.view==='usdaFoodDetail') return (state.params && state.params.from) || {view:'meals'};
     if(state.view==='mealLogEntryDetail') return {view:'meals'};
     if(state.view==='mealsHistory') return {view:'meals'};
-    if(state.view==='aiMeal') return {view:'meals'};
+    if(state.view==='aiMeal') return {view: (state.aiMeal && state.aiMeal.forRecipe) ? 'recipeForm' : 'meals'};
     // README 9.258: AI搜索页右划返回：回到发起搜索的那一页(库存/食谱)，并停在原来的滚动位置。
     if(state.view==='aiSearch') return {view: (state.aiSearch && state.aiSearch.scope==='recipes') ? 'recipes' : 'home'};
     if(state.view==='fastingHistory') return {view:'meals'};
@@ -7199,6 +7212,9 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.259', items:[
+    {t:'new', zh:'食谱的新建/编辑页右下角多了一个「AI」悬浮按钮：点开后用一句话列出食材和用量（比如“鸡蛋2个、低筋面粉200g、牛奶150ml”），AI 帮你拆开，并到你自己的库存、食材库、食谱里找对应的；找不到的可以查 USDA、用 AI 估算，或者跳过。在确认页检查、修改后，点「添加到食谱」才会加进这个食谱（不会扣库存）。你的库存和食谱内容不会发给 AI。', en:'The recipe add/edit page now has a floating \"AI\" button. List the ingredients and amounts in one sentence (e.g. \"2 eggs, 200g cake flour, 150ml milk\"); the AI splits them and matches them against your own inventory, ingredient library and recipes. Anything not found can use USDA, an AI estimate, or be skipped. After you check and edit them on the confirm page, tap \"Add to recipe\" to add them (stock is not deducted). Your inventory and recipes are not sent to the AI.'}
+  ]},
   {v:'9.258', items:[
     {t:'new', zh:'库存页和食谱页右下角多了一个「AI」悬浮按钮：点开后用大白话说想找什么（比如“做面包用的粉”“用鸡蛋做的早餐”），AI 帮你想出可能的关键词，再在你自己的库存（有货的和已存档的）或食谱里搜出来。你的库存和食谱内容不会发给 AI。点进某一项看完详情，右划返回会回到搜索结果原来的位置。', en:'The Inventory and Recipes pages now have a floating \"AI\" button. Describe what you are looking for (e.g. \"flour for baking bread\", \"a breakfast with eggs\") and the AI thinks up keywords, which are then searched in your own inventory (in stock and archived) or recipes. Your inventory and recipes are not sent to the AI. After opening an item, swiping back returns to the same spot in the results.'}
   ]},
@@ -12561,7 +12577,9 @@ function renderRecipeForm(){
       '<button class="btn btn-primary" onclick="saveRecipeForm()">'+t('save')+'</button>'+
     '</div>'+
     (!d._isNew ? '<button class="btn btn-danger" style="margin-top:10px;" onclick="deleteRecipeFromForm()">'+ic('trash',16)+' '+t('delete')+'</button>' : '')+
-  '</div>';
+    (state.aiProxyUrl ? '<div style="height:72px;"></div>' : '')+
+  '</div>'+
+  (state.aiProxyUrl ? '<button class="ai-fab ai-fab-low" onclick="openAiRecipeIng()" aria-label="'+t('aiRecipeFabLabel')+'">AI</button>' : '');
 }
 // Recipe cover photo upload/remove - same compression pipeline and IndexedDB storage
 // (PHOTO_IDB/savePhotoToIDB/deletePhotoRef) as item photos, just writing into
@@ -17769,14 +17787,15 @@ function aiMealHasContent(){
 }
 function cancelAiMeal(){
   if(aiMealHasContent()){
-    showConfirmModal(t('aiMealDiscardConfirm'), discardAiMeal, {title:t('discardChangesTitle'), confirmLabel:t('discardChangesConfirmBtn')});
+    showConfirmModal(t((state.aiMeal && state.aiMeal.forRecipe) ? 'aiRecipeDiscardConfirm' : 'aiMealDiscardConfirm'), discardAiMeal, {title:t('discardChangesTitle'), confirmLabel:t('discardChangesConfirmBtn')});
     return;
   }
   discardAiMeal();
 }
 function discardAiMeal(){
+  var back = (state.aiMeal && state.aiMeal.forRecipe) ? 'recipeForm' : 'meals'; // README 9.259: 食谱模式退回食谱编辑页
   state.aiMeal = null;
-  navigate('meals');
+  navigate(back);
 }
 function aiMealSlotsForPicker(am){
   var visible = MEAL_SLOTS.filter(function(s){ return state.visibleMealSlots.indexOf(s)!==-1; });
@@ -17912,6 +17931,8 @@ function aiMealSearchLocal(terms){
       });
     });
   });
+  // README 9.259: 给食谱加食材时：食谱不能用套餐，也不能把自己(或间接用到了自己的食谱)当食材(会套成环)
+  if(state.aiMeal && state.aiMeal.forRecipe) out = out.filter(aiRecipeCandOk);
   out.sort(function(a,b){ return (b.exact?1:0) - (a.exact?1:0); });
   return out.slice(0,6);
 }
@@ -18049,7 +18070,7 @@ async function aiMealSend(){
   // README 9.240: 本地优先——口述里整段话正好等于自己某个套餐/食谱的名字(忽略表情符号和标点)时，不让AI去解释它
   // (AI不认识这些名字，会把"奶咖"理解成"拿铁咖啡")，直接在本地做成卡片、选好；这部分话不发给AI。
   // 剩下的话(如果还有)才发给AI，两边的卡片合并到同一个确认页；整句话都是名字、又没附图片时，完全不调用AI。
-  var pre = (!isFollow && text) ? aiMealPreMatchNames(text) : {rows:[], rest:text};
+  var pre = (!isFollow && text && !am.forRecipe) ? aiMealPreMatchNames(text) : {rows:[], rest:text};
   // README 9.246: 再在库存/食材库/食谱/套餐里本地找(带数量、宽松匹配)，找到的不用等AI；有图片或是跟AI继续聊时不做
   if(!isFollow && text && !imgs.length){
     var lf = aiMealLocalFirst(pre.rows.length ? pre.rest : text);
@@ -18096,7 +18117,7 @@ async function aiMealSend(){
       method:'POST', headers:{'Content-Type':'application/json'}, signal: ctrl ? ctrl.signal : undefined,
       body: JSON.stringify({
         messages:[{role:'user', text: payloadText, images: imgs}],
-        today: todayStr(), defaultDate: am.date, defaultSlot: am.slot
+        today: todayStr(), defaultDate: am.date, defaultSlot: am.slot, purpose: am.forRecipe ? 'recipe' : undefined
       })
     });
     var data = await res.json();
@@ -18722,6 +18743,7 @@ function aiMealItemName(it){
   return nm;
 }
 function aiMealCommit(){
+  if(state.aiMeal && state.aiMeal.forRecipe){ aiRecipeCommit(); return; }
   var am = state.aiMeal;
   if(!am || am.loading || am.committed) return;
   if(!am.items || !am.items.length){ showToast(t('aiMealNeedItems')); return; }
@@ -18842,7 +18864,7 @@ function aiMealInputHtml(am, follow){
     return '<div class="aimeal-thumb"><img src="data:'+im.mime+';base64,'+im.data+'" alt=""><button type="button" onclick="aiMealRemoveImage('+i+')" aria-label="remove">×</button></div>';
   }).join('')+'</div>') : '';
   return '<div class="form-group">'+thumbs+
-    '<textarea class="aimeal-in" id="aimeal-input" rows="'+(follow?2:5)+'" placeholder="'+esc(follow ? t('aiMealFollowPh') : t('aiMealPlaceholder'))+'" oninput="state.aiMeal.draft=this.value">'+esc(am.draft)+'</textarea>'+
+    '<textarea class="aimeal-in" id="aimeal-input" rows="'+(follow?2:5)+'" placeholder="'+esc(follow ? t('aiMealFollowPh') : t(am.forRecipe ? 'aiRecipePlaceholder' : 'aiMealPlaceholder'))+'" oninput="state.aiMeal.draft=this.value">'+esc(am.draft)+'</textarea>'+
     '<div style="display:flex;gap:8px;margin-top:10px;">'+
       '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="document.getElementById(\'aimeal-file\').click()">'+ic('camera',16)+' '+t('aiMealPhotoBtn')+'</button>'+
       '<button class="btn btn-primary btn-sm" style="flex:1;"'+(am.loading?' disabled':'')+' onclick="aiMealSend()">'+t('aiMealSend')+'</button>'+
@@ -18887,7 +18909,113 @@ function aiMealItemHtml(it, i){
     estBody+
   '</div>';
 }
+// ===================== README 9.259: 食谱编辑页的 AI 加食材 =====================
+// 复用 AI 加餐那整套(口述拆成食材 -> 本地找对应 -> 本地没有再查USDA/AI估算 -> 确认页逐条检查)，
+// 只是 state.aiMeal.forRecipe=true：确认页没有日期/餐次/逐条还是套餐，候选里排除套餐和食谱自己(防套成环)，
+// 点\"添加到食谱\"后把每一项写成食谱的一条食材(跟食谱\"添加食材\"页选出来的是同一种结构)，不扣库存、不写三餐。
+// 用户的库存/食谱名称同样不会发给 AI，发出去的只有口述的文字(和图片)，本地搜索在手机上做。
+function openAiRecipeIng(){
+  if(!state.aiProxyUrl){ showToast(t('aiMealNoProxy')); return; }
+  if(!state.recipeDraft) return;
+  state.aiMeal = aiMealFresh();
+  state.aiMeal.forRecipe = true;
+  navigate('aiMeal');
+}
+function aiRecipeCandOk(c){
+  if(c.type==='mealset') return false;
+  if(c.type==='recipe'){
+    var d = state.recipeDraft;
+    if(d && c.id===d.id) return false;
+    var rc = state.recipes.find(function(r){ return r.id===c.id; });
+    if(d && rc && recipeUsesRecipe(rc, d.id)) return false;
+  }
+  return true;
+}
+// 一张卡片 -> 食谱里的一条食材(结构照抄 ipConfirmOneQuickPick / ipSaveCustomItem 的 recipeIngredients 分支)
+function aiRecipeIngItem(row, cl){
+  if(cl.state==='skip') return null;
+  var name = (row.name||'').trim() || t('quickCalDefaultName');
+  function cloneJ(o){ return JSON.parse(JSON.stringify(o||{})); }
+  if(cl.state==='est'){
+    // AI估算(自定条目)：营养是针对\"这个数量\"估的。数量用 g/ml 的就照用；否则用AI估的克数；都没有就当 1 份。
+    var qty, unit;
+    if(row.amount>0 && (weightUnitToG(row.unit)!=null || volumeUnitToMl(row.unit)!=null)){ qty = row.amount; unit = row.unit; }
+    else if(row.grams>0){ qty = row.grams; unit = 'g'; }
+    else { qty = 1; unit = 'serving'; }
+    return {id:uid(), source_type:'custom', source_id:null, name_snapshot:name, amount:qty, unit:unit,
+      nutrition_snapshot:cl.nutrition, nutrition_extra_snapshot:cl.extra||{},
+      custom_base:{qty:qty, unit:unit, nutrition:cloneJ(cl.nutrition), extra:cloneJ(cl.extra)}};
+  }
+  var c = cl.cand;
+  if(!c) return null;
+  if(c.type==='inventory'){
+    bumpInventoryPickFrequency(c.id, cl.item.id);
+    return {id:uid(), source_type:'inventory', source_id:cl.item.id, name_snapshot:itemDisplayNameRaw(cl.item), amount:cl.effAmount, unit:cl.effUnit};
+  }
+  if(c.type==='external'){
+    bumpPickFrequency('external', cl.ing.id);
+    return {id:uid(), source_type:'external', source_id:cl.ing.id, name_snapshot:cl.ing.name, amount:cl.effAmount, unit:cl.effUnit};
+  }
+  if(c.type==='recipe'){
+    bumpPickFrequency('recipe', cl.recipe.id);
+    return {id:uid(), source_type:'recipe', source_id:cl.recipe.id, name_snapshot:cl.recipe.name, amount:cl.effAmount, unit:(cl.recipeUnit==='g' ? 'g' : t('servingsUnit'))};
+  }
+  if(c.type==='usda'){
+    bumpPickFrequency('usda', c.id);
+    return {id:uid(), source_type:'usda', source_id:c.id, name_snapshot:(cl.saved.description || c.label), amount:cl.effAmount, unit:cl.effUnit,
+      nutrition_snapshot_per100g: cl.pseudo.nutrition_snapshot_per100g, nutrition_extra_snapshot_per100g: cl.pseudo.nutrition_extra_snapshot_per100g,
+      usda_density_g_per_ml: cl.pseudo.usda_density_g_per_ml || null};
+  }
+  if(c.type==='custom'){
+    // 保存过的自定条目：换算后的营养整套带上，数量用换算后的(没有基准量就 1 份)，之后在食谱里改数量按这个基准等比换算
+    var cf = cl.custom;
+    var cq = cf.qty>0 ? Math.round(cf.qty*cl.ratio*100)/100 : 1;
+    var cu = cf.qty>0 ? cf.unit : 'serving';
+    cf.count = (cf.count||0)+1; cf.last = nowLocalIso(); saveCustomSaved();
+    return {id:uid(), source_type:'custom', source_id:null, name_snapshot:cf.name, amount:cq, unit:cu,
+      nutrition_snapshot:cl.nutrition, nutrition_extra_snapshot:cl.extra||{},
+      custom_base:{qty:cq, unit:cu, nutrition:cloneJ(cl.nutrition), extra:cloneJ(cl.extra)}};
+  }
+  return null;
+}
+function aiRecipeCommit(){
+  var am = state.aiMeal;
+  if(!am || am.loading || am.committed) return;
+  if(!am.items || !am.items.length){ showToast(t('aiMealNeedItems')); return; }
+  var live = am.items.filter(function(r){ return r.sel!==-2; });
+  if(!live.length){ showToast(t('aiMealNeedItems')); return; }
+  for(var i=0;i<am.items.length;i++){
+    var row = am.items[i];
+    var prob = aiMealRowProblem(row);
+    if(prob){
+      showToast(t('aiMealProblemRow').replace('{name}', (row.name||'').trim() || String(i+1)).replace('{why}', prob));
+      return;
+    }
+  }
+  if(!state.recipeDraft){ state.aiMeal = null; navigate('recipes'); return; }
+  am.committed = true;
+  var list = state.recipeDraft.ingredients || (state.recipeDraft.ingredients = []);
+  var added = 0;
+  live.forEach(function(r){
+    var it = aiRecipeIngItem(r, aiMealCalcRow(r));
+    if(it){ list.push(it); added++; }
+  });
+  state.aiMeal = null;
+  showToast(t('aiRecipeAdded').replace('{n}', added));
+  navigate('recipeForm');
+}
+function aiRecipeResultHtml(am){
+  return '<div id="aimeal-result" class="section-title" style="margin-top:6px;">'+t('aiMealResultTitle')+'</div>'+
+    '<p class="hint" style="margin:0 0 10px;">'+t('aiRecipeResultHint')+'</p>'+
+    (am.assumptions ? '<div class="form-group" style="background:var(--cream);"><div class="hint" style="margin:0 0 4px;font-weight:600;">'+t('aiMealAssumptions')+'</div><div style="font-size:14px;line-height:1.5;">'+esc(am.assumptions)+'</div></div>' : '')+
+    am.items.map(aiMealItemHtml).join('')+
+    '<button type="button" class="btn btn-outline" style="width:100%;margin-bottom:14px;" onclick="aiMealAddItem()">'+ic('plus',16)+' '+t('aiMealAddRow')+'</button>'+
+    '<div class="form-group"><div class="hint" style="margin:0 0 4px;">'+t('aiMealTotal')+'</div>'+
+      '<div id="aimeal-total" style="font-size:16px;font-weight:700;color:var(--cocoa);">'+esc(aiMealTotalsText(am))+'</div></div>'+
+    '<button class="btn btn-primary" style="width:100%;margin-bottom:18px;" onclick="aiMealCommit()">'+t('aiRecipeCommit')+'</button>';
+}
 function aiMealResultHtml(am){
+  if(am.forRecipe) return aiRecipeResultHtml(am);
   var slotTabs = aiMealSlotsForPicker(am).map(function(s){
     return '<div class="meal-tab'+(s===am.slot?' active':'')+'" onclick="aiMealSetSlot('+aj(s)+')"><div class="mt-name" style="font-size:16px;">'+t('mealSlot_'+s)+'</div></div>';
   }).join('');
@@ -19138,9 +19266,9 @@ function renderAiMeal(){
     return '<div class="aimeal-bubble aimeal-ai">'+esc(m.text)+'</div>';
   }).join('');
   if(am.loading) bubbles += '<div class="aimeal-bubble aimeal-ai" style="color:#B79B78;">'+t('aiMealThinking')+'</div>';
-  return '<div class="page-header"><button class="back-btn" onclick="cancelAiMeal()">'+ic('back',22)+'</button><h1>'+t('aiMealTitle')+'</h1></div>'+
+  return '<div class="page-header"><button class="back-btn" onclick="cancelAiMeal()">'+ic('back',22)+'</button><h1>'+t(am.forRecipe ? 'aiRecipeIngTitle' : 'aiMealTitle')+'</h1></div>'+
     '<div class="content">'+
-      (am.messages.length ? '' : '<p class="hint" style="margin:0 0 12px;">'+t('aiMealIntro')+'</p>')+
+      (am.messages.length ? '' : '<p class="hint" style="margin:0 0 12px;">'+t(am.forRecipe ? 'aiRecipeIntro' : 'aiMealIntro')+'</p>')+
       (bubbles ? '<div class="aimeal-chat">'+bubbles+'</div>' : '')+
       (am.items ? aiMealResultHtml(am) : '')+
       (am.loading ? '' : aiMealInputHtml(am, !!am.items))+
