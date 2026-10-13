@@ -956,7 +956,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.264';
+var BUILD_VERSION = '9.265';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -7415,6 +7415,11 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.265', items:[
+    {t:'tweak', zh:'USDA 标签的显示和搜索统一了：凡是显示 USDA 词条名的地方（USDA 详情页、库存“搜索添加”页、“同类”候选、AI 加餐/加食材的候选卡片等）都按标签显示，原词条名写在小字里；存下来的名字始终是原词条名。', en:'USDA tag display and search are now consistent: everywhere a USDA name is shown (USDA detail page, the inventory Search-add page, similar-food candidates, AI add-food candidate cards, ...) shows your tag with the original name in small text. Stored names are always the original USDA name.'},
+    {t:'new', zh:'AI 加餐 / AI 加食材现在认你“常用”里的 USDA 词条：不管说的是自己起的标签，还是 USDA 原词条名（带逗号的整段名字也认），都能直接对上；你的标签只在本机匹配，不会发给 AI。', en:'AI add-meal / AI add-ingredients now recognise USDA entries from your frequently-used list, whether you say your own tag or the original USDA name (even a long one with commas). Tags are matched on this phone only and are not sent to the AI.'},
+    {t:'new', zh:'搜索也一样：食谱列表搜食材、AI 搜索食谱、库存“搜索添加”页，输入标签或 USDA 原词条名都能搜到。', en:'Search too: recipe-list ingredient search, AI recipe search and the inventory Search-add page all find USDA entries by tag or original USDA name.'}
+  ]},
   {v:'9.264', items:[
     {t:'new', zh:'USDA 标签现在也会显示在记下来的食材上：三餐记录、食谱里的食材、套餐里的食材，凡是来自 USDA 的，都显示你的标签名（你没有标签就显示对方最新的，都没有就是原词条名）；点进详情/编辑，会把 USDA 原词条名也写出来。存下来的名字没有改，标签以后改了或删了，已经记下的也跟着变。', en:'USDA tags now also show on food you have already logged: USDA-sourced items in meal logs, recipe ingredients and meal sets show your tag (or the other phone\'s newest if you have none, or the original name if neither). Opening the details/edit page also shows the original USDA name. Stored names are untouched, so editing or deleting a tag later updates what is already logged.'},
     {t:'fix', zh:'在三餐/食谱「添加食材」页搜索时，关键词只命中 USDA 标签的话，USDA 这个 tab 也会出现小圆点（或自动跳过去），以前标签不参与这个判断。', en:'When searching in Add Food, a keyword that only matches a USDA tag now also puts the dot on the USDA tab (or jumps there). Tags used to be left out of that check.'}
@@ -8698,7 +8703,9 @@ function renderUsdaFoodDetail(){
   var fdcId = state.params.fdcId;
   var backTo = (state.params && state.params.from) || {view:'meals'};
   var f = (state.usdaSaved||{})[fdcId];
-  var title = (state.params && state.params.name) || (f && f.description) || t('usdaDetailFallbackTitle');
+  // README 9.265: 标题按标签显示(没有标签就是原词条名)，原词条名写在正文最上面。
+  var _origName = (f && f.description) || (state.params && state.params.name) || '';
+  var title = usdaDisplayName(fdcId, _origName) || t('usdaDetailFallbackTitle');
   var bodyHtml;
   if(!f){
     bodyHtml = '<p class="hint" style="margin:0;">'+t('usdaDetailMissingHint')+'</p>';
@@ -8710,7 +8717,7 @@ function renderUsdaFoodDetail(){
         ? '<p class="hint" style="margin:0 0 10px;">'+esc(t('usdaFilledTitlePre')+usdaMissLabels(f.filled.keys)+t('usdaFilledTitleMid')+(f.filled.source==='ai'?t('usdaFillSrcAi'):t('usdaFillSrcManual'))+t('usdaFilledTitleSuf'))+'</p>'
         : '<p class="hint" style="margin:0 0 10px;">'+esc(t('usdaMissTitlePre')+usdaMissLabels(f.missing)+t('usdaMissTitleSuf'))+'</p>';
     }
-    bodyHtml = (metaLine ? '<p class="hint" style="margin:0 0 10px;">'+esc(metaLine)+'</p>' : '') + _missNote +
+    bodyHtml = usdaOrigNameHintHtml(fdcId, f.description) + (metaLine ? '<p class="hint" style="margin:0 0 10px;">'+esc(metaLine)+'</p>' : '') + _missNote +
       recipeNutritionFactsBoxHtml(f.nutrition||{}, t('usdaDetailBasis'), f.nutrition_extra||{});
   }
   return '' +
@@ -10892,7 +10899,7 @@ function searchAddResultsHtml(ui){
   if(!ui.results.length) return '<p class="hint" style="padding:8px 0;">'+t('usdaSearchNoResults')+'</p>';
   return ui.results.map(function(f){
     var sub = usdaDataTypeLabel(f.dataType)+(f.brandName?(' · '+esc(f.brandName)):'');
-    return '<div class="list-row" style="cursor:pointer;" onclick="pickSearchAddResult('+aj(f.fdcId)+')"><div class="row-label">'+esc(f.description)+'<div class="hint" style="margin-top:2px;">'+sub+'</div></div>'+ic('chevronRight',16)+'</div>';
+    return '<div class="list-row" style="cursor:pointer;" onclick="pickSearchAddResult('+aj(f.fdcId)+')"><div class="row-label">'+esc(usdaDisplayName(f.fdcId, f.description))+'<div class="hint" style="margin-top:2px;">'+(usdaDisplayTag(f.fdcId) ? esc(f.description)+' · ' : '')+sub+'</div></div>'+ic('chevronRight',16)+'</div>';
   }).join('');
 }
 var searchAddUsdaTimer = null;
@@ -10913,13 +10920,20 @@ function onSearchAddInput(val){
 }
 async function runSearchAddUsdaSearch(q){
   var ui = state.searchAddUI;
+  // README 9.265: 本机"常用"里的词条也参与——输入的是标签名(中文)或USDA原词条名都能搜到，排在联网结果前面
+  var localHits = searchUsdaSaved(q, q).map(function(f){ return {fdcId:f.fdcId, description:f.description, dataType:f.dataType, brandName:f.brandName}; });
+  var liveResults = [];
   try{
-    var results = await usdaSearchFoods(q);
-    if(ui.query.trim()!==q) return; // stale - person kept typing
-    ui.results = results.slice(0,20);
+    liveResults = await usdaSearchFoods(q);
   }catch(e){
-    ui.results = [];
+    liveResults = [];
   }
+  if(ui.query.trim()!==q) return; // stale - person kept typing
+  (function(){
+    var seen = {};
+    localHits.forEach(function(f){ seen[String(f.fdcId)] = 1; });
+    ui.results = localHits.concat(liveResults.filter(function(f){ return !seen[String(f.fdcId)]; })).slice(0,20);
+  })();
   ui.loading = false;
   var el = document.getElementById('search-add-results');
   if(el) el.innerHTML = searchAddResultsHtml(ui);
@@ -11528,6 +11542,17 @@ function mealsetItemShownName(item){
   var nm = mealsetItemDisplayName(item);
   return (item.source_type==='usda' && item.source_id!=null && item.source_id!=='') ? usdaDisplayName(item.source_id, nm) : nm;
 }
+// README 9.265: 搜索用：这条食材的所有"叫法"(都转小写)。显示名按标签，但搜的时候标签(本机的和对方的)和 USDA 原词条名
+// 任何一个都能搜到——输入标签或原词条名都行。
+function recipeIngredientSearchNames(ri){
+  var out = [String(recipeIngredientDisplayName(ri)||'').toLowerCase()];
+  if(ri.source_type==='usda'){
+    var orig = usdaOriginalName(ri.source_id, ri.name_snapshot);
+    if(orig) out.push(orig.toLowerCase());
+    usdaMyTags(ri.source_id).concat(usdaRemoteTags(ri.source_id)).forEach(function(tg){ out.push(tg.text.toLowerCase()); });
+  }
+  return out;
+}
 function recipeIngredientDisplayName(ri){
   if(ri.source_type==='usda') return usdaDisplayName(ri.source_id, usdaOriginalName(ri.source_id, ri.name_snapshot) || '?'); // README 9.264
   var src = getIngredientSource(ri);
@@ -11556,7 +11581,7 @@ function getFilteredRecipes(){
         otherHit = catLabel.indexOf(q)!==-1;
         if(!otherHit){
           otherHit = (r.ingredients||[]).some(function(ri){
-            return ri.type!=='group' && (recipeIngredientDisplayName(ri)||'').toLowerCase().indexOf(q)!==-1;
+            return ri.type!=='group' && recipeIngredientSearchNames(ri).some(function(nm){ return nm.indexOf(q)!==-1; });
           });
         }
       }
@@ -16517,7 +16542,7 @@ function usdaMissingBannerHtml(af){
       panel = '<p class="hint" style="margin:0 0 6px;">'+esc(t('usdaSimilarHint'))+'</p>'+
         fillSt.similar.map(function(f){
           var sub = usdaDataTypeLabel(f.dataType)+(f.kcal!=null ? (' · '+Math.round(f.kcal)+' kcal / 100g') : '');
-          return '<div class="list-row" style="cursor:pointer;" onclick="pickUsdaSimilar('+aj(f.fdcId)+','+aj(f.description)+')"><div class="row-label" style="flex:1;min-width:0;">'+esc(f.description)+'<div class="hint" style="margin-top:2px;">'+esc(sub)+'</div></div></div>';
+          return '<div class="list-row" style="cursor:pointer;" onclick="pickUsdaSimilar('+aj(f.fdcId)+','+aj(f.description)+')"><div class="row-label" style="flex:1;min-width:0;">'+esc(usdaDisplayName(f.fdcId, f.description))+'<div class="hint" style="margin-top:2px;">'+esc((usdaDisplayTag(f.fdcId) ? f.description+' · ' : '')+sub)+'</div></div></div>';
         }).join('');
     }
   }
@@ -18188,6 +18213,11 @@ function aiMealTermVariants(term){
   return out;
 }
 function aiMealNorm(x){ return String(x||'').toLowerCase().replace(/[^\p{L}\p{N}]/gu, ''); }
+function aiMealPickExacts(cands){
+  var ex = cands.filter(function(c){ return c.exact; });
+  var nonU = ex.filter(function(c){ return c.type!=='usda'; });
+  return nonU.length ? nonU : ex; // README 9.265
+}
 function aiMealSearchLocal(terms){
   var out = [], idx = {};
   function add(c, exact){
@@ -18220,6 +18250,17 @@ function aiMealSearchLocal(terms){
       var csd = state.customSaved || {};
       Object.keys(csd).map(function(id){ return csd[id]; }).filter(function(f){ return f.name && f.name.toLowerCase().indexOf(vl)>=0; }).slice(0,3).forEach(function(f){
         add({type:'custom', id:f.id, label:f.name, sub:t('tabCustom')}, isExact(f.name));
+      });
+      // README 9.265: 你"常用"里的 USDA 词条也参与：不管说的是自己起的标签(本机的和对方的)，还是 USDA 原词条名、品牌，
+      // 名字包含这个词就算，同名为 exact。只在本机匹配，标签不会发给 AI。label 存的仍是原词条名(显示时才换成标签)。
+      var usv = state.usdaSaved || {};
+      Object.keys(usv).map(function(k){ return usv[k]; }).filter(function(f){
+        if((f.description||'').toLowerCase().indexOf(vl)>=0 || (f.brandName||'').toLowerCase().indexOf(vl)>=0) return true;
+        return usdaMyTags(f.fdcId).concat(usdaRemoteTags(f.fdcId)).some(function(tg){ return tg.text.toLowerCase().indexOf(vl)>=0; });
+      }).slice(0,3).forEach(function(f){
+        var tagExact = usdaMyTags(f.fdcId).concat(usdaRemoteTags(f.fdcId)).some(function(tg){ return isExact(tg.text); });
+        add({type:'usda', id:String(f.fdcId), label:f.description, localSaved:true,
+          sub:'USDA · '+usdaDataTypeLabel(f.dataType)+(f.brandName ? (' · '+f.brandName) : '')}, tagExact || isExact(f.description));
       });
     });
   });
@@ -18258,11 +18299,13 @@ function aiMealApplyCandUnit(row){
 function aiMealMakeRow(raw){
   var n = {};
   AI_MEAL_ALL.forEach(function(k){ n[k] = (raw[k]==null || isNaN(raw[k])) ? null : Number(raw[k]); });
-  var terms = (raw.search_terms && raw.search_terms.length) ? raw.search_terms : [raw.name];
+  var terms = (raw.search_terms && raw.search_terms.length) ? raw.search_terms.slice() : [raw.name];
+  // README 9.265: AI 可能把你说的标签换成别的说法(比如把"蛋蛋"理解成"鸡蛋")，所以也用原话再匹配一遍
+  if(raw.name && !terms.some(function(x){ return String(x).trim().toLowerCase()===String(raw.name).trim().toLowerCase(); })) terms.push(raw.name);
   var row = {name:raw.name, amount:raw.amount, unit:raw.unit || 'g', grams:(raw.grams>0 ? raw.grams : null), n:n, open:false,
     cands:aiMealSearchLocal(terms), sel:-1, review:false, touched:false,
     usdaQ:raw.usda_query||'', usdaState:'', wantUsdaDefault:false, autoSwitched:false, baseAmount:null, baseUnit:null};
-  var exacts = row.cands.filter(function(c){ return c.exact; });
+  var exacts = aiMealPickExacts(row.cands);
   if(exacts.length===1) row.sel = row.cands.indexOf(exacts[0]);
   // README 9.246: AI说这是单一的通用食材(给了usda_query)、而你的库存/食材库里有对应的(哪怕名字不是完全相同)：
   // 默认选中其中最靠前(同名优先、再按常用程度)的那一条，不再停在"AI估算"；卡片仍标"请确认"。
@@ -18641,7 +18684,7 @@ function aiMealLocalResolve(item){
   if(cn ? nn.length<2 : nn.length<3) return null;
   var cands = aiMealSearchLocal([item.name]);
   if(!cands.length) return null;
-  var exacts = cands.filter(function(c){ return c.exact; });
+  var exacts = aiMealPickExacts(cands);
   var pick = null, review = false;
   if(exacts.length===1) pick = exacts[0];
   else if(exacts.length>1){ pick = exacts[0]; review = true; }
@@ -18659,11 +18702,31 @@ function aiMealLocalResolve(item){
   if(portion){ row.aiName = item.name; row.name = pick.label; row.nameFromCand = row.name; }
   return row;
 }
+// README 9.265: USDA 原词条名常常自带逗号("Egg, whole, cooked, fried")，标签里也可能有逗号；
+// 口述里出现这样一个完整的名字时，先把它里面的标点保护起来，不让"按逗号拆成几样食物"把它拆散。
+function aiMealProtectCommaNames(src){
+  var names = [], us = state.usdaSaved || {};
+  Object.keys(us).forEach(function(k){
+    var f = us[k];
+    if(f.description && /[,，、；;]/.test(f.description)) names.push(f.description);
+    usdaMyTags(f.fdcId).concat(usdaRemoteTags(f.fdcId)).forEach(function(tg){ if(/[,，、；;]/.test(tg.text)) names.push(tg.text); });
+  });
+  names.sort(function(a,b){ return b.length-a.length; });
+  var out = String(src||'');
+  names.forEach(function(nm){
+    var i = out.toLowerCase().indexOf(nm.toLowerCase());
+    if(i>=0) out = out.slice(0,i) + out.substr(i, nm.length).replace(/[,，、；;]/g, function(ch){ return '\u0001'+ch.charCodeAt(0)+'\u0002'; }) + out.slice(i+nm.length);
+  });
+  return out;
+}
+function aiMealUnprotectCommas(s){
+  return String(s||'').replace(/\u0001(\d+)\u0002/g, function(_, c){ return String.fromCharCode(Number(c)); });
+}
 function aiMealLocalFirst(text){
   var src = String(text||'');
   if(!src.trim()) return {rows:[], rest:src};
   if(/今天|昨天|前天|早餐|早饭|早上|午餐|午饭|中午|晚餐|晚饭|晚上|加餐|零食|宵夜|夜宵|周[一二三四五六日天]|星期|breakfast|lunch|dinner|snack|today|yesterday/i.test(src)) return {rows:[], rest:src};
-  var chunks = src.split(/[，,、；;。！!？?+＋\n]+/).map(function(x){ return x.trim(); }).filter(Boolean).slice(0,12);
+  var chunks = aiMealProtectCommaNames(src).split(/[，,、；;。！!？?+＋\n]+/).map(function(x){ return aiMealUnprotectCommas(x.trim()); }).filter(Boolean).slice(0,12);
   var rows = [], restPieces = [];
   chunks.forEach(function(chunk){
     var parses = aiMealChunkParses(chunk), got = null;
@@ -18896,14 +18959,17 @@ function aiMealCandsHtml(am, i){
     var sub = c.sub;
     if(c.type==='usda' && c.loading) sub += ' · '+t('aiMealNutriLoading');
     if(c.type==='usda' && c.failed) sub += ' · '+t('aiMealUsdaFail');
+    // README 9.265: USDA 候选显示标签(存下来的仍是原词条名 c.label)，原词条名写在小字里
+    var shownLabel = c.label;
+    if(c.type==='usda'){ var _tg = usdaDisplayTag(c.id); if(_tg){ shownLabel = _tg; sub = c.label+' · '+sub; } }
     return '<div class="aimeal-cand'+(row.sel===j?' sel':'')+'" onclick="aiMealPick('+i+','+j+')"><span class="aimeal-radio"></span>'+
-      '<div style="min-width:0;"><div class="aimeal-cand-name">'+esc(c.label)+'</div><div class="hint aimeal-cand-sub">'+esc(sub)+'</div></div></div>';
+      '<div style="min-width:0;"><div class="aimeal-cand-name">'+esc(shownLabel)+'</div><div class="hint aimeal-cand-sub">'+esc(sub)+'</div></div></div>';
   }).join('');
   var usdaLine = '';
   if(row.usdaState==='loading') usdaLine = '<div class="hint" style="margin:6px 0 0;">'+t('aiMealUsdaLoading')+'</div>';
   else if(row.usdaState==='fail') usdaLine = '<div class="hint" style="margin:6px 0 0;">'+t('aiMealUsdaFail')+' <a onclick="aiMealUsdaSearchBtn('+i+')" style="color:var(--deep-caramel);text-decoration:underline;">'+t('aiMealUsdaRetry')+'</a></div>';
   else if(row.usdaState==='empty') usdaLine = '<div class="hint" style="margin:6px 0 0;">'+t('aiMealUsdaEmpty')+'</div>';
-  else if(!row.cands.some(function(c){ return c.type==='usda'; })) usdaLine = '<div style="margin-top:6px;"><a class="hint" onclick="aiMealUsdaSearchBtn('+i+')" style="color:var(--deep-caramel);text-decoration:underline;">'+t('aiMealUsdaSearchBtn')+'</a></div>';
+  else if(!row.cands.some(function(c){ return c.type==='usda' && !c.localSaved; })) usdaLine = '<div style="margin-top:6px;"><a class="hint" onclick="aiMealUsdaSearchBtn('+i+')" style="color:var(--deep-caramel);text-decoration:underline;">'+t('aiMealUsdaSearchBtn')+'</a></div>';
   return rows+
     '<div class="aimeal-cand'+(row.sel===-1?' sel':'')+'" onclick="aiMealPick('+i+',-1)"><span class="aimeal-radio"></span><div class="aimeal-cand-name">'+t('aiMealCandEst')+'</div></div>'+
     '<div class="aimeal-cand'+(row.sel===-2?' sel':'')+'" onclick="aiMealPick('+i+',-2)"><span class="aimeal-radio"></span><div class="aimeal-cand-name">'+t('aiMealCandSkip')+'</div></div>'+
@@ -19416,7 +19482,7 @@ function aiSearchRecipes(as){
   if(!terms.length) return [];
   state.recipes.forEach(function(r){
     var ings = (r.ingredients||[]).filter(function(ri){ return ri.type!=='group'; })
-      .map(function(ri){ return String(recipeIngredientDisplayName(ri)||'').toLowerCase(); });
+      .reduce(function(a, ri){ return a.concat(recipeIngredientSearchNames(ri)); }, []); // README 9.265: 标签和原词条名都能搜
     var sc = aiSearchScore([String(r.name||'').toLowerCase()],
       [String(recipeCategoryLabel(r)||'').toLowerCase()].concat(ings),
       String(r.notes||'').toLowerCase(), terms);
