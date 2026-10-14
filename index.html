@@ -956,7 +956,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.266';
+var BUILD_VERSION = '9.267';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -3578,7 +3578,8 @@ function usdaDisplayTag(fdcId){
   return theirs.length ? theirs[0].text : '';
 }
 function usdaDisplayName(fdcId, description){ return usdaDisplayTag(fdcId) || description; }
-function usdaTagCleanText(s){ return String(s||'').replace(/\s+/g,' ').trim().slice(0,30); }
+// README 9.267: 不再限制标签字数(以前截到30字，英文长词条名经常不够用)；输入框也去掉了maxlength
+function usdaTagCleanText(s){ return String(s||'').replace(/\s+/g,' ').trim(); }
 function saveUsdaTags(){
   var p = storageSet('usdaTags', state.usdaTags);
   try{ cloudSyncPushUsdaTags(true); }catch(e){}
@@ -3622,12 +3623,12 @@ function usdaTagsInnerHtml(af){
   var html = '';
   mine.forEach(function(tg){
     html += '<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">'+
-      '<input type="text" maxlength="30" value="'+esc(tg.text)+'" style="flex:1;min-width:0;" onchange="onUsdaTagRename('+aj(fdcId)+','+aj(tg.id)+',this.value)">'+
+      '<input type="text" autocapitalize="words" value="'+esc(tg.text)+'" style="flex:1;min-width:0;" onchange="onUsdaTagRename('+aj(fdcId)+','+aj(tg.id)+',this.value)">'+
       '<button class="icon-btn" onclick="onUsdaTagRemove('+aj(fdcId)+','+aj(tg.id)+')" aria-label="'+esc(t('delete'))+'">'+ic('trash',18)+'</button>'+
     '</div>';
   });
   html += '<div style="display:flex;gap:8px;align-items:center;">'+
-    '<input type="text" id="af-usda-tag-input" maxlength="30" placeholder="'+esc(t('usdaTagPlaceholder'))+'" value="'+esc(af.usdaTagDraft||'')+'" style="flex:1;min-width:0;" oninput="activeAddCtx().usdaTagDraft=this.value" onkeydown="if(event.key===\'Enter\'){event.preventDefault();onUsdaTagAdd('+aj(fdcId).replace(/"/g,'&quot;')+');}">'+
+    '<input type="text" id="af-usda-tag-input" autocapitalize="words" placeholder="'+esc(t('usdaTagPlaceholder'))+'" value="'+esc(af.usdaTagDraft||'')+'" style="flex:1;min-width:0;" oninput="activeAddCtx().usdaTagDraft=this.value" onkeydown="if(event.key===\'Enter\'){event.preventDefault();onUsdaTagAdd('+aj(fdcId).replace(/"/g,'&quot;')+');}">'+
     '<button class="btn btn-outline btn-sm" style="flex-shrink:0;" onclick="onUsdaTagAdd('+aj(fdcId)+')">'+esc(t('usdaTagAddBtn'))+'</button>'+
   '</div>';
   if(theirs.length){
@@ -7388,7 +7389,7 @@ function renderShoppingList(){
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'home\')">'+ic('back',22)+'</button><h1>'+t('shopTitle')+'</h1><button class="icon-btn" onclick="toggleSidebar(\'home\')">'+ic('menu',20)+'</button></div>'+
   '<div class="content">'+
     '<p class="hint" style="margin-bottom:12px;">'+t('shopTopHint')+'</p>'+
-    '<div class="sidebar-inline-add-row" style="margin-bottom:12px;"><input id="shop-add-input" type="text" placeholder="'+esc(t('shopAddPlaceholder'))+'" onkeydown="shoppingInputKey(event)"><button onclick="shoppingAddManual()">'+t('shopAddBtn')+'</button></div>'+
+    '<div class="sidebar-inline-add-row" style="margin-bottom:12px;"><input id="shop-add-input" type="text" autocapitalize="words" placeholder="'+esc(t('shopAddPlaceholder'))+'" onkeydown="shoppingInputKey(event)"><button onclick="shoppingAddManual()">'+t('shopAddBtn')+'</button></div>'+
     (todo.length ? todo.map(shoppingRowHtml).join('') : '<p class="hint" style="text-align:center;margin:24px 0;">'+t('shopEmpty')+'</p>')+
     (done.length ? ('<div class="sidebar-section-title" style="margin-top:18px;"><span>'+t('shopBoughtTitle')+' ('+done.length+')</span></div>'+
       '<p class="hint" style="margin-bottom:8px;">'+t('shopBoughtHint')+'</p>'+done.map(shoppingRowHtml).join('')) : '')+
@@ -7459,6 +7460,10 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.267', items:[
+    {t:'new', zh:'所有需要输入名称的地方，用英文输入法时都会自动把每个单词的首字母大写（中文输入法不受影响）。这次补上了之前漏掉的：USDA 标签、购物清单添加、AI 加餐里的食物名、AI 套餐名。', en:'Everywhere you type a name with the English keyboard, each word now starts with a capital letter automatically (Chinese input is unaffected). Added to the spots that were missed: USDA tags, shopping-list add, food names in AI add-meal, and the AI meal-set name.'},
+    {t:'fix', zh:'USDA 标签不再有字数限制（以前最多 30 个字符，长的英文词条名输不全）。', en:'USDA tags no longer have a length limit (it used to stop at 30 characters, which was too short for long English entry names).'}
+  ]},
   {v:'9.266', items:[
     {t:'fix', zh:'已添加的三餐条目点进去修改数量时，现在也能输入分数了（以前弹出的是只有小数点的数字键盘，没有“/”）。其它数量框也一并检查过：恢复数量、补货提醒线、食谱“自定”食材用量、“自定”食物的基准数量、AI 加餐的数量框，都不再挡住分数。', en:'Editing the amount of a logged meal entry now accepts fractions (it used to show a digit-only keypad with no \"/\"). The other quantity boxes were checked too: restore quantity, restock threshold, custom recipe ingredient amount, base quantity of custom foods and the AI meal amount box no longer block fractions.'},
     {t:'fix', zh:'数量的显示统一了：你输入分数（3/4、1 1/2）就显示分数，输入小数（0.75、0.80）就按你输入的小数显示，不再自己换算成小数、也不再进位（以前三餐页把 3/4 显示成 0.8）。三餐记录、套餐、食谱食材、取用记录、库存数量都一样；数量后来被改过、扣过或按份数换算过，就自动显示数值（最多 3 位小数，不再四舍五入成 1 位）。', en:'Quantities are now shown the way you typed them: a fraction (3/4, 1 1/2) stays a fraction and a decimal (0.75, 0.80) stays that decimal - no converting to decimals and no rounding up (the meal page used to show 3/4 as 0.8). This applies to meal logs, meal sets, recipe ingredients, usage history and stock quantity. If the amount was later changed, deducted or scaled, the plain number is shown (up to 3 decimals, no longer rounded to 1).'}
@@ -19319,7 +19324,7 @@ function aiMealItemHtml(it, i){
   var sumBox = (it.sel>=0) ? '<div id="aimeal-sum-'+i+'" style="margin-top:10px;padding:10px 12px;border-radius:9px;background:var(--cream);">'+aiMealSumHtml(it)+'</div>' : '<div id="aimeal-sum-'+i+'"></div>';
   return '<div class="form-group"'+(skipped?' style="opacity:.55;"':'')+'>'+
     '<div style="display:flex;gap:8px;align-items:center;">'+
-      '<input class="aimeal-in" style="flex:1;min-width:0;font-weight:600;" type="text" placeholder="'+t('aiMealNamePh')+'" value="'+esc(it.name)+'" oninput="aiMealSetName('+i+',this.value)">'+
+      '<input class="aimeal-in" style="flex:1;min-width:0;font-weight:600;" type="text" autocapitalize="words" placeholder="'+t('aiMealNamePh')+'" value="'+esc(it.name)+'" oninput="aiMealSetName('+i+',this.value)">'+
       '<button type="button" class="icon-btn" onclick="aiMealRemoveItem('+i+')" aria-label="'+t('delete')+'">'+ic('trash',18)+'</button>'+
     '</div>'+
     (it.review && !skipped ? '<div style="margin-top:6px;"><span class="aimeal-review">'+t('aiMealReview')+'</span></div>' : '')+
@@ -19466,7 +19471,7 @@ function aiMealResultHtml(am){
       '<div class="meal-tab'+(am.mode==='set'?' active':'')+'" onclick="aiMealSetMode(\'set\')"><div class="mt-name" style="font-size:16px;">'+t('aiMealModeSet')+'</div></div>'+
     '</div>'+
     '<p class="hint" style="margin:0 0 10px;">'+(am.mode==='set' ? t('aiMealModeSetHint') : t('aiMealModeItemHint'))+'</p>'+
-    (am.mode==='set' ? '<input class="aimeal-in" style="margin-bottom:10px;" type="text" placeholder="'+esc(effSetName)+'" value="'+esc(am.setName)+'" oninput="state.aiMeal.setName=this.value">' : '')+
+    (am.mode==='set' ? '<input class="aimeal-in" style="margin-bottom:10px;" type="text" autocapitalize="words" placeholder="'+esc(effSetName)+'" value="'+esc(am.setName)+'" oninput="state.aiMeal.setName=this.value">' : '')+
     '<button class="btn btn-primary" style="width:100%;margin-bottom:18px;" onclick="aiMealCommit()">'+t('aiMealCommit').replace('{target}', esc(aiMealTargetLabel(am)))+'</button>';
 }
 /* ======================= AI 搜索（库存页 / 食谱页的悬浮 AI 按钮）README 9.258 ======================= */
