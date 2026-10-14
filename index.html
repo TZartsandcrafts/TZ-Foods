@@ -956,7 +956,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.265';
+var BUILD_VERSION = '9.266';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -3925,6 +3925,49 @@ function parseAmountInput(str){
 // spoon/cup measure, or an amount that isn't close to a common fraction, still just shows as a
 // plain number via fmtNum (now at 2 decimals instead of 1, so even an unmatched odd decimal
 // reads as "0.25" rather than "0.3").
+// ===================== README 9.266: 数量的\"原样写法\"(分数/小数)和统一显示 =====================
+// 规则：输入分数(3/4、1 1/2)就按分数显示，输入小数(0.75、0.5)就按输入的小数显示；不替人把分数换算成小数，
+// 也不四舍五入进位(以前三餐列表把 0.75 显示成 0.8)。做法：保存数量时，如果输入里带分数线或小数点，就把这段原文
+// 另存成 amount_text(库存数量是 primary_qty_text)，显示时优先用原文；原文只有在\"跟现在的数值对得上\"时才用——
+// 数量后来被改了/扣了/按份数换算过，对不上了就自动退回数值显示，不会显示过期的写法。没有原文的老数据，
+// 数值显示就是\"能精确表示就精确显示(最多 3 位小数)，否则 2 位小数\"，不再四舍五入成 1 位。
+function fmtAmountPlain(n){
+  if(n==null || isNaN(n)) return '-';
+  n = Number(n);
+  for(var d=0; d<=3; d++){
+    var f = Math.pow(10, d);
+    if(Math.abs(n - Math.round(n*f)/f) < 1e-9) return fmtNum(n, d);
+  }
+  return fmtNum(n, 2);
+}
+// 只认\"纯分数\"和\"纯小数\"两种写法(整数不用存)，别的(带单位、算式、乱七八糟)一律不存，所以存下来的原文可以放心直接显示
+function amountTextToStore(raw, value){
+  var s = String(raw==null ? '' : raw).trim().replace(/\s+/g, ' ');
+  if(!s || value==null || isNaN(value)) return undefined;
+  var okFrac = /^(\d+ )?\d+ ?\/ ?\d+$/.test(s);
+  var okDec = /^\d*\.\d+$/.test(s);
+  if(!okFrac && !okDec) return undefined;
+  var v = parseAmountInput(s);
+  if(v==null || isNaN(v) || Math.abs(v - value) > 1e-9) return undefined;
+  return s;
+}
+function amountTextValid(amount, text){
+  if(!text || amount==null || isNaN(amount)) return false;
+  var s = String(text);
+  if(!(/^(\d+ )?\d+ ?\/ ?\d+$/.test(s) || /^\d*\.\d+$/.test(s))) return false;
+  var v = parseAmountInput(s);
+  return v!=null && !isNaN(v) && Math.abs(v - amount) < 1e-6;
+}
+function fmtAmountText(amount, unit, text){
+  if(amountTextValid(amount, text)) return String(text);
+  return fmtAmount(amount, unit);
+}
+function fmtAmountOf(obj){ return fmtAmountText(obj.amount, obj.unit, obj.amount_text); }
+// 保存时用：把输入框里的原文写到(或从)记录上
+function setAmountTextOn(obj, raw, value){
+  var txt = amountTextToStore(raw, value);
+  if(txt) obj.amount_text = txt; else delete obj.amount_text;
+}
 var FRACTION_DISPLAY_UNITS = ['tsp','tbsp','cup'];
 var COMMON_COOKING_FRACTIONS = [
   [1/8,'1/8'], [1/4,'1/4'], [1/3,'1/3'], [3/8,'3/8'], [1/2,'1/2'],
@@ -3942,7 +3985,7 @@ function fmtAmount(amount, unit){
       }
     }
   }
-  return fmtNum(amount, 2);
+  return fmtAmountPlain(amount); // README 9.266: 不再强行四舍五入，能精确表示就精确显示
 }
 function todayStr(){
   var d = new Date();
@@ -4429,7 +4472,7 @@ function packSubDigits(packUnit){
   var k = (packUnit||'').trim().toLowerCase();
   return (k==='kg' || k==='l') ? 2 : 0;
 }
-function qtyGroupDisplayText(qty, unit, packAmount, packUnit, qtyDigits){
+function qtyGroupDisplayText(qty, unit, packAmount, packUnit, qtyDigits, qtyText){
   if(packAmount!=null && packUnit){
     // README 9.116: replaced the old "round the container count to the nearest .5" display
     // (which could only ever show 1件/0.5件/0件-style quantization, AND made the edit page's
@@ -4453,21 +4496,22 @@ function qtyGroupDisplayText(qty, unit, packAmount, packUnit, qtyDigits){
     var containers = (totalSub==null) ? null : (totalSub<=1e-9 ? 0 : Math.ceil(totalSub/packAmount - 1e-6));
     return fmtNum(totalSub, packSubDigits(packUnit))+packUnit+' / '+fmtNum(containers,0)+(unit||'');
   }
-  return fmtNum(qty, qtyDigits) + (unit||'');
+  // README 9.266: 有原样写法且对得上就显示原样；否则能精确表示就精确显示(最多3位小数，0.375不再进位成0.38)，不能就2位小数
+  return (amountTextValid(qty, qtyText) ? qtyText : (qtyDigits>=2 ? fmtAmountPlain(qty) : fmtNum(qty, qtyDigits))) + (unit||'');
 }
 function qtyDisplay(item){
-  var parts = [qtyGroupDisplayText(item.primary_qty, item.primary_unit, item.primary_pack_amount, item.primary_pack_unit, 2)];
+  var parts = [qtyGroupDisplayText(item.primary_qty, item.primary_unit, item.primary_pack_amount, item.primary_pack_unit, 2, item.primary_qty_text)];
   (item.secondary_units||[]).forEach(function(g){
-    if(g.unit && g.qty != null) parts.push(qtyGroupDisplayText(g.qty, g.unit, g.pack_amount, g.pack_unit, 1));
+    if(g.unit && g.qty != null) parts.push(qtyGroupDisplayText(g.qty, g.unit, g.pack_amount, g.pack_unit, 2, g.qty_text));
   });
   return parts.join(' / ');
 }
 // Same groups as qtyDisplay, but rendered one-per-line (used on the item detail hero stock
 // box) instead of slash-joined on one line, so multiple measurement groups don't run together.
 function qtyDisplayLines(item){
-  var parts = [qtyGroupDisplayText(item.primary_qty, item.primary_unit, item.primary_pack_amount, item.primary_pack_unit, 2)];
+  var parts = [qtyGroupDisplayText(item.primary_qty, item.primary_unit, item.primary_pack_amount, item.primary_pack_unit, 2, item.primary_qty_text)];
   (item.secondary_units||[]).forEach(function(g){
-    if(g.unit && g.qty != null) parts.push(qtyGroupDisplayText(g.qty, g.unit, g.pack_amount, g.pack_unit, 1));
+    if(g.unit && g.qty != null) parts.push(qtyGroupDisplayText(g.qty, g.unit, g.pack_amount, g.pack_unit, 2, g.qty_text));
   });
   return parts.map(function(p){ return '<div>'+p+'</div>'; }).join('');
 }
@@ -4563,7 +4607,7 @@ function restoreArchivedItem(id){
       '<p class="hint" style="margin:0 0 12px;">'+esc(t('restoreQtyHint'))+'</p>'+
       '<div class="field"><label>'+esc(t('restoreQtyLabel'))+'</label>'+
         '<div style="display:flex;gap:8px;align-items:center;">'+
-          '<input type="text" id="restore-qty" inputmode="decimal" style="flex:1;min-width:0;">'+
+          '<input type="text" id="restore-qty" style="flex:1;min-width:0;">'+
           '<span style="flex-shrink:0;">'+esc(it.primary_unit||'')+'</span>'+
         '</div></div>'+
       '<div class="btn-row" style="margin-top:14px;">'+
@@ -4938,7 +4982,7 @@ function buildMealsetLogItems(mealset, multiplier, visited){
     var computed = recomputeMealsetLogItemNutrition(scaledItem);
     out.push({
       id: uid(), source_type: it.source_type, source_id: it.source_id,
-      name: mealsetItemDisplayName(it), amount: scaledItem.amount, unit: it.unit,
+      name: mealsetItemDisplayName(it), amount: scaledItem.amount, amount_text: it.amount_text, unit: it.unit,
       nutrition: computed.nutrition, nutrition_extra: computed.nutrition_extra, deduct: it.source_type==='inventory',
       // README 9.203: 同上一条注释——这两行是这次一并修的bug，让usda/custom条目在草稿/已存记录
       // 里被编辑数量后还能正确重算，不会清零。
@@ -7155,7 +7199,7 @@ function copyItemToNewForm(id){
   // 价格、营养、保质期时长等)照抄。这些被删掉的字段在 openItemForm 里会落回空白新条目的默认值(购买日期=今天)。
   if(existing.archived){
     delete clone.archived; delete clone.archived_at; delete clone.archived_auto; delete clone.archived_reason;
-    delete clone.primary_qty; delete clone.purchase_date; delete clone.expiry_date; delete clone.production_date; delete clone.last_recount_at;
+    delete clone.primary_qty; delete clone.primary_qty_text; delete clone.purchase_date; delete clone.expiry_date; delete clone.production_date; delete clone.last_recount_at;
     (clone.secondary_units||[]).forEach(function(g){ g.qty = null; });
   }
   var srcPhoto = clone.photo_url;
@@ -7415,6 +7459,10 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.266', items:[
+    {t:'fix', zh:'已添加的三餐条目点进去修改数量时，现在也能输入分数了（以前弹出的是只有小数点的数字键盘，没有“/”）。其它数量框也一并检查过：恢复数量、补货提醒线、食谱“自定”食材用量、“自定”食物的基准数量、AI 加餐的数量框，都不再挡住分数。', en:'Editing the amount of a logged meal entry now accepts fractions (it used to show a digit-only keypad with no \"/\"). The other quantity boxes were checked too: restore quantity, restock threshold, custom recipe ingredient amount, base quantity of custom foods and the AI meal amount box no longer block fractions.'},
+    {t:'fix', zh:'数量的显示统一了：你输入分数（3/4、1 1/2）就显示分数，输入小数（0.75、0.80）就按你输入的小数显示，不再自己换算成小数、也不再进位（以前三餐页把 3/4 显示成 0.8）。三餐记录、套餐、食谱食材、取用记录、库存数量都一样；数量后来被改过、扣过或按份数换算过，就自动显示数值（最多 3 位小数，不再四舍五入成 1 位）。', en:'Quantities are now shown the way you typed them: a fraction (3/4, 1 1/2) stays a fraction and a decimal (0.75, 0.80) stays that decimal - no converting to decimals and no rounding up (the meal page used to show 3/4 as 0.8). This applies to meal logs, meal sets, recipe ingredients, usage history and stock quantity. If the amount was later changed, deducted or scaled, the plain number is shown (up to 3 decimals, no longer rounded to 1).'}
+  ]},
   {v:'9.265', items:[
     {t:'tweak', zh:'USDA 标签的显示和搜索统一了：凡是显示 USDA 词条名的地方（USDA 详情页、库存“搜索添加”页、“同类”候选、AI 加餐/加食材的候选卡片等）都按标签显示，原词条名写在小字里；存下来的名字始终是原词条名。', en:'USDA tag display and search are now consistent: everywhere a USDA name is shown (USDA detail page, the inventory Search-add page, similar-food candidates, AI add-food candidate cards, ...) shows your tag with the original name in small text. Stored names are always the original USDA name.'},
     {t:'new', zh:'AI 加餐 / AI 加食材现在认你“常用”里的 USDA 词条：不管说的是自己起的标签，还是 USDA 原词条名（带逗号的整段名字也认），都能直接对上；你的标签只在本机匹配，不会发给 AI。', en:'AI add-meal / AI add-ingredients now recognise USDA entries from your frequently-used list, whether you say your own tag or the original USDA name (even a long one with commas). Tags are matched on this phone only and are not sent to the AI.'},
@@ -7741,7 +7789,7 @@ function restockSectionHtml(d){
   if(st.enabled){
     body = '<div class="hint" style="margin-bottom:8px;">'+t('restockWhen')+'</div>'+
       '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'+
-        '<input type="text" inputmode="decimal" value="'+esc(st.text||'')+'" oninput="setRestockThreshold(this.value)" style="flex:1;min-width:90px;">'+
+        '<input type="text" value="'+esc(st.text||'')+'" oninput="setRestockThreshold(this.value)" style="flex:1;min-width:90px;">'+
         (opts.length ? '<div class="tag-select" style="flex-shrink:0;">'+opts.map(function(u){
           return '<div class="tag-option '+(unit===u?'active':'')+'" onclick="setRestockUnit('+aj(u)+')">'+esc(u)+'</div>';
         }).join('')+'</div>' : '')+
@@ -8009,13 +8057,18 @@ function setPrimaryQty(val){ state.itemDraft.primary_qty = (val==='') ? null : p
 function setSecondaryQty(idx, val){ state.itemDraft.secondary_units[idx].qty = (val==='') ? null : parseAmountInput(val); }
 function onPrimaryQtyBlur(el){
   var v = evalQtyExpression(el.value);
-  el.value = (v==null) ? '' : v;
+  var txt = amountTextToStore(el.value, v); // README 9.266: 输入的是分数/小数就保留原样写法，不替人换成别的小数
+  el.value = (v==null) ? '' : (txt || v);
   state.itemDraft.primary_qty = v;
+  if(txt) state.itemDraft.primary_qty_text = txt; else delete state.itemDraft.primary_qty_text;
 }
 function onSecondaryQtyBlur(el, idx){
   var v = evalQtyExpression(el.value);
-  el.value = (v==null) ? '' : v;
-  state.itemDraft.secondary_units[idx].qty = v;
+  var txt = amountTextToStore(el.value, v); // README 9.266
+  el.value = (v==null) ? '' : (txt || v);
+  var g = state.itemDraft.secondary_units[idx];
+  g.qty = v;
+  if(txt) g.qty_text = txt; else delete g.qty_text;
 }
 function addQtyGroup(){
   state.itemDraft.secondary_units = state.itemDraft.secondary_units || [];
@@ -8090,7 +8143,8 @@ function qtyGroupSpecRowHtml(idx, isLast){
   // rather than a usable number. Rounding it for DISPLAY only (never touches what's actually
   // stored/used for the next deduction, which stays exactly as precise as before) keeps this
   // box legible without losing any accuracy where it matters.
-  var qtyDisplayVal = (qty==null) ? '' : fmtNum(qty, 3);
+  var qtyText = idx==null ? state.itemDraft.primary_qty_text : (state.itemDraft.secondary_units[idx]||{}).qty_text;
+  var qtyDisplayVal = (qty==null) ? '' : (amountTextValid(qty, qtyText) ? qtyText : fmtNum(qty, 3)); // README 9.266: 有原样写法且对得上就显示原样
   // ...and directly under the row, spell out what that count actually means in real terms -
   // "剩余约 900g" - since "0.9件" on its own doesn't tell Lynn how much is actually left the
   // way a real weight/volume amount does (see README 9.116).
@@ -9883,7 +9937,7 @@ function usageLogRowHtml(entry, itemId, readOnly){
   // green-for-increase convention as transfer_in when the adjustment raised the stock, so a
   // quick scan of the log tells decreases and increases apart at a glance.
   var amountColor = (isTransferIn || (isAdjust && entry.delta_primary<0)) ? 'var(--fresh)' : 'var(--cocoa)';
-  var amountHtml = fmtNum(entry.amount,2)+esc(entry.unit);
+  var amountHtml = esc(fmtAmountOf(entry))+esc(entry.unit);
   if(isTransferIn) amountHtml = '+'+amountHtml;
   // transfer_in is a read-only mirror of a move_location entry that lives on the OTHER item
   // (see README 9.78 / performLocationMove) - there's nothing here to edit, delete, or restore
@@ -9957,7 +10011,7 @@ function openUsageLogEdit(itemId, entryId){
   state.usageDraft = {
     date: entry.date, destination_type: entry.destination_type,
     destination_text: entry.destination_text||'', recipe_id: entry.recipe_id||'', move_location:'',
-    amount: entry.amount, unit: entry.unit, _editingEntryId: entryId
+    amount: entry.amount, amount_text: entry.amount_text, unit: entry.unit, _editingEntryId: entryId
   };
   var ed = new Date(entry.date+'T00:00:00');
   state.usageCalUI = {year: ed.getFullYear(), month: ed.getMonth()};
@@ -10107,7 +10161,7 @@ function renderUsageLogAdd(){
     '</div>'+
     '<div class="field"><label>'+t(isAdjust?'usageAdjustAmountLabel':'usageAmount')+'</label>'+
       '<div style="display:flex;gap:8px;align-items:center;">'+
-        '<input type="text" autofocus value="'+(d.amount!=null?d.amount:'')+'" oninput="setUsageField(\'amount\',this.value)" style="flex:1;min-width:0;">'+
+        '<input type="text" autofocus value="'+(d.amount!=null ? (amountTextValid(d.amount, d.amount_text) ? d.amount_text : d.amount) : '')+'" oninput="setUsageField(\'amount\',this.value)" style="flex:1;min-width:0;">'+
         '<div class="tag-select" style="flex-shrink:0;">'+unitOptions.map(function(u){
           return '<div class="tag-option '+(d.unit===u?'active':'')+'" onclick="setUsageUnit('+aj(u)+')">'+esc(u)+'</div>';
         }).join('')+'</div>'+
@@ -10145,7 +10199,7 @@ function renderUsageLogAdd(){
   '</div>';
 }
 function setUsageField(key, val){
-  if(key==='amount'){ state.usageDraft.amount = (val==='') ? null : parseAmountInput(val); }
+  if(key==='amount'){ state.usageDraft.amount = (val==='') ? null : parseAmountInput(val); state.usageDraft.amount_text = amountTextToStore(val, state.usageDraft.amount); /* README 9.266 */ }
   else { state.usageDraft[key] = val; }
 }
 function setUsageUnit(u){ state.usageDraft.unit = u; render(); }
@@ -10309,6 +10363,7 @@ async function saveUsageLogEntry(itemId){
       entry.recipe_id = d.destination_type==='recipe' ? d.recipe_id : '';
       entry.amount = d.amount;
       entry.unit = d.unit;
+      if(amountTextValid(d.amount, d.amount_text)) entry.amount_text = d.amount_text; else delete entry.amount_text; // README 9.266
       result = deductFromItem(it, d.amount, d.unit);
       if(result.ok && result.insufficient) entry.deducted_primary = result.deductedPrimary;
     } else {
@@ -10325,6 +10380,7 @@ async function saveUsageLogEntry(itemId){
       unit: d.unit,
       created_at: nowLocalIso()
     };
+    if(amountTextValid(d.amount, d.amount_text)) freeEntry.amount_text = d.amount_text; // README 9.266
     it.usage_log.push(freeEntry);
     result = deductFromItem(it, d.amount, d.unit);
     if(result.ok && result.insufficient) freeEntry.deducted_primary = result.deductedPrimary;
@@ -12190,7 +12246,7 @@ function renderMealsetForm(){
   var itemsHtml = (d.items||[]).map(function(it, idx){
     var unitLabel = it.source_type==='mealset' ? (state.lang==='zh'?'份':'x') : recipeUnitLabel(it.unit);
     // README 9.200: 自定条目是固定营养值，没有"数量+单位"这个概念，右边这一列直接留空。
-    var amtHtml = it.source_type==='custom' ? '' : (fmtAmount(it.amount, it.unit)+' '+esc(unitLabel));
+    var amtHtml = it.source_type==='custom' ? '' : (fmtAmountOf(it)+' '+esc(unitLabel));
     return '<div class="ing-row" onclick="editMealsetTplItem('+idx+')"><div class="ing-info"><span class="ing-name">'+esc(mealsetItemShownName(it))+mealsetItemTagHtml(it)+'</span><span class="ing-amt">'+amtHtml+'</span></div></div>';
   }).join('') || '<p class="hint" style="margin:0;">'+t('mealsetItemsEmptyHint')+'</p>';
   return '' +
@@ -12328,7 +12384,7 @@ function editMealsetTplItem(idx){
   if(!it) return;
   if(it.source_type==='mealset'){
     showModal(esc(mealsetItemShownName(it)),
-      '<div class="field"><label>'+t('mealsetMultiplierLabel')+'</label><input type="text" id="ing-amount" autofocus value="'+fmtAmount(it.amount, it.unit)+'"></div>'+
+      '<div class="field"><label>'+t('mealsetMultiplierLabel')+'</label><input type="text" id="ing-amount" autofocus value="'+fmtAmountOf(it)+'"></div>'+
       '<div class="btn-row" style="margin-top:14px;">'+
         '<button class="btn btn-danger btn-sm" style="flex:1;" onclick="deleteMealsetTplItemFromModal('+idx+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
         '<button class="btn btn-primary btn-sm" style="flex:1;" onclick="confirmEditMealsetTplItemMultiplier('+idx+')">'+t('save')+'</button>'+
@@ -12366,7 +12422,7 @@ function editMealsetTplItem(idx){
     // 之前这里只能改数量/单位，看不到完整数据。closeModal()先关掉这个弹窗再跳转，回来时(从
     // usdaFoodDetail页头返回箭头/右划)正好落回套餐模板编辑页本身。
     (it.source_type==='usda' ? usdaOrigNameHintHtml(it.source_id, it.name_snapshot || it.name)+'<button class="btn btn-outline btn-sm" style="width:100%;margin-bottom:10px;" onclick="viewUsdaSourceDetail('+aj(it.source_id)+','+aj(mealsetItemDisplayName(it))+','+aj({view:'mealsetForm'})+')">'+ic('note',15)+' '+t('viewSourceDetail')+'</button>' : '')+
-    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" id="ing-amount" autofocus placeholder="'+t('ingAmountPh')+'" value="'+fmtAmount(it.amount, it.unit)+'"></div>'+
+    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" id="ing-amount" autofocus placeholder="'+t('ingAmountPh')+'" value="'+fmtAmountOf(it)+'"></div>'+
     '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u){ return '<div class="tag-option '+(u===it.unit?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+esc(recipeUnitLabel(u))+'</div>'; }).join('')+'</div></div>'+
     '<div class="btn-row" style="margin-top:14px;">'+
       '<button class="btn btn-danger btn-sm" style="flex:1;" onclick="deleteMealsetTplItemFromModal('+idx+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
@@ -12375,19 +12431,21 @@ function editMealsetTplItem(idx){
   );
 }
 function confirmEditMealsetTplItem(idx){
-  var amount = parseAmountInput(document.getElementById('ing-amount').value);
+  var _amtRaw = document.getElementById('ing-amount').value; // README 9.266: 原样写法(分数/小数)
+  var amount = parseAmountInput(_amtRaw);
   var unit = getActivePill('ing-unit-pills');
   if(!amount || amount<=0){ showToast(state.lang==='zh'?'请输入用量':'Please enter an amount'); return; }
   var it = state.mealsetDraft.items[idx];
-  if(it){ it.amount=amount; it.unit=unit; }
+  if(it){ it.amount=amount; it.unit=unit; setAmountTextOn(it, _amtRaw, amount); }
   closeModal();
   render();
 }
 function confirmEditMealsetTplItemMultiplier(idx){
-  var amount = parseAmountInput(document.getElementById('ing-amount').value);
+  var _amtRaw = document.getElementById('ing-amount').value; // README 9.266: 原样写法(分数/小数)
+  var amount = parseAmountInput(_amtRaw);
   if(!amount || amount<=0){ showToast(state.lang==='zh'?'请输入份数':'Please enter a quantity'); return; }
   var it = state.mealsetDraft.items[idx];
-  if(it) it.amount = amount;
+  if(it){ it.amount = amount; setAmountTextOn(it, _amtRaw, amount); }
   closeModal();
   render();
 }
@@ -12513,7 +12571,7 @@ function ingredientGroupsEditorHtml(){
       // README 9.202: usda/custom两种新来源的名称标签，跟external/recipe那两个已有的标签是
       // 同一套写法；amtHtml这一列的custom分支照抄套餐那边的处理(mealsetItemTagHtml/
       // renderMealsetForm)——自定条目是固定营养值，没有"数量+单位"这个概念可以显示。
-      var amtHtml = r.ri.source_type==='custom' ? esc(recipeCustomAmtText(r.ri)) : (fmtAmount(r.ri.amount, r.ri.unit)+' '+esc(recipeUnitLabel(r.ri.unit)));
+      var amtHtml = r.ri.source_type==='custom' ? esc(recipeCustomAmtText(r.ri)) : (fmtAmountOf(r.ri)+' '+esc(recipeUnitLabel(r.ri.unit)));
       // README 9.206: 把手(.sidebar-drag-handle)是长按拖拽的唯一触发区，跟点击行本体打开编辑框
       // (editRecipeIngredient)分开——把手自己的onclick用stopPropagation挡掉冒泡，避免只是点了
       // 一下把手(没有真的长按拖动)也顺带弹出编辑框。
@@ -12587,7 +12645,7 @@ function editRecipeIngredient(idx){
     // README 9.250: 食谱里的自定食材现在也有数量可改——以添加时填的数值(custom_base)为基准等比换算营养。
     var cb = recipeCustomBase(ri), cur = recipeCustomCurrent(ri);
     showModal(esc(recipeIngredientDisplayName(ri)),
-      '<div class="field"><label>'+t('ingAmountLabel')+'</label><div style="display:flex;gap:8px;align-items:center;"><input type="text" id="ing-amount" autofocus inputmode="decimal" placeholder="'+t('ingAmountPh')+'" value="'+fmtAmount(cur.amount, cur.unit)+'" style="flex:1;min-width:0;"><span style="flex-shrink:0;color:var(--almond);">'+esc(recipeUnitLabel(cb.unit))+'</span></div>'+
+      '<div class="field"><label>'+t('ingAmountLabel')+'</label><div style="display:flex;gap:8px;align-items:center;"><input type="text" id="ing-amount" autofocus placeholder="'+t('ingAmountPh')+'" value="'+fmtAmountOf(cur)+'" style="flex:1;min-width:0;"><span style="flex-shrink:0;color:var(--almond);">'+esc(recipeUnitLabel(cb.unit))+'</span></div>'+
       '<p class="hint" style="margin:6px 0 0;">'+esc(t('recipeCustomScaleHintPre')+fmtAmount(cb.qty, cb.unit)+' '+recipeUnitLabel(cb.unit)+t('recipeCustomScaleHintSuf'))+'</p></div>'+
       '<div class="btn-row" style="margin-top:14px;">'+
         '<button class="btn btn-danger btn-sm" style="flex:1;" onclick="deleteRecipeIngredientFromModal('+idx+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
@@ -12613,7 +12671,7 @@ function editRecipeIngredient(idx){
   if(unitOpts.indexOf(ri.unit)===-1) unitOpts.unshift(ri.unit);
   showModal(esc(recipeIngredientDisplayName(ri)),
     (ri.source_type==='usda' ? usdaOrigNameHintHtml(ri.source_id, ri.name_snapshot)+'<button class="btn btn-outline btn-sm" style="width:100%;margin-bottom:10px;" onclick="viewUsdaSourceDetail('+aj(ri.source_id)+','+aj(recipeIngredientDisplayName(ri))+','+aj({view:'recipeForm'})+')">'+ic('note',15)+' '+t('viewSourceDetail')+'</button>' : '')+
-    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" id="ing-amount" autofocus placeholder="'+t('ingAmountPh')+'" value="'+fmtAmount(ri.amount, ri.unit)+'"></div>'+
+    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" id="ing-amount" autofocus placeholder="'+t('ingAmountPh')+'" value="'+fmtAmountOf(ri)+'"></div>'+
     '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u){ return '<div class="tag-option '+(u===ri.unit?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+esc(recipeUnitLabel(u))+'</div>'; }).join('')+'</div></div>'+
     (ri.source_type==='recipe' ? recipeIngUseExistingToggleHtml(ri.use_existing?'existing':'fresh') : '')+
     '<div class="btn-row" style="margin-top:14px;">'+
@@ -12653,10 +12711,11 @@ function recipeCustomCurrent(ri){
 }
 function recipeCustomAmtText(ri){
   var c = recipeCustomCurrent(ri);
-  return fmtAmount(c.amount, c.unit)+' '+recipeUnitLabel(c.unit);
+  return fmtAmountOf(c)+' '+recipeUnitLabel(c.unit);
 }
 function confirmEditRecipeCustomIngredient(idx){
-  var amount = parseAmountInput(document.getElementById('ing-amount').value);
+  var _amtRaw = document.getElementById('ing-amount').value; // README 9.266: 原样写法(分数/小数)
+  var amount = parseAmountInput(_amtRaw);
   if(!amount || amount<=0){ showToast(state.lang==='zh'?'请输入用量':'Please enter an amount'); return; }
   var ri = state.recipeDraft.ingredients[idx];
   if(ri){
@@ -12673,19 +12732,20 @@ function confirmEditRecipeCustomIngredient(idx){
       if(e && e.value!=null) extra[k] = {unit: e.unit, value: Math.round(Number(e.value)*f*1000)/1000};
     });
     ri.custom_base = {qty: base.qty, unit: base.unit, nutrition: base.nutrition, extra: base.extra};
-    ri.amount = amount; ri.unit = base.unit;
+    ri.amount = amount; ri.unit = base.unit; setAmountTextOn(ri, _amtRaw, amount);
     ri.nutrition_snapshot = nutrition; ri.nutrition_extra_snapshot = extra;
   }
   closeModal();
   render();
 }
 function confirmEditIngredient(idx){
-  var amount = parseAmountInput(document.getElementById('ing-amount').value);
+  var _amtRaw = document.getElementById('ing-amount').value; // README 9.266: 原样写法(分数/小数)
+  var amount = parseAmountInput(_amtRaw);
   var unit = getActivePill('ing-unit-pills');
   if(!amount || amount<=0){ showToast(state.lang==='zh'?'请输入用量':'Please enter an amount'); return; }
   var ri = state.recipeDraft.ingredients[idx];
   if(ri){
-    ri.amount = amount; ri.unit = unit;
+    ri.amount = amount; ri.unit = unit; setAmountTextOn(ri, _amtRaw, amount);
     if(ri.source_type==='recipe'){
       var useExistingEl = document.getElementById('ing-use-existing-pills');
       if(useExistingEl){
@@ -13235,7 +13295,7 @@ function renderRecipeDetail(){
     return '<div class="ing-list-row"'+attrs+'>'+
         '<span class="ing-list-name">'+esc(recipeIngredientDisplayName(ri))+'</span>'+
         '<span class="ing-list-dots"></span>'+
-        '<span class="ing-list-amt">'+(ri.source_type==='custom' ? esc(recipeCustomAmtText(ri)) : (fmtAmount(ri.amount, ri.unit)+' '+esc(recipeUnitLabel(ri.unit))))+'</span>'+
+        '<span class="ing-list-amt">'+(ri.source_type==='custom' ? esc(recipeCustomAmtText(ri)) : (fmtAmountOf(ri)+' '+esc(recipeUnitLabel(ri.unit))))+'</span>'+
         ((linkedItem || linkedRecipe) ? ic('chevronRight',15,'class="ing-list-chevron" style="color:#B79B78;"') : '')+
       '</div>';
   }).join('');
@@ -13361,16 +13421,16 @@ function openCookConfirm(recipeId){
       return {text: esc(f.name)+viaSuffix, note: t('cookConfirmPreMade')};
     }
     if(f.kind==='external'){
-      return {text: esc(f.name)+viaSuffix+': '+fmtAmount(f.amount, f.unit)+' '+esc(recipeUnitLabel(f.unit)), note:t('cookConfirmNone')};
+      return {text: esc(f.name)+viaSuffix+': '+fmtAmountOf(f)+' '+esc(recipeUnitLabel(f.unit)), note:t('cookConfirmNone')};
     }
     if(f.kind==='missing'){
-      return {text: esc(f.name)+viaSuffix+': '+fmtAmount(f.amount, f.unit)+' '+esc(recipeUnitLabel(f.unit)), note:(state.lang==='zh'?'(已从库存中移除)':'(removed from inventory)')};
+      return {text: esc(f.name)+viaSuffix+': '+fmtAmountOf(f)+' '+esc(recipeUnitLabel(f.unit)), note:(state.lang==='zh'?'(已从库存中移除)':'(removed from inventory)')};
     }
     var primaryNeeded = primaryEquivalentAmount(f.item, f.amount, f.unit);
     var canDeduct = primaryNeeded != null;
     var note = !canDeduct ? t('cookConfirmNoConversion')
       : ((f.item.primary_qty||0) < primaryNeeded - 1e-9 ? t('usageInsufficientWarn') : '');
-    return {text: esc(f.item.name)+viaSuffix+': '+fmtAmount(f.amount, f.unit)+' '+esc(recipeUnitLabel(f.unit)), note: note};
+    return {text: esc(f.item.name)+viaSuffix+': '+fmtAmountOf(f)+' '+esc(recipeUnitLabel(f.unit)), note: note};
   });
   var bodyHtml = '<p class="hint" style="margin-bottom:14px;">'+t('cookConfirmHint')+'</p>' +
     lines.map(function(l){
@@ -13979,7 +14039,7 @@ function switchMealsSlotTab(slot){
 function mealSlotDetailHtml(date, slot){
   var logs = mealLogsForSlot(date, slot);
   var rows = logs.map(function(m){
-    var amountLine = (m.source_type==='mealset') ? ((m.subItems||[]).length+(state.lang==='zh'?' 项':' items')) : (m.amount!=null ? (fmtNum(m.amount,1)+esc(m.unit)) : '');
+    var amountLine = (m.source_type==='mealset') ? ((m.subItems||[]).length+(state.lang==='zh'?' 项':' items')) : (m.amount!=null ? (esc(fmtAmountOf(m))+esc(m.unit)) : '');
     return '<div class="item-card-swipe" data-item-id="'+esc(m.id)+'">'+
       '<div class="item-swipe-actions">'+
         '<button class="swipe-action-btn action-delete" onclick="event.stopPropagation();deleteMealLogFromSwipe('+aj(m.id)+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button>'+
@@ -14168,7 +14228,7 @@ function openMealLogEntryDetail(id){
   if(!m) return;
   state.mealsUI.editEntry = {
     id: id,
-    amountText: m.amount!=null ? fmtAmount(m.amount, m.unit) : '',
+    amountText: m.amount!=null ? fmtAmountOf(m) : '',
     unit: m.unit || '',   // README 9.232: 编辑页当前选中的单位(可以改成添加时提供的其它备选单位)
     customCalories: m.custom_calories!=null ? String(m.custom_calories) : '',
     customCarbs: m.custom_carbs!=null ? String(m.custom_carbs) : '',
@@ -14401,7 +14461,7 @@ function renderMealLogEntryDetail(){
     consumeMealsetAppend(id); // README 9.243: 从"添加食材"选餐页回来时，把选好的食材并进这条记录
     var itemsHtml = (m.subItems||[]).map(function(si, idx){
       return '<div class="list-row" style="cursor:pointer;" onclick="editMealsetLogSubItem('+aj(id)+','+idx+')">'+
-        '<div class="row-label">'+esc(usdaShownName(si))+(si.amount!=null?('<div class="hint" style="margin-top:2px;">'+fmtAmount(si.amount,si.unit)+esc(si.unit)+'</div>'):'')+'</div>'+
+        '<div class="row-label">'+esc(usdaShownName(si))+(si.amount!=null?('<div class="hint" style="margin-top:2px;">'+fmtAmountOf(si)+esc(si.unit)+'</div>'):'')+'</div>'+
         '<div>'+Math.round((si.nutrition&&si.nutrition.calories)||0)+' kcal</div>'+
       '</div>';
     }).join('');
@@ -14456,7 +14516,7 @@ function renderMealLogEntryDetail(){
      '<div class="field"><label>'+t('fieldMealName')+'</label><input type="text" autocapitalize="words" value="'+esc(ee.customName)+'" oninput="onMealEntryCustomInput(\'customName\',this.value)"></div>')
     :
     (mealEntryUnitSelectHtml(m, ee)+
-     '<div class="field"><label>'+t('fieldMealAmount')+((ee.unit||m.unit)?(' ('+esc(ee.unit||m.unit)+')'):'')+'</label><input type="text" autofocus id="meal-entry-amount-input" inputmode="decimal" value="'+esc(ee.amountText)+'" oninput="onMealEntryAmountInput(this.value)"></div>');
+     '<div class="field"><label>'+t('fieldMealAmount')+((ee.unit||m.unit)?(' ('+esc(ee.unit||m.unit)+')'):'')+'</label><input type="text" autofocus id="meal-entry-amount-input" value="'+esc(ee.amountText)+'" oninput="onMealEntryAmountInput(this.value)"></div>');
 
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'meals\')">'+ic('back',22)+'</button><h1>'+esc(usdaShownName(m))+'</h1></div>'+
@@ -14521,11 +14581,12 @@ function saveMealLogEntryEdit(){
         }
         m.deductAmount = newAmt;
         var usageEntry = findMealUsageLogEntry(dedItem, m.id, null);
-        if(usageEntry){ usageEntry.amount = newAmt; if(unitChanged) usageEntry.unit = newUnit; }
+        if(usageEntry){ usageEntry.amount = newAmt; if(unitChanged) usageEntry.unit = newUnit; setAmountTextOn(usageEntry, ee.amountText, newAmt); }
         saveItems();
       }
       m.amount = newAmt;
       m.unit = newUnit;
+      setAmountTextOn(m, ee.amountText, newAmt); // README 9.266
     }
   }
   saveMealLogs();
@@ -14579,7 +14640,7 @@ function editMealsetLogSubItem(entryId, idx){
   if(unitOpts.indexOf(si.unit)===-1) unitOpts.unshift(si.unit);
   showModal(esc(usdaShownName(si)),
     (si.source_type==='usda' ? '<button class="btn btn-outline btn-sm" style="width:100%;margin-bottom:10px;" onclick="viewUsdaSourceDetail('+aj(si.source_id)+','+aj(si.name)+','+aj({view:'mealLogEntryDetail',params:{id:entryId}})+')">'+ic('note',15)+' '+t('viewSourceDetail')+'</button>' : '')+
-    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" id="ing-amount" autofocus placeholder="'+t('ingAmountPh')+'" value="'+fmtAmount(si.amount, si.unit)+'"></div>'+
+    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" id="ing-amount" autofocus placeholder="'+t('ingAmountPh')+'" value="'+fmtAmountOf(si)+'"></div>'+
     '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u){ return '<div class="tag-option '+(u===si.unit?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+esc(recipeUnitLabel(u))+'</div>'; }).join('')+'</div></div>'+
     '<div class="btn-row" style="margin-top:14px;">'+
       '<button class="btn btn-danger btn-sm" style="flex:1;" onclick="deleteMealsetLogSubItem('+aj(entryId)+','+idx+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
@@ -14596,7 +14657,8 @@ function resumeMealsetEntryNutrition(m){
   });
 }
 function confirmEditMealsetLogSubItem(entryId, idx){
-  var amount = parseAmountInput(document.getElementById('ing-amount').value);
+  var _amtRaw = document.getElementById('ing-amount').value; // README 9.266: 原样写法(分数/小数)
+  var amount = parseAmountInput(_amtRaw);
   var unit = getActivePill('ing-unit-pills');
   if(!amount || amount<=0){ showToast(state.lang==='zh'?'请输入用量':'Please enter an amount'); return; }
   var m = state.mealLogs.find(function(x){ return x.id===entryId; });
@@ -14632,6 +14694,7 @@ function confirmEditMealsetLogSubItem(entryId, idx){
   }
   si.amount = amount;
   si.unit = unit;
+  setAmountTextOn(si, _amtRaw, amount);
   var computed = recomputeMealsetLogItemNutrition(si);
   si.nutrition = computed.nutrition;
   si.nutrition_extra = computed.nutrition_extra;
@@ -15353,7 +15416,7 @@ function mealsetDraftHtml(af){
   var items = af.mealsetLogItems||[];
   var rows = items.map(function(it, idx){
     return '<div class="list-row" style="cursor:pointer;" onclick="editMealsetDraftItemAmount('+idx+')">'+
-      '<div class="row-label">'+esc(usdaShownName(it))+'<div class="hint" style="margin-top:2px;">'+fmtAmount(it.amount,it.unit)+esc(it.unit==='份'?'份':it.unit)+'</div></div>'+
+      '<div class="row-label">'+esc(usdaShownName(it))+'<div class="hint" style="margin-top:2px;">'+fmtAmountOf(it)+esc(it.unit==='份'?'份':it.unit)+'</div></div>'+
       '<div style="display:flex;align-items:center;gap:8px;flex-shrink:0;"><span>'+Math.round(it.nutrition.calories||0)+' kcal</span>'+
       '<button class="icon-btn" onclick="event.stopPropagation();deleteMealsetDraftItem('+idx+')" aria-label="'+t('delete')+'">'+ic('x',15)+'</button></div>'+
     '</div>';
@@ -15406,7 +15469,7 @@ function editMealsetDraftItemAmount(idx){
   if(unitOpts.indexOf(it.unit)===-1) unitOpts.unshift(it.unit);
   showModal(esc(usdaShownName(it)),
     (it.source_type==='usda' ? usdaOrigNameHintHtml(it.source_id, it.name_snapshot || it.name)+'<button class="btn btn-outline btn-sm" style="width:100%;margin-bottom:10px;" onclick="viewUsdaSourceDetail('+aj(it.source_id)+','+aj(it.name)+','+aj({view:'mealAddFood'})+')">'+ic('note',15)+' '+t('viewSourceDetail')+'</button>' : '')+
-    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" id="ing-amount" autofocus placeholder="'+t('ingAmountPh')+'" value="'+fmtAmount(it.amount, it.unit)+'"></div>'+
+    '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" id="ing-amount" autofocus placeholder="'+t('ingAmountPh')+'" value="'+fmtAmountOf(it)+'"></div>'+
     '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u){ return '<div class="tag-option '+(u===it.unit?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+esc(recipeUnitLabel(u))+'</div>'; }).join('')+'</div></div>'+
     '<div class="btn-row" style="margin-top:14px;">'+
       '<button class="btn btn-danger btn-sm" style="flex:1;" onclick="deleteMealsetDraftItemFromModal('+idx+')">'+ic('trash',16)+' '+t('delete')+'</button>'+
@@ -15415,12 +15478,13 @@ function editMealsetDraftItemAmount(idx){
   );
 }
 function confirmEditMealsetDraftItem(idx){
-  var amount = parseAmountInput(document.getElementById('ing-amount').value);
+  var _amtRaw = document.getElementById('ing-amount').value; // README 9.266: 原样写法(分数/小数)
+  var amount = parseAmountInput(_amtRaw);
   var unit = getActivePill('ing-unit-pills');
   if(!amount || amount<=0){ showToast(state.lang==='zh'?'请输入用量':'Please enter an amount'); return; }
   var af = state.mealsUI.addFood;
   var it = af.mealsetLogItems[idx];
-  if(it){ it.amount=amount; it.unit=unit; var computed = recomputeMealsetLogItemNutrition(it); it.nutrition = computed.nutrition; it.nutrition_extra = computed.nutrition_extra; }
+  if(it){ it.amount=amount; it.unit=unit; setAmountTextOn(it, _amtRaw, amount); var computed = recomputeMealsetLogItemNutrition(it); it.nutrition = computed.nutrition; it.nutrition_extra = computed.nutrition_extra; }
   closeModal();
   render();
 }
@@ -15441,7 +15505,7 @@ function openMealsetLogConfirm(){
   var lines = items.filter(function(it){ return it.source_type==='inventory'; }).map(function(it){
     var item = state.items.find(function(x){ return x.id===it.source_id; });
     if(!item) return '<div class="list-row"><div><div class="row-label" style="font-size:15px;">'+esc(it.name)+'</div><div class="row-sub" style="color:var(--warn);">'+t('cookConfirmNoConversion')+'</div></div></div>';
-    return '<div class="list-row"><div><div class="row-label" style="font-size:15px;">'+esc(item.name)+': '+fmtAmount(it.amount,it.unit)+esc(it.unit)+'</div></div></div>';
+    return '<div class="list-row"><div><div class="row-label" style="font-size:15px;">'+esc(item.name)+': '+fmtAmountOf(it)+esc(it.unit)+'</div></div></div>';
   }).join('');
   // README 9.225: 跟扣库存确认放在同一个弹窗里——预估这份套餐扣完之后，哪些食材的总库存会≤补货提醒线。
   var rsAlerts = state.restockPopupEnabled ? restockProjectedAlertsForMealset(items) : [];
@@ -15789,7 +15853,7 @@ function computeQuickAddForMealset(mealsetId){
   if(!lastItems || !lastItems.length) return null;
   var items = lastItems.map(function(li){
     var computed = recomputeMealsetLogItemNutrition(li);
-    return {id:uid(), source_type:li.source_type, source_id:li.source_id, name:mealsetItemDisplayName(li), amount:li.amount, unit:li.unit, nutrition:computed.nutrition, nutrition_extra:computed.nutrition_extra,
+    return {id:uid(), source_type:li.source_type, source_id:li.source_id, name:mealsetItemDisplayName(li), amount:li.amount, amount_text:li.amount_text, unit:li.unit, nutrition:computed.nutrition, nutrition_extra:computed.nutrition_extra,
       // README 9.217: 把快照字段带下去，这批条目之后进草稿/存成记录时，改数量才不会清零。
       nutrition_snapshot_per100g: li.nutrition_snapshot_per100g, nutrition_extra_snapshot_per100g: li.nutrition_extra_snapshot_per100g, usda_density_g_per_ml: li.usda_density_g_per_ml,
       nutrition_snapshot: li.nutrition_snapshot, nutrition_extra_snapshot: li.nutrition_extra_snapshot};
@@ -17001,7 +17065,7 @@ function customSavedRowHtml(f){
       '<button class="swipe-action-btn action-delete" onclick="event.stopPropagation();removeCustomSavedFromSwipe('+aj(f.id)+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button>'+
     '</div>'+
     '<div class="item-card" style="flex-direction:row;align-items:center;justify-content:space-between;gap:10px;border-left:none;box-shadow:none;border:1px solid var(--line);padding:15px 16px;margin-bottom:0;" onclick="openCustomSavedEdit('+aj(f.id)+')">'+
-      '<div style="flex:1;min-width:0;"><div class="row-label">'+esc(name)+(f.remote ? '<span class="hint" style="margin-left:4px;">'+esc(t('customRemoteTag'))+'</span>' : '')+(f.qty>0 ? '<div class="hint" style="margin-top:2px;">'+esc(fmtNum(f.qty,1))+esc(customUnitLabel(f.unit))+'</div>' : '')+'</div></div>'+
+      '<div style="flex:1;min-width:0;"><div class="row-label">'+esc(name)+(f.remote ? '<span class="hint" style="margin-left:4px;">'+esc(t('customRemoteTag'))+'</span>' : '')+(f.qty>0 ? '<div class="hint" style="margin-top:2px;">'+esc(fmtAmountPlain(f.qty))+esc(customUnitLabel(f.unit))+'</div>' : '')+'</div></div>'+
       '<div style="flex-shrink:0;font-size:15px;font-weight:600;color:var(--cocoa);">'+Math.round(f.calories||0)+' kcal</div>'+
     '</div>'+
   '</div>';
@@ -17086,7 +17150,7 @@ function customMealFieldsHtml(af){
   // README 9.245: 数量(选填)+单位。从列表里点开一条带数量的已有条目时(af.customBase有值)，数量栏默认
   // 聚焦并选中，改数字→下面的营养按那条已有数值等比换算(见onCustomQtyInput)。
   var qtyHtml = '<div class="field"><label>'+t('fieldMealAmount')+'</label><div style="display:flex;gap:8px;align-items:center;">'+
-    '<input type="number" inputmode="decimal" id="custom-field-qty" enterkeyhint="next"'+(af.customBase?' autofocus':'')+' placeholder="'+t('optionalPh')+'" value="'+esc(af.customQty||'')+'" oninput="onCustomQtyInput(this.value)" onkeydown="focusNextCustomField(event,\'custom-field-calories\')" style="flex:1;min-width:0;">'+
+    '<input type="text" id="custom-field-qty" enterkeyhint="next"'+(af.customBase?' autofocus':'')+' placeholder="'+t('optionalPh')+'" value="'+esc(af.customQty||'')+'" oninput="onCustomQtyInput(this.value)" onkeydown="focusNextCustomField(event,\'custom-field-calories\')" style="flex:1;min-width:0;">'+
     '<div class="tag-select" style="flex-shrink:0;margin:0;">'+['g','ml','serving'].map(function(u){ return '<div class="tag-option '+(unit===u?'active':'')+'" onclick="onCustomUnitPick(\''+u+'\')">'+esc(customUnitLabel(u))+'</div>'; }).join('')+'</div>'+
     '</div>'+(af.customBase ? '<p class="hint" style="margin:6px 0 0;">'+esc(t('customScaleHint'))+'</p>' : '')+'</div>';
   // README 9.249: 营养标签上的全部23项，只有热量必填。
@@ -17696,6 +17760,7 @@ function saveMealLogEntry(){
     source_type: p.type==='item' ? 'inventory' : p.type, source_id: (p.type==='usda' ? p.fdcId : p.id) || null
   };
   if(deductItemId){ entry.deductItemId=deductItemId; entry.deductAmount=deductAmount; entry.deductUnit=deductUnit; }
+  setAmountTextOn(entry, af.amountText, amount); // README 9.266: 记下输入的原样写法(分数/小数)
   state.mealLogs.push(entry);
   if(deductItemId){
     var deductedItem = state.items.find(function(x){ return x.id===deductItemId; });
@@ -17736,7 +17801,9 @@ function ipConfirmAmountPick(){
   if(p.type==='mealsetNest'){
     var mult = parseAmountInput(af.amountText);
     if(!mult || mult<=0){ showToast(t('servingsRequiredToast')); return; }
-    state.mealsetDraft.items.push({id:uid(), source_type:'mealset', source_id:p.id, name_snapshot:p.name, amount:mult, unit:'份'});
+    var _nestItem = {id:uid(), source_type:'mealset', source_id:p.id, name_snapshot:p.name, amount:mult, unit:'份'};
+    setAmountTextOn(_nestItem, af.amountText, mult); // README 9.266
+    state.mealsetDraft.items.push(_nestItem);
     bumpPickFrequency('mealset', p.id);
     state.mealsUI.ingPicker = null;
     navigate('mealsetForm');
@@ -17826,6 +17893,7 @@ function ipConfirmAmountPick(){
   var sourceId = (p.type==='usda' ? p.fdcId : (p.type==='offquick' ? null : p.id)) || null;
   if(af.pickerKind==='mealsetTemplate' || af.pickerKind==='recipeIngredients'){
     var tplItem = {id:uid(), source_type:sourceType, source_id:sourceId, name_snapshot:name, amount:amount, unit:unit};
+    setAmountTextOn(tplItem, af.amountText, amount); // README 9.266
     if(sourceType==='usda' && usdaPer100g){
       tplItem.nutrition_snapshot_per100g = usdaPer100g.nutrition;
       tplItem.nutrition_extra_snapshot_per100g = usdaPer100g.nutrition_extra;
@@ -17860,6 +17928,7 @@ function ipConfirmAmountPick(){
   } else {
     var outerAf = state.mealsUI.addFood;
     var draftPush = {id:uid(), source_type:sourceType, source_id:sourceId, name:name, amount:amount, unit:unit, nutrition:nutrition, nutrition_extra:nutritionExtra};
+    setAmountTextOn(draftPush, af.amountText, amount); // README 9.266
     if(sourceType==='custom'){ draftPush.nutrition_snapshot = nutrition; draftPush.nutrition_extra_snapshot = nutritionExtra; }
     // README 9.217: usda条目也要带per100g快照(9.203/9.204只补了buildMealsetLogItems/commitMealsetLogEntry
     // 两处，漏了这个直接往草稿里加usda条目的入口)，否则之后改数量/存成"上次用量"营养都会丢。
@@ -18949,7 +19018,7 @@ function aiMealSumHtml(row){
     return '<div style="font-size:14px;color:var(--warn,#C2542D);line-height:1.5;">'+esc(why)+'</div>';
   }
   var n = cl.nutrition;
-  var note = cl.converted ? '<div class="hint" style="margin:6px 0 0;">'+t('aiMealConvertedNote').replace('{w}', aiMealFmt(cl.effAmount)+'g')+'</div>' : '';
+  var note = cl.converted ? '<div class="hint" style="margin:6px 0 0;">'+t('aiMealConvertedNote').replace('{w}', fmtAmountPlain(cl.effAmount)+'g')+'</div>' : '';
   return '<div style="font-size:15px;font-weight:600;color:var(--cocoa);">'+Math.round(n.calories||0)+' kcal</div>'+
     '<div class="hint" style="margin:2px 0 0;">'+t('nutriProtein')+' '+aiMealFmt(n.protein||0)+'g · '+t('nutriFat')+' '+aiMealFmt(n.fat||0)+'g · '+t('nutriCarbs')+' '+aiMealFmt(n.carbs||0)+'g</div>'+note;
 }
@@ -19097,7 +19166,7 @@ function aiMealAddItem(){
 // ---- 真正写进三餐 ----
 function aiMealItemName(it){
   var nm = (it.name||'').trim() || t('quickCalDefaultName');
-  if(it.amount>0) nm += ' ' + aiMealFmt(it.amount) + (it.unit||'');
+  if(it.amount>0) nm += ' ' + fmtAmountPlain(it.amount) + (it.unit||''); // README 9.266: 不四舍五入
   return nm;
 }
 function aiMealCommit(){
@@ -19256,7 +19325,7 @@ function aiMealItemHtml(it, i){
     (it.review && !skipped ? '<div style="margin-top:6px;"><span class="aimeal-review">'+t('aiMealReview')+'</span></div>' : '')+
     '<div style="display:flex;gap:8px;margin:10px 0 6px;">'+
       '<div style="flex:1;min-width:0;"><div class="hint" style="font-size:12px;margin:0 0 3px;">'+t('aiMealAmountLabel')+'</div>'+
-        '<input class="aimeal-in" type="text" inputmode="decimal" value="'+esc(it.amount>0 ? aiMealFmt(it.amount) : '')+'" onchange="aiMealSetAmount('+i+',this.value)"></div>'+
+        '<input class="aimeal-in" type="text" value="'+esc(it.amount>0 ? fmtAmountPlain(it.amount) : '')+'" onchange="aiMealSetAmount('+i+',this.value)"></div>'+
       '<div style="width:84px;"><div class="hint" style="font-size:12px;margin:0 0 3px;">'+t('aiMealUnitPh')+'</div>'+
         '<input class="aimeal-in" type="text" id="aimeal-unit-'+i+'" value="'+esc(it.unit)+'" oninput="aiMealSetUnit('+i+',this.value)"></div>'+
     '</div>'+
