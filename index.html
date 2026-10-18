@@ -846,6 +846,12 @@
 
   .recipe-card{ background:var(--card-bg); border-radius:12px; padding:14px; margin-bottom:10px; border-left:4px solid var(--line); box-shadow:var(--shadow); cursor:pointer; }
   .recipe-card:active{ transform:scale(0.99); }
+  /* README 9.268: 食谱长按"点餐"后的突出显示：整条暖橙底色 + 名字前的"点餐中"小标签；做完(我做了这道菜)后恢复 */
+  .recipe-card.ordered{ background:#FFE6C2 !important; box-shadow:0 0 0 2px var(--almond), var(--shadow); }
+  .recipe-card-swipe .recipe-card.ordered{ box-shadow:inset 0 0 0 2px var(--almond); }
+  .recipe-order-tag{ display:inline-flex; align-items:center; gap:4px; background:var(--warn); color:#fff; font-size:12px; font-weight:700; line-height:1; padding:4px 8px 4px 6px; border-radius:999px; margin-right:6px; vertical-align:2px; white-space:nowrap; }
+  .recipe-order-tag svg{ stroke:#fff; flex-shrink:0; }
+  .recipe-card-swipe .recipe-card{ -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
   .recipe-card .rname{ font-size:16px; font-weight:500; color:var(--cocoa); white-space:normal; word-break:break-word; line-height:1.35; }
   .recipe-card .rmeta{ font-size:13px; color:var(--deep-caramel); margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .recipe-card .rcal{ font-size:13px; color:var(--almond); font-weight:500; margin-top:6px; }
@@ -956,7 +962,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.267';
+var BUILD_VERSION = '9.268';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2628,6 +2634,7 @@ var I18N = {
     usdaDetailBasis:'每100g', usdaDetailMissingHint:'本地缓存里没有找到这条食品的营养数据（可能是缓存被清掉了），重新在USDA里搜一次这个食品即可再次查看。', usdaDetailFallbackTitle:'USDA 食品详情',
     // recipe detail
     cookThis:'我做了这道菜', cookConfirmTitle:'确认扣减库存',
+    recipeOrderBtn:'点餐', recipeOrderCancelBtn:'取消点餐', recipeOrderedTag:'点餐中', recipeOrderedToast:'已点餐，已排到列表最前', recipeOrderCancelledToast:'已取消点餐',
     recipeCookHistoryTitle:'制作记录', recipeNeverCooked:'还没有制作记录', recipeCookedTimes:'共制作 {n} 次',
     nutriToggleExpand:'展开每100g成品 / 每份', nutriToggleCollapse:'收起',
     cookConfirmHint:'以下食材将按用量从库存扣减，确认无误后点击确认。',
@@ -2994,6 +3001,7 @@ var I18N = {
     usdaDataTypeFoundation:'USDA Lab-Tested', usdaDataTypeSRLegacy:'USDA Data', usdaDataTypeBranded:'Branded',
     usdaDetailBasis:'Per 100g', usdaDetailMissingHint:'This food\\u2019s nutrition data isn\\u2019t in the local cache (it may have been cleared) \\u2014 search for it again on USDA to view it here.', usdaDetailFallbackTitle:'USDA food details',
     cookThis:"I made this dish", cookConfirmTitle:'Confirm inventory deduction',
+    recipeOrderBtn:'Order this', recipeOrderCancelBtn:'Cancel order', recipeOrderedTag:'Ordered', recipeOrderedToast:'Ordered - moved to the top of the list', recipeOrderCancelledToast:'Order cancelled',
     recipeCookHistoryTitle:'Cooking History', recipeNeverCooked:'Not made yet', recipeCookedTimes:'Made {n} times',
     nutriToggleExpand:'Show per 100g cooked / per serving', nutriToggleCollapse:'Hide',
     cookConfirmHint:'These items will be deducted from inventory based on the amount used. Confirm to proceed.',
@@ -3220,7 +3228,7 @@ var state = {
   shoppingList: [],            // README 9.231: 购物清单
   restockPopupLastDay: '',     // README 9.231: 启动补货弹窗上次弹出的日期(只这台手机)
   params: {},
-  home: { search:'', categoryGroup:null, categorySub:null, expandedCategoryGroups:{}, settingsExpandedCategoryGroups:{}, location:null, sort:'expiry', sortDir:'asc', sidebarCollapsed:{category:false, location:false, tools:false}, expandedGroups:{}, bulkMode:false, bulkSelected:{} },
+  home: { search:'', categoryGroup:null, categorySub:null, expandedCategoryGroups:{}, settingsExpandedCategoryGroups:{}, location:null, sort:'created', sortDir:'desc', sidebarCollapsed:{category:false, location:false, tools:false}, expandedGroups:{}, bulkMode:false, bulkSelected:{} },
   scan: { running:false, stream:null, detector:null, resultDraft:null, mode:'camera' },
   cloudSyncEnabled: false, cloudSyncRoomCode: DEFAULT_CLOUD_SYNC_ROOM_CODE, cloudSyncConfig: DEFAULT_CLOUD_SYNC_CONFIG,
   cloudSyncStatus: 'idle', cloudSyncError: '', cloudSyncLastSyncedAt: null,
@@ -5973,7 +5981,7 @@ function deleteItemFromSwipe(id){ closeItemSwipeRow(id); deleteItemDetail(id); }
 // need to be passive itself, since it's a different event entirely from touchstart/move/end and
 // has no bearing on scroll performance.
 document.addEventListener('selectstart', function(e){
-  if(e.target.closest && e.target.closest('.item-card-swipe, .item-group-header')) e.preventDefault();
+  if(e.target.closest && e.target.closest('.item-card-swipe, .item-group-header, .recipe-card-swipe')) e.preventDefault();
 }, false);
 
 // README 9.101: left/right swipe on the meals-page macro widget toggles between pie and bar
@@ -6063,7 +6071,7 @@ document.addEventListener('selectstart', function(e){
    navigates into the item detail page underneath the pill. */
 (function initItemLongPress(){
   var LONG_PRESS_MS = 550, MOVE_TOLERANCE = 10;
-  var timer = null, sx = 0, sy = 0, pressItemId = null;
+  var timer = null, sx = 0, sy = 0, pressItemId = null, pressRecipeId = null;
   function cancelTimer(){ if(timer){ clearTimeout(timer); timer = null; } }
   document.addEventListener('touchstart', function(e){
     cancelTimer();
@@ -6076,11 +6084,12 @@ document.addEventListener('selectstart', function(e){
     // originally .item-card-swipe-only, which is why group header rows had neither the pill nor
     // the text-selection guard below - a long press there just fell through to iOS's native
     // text selection instead.
-    var wrap = e.target.closest ? e.target.closest('.item-card-swipe, .item-group-header') : null;
+    var wrap = e.target.closest ? e.target.closest('.item-card-swipe, .item-group-header, .recipe-card-swipe') : null;
     if(!wrap) return;
     var t0 = e.touches[0];
     sx = t0.clientX; sy = t0.clientY;
     pressItemId = wrap.getAttribute('data-item-id');
+    pressRecipeId = wrap.getAttribute('data-recipe-id'); // README 9.268: 食谱列表也复用这套长按
     timer = setTimeout(function(){
       timer = null;
       itemSwipeSwallowClick = true; // swallow the click that touchend is about to fire
@@ -6092,7 +6101,7 @@ document.addEventListener('selectstart', function(e){
       // Auto-clear shortly after if nothing consumed it, so a stray leftover flag can never eat
       // a later, unrelated tap.
       setTimeout(function(){ itemSwipeSwallowClick = false; }, 400);
-      showCopyPill(pressItemId, sx, sy);
+      if(pressRecipeId) showRecipePill(pressRecipeId, sx, sy); else showCopyPill(pressItemId, sx, sy);
     }, LONG_PRESS_MS);
   }, {passive:true});
   document.addEventListener('touchmove', function(e){
@@ -7173,6 +7182,34 @@ function showCopyPill(id, x, y){
       ic('copy',16)+'<span>'+esc(t('copyItemConfirmBtn'))+'</span>'+
     '</button>';
 }
+// README 9.268: 食谱列表长按的气泡，跟库存的"复制条目"气泡是同一套样式/容器/关闭方式，只是按钮换成"点餐"/"取消点餐"。
+function showRecipePill(id, x, y){
+  var root = document.getElementById('copy-pill-root');
+  if(!root) return;
+  var r = state.recipes.find(function(q){ return q.id===id; });
+  if(!r) return;
+  var pillHalfWidth = 80, pillHeight = 46, margin = 10;
+  var vw = window.innerWidth, vh = window.innerHeight;
+  var left = Math.min(Math.max(x - pillHalfWidth, margin), vw - pillHalfWidth*2 - margin);
+  var top = Math.min(Math.max(y - pillHeight - 14, margin), vh - pillHeight - margin);
+  root.innerHTML =
+    '<div class="copy-pill-overlay" onclick="hideCopyPill()"></div>'+
+    '<button class="copy-pill" style="left:'+left+'px;top:'+top+'px;" onclick="event.stopPropagation();toggleRecipeOrder('+aj(id)+')">'+
+      ic('spoon',16)+'<span>'+esc(t(r.ordered_at ? 'recipeOrderCancelBtn' : 'recipeOrderBtn'))+'</span>'+
+    '</button>';
+}
+// 点餐 / 取消点餐：只改 ordered_at 和 updated_at(食谱是按条同步的，updated_at 变了才会推到另一部手机，
+// 对方那边的列表也会同步置顶；两个人都能点、也都能做，也可以自己点自己做当作做菜计划)。
+function toggleRecipeOrder(id){
+  hideCopyPill();
+  var r = state.recipes.find(function(q){ return q.id===id; });
+  if(!r) return;
+  if(r.ordered_at){ delete r.ordered_at; } else { r.ordered_at = nowLocalIso(); }
+  r.updated_at = nowLocalIso();
+  saveRecipes();
+  showToast(t(r.ordered_at ? 'recipeOrderedToast' : 'recipeOrderCancelledToast'));
+  render();
+}
 function hideCopyPill(){
   var root = document.getElementById('copy-pill-root');
   if(root) root.innerHTML = '';
@@ -7460,6 +7497,10 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.268', items:[
+    {t:'tweak', zh:'库存页列表默认改为按录入时间排序（最新录入的在最前）。想按过期时间看，点上面的“过期”就行。', en:'The inventory list now sorts by entry time by default (newest first). Tap the expiry pill above to sort by expiry date instead.'},
+    {t:'new', zh:'食谱页新增“点餐”：长按列表里的某道食谱，点“点餐”，它会排到列表最前面，整条变成暖橙色并带“点餐中”标签（多道菜按先点先做排序）。在详情页点“我做了这道菜”后恢复原样；点错了可以长按选“取消点餐”。开了云同步的话，两部手机互相可见——一个人点、另一个人做，或者自己点自己做当作做菜计划。', en:'New "Order" on the recipe list: long-press a recipe and tap Order - it moves to the top, the whole row turns warm orange with an "Ordered" tag (several orders go first-ordered-first-cooked). Tapping "I made this dish" on its detail page restores it; long-press again to cancel an order by mistake. With cloud sync on, both phones see it - one person orders, the other cooks, or order for yourself as a cooking plan.'}
+  ]},
   {v:'9.267', items:[
     {t:'new', zh:'所有需要输入名称的地方，用英文输入法时都会自动把每个单词的首字母大写（中文输入法不受影响）。这次补上了之前漏掉的：USDA 标签、购物清单添加、AI 加餐里的食物名、AI 套餐名。', en:'Everywhere you type a name with the English keyboard, each word now starts with a capital letter automatically (Chinese input is unaffected). Added to the spots that were missed: USDA tags, shopping-list add, food names in AI add-meal, and the AI meal-set name.'},
     {t:'fix', zh:'USDA 标签不再有字数限制（以前最多 30 个字符，长的英文词条名输不全）。', en:'USDA tags no longer have a length limit (it used to stop at 30 characters, which was too short for long English entry names).'}
@@ -11619,6 +11660,17 @@ function recipeIngredientDisplayName(ri){
   var src = getIngredientSource(ri);
   return src ? src.name : (ri.name_snapshot || '?');
 }
+// README 9.268: 被点餐的食谱(r.ordered_at 有值)排在最前面，先点的在上；其余保持原来的顺序。
+function pinOrderedRecipes(list){
+  var ordered = [], rest = [];
+  list.forEach(function(r){ if(r.ordered_at) ordered.push(r); else rest.push(r); });
+  if(!ordered.length) return list;
+  ordered.sort(function(a,b){
+    if(a.ordered_at !== b.ordered_at) return a.ordered_at < b.ordered_at ? -1 : 1;
+    return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0);
+  });
+  return ordered.concat(rest);
+}
 function getFilteredRecipes(){
   var list = state.recipes.filter(function(r){
     if(state.recipesUI.groupId && r.category_group !== state.recipesUI.groupId) return false;
@@ -11652,13 +11704,13 @@ function getFilteredRecipes(){
       if(a.titleHit !== b.titleHit) return a.titleHit ? -1 : 1;
       return a.r.id < b.r.id ? 1 : (a.r.id > b.r.id ? -1 : 0);
     });
-    return scored.map(function(s){ return s.r; });
+    return pinOrderedRecipes(scored.map(function(s){ return s.r; }));
   }
   // README 9.122: newest-created first. `id` doubles as a reliable creation-time sort key even
   // for recipes saved before created_at existed as a field - uid() always starts with
   // Date.now().toString(36), so a plain string comparison sorts by creation time correctly
   // without needing to backfill anything on old recipes.
-  return list.slice().sort(function(a,b){ return a.id < b.id ? 1 : (a.id > b.id ? -1 : 0); });
+  return pinOrderedRecipes(list.slice().sort(function(a,b){ return a.id < b.id ? 1 : (a.id > b.id ? -1 : 0); }));
 }
 function recipeListItemsHtml(filtered){
   if(filtered.length===0){
@@ -11687,11 +11739,11 @@ function recipeListItemsHtml(filtered){
           '<button class="swipe-action-btn action-mealadd" onclick="event.stopPropagation();closeRecipeSwipeRow('+aj(r.id)+');quickMealAddFromRecipe('+aj(r.id)+')">'+ic('spoon',20)+'<span>'+esc(t('mealAddSwipeBtn'))+'</span></button>'+
           '<button class="swipe-action-btn action-edit" onclick="event.stopPropagation();closeRecipeSwipeRow('+aj(r.id)+');openRecipeForm('+aj(r.id)+')">'+ic('edit',20)+'<span>'+esc(t('edit'))+'</span></button>'+
         '</div>'+
-        '<div class="recipe-card" onclick="navigate(\'recipeDetail\',{id:'+aj(r.id)+'})"'+(catColor ? ' style="border-left-color:'+catColor+';"' : '')+'>'+
+        '<div class="recipe-card'+(r.ordered_at?' ordered':'')+'" onclick="navigate(\'recipeDetail\',{id:'+aj(r.id)+'})"'+(catColor ? ' style="border-left-color:'+catColor+';"' : '')+'>'+
           '<div class="recipe-card-row">'+
             '<div class="recipe-cover">'+coverHtml+'</div>'+
             '<div class="recipe-card-body">'+
-              '<div class="rname">'+esc(r.name)+'</div>'+
+              '<div class="rname">'+(r.ordered_at ? '<span class="recipe-order-tag">'+ic('spoon',13)+esc(t('recipeOrderedTag'))+'</span>' : '')+esc(r.name)+'</div>'+
               '<div class="rmeta">'+(catLabel?esc(catLabel)+' · ':'')+(r.servings||1)+' '+t('fieldServings')+' · '+recipeIngredientCount(r)+' '+t('sectionIngredients')+'</div>'+
               '<div class="rcal">'+calLine+'</div>'+
             '</div>'+
@@ -13330,6 +13382,7 @@ function renderRecipeDetail(){
         '</label>'+
       '</div>'+
       '<div class="item-detail-hero-info">'+
+        (r.ordered_at ? '<div style="margin-bottom:6px;"><span class="recipe-order-tag">'+ic('spoon',13)+esc(t('recipeOrderedTag'))+'</span></div>' : '')+
         '<p style="margin:0;color:var(--deep-caramel);font-size:14px;">'+r.servings+' '+t('fieldServings')+' · '+recipeIngredientCount(r)+' '+t('sectionIngredients')+'</p>'+
         '<div class="item-detail-hero-actions">'+
           '<button class="item-detail-action-btn danger" onclick="event.stopPropagation();confirmDeleteRecipeDetail('+aj(r.id)+')"><span class="icon">'+ic('trash',20)+'</span><span>'+t('delete')+'</span></button>'+
@@ -13484,6 +13537,8 @@ function confirmCook(recipeId){
   // regardless of what it's made of.
   state.recipeCookLogs.push({id:uid(), recipe_id:r.id, date:todayStr(), created_at:ts});
   saveRecipeCookLogs();
+  // README 9.268: 做完这道菜，"点餐"状态就清掉(列表里恢复原样)；改了 updated_at 才会同步到另一部手机
+  if(r.ordered_at){ delete r.ordered_at; r.updated_at = nowLocalIso(); saveRecipes(); }
   closeModal();
   showToast(anyInsufficient ? t('cookSuccessInsufficient') : t('cookSuccess'));
   render();
