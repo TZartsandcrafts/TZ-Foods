@@ -849,6 +849,12 @@
   /* README 9.268: 食谱长按"点餐"后的突出显示：整条暖橙底色 + 名字前的"点餐中"小标签；做完(我做了这道菜)后恢复 */
   .recipe-card.ordered{ background:#FFE6C2 !important; box-shadow:0 0 0 2px var(--almond), var(--shadow); }
   .recipe-card-swipe .recipe-card.ordered{ box-shadow:inset 0 0 0 2px var(--almond); }
+  /* README 9.271: 总条目上的"取用记录"小按钮 + 取用记录页顶部的"本批次/全部批次"切换 */
+  .group-log-btn{ display:inline-flex; align-items:center; gap:4px; margin-left:8px; padding:3px 9px; border-radius:999px; border:1px solid var(--caramel-light); background:#fff; color:var(--deep-caramel); font-size:12px; font-weight:600; font-family:inherit; vertical-align:1px; cursor:pointer; }
+  .group-log-btn svg{ stroke:var(--deep-caramel); }
+  .usage-scope-switch{ display:flex; gap:8px; margin-bottom:12px; }
+  .usage-scope-switch button{ flex:1; padding:9px 0; border-radius:999px; border:1px solid var(--caramel-light); background:#fff; color:var(--deep-caramel); font-size:14px; font-weight:600; font-family:inherit; cursor:pointer; }
+  .usage-scope-switch button.on{ background:var(--cocoa); border-color:var(--cocoa); color:#fff; }
   .recipe-order-tag{ display:inline-flex; align-items:center; gap:4px; background:var(--warn); color:#fff; font-size:12px; font-weight:700; line-height:1; padding:4px 8px 4px 6px; border-radius:999px; margin-right:6px; vertical-align:2px; white-space:nowrap; }
   .recipe-order-tag svg{ stroke:#fff; flex-shrink:0; }
   /* README 9.269: "计划中"小标签(还没做过的食谱)：只是一个淡色小标签，不改底色、不加框、不影响顺序 */
@@ -964,7 +970,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.270';
+var BUILD_VERSION = '9.272';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2574,7 +2580,7 @@ var I18N = {
     addNewTag:'+ 新建', newTagPrompt:'输入新标签名称',
     // detail
     detailQtyLabel:'当前库存',
-    usageBtn:'取用', usageLogTitle:'取用记录', usageLogAddTitle:'记录使用', usageLogEmpty:'还没有取用记录',
+    usageBtn:'取用', usageLogTitle:'取用记录', usageScopeBatch:'本批次', usageScopeAll:'全部批次', usageBatchArchivedTag:'已存档', usageBatchMovedIn:'转入', usageBatchEntered:'录入', usageLogAddTitle:'记录使用', usageLogEmpty:'还没有取用记录',
     viewUsageHistoryBtn:'查看取用记录',
     usageLogReadOnlyBanner:'这是已存档食材的取用记录，只能查看。',
     usageTypePickerTitle:'选择取用类型', usageTypeMoveDesc:'移动到其它位置', usageTypeRecipeDesc:'关联到某个食谱', usageTypeAdjustDesc:'手动调整剩余量', usageTypeFreeDesc:'其它去向',
@@ -2944,7 +2950,7 @@ var I18N = {
     save:'Save', cancel:'Cancel', delete:'Delete', edit:'Edit', add:'Add', confirm:'Confirm', close:'Close',
     addNewTag:'+ New', newTagPrompt:'Enter new tag name',
     detailQtyLabel:'Current stock',
-    usageBtn:'Use', usageLogTitle:'Usage Log', usageLogAddTitle:'Log Usage', usageLogEmpty:'No usage logged yet',
+    usageBtn:'Use', usageLogTitle:'Usage Log', usageScopeBatch:'This batch', usageScopeAll:'All batches', usageBatchArchivedTag:'Archived', usageBatchMovedIn:'moved in', usageBatchEntered:'added', usageLogAddTitle:'Log Usage', usageLogEmpty:'No usage logged yet',
     viewUsageHistoryBtn:'View Usage History',
     usageLogReadOnlyBanner:'Usage history of an archived item - view only.',
     usageTypePickerTitle:'What kind of usage?', usageTypeMoveDesc:'Move to another location', usageTypeRecipeDesc:'Used in a recipe', usageTypeAdjustDesc:'Manually correct the amount', usageTypeFreeDesc:'Something else',
@@ -6782,7 +6788,7 @@ function renderItemGroupHtml(key, group, from){
           '<div class="item-name">'+itemDisplayName(rep)+countBadge+
             ic('chevronRight',15,'style="transform:rotate('+(expanded?'90':'0')+'deg);transition:transform .15s;vertical-align:-2px;margin-left:2px;"')+
           '</div>'+
-          '<div class="item-meta">'+batchMeta+'</div>'+
+          '<div class="item-meta">'+batchMeta+'<button class="group-log-btn" onclick="event.stopPropagation();openUsageLogGroup('+aj(rep.id)+')">'+ic('history',13)+esc(t('usageLogTitle'))+'</button></div>'+
         '</div>'+
       '</div>'+
       '<div class="item-card-footer">'+
@@ -7507,6 +7513,12 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.272', items:[
+    {t:'tweak', zh:'取用记录“全部批次”视图里，每条记录后面的批次标签改成：存放位置 · 进入该位置的日期（转移过来的批次标“转入”，直接录入的标“录入”）· 已存档。不再显示购买日期。', en:'In the "All batches" usage log, each entry\'s batch tag is now: location · date it came into that location ("moved in" for batches created by a location move, "added" for directly entered ones) · archived. The purchase date is no longer shown.'}
+  ]},
+  {v:'9.271', items:[
+    {t:'new', zh:'同一食材分了多个批次时，现在可以一次看到所有批次的取用记录（包括已存档的批次）：库存列表里的总条目上多了一个“取用记录”小按钮；任意批次的取用记录页顶部也多了“本批次 / 全部批次”切换。全部批次视图按时间倒序，每条记录标出属于哪个批次；在库批次的记录仍然可以左划删除/恢复/编辑，已存档批次的只读。', en:'When one food has several batches, you can now see the usage history of all batches in one list, archived ones included: the group row on the inventory list has a small "Usage Log" button, and every batch\'s usage-log page has a "This batch / All batches" switch. The merged list is newest-first and tags each entry with its batch; entries of in-stock batches can still be swiped to delete/restore/edit, archived ones are read-only.'}
+  ]},
   {v:'9.270', items:[
     {t:'new', zh:'“我做了这道菜”的制作记录现在会通过云同步在两部手机之间同步了：一个人做了这道菜，另一个人那边的“制作记录”日历、制作次数和“计划中”标签也会跟着更新（两边的记录合并，不会互相覆盖）。', en:'"I made this dish" cooking history is now synced between phones: when one person cooks a recipe, the other one\'s cooking-history calendar, count and "Planned" tag update too (records from both sides are merged, never overwritten).'},
     {t:'tweak', zh:'“计划中”（还没做过）的食谱不支持点餐：长按会提示一句，不再弹出“点餐”。已经被点餐的食谱仍然可以取消点餐。', en:'Planned (never-cooked) recipes can no longer be ordered: a long-press just shows a short notice. Recipes that are already ordered can still be cancelled.'}
@@ -9942,6 +9954,36 @@ function openUsageLog(id){
 }
 // README 9.260: 存档食材的取用记录(只读)。viewFrom 记的是存档详情页(itemViewOnly)自己的来源('archive'/'aiSearch'...)，
 // 返回键和右划返回都靠它回到原来的存档详情页。
+// README 9.271: 从列表里的总条目(同一食材多个批次)进入取用记录：直接打开"全部批次"视图。
+// 传进来的是总条目当前代表的那个批次的 id；该批次已存档(存档页的总条目)就走只读页面。
+function openUsageLogGroup(id){
+  var it = state.items.find(function(i){ return i.id===id; });
+  if(!it) return;
+  state.usageLogUI = { showAll:false, scope:'all' };
+  if(it.archived) navigate('usageLog', {id:id, readOnly:true, viewFrom: state.params.from});
+  else navigate('usageLog', {id:id, from: state.params.from});
+}
+// 取用记录页顶部的"本批次 / 全部批次"切换
+function setUsageLogScope(v){
+  state.usageLogUI = state.usageLogUI || {};
+  state.usageLogUI.scope = (v==='all') ? 'all' : 'batch';
+  state.usageLogUI.showAll = false;
+  render();
+}
+// 全部批次视图里，每条记录标出属于哪个批次：存放位置 · 进入该位置的日期(转入/录入) · (已存档)
+// README 9.272: 日期用的是批次的录入日期(created_at)——直接录入的批次就是录入那天(标"录入")；转移位置时在目标位置
+// 新建的批次，录入那一刻就是转入那一刻(它的取用记录里有同一天的"转入"记录，标"转入")。不用购买日期(很多食材没填)。
+function usageBatchLabel(owner){
+  var parts = [];
+  if(owner.location) parts.push(owner.location);
+  var day = (owner.created_at||'').slice(0,10);
+  if(day){
+    var movedIn = (owner.usage_log||[]).some(function(e){ return e.destination_type==='transfer_in' && (e.date||'')===day; });
+    parts.push(fmtDateDots(day)+' '+t(movedIn ? 'usageBatchMovedIn' : 'usageBatchEntered'));
+  }
+  if(owner.archived) parts.push(t('usageBatchArchivedTag'));
+  return parts.join(' · ');
+}
 function openUsageLogReadOnly(id){
   state.usageLogUI = { showAll:false };
   navigate('usageLog', {id:id, readOnly:true, viewFrom: state.params.from});
@@ -9951,11 +9993,28 @@ function renderUsageLog(){
   var ro = !!state.params.readOnly;
   var it = state.items.find(function(i){ return i.id===id; });
   if(!it) return renderHome();
-  var log = (it.usage_log||[]).slice().sort(function(a,b){ return (b.created_at||'').localeCompare(a.created_at||''); });
+  // README 9.271: scope==='all' 时汇总同一食材(名称+品牌+条码，也就是列表里分批次的依据)所有批次的记录，
+  // 包含已存档的批次。每个批次自己的记录原样保留，这里只是读取时汇总，不复制数据(所以不会影响同步)。
+  var groupItems = state.items.filter(function(x){ return itemGroupKey(x)===itemGroupKey(it); });
+  var hasOtherBatches = groupItems.length > 1;
+  var scope = (hasOtherBatches && state.usageLogUI && state.usageLogUI.scope==='all') ? 'all' : 'batch';
+  var log = [];
+  (scope==='all' ? groupItems : [it]).forEach(function(owner){
+    (owner.usage_log||[]).forEach(function(e){ log.push({entry:e, owner:owner}); });
+  });
+  log.sort(function(a,b){ return (b.entry.created_at||'').localeCompare(a.entry.created_at||''); });
+  var scopeSwitchHtml = hasOtherBatches ?
+    '<div class="usage-scope-switch">'+
+      '<button class="'+(scope==='batch'?'on':'')+'" onclick="setUsageLogScope(\'batch\')">'+esc(t('usageScopeBatch'))+'</button>'+
+      '<button class="'+(scope==='all'?'on':'')+'" onclick="setUsageLogScope(\'all\')">'+esc(t('usageScopeAll'))+' ('+groupItems.length+')</button>'+
+    '</div>' : '';
   var showAll = state.usageLogUI && state.usageLogUI.showAll;
   var RECENT_COUNT = 6;
   var visible = showAll ? log : log.slice(0,RECENT_COUNT);
-  var rowsHtml = visible.length ? visible.map(function(entry){ return usageLogRowHtml(entry, id, ro); }).join('') :
+  var rowsHtml = visible.length ? visible.map(function(row){
+      if(scope==='all') return usageLogRowHtml(row.entry, row.owner.id, !!row.owner.archived, usageBatchLabel(row.owner)); // 已存档批次的只读，在库批次的可左划操作
+      return usageLogRowHtml(row.entry, id, ro);
+    }).join('') :
     '<div class="empty-state">'+ic('history',36)+'<p>'+t('usageLogEmpty')+'</p></div>';
   var moreBtn = '';
   if(log.length > RECENT_COUNT){
@@ -9966,17 +10025,18 @@ function renderUsageLog(){
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="'+(ro ? 'navigate(\'itemViewOnly\',{id:'+aj(id)+',from:'+aj(state.params.viewFrom||'archive')+'})' : 'navigate(\'itemDetail\',{id:'+aj(id)+'})')+'">'+ic('back',22)+'</button><h1>'+itemDisplayName(it)+' · '+t('usageLogTitle')+'</h1></div>'+
   '<div class="content" style="padding-bottom:90px;">'+
-    (ro ? '<div class="readonly-banner">'+ic('archive',14)+' '+t('usageLogReadOnlyBanner')+'</div>' : '')+
+    scopeSwitchHtml+
+    (ro && scope!=='all' ? '<div class="readonly-banner">'+ic('archive',14)+' '+t('usageLogReadOnlyBanner')+'</div>' : '')+
     rowsHtml+
     moreBtn+
   '</div>'+
-  (ro ? '' : '<button class="usage-fab" onclick="openUsageLogAdd('+aj(id)+')" aria-label="'+t('usageLogAddTitle')+'">'+ic('plus',26)+'</button>')+
+  ((ro || scope==='all') ? '' : '<button class="usage-fab" onclick="openUsageLogAdd('+aj(id)+')" aria-label="'+t('usageLogAddTitle')+'">'+ic('plus',26)+'</button>')+
   bottomNav();
 }
 // Reuses the exact same swipe-to-reveal mechanics as the inventory list cards (.item-card-swipe
 // / .item-card / initItemSwipeGestures below) - the gesture engine is generic and keyed purely
 // by data-item-id, so no JS changes were needed to make it work here too.
-function usageLogRowHtml(entry, itemId, readOnly){
+function usageLogRowHtml(entry, itemId, readOnly, batchLabel){
   var isMove = entry.destination_type==='move_location';
   var isRecipe = entry.destination_type==='recipe';
   var isTransferIn = entry.destination_type==='transfer_in';
@@ -10014,7 +10074,7 @@ function usageLogRowHtml(entry, itemId, readOnly){
       '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">'+
         '<div style="min-width:0;display:flex;align-items:center;gap:4px;">'+
           '<div><div class="item-name" style="font-size:15px;">'+esc(destText||'-')+'</div>'+
-          '<div class="item-meta">'+esc(fmtDateDots(entry.date))+'</div></div>'+
+          '<div class="item-meta">'+esc(fmtDateDots(entry.date))+(batchLabel ? ' · '+esc(batchLabel) : '')+'</div></div>'+
         '</div>'+
         '<div style="text-align:right;font-weight:600;color:var(--fresh);flex-shrink:0;">'+amountHtml+'</div>'+
       '</div>'+
@@ -10039,7 +10099,7 @@ function usageLogRowHtml(entry, itemId, readOnly){
       '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">'+
         '<div style="min-width:0;display:flex;align-items:center;gap:4px;">'+
           '<div><div class="item-name" style="font-size:15px;">'+esc(destText||'-')+'</div>'+
-          '<div class="item-meta">'+esc(fmtDateDots(entry.date))+'</div></div>'+
+          '<div class="item-meta">'+esc(fmtDateDots(entry.date))+(batchLabel ? ' · '+esc(batchLabel) : '')+'</div></div>'+
           ((recipeExists || mealLogExists) ? ic('chevronRight',15,'style="color:#B79B78;flex-shrink:0;"') : '')+
         '</div>'+
         '<div style="text-align:right;font-weight:600;color:'+amountColor+';flex-shrink:0;">'+amountHtml+'</div>'+
@@ -10638,7 +10698,7 @@ function archivedGroupHtml(key, group){
           '<div class="item-name">'+itemDisplayName(rep)+'<span class="dup-badge">'+group.length+'</span>'+
             ic('chevronRight',15,'style="transform:rotate('+(expanded?'90':'0')+'deg);transition:transform .15s;vertical-align:-2px;margin-left:2px;"')+
           '</div>'+
-          '<div class="item-meta">'+esc(batchMeta)+'</div>'+
+          '<div class="item-meta">'+esc(batchMeta)+'<button class="group-log-btn" onclick="event.stopPropagation();openUsageLogGroup('+aj(rep.id)+')">'+ic('history',13)+esc(t('usageLogTitle'))+'</button></div>'+
         '</div>'+
       '</div>'+
     '</div>'+
