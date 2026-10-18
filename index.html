@@ -851,6 +851,8 @@
   .recipe-card-swipe .recipe-card.ordered{ box-shadow:inset 0 0 0 2px var(--almond); }
   .recipe-order-tag{ display:inline-flex; align-items:center; gap:4px; background:var(--warn); color:#fff; font-size:12px; font-weight:700; line-height:1; padding:4px 8px 4px 6px; border-radius:999px; margin-right:6px; vertical-align:2px; white-space:nowrap; }
   .recipe-order-tag svg{ stroke:#fff; flex-shrink:0; }
+  /* README 9.269: "计划中"小标签(还没做过的食谱)：只是一个淡色小标签，不改底色、不加框、不影响顺序 */
+  .recipe-plan-tag{ display:inline-block; background:var(--almond-bg); color:var(--deep-caramel); font-size:12px; font-weight:600; line-height:1; padding:4px 8px; border-radius:999px; margin-right:6px; vertical-align:2px; white-space:nowrap; }
   .recipe-card-swipe .recipe-card{ -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
   .recipe-card .rname{ font-size:16px; font-weight:500; color:var(--cocoa); white-space:normal; word-break:break-word; line-height:1.35; }
   .recipe-card .rmeta{ font-size:13px; color:var(--deep-caramel); margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -962,7 +964,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.268';
+var BUILD_VERSION = '9.270';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2634,7 +2636,7 @@ var I18N = {
     usdaDetailBasis:'每100g', usdaDetailMissingHint:'本地缓存里没有找到这条食品的营养数据（可能是缓存被清掉了），重新在USDA里搜一次这个食品即可再次查看。', usdaDetailFallbackTitle:'USDA 食品详情',
     // recipe detail
     cookThis:'我做了这道菜', cookConfirmTitle:'确认扣减库存',
-    recipeOrderBtn:'点餐', recipeOrderCancelBtn:'取消点餐', recipeOrderedTag:'点餐中', recipeOrderedToast:'已点餐，已排到列表最前', recipeOrderCancelledToast:'已取消点餐',
+    recipeOrderBtn:'点餐', recipeOrderCancelBtn:'取消点餐', recipeOrderedTag:'点餐中', recipePlanTag:'计划中', recipePlanNoOrderToast:'“计划中”的食谱不支持点餐', recipeOrderedToast:'已点餐，已排到列表最前', recipeOrderCancelledToast:'已取消点餐',
     recipeCookHistoryTitle:'制作记录', recipeNeverCooked:'还没有制作记录', recipeCookedTimes:'共制作 {n} 次',
     nutriToggleExpand:'展开每100g成品 / 每份', nutriToggleCollapse:'收起',
     cookConfirmHint:'以下食材将按用量从库存扣减，确认无误后点击确认。',
@@ -3001,7 +3003,7 @@ var I18N = {
     usdaDataTypeFoundation:'USDA Lab-Tested', usdaDataTypeSRLegacy:'USDA Data', usdaDataTypeBranded:'Branded',
     usdaDetailBasis:'Per 100g', usdaDetailMissingHint:'This food\\u2019s nutrition data isn\\u2019t in the local cache (it may have been cleared) \\u2014 search for it again on USDA to view it here.', usdaDetailFallbackTitle:'USDA food details',
     cookThis:"I made this dish", cookConfirmTitle:'Confirm inventory deduction',
-    recipeOrderBtn:'Order this', recipeOrderCancelBtn:'Cancel order', recipeOrderedTag:'Ordered', recipeOrderedToast:'Ordered - moved to the top of the list', recipeOrderCancelledToast:'Order cancelled',
+    recipeOrderBtn:'Order this', recipeOrderCancelBtn:'Cancel order', recipeOrderedTag:'Ordered', recipePlanTag:'Planned', recipePlanNoOrderToast:'Planned recipes cannot be ordered', recipeOrderedToast:'Ordered - moved to the top of the list', recipeOrderCancelledToast:'Order cancelled',
     recipeCookHistoryTitle:'Cooking History', recipeNeverCooked:'Not made yet', recipeCookedTimes:'Made {n} times',
     nutriToggleExpand:'Show per 100g cooked / per serving', nutriToggleCollapse:'Hide',
     cookConfirmHint:'These items will be deducted from inventory based on the amount used. Confirm to proceed.',
@@ -3400,6 +3402,7 @@ async function loadAll(){
   state.shoppingList = (await storageGet('shoppingList', [])) || [];
   if(!Array.isArray(state.shoppingList)) state.shoppingList = [];
   CLOUD.shopPushMap = (await storageGet('cloudSyncShopPushMap', {})) || {};
+  CLOUD.cookLogPushMap = (await storageGet('cloudSyncCookLogPushMap', {})) || {}; // README 9.270
   state.restockPopupLastDay = (await storageGet('restockPopupLastDay', '')) || '';
   state.mealLogs = results[16] || [];
   state.weightLogs = results[17] || [];
@@ -3555,7 +3558,11 @@ function saveMealsets(){
   cloudSyncPushMealsetChanges(); // README 9.211: 套餐现在走云同步，跟saveRecipes同样的写法
   return p;
 }
-function saveRecipeCookLogs(){ return storageSet('recipeCookLogs', state.recipeCookLogs); }
+function saveRecipeCookLogs(){
+  var p = storageSet('recipeCookLogs', state.recipeCookLogs);
+  cloudSyncPushCookLogs(); // README 9.270: 制作记录云同步
+  return p;
+}
 function savePickFrequency(){ return storageSet('pickFrequency', state.pickFrequency); }
 function saveUsdaSaved(){ return storageSet('usdaSaved', state.usdaSaved); }
 // ===================== README 9.263: USDA 词条标签 =====================
@@ -7188,6 +7195,8 @@ function showRecipePill(id, x, y){
   if(!root) return;
   var r = state.recipes.find(function(q){ return q.id===id; });
   if(!r) return;
+  // README 9.270: "计划中"(还没做过)的食谱不支持点餐：长按只提示一句，不弹气泡。已经被点餐的照常能取消。
+  if(!r.ordered_at && !recipeCookedIdSet()[id]){ showToast(t('recipePlanNoOrderToast')); return; }
   var pillHalfWidth = 80, pillHeight = 46, margin = 10;
   var vw = window.innerWidth, vh = window.innerHeight;
   var left = Math.min(Math.max(x - pillHalfWidth, margin), vw - pillHalfWidth*2 - margin);
@@ -7204,6 +7213,7 @@ function toggleRecipeOrder(id){
   hideCopyPill();
   var r = state.recipes.find(function(q){ return q.id===id; });
   if(!r) return;
+  if(!r.ordered_at && !recipeCookedIdSet()[id]){ showToast(t('recipePlanNoOrderToast')); return; } // README 9.270
   if(r.ordered_at){ delete r.ordered_at; } else { r.ordered_at = nowLocalIso(); }
   r.updated_at = nowLocalIso();
   saveRecipes();
@@ -7497,6 +7507,13 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.270', items:[
+    {t:'new', zh:'“我做了这道菜”的制作记录现在会通过云同步在两部手机之间同步了：一个人做了这道菜，另一个人那边的“制作记录”日历、制作次数和“计划中”标签也会跟着更新（两边的记录合并，不会互相覆盖）。', en:'"I made this dish" cooking history is now synced between phones: when one person cooks a recipe, the other one\'s cooking-history calendar, count and "Planned" tag update too (records from both sides are merged, never overwritten).'},
+    {t:'tweak', zh:'“计划中”（还没做过）的食谱不支持点餐：长按会提示一句，不再弹出“点餐”。已经被点餐的食谱仍然可以取消点餐。', en:'Planned (never-cooked) recipes can no longer be ordered: a long-press just shows a short notice. Recipes that are already ordered can still be cancelled.'}
+  ]},
+  {v:'9.269', items:[
+    {t:'new', zh:'食谱列表里，还没点过“我做了这道菜”的食谱，名字前会有一个淡色的“计划中”小标签（不改底色、不加框、不影响顺序）。点了“点餐”的食谱仍然只显示“点餐中”。', en:'On the recipe list, recipes you have not yet marked "I made this dish" now carry a small, subtle "Planned" tag before the name (no background change, no outline, no reordering). A recipe that is ordered still shows only its "Ordered" tag.'}
+  ]},
   {v:'9.268', items:[
     {t:'tweak', zh:'库存页列表默认改为按录入时间排序（最新录入的在最前）。想按过期时间看，点上面的“过期”就行。', en:'The inventory list now sorts by entry time by default (newest first). Tap the expiry pill above to sort by expiry date instead.'},
     {t:'new', zh:'食谱页新增“点餐”：长按列表里的某道食谱，点“点餐”，它会排到列表最前面，整条变成暖橙色并带“点餐中”标签（多道菜按先点先做排序）。在详情页点“我做了这道菜”后恢复原样；点错了可以长按选“取消点餐”。开了云同步的话，两部手机互相可见——一个人点、另一个人做，或者自己点自己做当作做菜计划。', en:'New "Order" on the recipe list: long-press a recipe and tap Order - it moves to the top, the whole row turns warm orange with an "Ordered" tag (several orders go first-ordered-first-cooked). Tapping "I made this dish" on its detail page restores it; long-press again to cancel an order by mistake. With cloud sync on, both phones see it - one person orders, the other cooks, or order for yourself as a cooking plan.'}
@@ -11712,6 +11729,15 @@ function getFilteredRecipes(){
   // without needing to backfill anything on old recipes.
   return pinOrderedRecipes(list.slice().sort(function(a,b){ return a.id < b.id ? 1 : (a.id > b.id ? -1 : 0); }));
 }
+// README 9.269: 做过的食谱 id 集合(有"我做了这道菜"的记录，或库存取用记录里关联到这道食谱)，列表渲染时只算一次
+function recipeCookedIdSet(){
+  var set = {};
+  state.items.forEach(function(it){
+    (it.usage_log||[]).forEach(function(e){ if(e.destination_type==='recipe' && e.recipe_id) set[e.recipe_id] = true; });
+  });
+  (state.recipeCookLogs||[]).forEach(function(e){ if(e.recipe_id) set[e.recipe_id] = true; });
+  return set;
+}
 function recipeListItemsHtml(filtered){
   if(filtered.length===0){
     if(state.recipes.length===0){
@@ -11719,6 +11745,7 @@ function recipeListItemsHtml(filtered){
     }
     return '<div class="empty-state">'+ic('search',40)+'<p>'+(state.lang==='zh'?'没有符合条件的食谱':'No recipes match your filters')+'</p></div>';
   }
+  var cookedSet = recipeCookedIdSet();
   return filtered.map(function(r){
       var nutri = calcRecipeNutrition(r);
       var catLabel = recipeCategoryLabel(r);
@@ -11743,7 +11770,7 @@ function recipeListItemsHtml(filtered){
           '<div class="recipe-card-row">'+
             '<div class="recipe-cover">'+coverHtml+'</div>'+
             '<div class="recipe-card-body">'+
-              '<div class="rname">'+(r.ordered_at ? '<span class="recipe-order-tag">'+ic('spoon',13)+esc(t('recipeOrderedTag'))+'</span>' : '')+esc(r.name)+'</div>'+
+              '<div class="rname">'+(r.ordered_at ? '<span class="recipe-order-tag">'+ic('spoon',13)+esc(t('recipeOrderedTag'))+'</span>' : (!cookedSet[r.id] ? '<span class="recipe-plan-tag">'+esc(t('recipePlanTag'))+'</span>' : ''))+esc(r.name)+'</div>'+
               '<div class="rmeta">'+(catLabel?esc(catLabel)+' · ':'')+(r.servings||1)+' '+t('fieldServings')+' · '+recipeIngredientCount(r)+' '+t('sectionIngredients')+'</div>'+
               '<div class="rcal">'+calLine+'</div>'+
             '</div>'+
@@ -21899,7 +21926,7 @@ document.addEventListener('click', function(e){
    - Security is "room code = shared secret", same trust model as a shareable doc link -
      fine for 2-3 people you already trust, not a real multi-tenant permission system.
 */
-var CLOUD = { app:null, auth:null, db:null, uid:null, unsub:null, metaUnsub:null, recipeUnsub:null, ingredientUnsub:null, shopUnsub:null, mealsetUnsub:null, pushMap:{}, metaPushMap:{}, recipePushMap:{}, ingredientPushMap:{}, shopPushMap:{}, mealsetPushMap:{}, sdkLoadPromise:null, photoPushMap:{}, photoDelQueue:[], photoBackfill:{}, photoTimer:null, photoBusy:false, photoRerun:false, photoListeners:{}, photoMissing:{}, photoUpPending:0 };
+var CLOUD = { app:null, auth:null, db:null, uid:null, unsub:null, metaUnsub:null, recipeUnsub:null, ingredientUnsub:null, shopUnsub:null, mealsetUnsub:null, cookLogUnsub:null, cookLogPushMap:{}, pushMap:{}, metaPushMap:{}, recipePushMap:{}, ingredientPushMap:{}, shopPushMap:{}, mealsetPushMap:{}, sdkLoadPromise:null, photoPushMap:{}, photoDelQueue:[], photoBackfill:{}, photoTimer:null, photoBusy:false, photoRerun:false, photoListeners:{}, photoMissing:{}, photoUpPending:0 };
 
 function cloudSyncActive(){ return !!(state.cloudSyncEnabled && CLOUD.db && CLOUD.uid && state.cloudSyncRoomCode); }
 
@@ -22034,6 +22061,9 @@ function recipesCollectionRef(){
 function ingredientsCollectionRef(){
   return CLOUD.db.collection('syncRooms').doc(state.cloudSyncRoomCode).collection('ingredients');
 }
+function cookLogsCollectionRef(){
+  return CLOUD.db.collection('syncRooms').doc(state.cloudSyncRoomCode).collection('cookLogs');
+}
 function shoppingCollectionRef(){
   return CLOUD.db.collection('syncRooms').doc(state.cloudSyncRoomCode).collection('shopping');
 }
@@ -22089,6 +22119,7 @@ async function startCloudSync(){
     subscribeCloudIngredients();
     subscribeCloudShopping(); // README 9.231
     subscribeCloudMealsets();
+    subscribeCloudCookLogs(); // README 9.270
     // Also push once right away: covers the case where the collection is empty (brand new
     // room, nothing to receive yet) but this device already has local items/lists to upload.
     cloudSyncPushChanges();
@@ -22097,6 +22128,7 @@ async function startCloudSync(){
     cloudSyncPushIngredientChanges();
     cloudSyncPushShopChanges(); // README 9.231
     cloudSyncPushMealsetChanges();
+    cloudSyncPushCookLogs(); // README 9.270
     cloudSyncPhotoSchedule(3000); // README 9.229: 连上之后过几秒再开始后台传图/等图，不跟启动抢资源
     state.cloudSyncStatus = 'connected';
   }catch(e){
@@ -22114,6 +22146,7 @@ function stopCloudSync(){
   if(CLOUD.ingredientUnsub){ CLOUD.ingredientUnsub(); CLOUD.ingredientUnsub = null; }
   if(CLOUD.shopUnsub){ CLOUD.shopUnsub(); CLOUD.shopUnsub = null; } // README 9.231
   if(CLOUD.mealsetUnsub){ CLOUD.mealsetUnsub(); CLOUD.mealsetUnsub = null; }
+  if(CLOUD.cookLogUnsub){ CLOUD.cookLogUnsub(); CLOUD.cookLogUnsub = null; } // README 9.270
   Object.keys(CLOUD.photoListeners).forEach(function(id){ cloudSyncPhotoDetach(id); }); // README 9.229
   if(CLOUD.photoTimer){ clearTimeout(CLOUD.photoTimer); CLOUD.photoTimer = null; }
   CLOUD.photoMissing = {}; CLOUD.photoUpPending = 0;
@@ -22760,6 +22793,62 @@ async function cloudSyncPushRecipeChanges(){
     cloudSyncPhotoSchedule(); // README 9.229
   }catch(e){
     console.error('cloud sync recipe push failed', e);
+    state.cloudSyncStatus = 'error';
+    state.cloudSyncError = (e && e.message) || String(e);
+    render();
+  }
+}
+
+/* ---------- 制作记录("我做了这道菜"的记录，README 9.270) ----------
+   记录只增不改不删(一次点击 = 一条 {id, recipe_id, date, created_at})，所以不需要像食谱那样比谁新：
+   每条一个文档，两部手机的记录取并集(按 id 去重)，同一时间两个人各做了一次也不会互相覆盖。 */
+function saveCloudSyncCookLogPushMap(){ return storageSet('cloudSyncCookLogPushMap', CLOUD.cookLogPushMap); }
+function subscribeCloudCookLogs(){
+  if(CLOUD.cookLogUnsub){ CLOUD.cookLogUnsub(); CLOUD.cookLogUnsub = null; }
+  CLOUD.cookLogUnsub = cookLogsCollectionRef().onSnapshot(function(snapshot){
+    var changed = false;
+    var have = {};
+    (state.recipeCookLogs||[]).forEach(function(e){ have[e.id] = true; });
+    snapshot.docChanges().forEach(function(change){
+      if(change.type === 'removed') return;
+      var d = change.doc.data();
+      if(!d || !d.id || !d.recipe_id) return;
+      CLOUD.cookLogPushMap[d.id] = true; // 云端已经有了，不用再推
+      if(have[d.id]) return;
+      state.recipeCookLogs.push({id:d.id, recipe_id:d.recipe_id, date:d.date, created_at:d.created_at});
+      have[d.id] = true;
+      changed = true;
+    });
+    saveCloudSyncCookLogPushMap();
+    if(changed) storageSet('recipeCookLogs', state.recipeCookLogs);
+    state.cloudSyncLastSyncedAt = nowLocalIso();
+    cloudSyncSafeRender();
+  }, function(err){
+    console.error('cloud sync cook logs snapshot error', err);
+    state.cloudSyncStatus = 'error';
+    state.cloudSyncError = (err && err.message) || String(err);
+    cloudSyncSafeRender();
+  });
+}
+async function cloudSyncPushCookLogs(){
+  if(!cloudSyncActive()) return;
+  var toPush = (state.recipeCookLogs||[]).filter(function(e){ return e && e.id && !CLOUD.cookLogPushMap[e.id]; });
+  if(!toPush.length) return;
+  try{
+    for(var i=0;i<toPush.length;i+=400){ // Firestore 一次批量最多 500 条
+      var chunk = toPush.slice(i, i+400);
+      var batch = CLOUD.db.batch();
+      chunk.forEach(function(e){
+        batch.set(cookLogsCollectionRef().doc(e.id), {id:e.id, recipe_id:e.recipe_id, date:e.date, created_at:e.created_at||''});
+      });
+      await batch.commit();
+      chunk.forEach(function(e){ CLOUD.cookLogPushMap[e.id] = true; });
+    }
+    saveCloudSyncCookLogPushMap();
+    state.cloudSyncLastSyncedAt = nowLocalIso();
+    cloudSyncSafeRender();
+  }catch(e){
+    console.error('cloud sync cook logs push failed', e);
     state.cloudSyncStatus = 'error';
     state.cloudSyncError = (e && e.message) || String(e);
     render();
