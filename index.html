@@ -970,7 +970,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.272';
+var BUILD_VERSION = '9.273';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -7513,6 +7513,9 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.273', items:[
+    {t:'tweak', zh:'食谱添加食材的“自定”和三餐选餐页的“自定”，填写营养值的界面改成跟条目编辑页一样的营养标签样式：热量一行大字，脂肪、碳水、蛋白质等按标签的层级缩进，矿物质和维生素是标签里的折叠行（默认收起，显示已填几项）。填写顺序也跟营养标签一致（胆固醇、钠移到蛋白质后面），回车仍然是填完一项跳到下一项。', en:'The nutrition entry area of the Custom page (used when adding a recipe ingredient and when logging a meal) now uses the same Nutrition Facts label style as the item edit page: a big Calories row, fat/carbs/protein rows indented like the label, and Minerals/Vitamins as collapsible rows inside it (collapsed by default, showing how many are filled). The order follows the label too (cholesterol and sodium now come after protein); Enter still jumps to the next field.'}
+  ]},
   {v:'9.272', items:[
     {t:'tweak', zh:'取用记录“全部批次”视图里，每条记录后面的批次标签改成：存放位置 · 进入该位置的日期（转移过来的批次标“转入”，直接录入的标“录入”）· 已存档。不再显示购买日期。', en:'In the "All batches" usage log, each entry\'s batch tag is now: location · date it came into that location ("moved in" for batches created by a location move, "added" for directly entered ones) · archived. The purchase date is no longer shown.'}
   ]},
@@ -17303,21 +17306,36 @@ function customMealFieldsHtml(af){
   // README 9.249: 营养标签上的全部23项，只有热量必填。
   // README 9.250: 矿物质、维生素各自折叠(默认收起)，默认展开的只有热量和宏量等主要营养(NUTRI_KEYS那13项)；
   // 折叠栏上显示里面已填几项。回车链按页面实际顺序走，遇到收起的组就跳过(见focusNextCustomField)。
-  function fieldHtml(k){
-    var isCal = k==='calories';
-    return '<div class="field"><label>'+esc(customNutriLabel(k))+' ('+esc(customNutriUnit(k))+')</label><input type="number" inputmode="decimal" id="custom-field-'+k+'" enterkeyhint="next"'+((isCal && !af.customBase)?' autofocus':'')+' placeholder="'+t(isCal?'requiredPh':'optionalPh')+'" value="'+esc(customGetStr(af,k))+'" oninput="onCustomNutriInput(\''+k+'\',this.value)" onkeydown="focusNextCustomField(event,\''+customNextId(k)+'\')"></div>';
+  // README 9.273: 营养值填写区改成跟条目编辑页、外部食材一样的营养标签样式(.nutrition-facts-edit)：
+  // 热量一行大字，脂肪/碳水/蛋白质等按营养标签的层级缩进(NUTRI_TIER1_ROWS)，矿物质/维生素是标签里的折叠行。
+  // 输入框的 id、回车链(enterkeyhint+focusNextCustomField)、折叠组的 id(custom-fold-*)全部保持原样，别的代码不用动。
+  function inputHtml(k, cls, ph, autofocus){
+    return '<input type="number" inputmode="decimal" class="'+cls+'" id="custom-field-'+k+'" enterkeyhint="next"'+(autofocus?' autofocus':'')+
+      ' placeholder="'+ph+'" value="'+esc(customGetStr(af,k))+'" oninput="onCustomNutriInput(\''+k+'\',this.value)" onkeydown="focusNextCustomField(event,\''+customNextId(k)+'\')">';
   }
+  function rowHtml(k, row){
+    var cls = 'nf-row'+(row && row.level===1?' indent1':'')+(row && row.level===2?' indent2':'')+(row && row.bold?' bold':'');
+    return '<div class="'+cls+'"><span>'+esc(customNutriLabel(k))+'</span><span class="nf-edit-value-wrap">'+
+      inputHtml(k, 'nf-input', '-', false)+
+      '<span class="nf-input-unit">'+esc(customNutriUnit(k))+'</span></span></div>';
+  }
+  var calHtml = '<div class="nf-calories-row"><span>'+esc(t('nutriCalories'))+' <span style="font-size:12.5px;font-weight:400;color:#B79B78;">'+esc(t('requiredPh'))+'</span></span><span class="nf-edit-value-wrap">'+
+    inputHtml('calories', 'nf-input nf-input-cal', '-', !af.customBase)+
+    '<span class="nf-calories-unit">'+esc(customNutriUnit('calories'))+'</span></span></div>';
   function foldHtml(g, labelKey){
     var open = !!(af.customOpen && af.customOpen[g]);
     var n = customGroupFilledCount(af, g);
-    return '<div class="custom-fold-head" onclick="toggleCustomGroup(\''+g+'\')" style="display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:4px 0 12px;cursor:pointer;user-select:none;">'+
-        '<span id="custom-fold-chev-'+g+'" style="display:flex;transition:transform .15s;transform:rotate('+(open?90:0)+'deg);">'+ic('chevronRight',15)+'</span>'+
-        '<span style="flex:1;font-weight:600;">'+esc(t(labelKey))+'</span>'+
-        '<span id="custom-fold-badge-'+g+'" class="hint" style="margin:0;">'+(n>0 ? esc(t('customGroupFilledPre')+n+t('customGroupFilledSuf')) : '')+'</span>'+
+    return '<div class="nf-toggle-row custom-fold-head" onclick="toggleCustomGroup(\''+g+'\')"><span>'+esc(t(labelKey))+
+        ' <span id="custom-fold-badge-'+g+'" class="nf-toggle-hint">'+(n>0 ? esc(t('customGroupFilledPre')+n+t('customGroupFilledSuf')) : '')+'</span></span>'+
+        ic('chevronRight',15,'id="custom-fold-chev-'+g+'" style="transform:rotate('+(open?90:0)+'deg);transition:transform .15s;"')+
       '</div>'+
-      '<div id="custom-fold-body-'+g+'" style="display:'+(open?'block':'none')+';">'+CUSTOM_GROUPS[g].map(fieldHtml).join('')+'</div>';
+      '<div id="custom-fold-body-'+g+'" style="display:'+(open?'block':'none')+';">'+CUSTOM_GROUPS[g].map(function(k){ return rowHtml(k, null); }).join('')+'</div>';
   }
-  var nutriHtml = CUSTOM_MAIN_ORDER.map(fieldHtml).join('') + foldHtml('mineral','customGroupMineral') + foldHtml('vitamin','customGroupVitamin');
+  var nutriHtml = '<div class="nutrition-facts nutrition-facts-edit">'+
+    calHtml+
+    NUTRI_TIER1_ROWS.map(function(row){ return rowHtml(row.key, row); }).join('')+
+    foldHtml('mineral','customGroupMineral')+foldHtml('vitamin','customGroupVitamin')+
+  '</div>';
   return qtyHtml + nutriHtml +
     '<div class="field"><label>'+t('fieldMealName')+'</label><input type="text" id="custom-field-name" enterkeyhint="done" autocapitalize="words" placeholder="'+t('optionalPh')+'" value="'+esc(af.customName||'')+'" oninput="af_str(\'customName\',this.value)" onkeydown="focusNextCustomField(event,null)"></div>'+
     '<button class="btn btn-primary" style="margin-top:14px;width:100%;" onclick="'+(af.pickerKind?'ipSaveCustomItem()':'saveCustomMealLogEntry()')+'">'+t('save')+'</button>';
@@ -17327,7 +17345,9 @@ var CUSTOM_GROUPS = {
   mineral: ['potassium','calcium','iron','magnesium','zinc'],
   vitamin: ['vitamin_d','vitamin_a','vitamin_c','vitamin_e','vitamin_b12']
 };
-var CUSTOM_MAIN_ORDER = CUSTOM_NUTRI_ORDER.filter(function(k){ return CUSTOM_GROUPS.mineral.indexOf(k)===-1 && CUSTOM_GROUPS.vitamin.indexOf(k)===-1; });
+// README 9.273: 页面上主要营养的顺序跟营养标签(NUTRI_TIER1_ROWS)一致：热量→脂肪(饱和/反式/单不饱和/多不饱和)→碳水(纤维/糖/添加糖)→蛋白质→胆固醇→钠。
+// 回车链按这个顺序走。
+var CUSTOM_MAIN_ORDER = ['calories'].concat(NUTRI_TIER1_ROWS.map(function(r){ return r.key; }));
 var CUSTOM_RENDER_ORDER = CUSTOM_MAIN_ORDER.concat(CUSTOM_GROUPS.mineral, CUSTOM_GROUPS.vitamin);
 function customNextId(k){
   var i = CUSTOM_RENDER_ORDER.indexOf(k);
