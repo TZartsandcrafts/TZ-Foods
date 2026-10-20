@@ -970,7 +970,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.273';
+var BUILD_VERSION = '9.277';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -7513,6 +7513,18 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.277', items:[
+    {t:'fix', zh:'三餐选餐和食谱添加食材：勾了几个条目的圆圈后，又点进其中一个条目的数量页点“保存”，现在会把其他勾选的条目一起添加（用它们各自显示的数量），不再被丢掉；当前这一条仍然按数量页里的数量保存，不会重复添加。', en:'Meal picker and recipe-ingredient picker: if you tick several circles and then open one item\'s amount page and tap Save, the other ticked items are now added too (with their shown amounts) instead of being dropped; the item you edited is saved with the amount on its page and is not added twice.'}
+  ]},
+  {v:'9.276', items:[
+    {t:'fix', zh:'三餐选餐和食谱添加食材：勾了某个条目右侧的圆圈后，又点进这个条目的数量页改了数量，再按底部的“添加 · 已选 N 项”时，这一条现在以数量页里最后编辑的数量为准，不再用圆圈旁边显示的上次/常用数量。', en:'Meal picker and recipe-ingredient picker: if you tick an item\'s circle, then open its amount page and change the amount, tapping "Add · N selected" at the bottom now uses the amount you last edited, not the remembered one shown next to the circle.'}
+  ]},
+  {v:'9.275', items:[
+    {t:'tweak', zh:'食谱列表的顺序现在是：点餐中 → 计划中（还没做过）→ 做过的。计划中的食谱点了“我做了这道菜”后，“计划中”标签消失，并自动移到所有计划中食谱的下面。搜索时仍按相关度排序。', en:'The recipe list now goes: Ordered → Planned (never cooked) → cooked. After you tap "I made this dish" on a planned recipe, its Planned tag disappears and it drops below all the planned recipes. Search results still sort by relevance.'}
+  ]},
+  {v:'9.274', items:[
+    {t:'tweak', zh:'“自定”填写页里，名称挪到了最上面（在数量和营养值前面）。键盘回车的顺序是：名称 → 数量 → 热量 → 其余营养，最后一项回车收起键盘。', en:'On the Custom page, the Name field is now at the very top (above amount and nutrition). Enter moves: name → amount → calories → the other nutrients, and Enter on the last one closes the keyboard.'}
+  ]},
   {v:'9.273', items:[
     {t:'tweak', zh:'食谱添加食材的“自定”和三餐选餐页的“自定”，填写营养值的界面改成跟条目编辑页一样的营养标签样式：热量一行大字，脂肪、碳水、蛋白质等按标签的层级缩进，矿物质和维生素是标签里的折叠行（默认收起，显示已填几项）。填写顺序也跟营养标签一致（胆固醇、钠移到蛋白质后面），回车仍然是填完一项跳到下一项。', en:'The nutrition entry area of the Custom page (used when adding a recipe ingredient and when logging a meal) now uses the same Nutrition Facts label style as the item edit page: a big Calories row, fat/carbs/protein rows indented like the label, and Minerals/Vitamins as collapsible rows inside it (collapsed by default, showing how many are filled). The order follows the label too (cholesterol and sodium now come after protein); Enter still jumps to the next field.'}
   ]},
@@ -11741,15 +11753,22 @@ function recipeIngredientDisplayName(ri){
   return src ? src.name : (ri.name_snapshot || '?');
 }
 // README 9.268: 被点餐的食谱(r.ordered_at 有值)排在最前面，先点的在上；其余保持原来的顺序。
-function pinOrderedRecipes(list){
-  var ordered = [], rest = [];
-  list.forEach(function(r){ if(r.ordered_at) ordered.push(r); else rest.push(r); });
-  if(!ordered.length) return list;
+// README 9.275: 不搜索时顺序是 点餐中(先点的在上) → 计划中(还没做过) → 做过的；各组内部保持原来的顺序。
+// 点了"我做了这道菜"的食谱"计划中"标签消失，同时从计划中那一组落到做过的那一组。搜索时仍按相关度排，只把点餐中的置顶。
+function pinOrderedRecipes(list, groupPlanned){
+  var ordered = [], planned = [], rest = [];
+  var cooked = groupPlanned ? recipeCookedIdSet() : null;
+  list.forEach(function(r){
+    if(r.ordered_at) ordered.push(r);
+    else if(cooked && !cooked[r.id]) planned.push(r);
+    else rest.push(r);
+  });
+  if(!ordered.length && !planned.length) return list;
   ordered.sort(function(a,b){
     if(a.ordered_at !== b.ordered_at) return a.ordered_at < b.ordered_at ? -1 : 1;
     return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0);
   });
-  return ordered.concat(rest);
+  return ordered.concat(planned, rest);
 }
 function getFilteredRecipes(){
   var list = state.recipes.filter(function(r){
@@ -11784,13 +11803,13 @@ function getFilteredRecipes(){
       if(a.titleHit !== b.titleHit) return a.titleHit ? -1 : 1;
       return a.r.id < b.r.id ? 1 : (a.r.id > b.r.id ? -1 : 0);
     });
-    return pinOrderedRecipes(scored.map(function(s){ return s.r; }));
+    return pinOrderedRecipes(scored.map(function(s){ return s.r; }), false); // 搜索：按相关度，只置顶点餐中的
   }
   // README 9.122: newest-created first. `id` doubles as a reliable creation-time sort key even
   // for recipes saved before created_at existed as a field - uid() always starts with
   // Date.now().toString(36), so a plain string comparison sorts by creation time correctly
   // without needing to backfill anything on old recipes.
-  return pinOrderedRecipes(list.slice().sort(function(a,b){ return a.id < b.id ? 1 : (a.id > b.id ? -1 : 0); }));
+  return pinOrderedRecipes(list.slice().sort(function(a,b){ return a.id < b.id ? 1 : (a.id > b.id ? -1 : 0); }), true);
 }
 // README 9.269: 做过的食谱 id 集合(有"我做了这道菜"的记录，或库存取用记录里关联到这道食谱)，列表渲染时只算一次
 function recipeCookedIdSet(){
@@ -17310,7 +17329,7 @@ function customMealFieldsHtml(af){
   // 热量一行大字，脂肪/碳水/蛋白质等按营养标签的层级缩进(NUTRI_TIER1_ROWS)，矿物质/维生素是标签里的折叠行。
   // 输入框的 id、回车链(enterkeyhint+focusNextCustomField)、折叠组的 id(custom-fold-*)全部保持原样，别的代码不用动。
   function inputHtml(k, cls, ph, autofocus){
-    return '<input type="number" inputmode="decimal" class="'+cls+'" id="custom-field-'+k+'" enterkeyhint="next"'+(autofocus?' autofocus':'')+
+    return '<input type="number" inputmode="decimal" class="'+cls+'" id="custom-field-'+k+'" enterkeyhint="'+(customNextId(k)?'next':'done')+'"'+(autofocus?' autofocus':'')+
       ' placeholder="'+ph+'" value="'+esc(customGetStr(af,k))+'" oninput="onCustomNutriInput(\''+k+'\',this.value)" onkeydown="focusNextCustomField(event,\''+customNextId(k)+'\')">';
   }
   function rowHtml(k, row){
@@ -17336,8 +17355,10 @@ function customMealFieldsHtml(af){
     NUTRI_TIER1_ROWS.map(function(row){ return rowHtml(row.key, row); }).join('')+
     foldHtml('mineral','customGroupMineral')+foldHtml('vitamin','customGroupVitamin')+
   '</div>';
-  return qtyHtml + nutriHtml +
-    '<div class="field"><label>'+t('fieldMealName')+'</label><input type="text" id="custom-field-name" enterkeyhint="done" autocapitalize="words" placeholder="'+t('optionalPh')+'" value="'+esc(af.customName||'')+'" oninput="af_str(\'customName\',this.value)" onkeydown="focusNextCustomField(event,null)"></div>'+
+  // README 9.274: 名称挪到了最上面(原来在营养值下面、保存键上面)；回车先跳到数量，后面的链条不变，
+  // 最后一个营养项回车不再跳到名称，而是收起键盘。
+  var nameHtml = '<div class="field"><label>'+t('fieldMealName')+'</label><input type="text" id="custom-field-name" enterkeyhint="next" autocapitalize="words" placeholder="'+t('optionalPh')+'" value="'+esc(af.customName||'')+'" oninput="af_str(\'customName\',this.value)" onkeydown="focusNextCustomField(event,\'custom-field-qty\')"></div>';
+  return nameHtml + qtyHtml + nutriHtml +
     '<button class="btn btn-primary" style="margin-top:14px;width:100%;" onclick="'+(af.pickerKind?'ipSaveCustomItem()':'saveCustomMealLogEntry()')+'">'+t('save')+'</button>';
 }
 // README 9.250: 填写页的显示顺序 = 主要营养 + 矿物质组 + 维生素组；回车链(customNextId)和折叠栏计数都按它来。
@@ -17351,7 +17372,7 @@ var CUSTOM_MAIN_ORDER = ['calories'].concat(NUTRI_TIER1_ROWS.map(function(r){ re
 var CUSTOM_RENDER_ORDER = CUSTOM_MAIN_ORDER.concat(CUSTOM_GROUPS.mineral, CUSTOM_GROUPS.vitamin);
 function customNextId(k){
   var i = CUSTOM_RENDER_ORDER.indexOf(k);
-  return (i>=0 && i<CUSTOM_RENDER_ORDER.length-1) ? 'custom-field-'+CUSTOM_RENDER_ORDER[i+1] : 'custom-field-name';
+  return (i>=0 && i<CUSTOM_RENDER_ORDER.length-1) ? 'custom-field-'+CUSTOM_RENDER_ORDER[i+1] : null;
 }
 function customGroupFilledCount(af, g){
   return CUSTOM_GROUPS[g].filter(function(k){ var v = customGetStr(af,k); return v!=='' && v!=null; }).length;
@@ -17419,10 +17440,11 @@ function focusNextCustomField(event, nextId){
     while(el && el.offsetParent===null && guard++<40){
       var kk = nextId.replace('custom-field-','');
       nextId = customNextId(kk);
+      if(!nextId){ el = null; break; }
       el = document.getElementById(nextId);
-      if(nextId==='custom-field-name') break;
     }
     if(el){ el.focus(); if(el.select) try{ el.select(); }catch(e){} }
+    else if(event.target && event.target.blur){ event.target.blur(); } // README 9.274: 后面没有可填的项了 → 收起键盘
   } else if(event.target && event.target.blur){
     event.target.blur();
   }
@@ -17943,14 +17965,22 @@ function saveMealLogEntry(){
   // README 9.177: USDA常用列表的排序依据 - 只在真的存成一条三餐记录时计数,跟"常用"列表本身
   // 的缓存(见pickUsdaFoodForMeal/cacheUsdaFoodDetail)分开处理,不是搜索/浏览就算。
   else if(p.type==='usda') bumpPickFrequency('usda', p.fdcId);
-  showToast(t('mealLoggedToast'));
+  // README 9.277: 其他勾选了圆圈的条目一起添加(扣库存提醒跟当前这条合并成一个弹窗)
+  _restockCollected = [];
+  var othersRes = commitOtherQuickPicks(af, p, commitOneQuickPick);
+  showToast(othersRes.fail ? t('quickAddPartialToast').replace('{n}', othersRes.ok+1) : t('mealLoggedToast'));
   // README 9.186: 保存之后把三餐页顶部高亮的tab也切到刚存进去的那一餐——如果是在数量页把默认
   // 餐次改成了别的(比如从午餐tab点+进来，改选了晚餐)，回到三餐页正好能立刻看到刚加的这条，
   // 而不是还停在午餐、看不到自己刚加的东西、以为没存上。
   state.mealsUI.selectedSlot = af.slot;
   navigate('meals');
   // README 9.225: 扣完库存之后，该食材总库存≤补货提醒线就弹窗提醒(不影响已经完成的添加和扣除)。
-  if(deductItemId){ var _rsItem = state.items.find(function(x){ return x.id===deductItemId; }); if(_rsItem) showRestockForItems([_rsItem]); }
+  var _rsList = _restockCollected.slice(); _restockCollected = [];
+  if(deductItemId){
+    var _rsItem = state.items.find(function(x){ return x.id===deductItemId; });
+    if(_rsItem && !_rsList.some(function(x){ return x.id===_rsItem.id; })) _rsList.push(_rsItem);
+  }
+  if(_rsList.length) showRestockForItems(_rsList);
 }
 // README 9.200: 套餐加食材(state.mealsUI.ingPicker)版本的saveMealLogEntry——营养计算逻辑跟
 // saveMealLogEntry的库存/食谱/USDA/外部食材四个分支完全一样(直接照抄过来，保证同一个食材/
@@ -17972,6 +18002,8 @@ function ipConfirmAmountPick(){
     setAmountTextOn(_nestItem, af.amountText, mult); // README 9.266
     state.mealsetDraft.items.push(_nestItem);
     bumpPickFrequency('mealset', p.id);
+    var nestOthers = commitOtherQuickPicks(af, p, ipConfirmOneQuickPick); // README 9.277
+    if(nestOthers.fail) showToast(t('quickAddPartialToast').replace('{n}', nestOthers.ok+1));
     state.mealsUI.ingPicker = null;
     navigate('mealsetForm');
     return;
@@ -18106,6 +18138,9 @@ function ipConfirmAmountPick(){
   else if(p.type==='item') bumpInventoryPickFrequency(p.groupKey, p.id);
   else if(p.type==='external') bumpPickFrequency('external', p.id);
   else if(p.type==='usda') bumpPickFrequency('usda', p.fdcId);
+  // README 9.277: 其他勾选了圆圈的条目一起添加(各用它们自己显示的数量)，不再丢掉
+  var othersIp = commitOtherQuickPicks(af, p, ipConfirmOneQuickPick);
+  if(othersIp.fail) showToast(t('quickAddPartialToast').replace('{n}', othersIp.ok+1));
   var returnView = (af.pickerKind==='mealsetTemplate') ? 'mealsetForm' : (af.pickerKind==='recipeIngredients') ? 'recipeForm' : 'mealAddFood';
   state.mealsUI.ingPicker = null;
   ipNavigateReturn(returnView);
@@ -18183,10 +18218,67 @@ function commitOneQuickPick(af, key){
   }
   return false;
 }
+// README 9.276: "勾了圆圈、又点进这个条目的数量页改了数量"时，再按底部的"添加 · 已选 N 项"，这一条要以数量页里最后编辑的数量为准，
+// 不能还用圆圈旁边显示的"上次/常用数量"(底部这个栏在数量页上也一直显示着)。做法：按下"添加"的瞬间，如果数量页正开着、而且这个条目在已勾选里，
+// 就先把数量页里的数量/单位写进"上次数量"记忆(写法跟各个保存函数里记忆的那几行完全一样)，后面的批量添加读到的就是最新的。
+// 返回false表示数量页里的数量不合法(空/0)，这时提示一下、不继续添加。
+// 数量页正在编辑的这个条目，对应"已勾选"里的哪个key(没有对应就返回null)
+function quickPickKeyOfPicked(p){
+  if(!p) return null;
+  if(p.type==='item' && p.groupKey) return 'inventory:'+p.groupKey;
+  if(p.type==='recipe') return 'recipe:'+p.id;
+  if(p.type==='external') return 'external:'+p.id;
+  if(p.type==='usda') return 'usda:'+p.fdcId;
+  return null;
+}
+// README 9.277: 在数量页点它自己的"保存"时，把"其他已经勾选、还没添加的圆圈"也一起添加(用它们各自显示的数量)。
+// 以前保存后就离开这个流程，其他勾选会被悄悄丢掉。当前这一条(数量页里正在编辑的)已经按页里的数量单独保存了，这里跳过它，不会重复添加。
+// committer 是三餐用commitOneQuickPick，套餐/食谱加食材用ipConfirmOneQuickPick。返回{ok,fail}供调用方提示。
+function commitOtherQuickPicks(af, p, committer){
+  var mainKey = quickPickKeyOfPicked(p);
+  var keys = Object.keys(af.quickPicks||{}).filter(function(k){ return k!==mainKey; });
+  var ok = 0, fail = 0;
+  keys.forEach(function(k){ if(committer(af, k)) ok++; else fail++; });
+  af.quickPicks = {};
+  return {ok:ok, fail:fail};
+}
+function commitOpenAmountPageToQuickPick(){
+  var af = activeAddCtx();
+  if(!af || af.step!=='amount' || !af.picked || !af.quickPicks) return true;
+  var p = af.picked, key = quickPickKeyOfPicked(p);
+  if(!key || !af.quickPicks[key]) return true;
+  var amt = parseAmountInput(af.amountText);
+  if(!amt || amt<=0){ showToast(t(p.type==='recipe' && af.amountUnit!=='g' ? 'servingsRequiredToast' : 'amountRequiredToast')); return false; }
+  if(p.type==='item'){
+    var src = state.items.find(function(x){ return x.id===p.id; });
+    if(!src) return true;
+    state.mealAddItemPrefs = state.mealAddItemPrefs || {};
+    state.mealAddItemPrefs[p.groupKey] = {location: src.location||'', unit: af.amountUnit||'g', amount: amt};
+    saveMealAddItemPrefs();
+  } else if(p.type==='recipe'){
+    state.mealAddLastAmount = state.mealAddLastAmount || {};
+    state.mealAddLastAmount['recipe:'+p.id] = af.amountUnit==='g' ? {amount: amt, unit: 'g'} : {amount: amt, unit: 'servings'};
+    saveMealAddLastAmount();
+  } else if(p.type==='external'){
+    state.mealAddLastAmount = state.mealAddLastAmount || {};
+    state.mealAddLastAmount['external:'+p.id] = {amount: amt, unit: 'g'};
+    saveMealAddLastAmount();
+  } else if(p.type==='usda'){
+    state.usdaSaved = state.usdaSaved || {};
+    if(!state.usdaSaved[p.fdcId]){
+      state.usdaSaved[p.fdcId] = {fdcId:p.fdcId, description:p.name, dataType:p.dataType||null, brandName:p.brandName||null, nutrition:p.nutrition, nutrition_extra:p.nutrition_extra||{}, starred:false};
+    }
+    state.usdaSaved[p.fdcId].lastAmount = amt;
+    state.usdaSaved[p.fdcId].lastUnit = af.amountUnit || 'g';
+    saveUsdaSaved();
+  }
+  return true;
+}
 function confirmQuickAddSelection(){
   var af = state.mealsUI.addFood;
   var keys = Object.keys(af.quickPicks||{});
   if(!keys.length) return;
+  if(!commitOpenAmountPageToQuickPick()) return; // README 9.276
   _restockCollected = []; // README 9.225
   var okCount = 0, failCount = 0;
   keys.forEach(function(key){
@@ -18275,6 +18367,7 @@ function ipConfirmQuickAddSelection(){
   var ip = state.mealsUI.ingPicker;
   var keys = Object.keys(ip.quickPicks||{});
   if(!keys.length) return;
+  if(!commitOpenAmountPageToQuickPick()) return; // README 9.276: 同上，数量页里最后编辑的数量为准
   var okCount = 0, failCount = 0;
   keys.forEach(function(key){
     if(ipConfirmOneQuickPick(ip, key)) okCount++; else failCount++;
