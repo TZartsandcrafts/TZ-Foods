@@ -970,7 +970,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.277';
+var BUILD_VERSION = '9.278';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -7513,6 +7513,9 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.278', items:[
+    {t:'fix', zh:'三餐选餐和食谱添加食材：勾了几个圆圈后，点进另一个条目的数量页改数量，底部的“添加 · 已选 N 项”现在把正在编辑的这一条也算进去，点它就等于点页面里的“保存”——这一条按你输入的数量添加并记住这个数量，勾了圆圈的其他条目一起添加。不用再上划去找“保存”。', en:'Meal picker and recipe-ingredient picker: after ticking some circles and opening another item\'s amount page, the bottom "Add · N selected" bar now counts the item you are editing and tapping it equals Save - that item is added with the amount you typed (and remembered), together with the ticked ones. No more scrolling down to find Save.'}
+  ]},
   {v:'9.277', items:[
     {t:'fix', zh:'三餐选餐和食谱添加食材：勾了几个条目的圆圈后，又点进其中一个条目的数量页点“保存”，现在会把其他勾选的条目一起添加（用它们各自显示的数量），不再被丢掉；当前这一条仍然按数量页里的数量保存，不会重复添加。', en:'Meal picker and recipe-ingredient picker: if you tick several circles and then open one item\'s amount page and tap Save, the other ticked items are now added too (with their shown amounts) instead of being dropped; the item you edited is saved with the amount on its page and is not added twice.'}
   ]},
@@ -15331,7 +15334,7 @@ function openIngPicker(pickerKind){
 function renderIngPicker(){
   var ip = state.mealsUI.ingPicker;
   if(!ip) return renderMealAddFood();
-  var qaCount = Object.keys(ip.quickPicks||{}).length;
+  var qaCount = quickAddBarCount(ip);
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="ipBack()">'+ic('back',22)+'</button><h1>'+esc(t('addIngredientBtn'))+'</h1></div>'+
   '<div class="meal-add-tabs">'+mealAddTabsBarHtml(ip)+'</div>'+
@@ -15386,7 +15389,7 @@ function refreshMealAddTabsBar(){
 function renderMealAddFood(){
   var af = state.mealsUI.addFood;
   var title = t('mealSlot_'+af.slot) || t('addFoodBtn');
-  var qaCount = Object.keys(af.quickPicks||{}).length;
+  var qaCount = quickAddBarCount(af);
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="mealAddFoodBack()">'+ic('back',22)+'</button><h1>'+esc(title)+'</h1></div>'+
   '<div class="meal-add-tabs">'+mealAddTabsBarHtml(af)+'</div>'+
@@ -18218,10 +18221,6 @@ function commitOneQuickPick(af, key){
   }
   return false;
 }
-// README 9.276: "勾了圆圈、又点进这个条目的数量页改了数量"时，再按底部的"添加 · 已选 N 项"，这一条要以数量页里最后编辑的数量为准，
-// 不能还用圆圈旁边显示的"上次/常用数量"(底部这个栏在数量页上也一直显示着)。做法：按下"添加"的瞬间，如果数量页正开着、而且这个条目在已勾选里，
-// 就先把数量页里的数量/单位写进"上次数量"记忆(写法跟各个保存函数里记忆的那几行完全一样)，后面的批量添加读到的就是最新的。
-// 返回false表示数量页里的数量不合法(空/0)，这时提示一下、不继续添加。
 // 数量页正在编辑的这个条目，对应"已勾选"里的哪个key(没有对应就返回null)
 function quickPickKeyOfPicked(p){
   if(!p) return null;
@@ -18232,7 +18231,7 @@ function quickPickKeyOfPicked(p){
   return null;
 }
 // README 9.277: 在数量页点它自己的"保存"时，把"其他已经勾选、还没添加的圆圈"也一起添加(用它们各自显示的数量)。
-// 以前保存后就离开这个流程，其他勾选会被悄悄丢掉。当前这一条(数量页里正在编辑的)已经按页里的数量单独保存了，这里跳过它，不会重复添加。
+// 当前这一条(数量页里正在编辑的)已经按页里的数量单独保存了，这里跳过它，不会重复添加。
 // committer 是三餐用commitOneQuickPick，套餐/食谱加食材用ipConfirmOneQuickPick。返回{ok,fail}供调用方提示。
 function commitOtherQuickPicks(af, p, committer){
   var mainKey = quickPickKeyOfPicked(p);
@@ -18242,43 +18241,24 @@ function commitOtherQuickPicks(af, p, committer){
   af.quickPicks = {};
   return {ok:ok, fail:fail};
 }
-function commitOpenAmountPageToQuickPick(){
-  var af = activeAddCtx();
-  if(!af || af.step!=='amount' || !af.picked || !af.quickPicks) return true;
-  var p = af.picked, key = quickPickKeyOfPicked(p);
-  if(!key || !af.quickPicks[key]) return true;
-  var amt = parseAmountInput(af.amountText);
-  if(!amt || amt<=0){ showToast(t(p.type==='recipe' && af.amountUnit!=='g' ? 'servingsRequiredToast' : 'amountRequiredToast')); return false; }
-  if(p.type==='item'){
-    var src = state.items.find(function(x){ return x.id===p.id; });
-    if(!src) return true;
-    state.mealAddItemPrefs = state.mealAddItemPrefs || {};
-    state.mealAddItemPrefs[p.groupKey] = {location: src.location||'', unit: af.amountUnit||'g', amount: amt};
-    saveMealAddItemPrefs();
-  } else if(p.type==='recipe'){
-    state.mealAddLastAmount = state.mealAddLastAmount || {};
-    state.mealAddLastAmount['recipe:'+p.id] = af.amountUnit==='g' ? {amount: amt, unit: 'g'} : {amount: amt, unit: 'servings'};
-    saveMealAddLastAmount();
-  } else if(p.type==='external'){
-    state.mealAddLastAmount = state.mealAddLastAmount || {};
-    state.mealAddLastAmount['external:'+p.id] = {amount: amt, unit: 'g'};
-    saveMealAddLastAmount();
-  } else if(p.type==='usda'){
-    state.usdaSaved = state.usdaSaved || {};
-    if(!state.usdaSaved[p.fdcId]){
-      state.usdaSaved[p.fdcId] = {fdcId:p.fdcId, description:p.name, dataType:p.dataType||null, brandName:p.brandName||null, nutrition:p.nutrition, nutrition_extra:p.nutrition_extra||{}, starred:false};
-    }
-    state.usdaSaved[p.fdcId].lastAmount = amt;
-    state.usdaSaved[p.fdcId].lastUnit = af.amountUnit || 'g';
-    saveUsdaSaved();
+// README 9.278: 底部"添加 · 已选 N 项"栏的数字。在数量页上，正在编辑的这个条目也算一项(不管有没有勾圆圈)，
+// 因为在数量页点这个栏 = 点页面里的"保存"：当前条目按输入的数量保存(并记住这个数量)，其他勾选的一起添加。
+// 数量页上没有任何勾选的圆圈时不显示这个栏(页面里自己有"返回/保存")。
+function quickAddBarCount(af){
+  var keys = Object.keys(af.quickPicks||{});
+  if(!keys.length) return 0;
+  if(af.step==='amount' && af.picked){
+    var mk = quickPickKeyOfPicked(af.picked);
+    return keys.filter(function(k){ return k!==mk; }).length + 1;
   }
-  return true;
+  return keys.length;
 }
 function confirmQuickAddSelection(){
   var af = state.mealsUI.addFood;
   var keys = Object.keys(af.quickPicks||{});
   if(!keys.length) return;
-  if(!commitOpenAmountPageToQuickPick()) return; // README 9.276
+  // README 9.278: 数量页上点这个栏 = 点页面里的"保存"(当前条目用输入的数量、记住这个数量，其他勾选的一起添加)
+  if(af.step==='amount' && af.picked){ saveMealLogEntry(); return; }
   _restockCollected = []; // README 9.225
   var okCount = 0, failCount = 0;
   keys.forEach(function(key){
@@ -18367,7 +18347,7 @@ function ipConfirmQuickAddSelection(){
   var ip = state.mealsUI.ingPicker;
   var keys = Object.keys(ip.quickPicks||{});
   if(!keys.length) return;
-  if(!commitOpenAmountPageToQuickPick()) return; // README 9.276: 同上，数量页里最后编辑的数量为准
+  if(ip.step==='amount' && ip.picked){ ipConfirmAmountPick(); return; } // README 9.278: 同上
   var okCount = 0, failCount = 0;
   keys.forEach(function(key){
     if(ipConfirmOneQuickPick(ip, key)) okCount++; else failCount++;
