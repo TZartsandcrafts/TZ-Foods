@@ -926,6 +926,8 @@
     border:1px solid var(--line); background:var(--card-bg); color:var(--cocoa); outline:none; resize:vertical;
   }
   .step-card textarea:focus{ border-color:var(--almond); }
+  /* README 9.279: 备注/步骤输入框随内容自动长高(autoGrowTextarea)，高度由JS设置，不再需要拖拽手柄和内部滚动条 */
+  textarea.autogrow{ resize:none; overflow-y:hidden; }
   .step-card .step-remove-btn{ background:none; border:none; color:var(--danger); font-size:12.5px; padding:6px 2px 0; cursor:pointer; }
 
   .picker-item{ display:flex; align-items:center; justify-content:space-between; padding:14px 4px; border-bottom:1px solid var(--line); cursor:pointer; }
@@ -970,7 +972,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.278';
+var BUILD_VERSION = '9.279';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -7513,6 +7515,9 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.279', items:[
+    {t:'fix', zh:'备注栏和食谱步骤的输入框现在会随着输入的行数自动长高，不用再在小框里滚动着看、挪光标——库存编辑页、食谱编辑页（备注和每一步）、体重/腰围/血压/运动记录的备注都一样。', en:'Notes boxes and recipe-step boxes now grow with what you type instead of staying a small fixed height, so you no longer have to scroll inside them or fight to move the cursor - item edit, recipe edit (notes and every step), and the weight / waist / blood-pressure / exercise log notes.'}
+  ]},
   {v:'9.278', items:[
     {t:'fix', zh:'三餐选餐和食谱添加食材：勾了几个圆圈后，点进另一个条目的数量页改数量，底部的“添加 · 已选 N 项”现在把正在编辑的这一条也算进去，点它就等于点页面里的“保存”——这一条按你输入的数量添加并记住这个数量，勾了圆圈的其他条目一起添加。不用再上划去找“保存”。', en:'Meal picker and recipe-ingredient picker: after ticking some circles and opening another item\'s amount page, the bottom "Add · N selected" bar now counts the item you are editing and tapping it equals Save - that item is added with the amount you typed (and remembered), together with the ticked ones. No more scrolling down to find Save.'}
   ]},
@@ -9373,7 +9378,7 @@ function renderItemForm(){
           '<div style="flex:1;min-width:0;">'+inlineDropdownHtml('priceCurrency', d.price_currency||'CAD', PRICE_CURRENCIES, 'onPriceCurrencyPick')+'</div>'+
         '</div>'+
       '</div>'+
-      '<div class="field" style="margin-bottom:0;"><label>'+t('fieldNotes')+'</label><textarea placeholder="'+t('fieldNotesPh')+'" oninput="d_str(\'notes\',this.value)">'+esc(d.notes)+'</textarea></div>'+
+      '<div class="field" style="margin-bottom:0;"><label>'+t('fieldNotes')+'</label><textarea class="autogrow" placeholder="'+t('fieldNotesPh')+'" oninput="d_str(\'notes\',this.value)">'+esc(d.notes)+'</textarea></div>'+
     '</div>'+
     '<div class="section-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">'+
       '<span>'+t('sectionNutrition')+'</span>'+
@@ -11008,6 +11013,7 @@ function showModal(title, bodyHtml){
       bodyHtml+
     '</div>'+
   '</div>';
+  autoGrowTextareas(root); // README 9.279: 编辑已有的长备注时，打开弹窗就是完整高度
   // README 9.133: the `autofocus` HTML attribute only does anything for elements present when
   // the document is first parsed - it's silently a no-op for anything injected via innerHTML,
   // which every modal body always is, so a quantity-input popup opening with the cursor already
@@ -12936,7 +12942,7 @@ function stepsEditorHtml(){
   return steps.map(function(s,idx){
     return '<div class="step-card">'+
       '<div class="step-title">'+t('stepLabel')+' '+(idx+1)+'</div>'+
-      '<textarea id="step-textarea-'+idx+'" placeholder="'+t('stepPlaceholder')+'" oninput="onStepInput('+idx+',this.value)">'+esc(s)+'</textarea>'+
+      '<textarea class="autogrow" id="step-textarea-'+idx+'" placeholder="'+t('stepPlaceholder')+'" oninput="onStepInput('+idx+',this.value)">'+esc(s)+'</textarea>'+
       (steps.length>1 ? '<button type="button" class="step-remove-btn" onclick="removeStep('+idx+')">'+ic('trash',13)+' '+t('delete')+'</button>' : '')+
     '</div>';
   }).join('');
@@ -13098,7 +13104,7 @@ function renderRecipeForm(){
     '</div>'+
     '<div class="section-title">'+t('fieldNotes')+'</div>'+
     '<div class="form-group">'+
-      '<div class="field" style="margin-bottom:0;"><textarea placeholder="'+t('fieldNotesPh')+'" oninput="r_str(\'notes\',this.value)">'+esc(d.notes)+'</textarea></div>'+
+      '<div class="field" style="margin-bottom:0;"><textarea class="autogrow" placeholder="'+t('fieldNotesPh')+'" oninput="r_str(\'notes\',this.value)">'+esc(d.notes)+'</textarea></div>'+
     '</div>'+
     '<div class="section-title">'+t('nutritionSummary')+'</div>'+
     '<div class="form-group" id="nutri-summary-container">'+nutritionSummaryHtml()+'</div>'+
@@ -20279,7 +20285,7 @@ function renderWeightLogModal(){
   showModal(ui.id ? t('editWeightEntryTitle') : t('logWeightBtn'),
     '<div class="field"><label>'+t('fieldDate')+'</label><input type="date" value="'+esc(ui.date)+'" oninput="wl_str(\'date\',this.value)"></div>'+
     '<div class="field"><label>'+t('fieldWeight')+' ('+healthWeightUnit()+')</label><input id="weight-input-focus" type="number" inputmode="decimal" placeholder="-" value="'+esc(ui.weightText)+'" oninput="wl_str(\'weightText\',this.value)"></div>'+
-    '<div class="field" style="margin-bottom:0;"><label>'+t('fieldNotes')+'</label><textarea placeholder="'+t('fieldNotesPh')+'" oninput="wl_str(\'note\',this.value)">'+esc(ui.note)+'</textarea></div>'+
+    '<div class="field" style="margin-bottom:0;"><label>'+t('fieldNotes')+'</label><textarea class="autogrow" placeholder="'+t('fieldNotesPh')+'" oninput="wl_str(\'note\',this.value)">'+esc(ui.note)+'</textarea></div>'+
     '<button class="btn btn-primary" style="margin-top:14px;" onclick="saveWeightLogEntry()">'+t('save')+'</button>'+
     (ui.id ? '<button class="btn btn-danger" style="margin-top:10px;width:100%;" onclick="deleteWeightLogEntry('+aj(ui.id)+')">'+t('delete')+'</button>' : '')
   );
@@ -20331,7 +20337,7 @@ function renderBpLogModal(){
     '<div class="field"><label>'+t('fieldSystolic')+'</label><input id="bp-input-focus" type="number" inputmode="numeric" placeholder="-" value="'+esc(ui.systolic)+'" oninput="bp_str(\'systolic\',this.value===\'\'?\'\':parseInt(this.value,10))"></div>'+
     '<div class="field"><label>'+t('fieldDiastolic')+'</label><input type="number" inputmode="numeric" placeholder="-" value="'+esc(ui.diastolic)+'" oninput="bp_str(\'diastolic\',this.value===\'\'?\'\':parseInt(this.value,10))"></div>'+
     '<div class="field"><label>'+t('fieldPulse')+'</label><input type="number" inputmode="numeric" placeholder="-" value="'+esc(ui.pulse)+'" oninput="bp_str(\'pulse\',this.value===\'\'?\'\':parseInt(this.value,10))"></div>'+
-    '<div class="field" style="margin-bottom:0;"><label>'+t('fieldNotes')+'</label><textarea placeholder="'+t('fieldNotesPh')+'" oninput="bp_str(\'note\',this.value)">'+esc(ui.note)+'</textarea></div>'+
+    '<div class="field" style="margin-bottom:0;"><label>'+t('fieldNotes')+'</label><textarea class="autogrow" placeholder="'+t('fieldNotesPh')+'" oninput="bp_str(\'note\',this.value)">'+esc(ui.note)+'</textarea></div>'+
     '<button class="btn btn-primary" style="margin-top:14px;" onclick="saveBpLogEntry()">'+t('save')+'</button>'+
     (ui.id ? '<button class="btn btn-danger" style="margin-top:10px;width:100%;" onclick="deleteBpLogEntry('+aj(ui.id)+')">'+t('delete')+'</button>' : '')
   );
@@ -20393,7 +20399,7 @@ function renderWaistLogModal(){
   showModal(ui.id ? t('editWaistEntryTitle') : t('logWaistBtn'),
     '<div class="field"><label>'+t('fieldDate')+'</label><input type="date" value="'+esc(ui.date)+'" oninput="ws_str(\'date\',this.value)"></div>'+
     '<div class="field"><label>'+t('fieldWaist')+' ('+healthLengthUnit()+')</label><input id="waist-input-focus" type="number" inputmode="decimal" placeholder="-" value="'+esc(ui.waistText)+'" oninput="ws_str(\'waistText\',this.value)"></div>'+
-    '<div class="field" style="margin-bottom:0;"><label>'+t('fieldNotes')+'</label><textarea placeholder="'+t('fieldNotesPh')+'" oninput="ws_str(\'note\',this.value)">'+esc(ui.note)+'</textarea></div>'+
+    '<div class="field" style="margin-bottom:0;"><label>'+t('fieldNotes')+'</label><textarea class="autogrow" placeholder="'+t('fieldNotesPh')+'" oninput="ws_str(\'note\',this.value)">'+esc(ui.note)+'</textarea></div>'+
     '<button class="btn btn-primary" style="margin-top:14px;" onclick="saveWaistLogEntry()">'+t('save')+'</button>'+
     (ui.id ? '<button class="btn btn-danger" style="margin-top:10px;width:100%;" onclick="deleteWaistLogEntry('+aj(ui.id)+')">'+t('delete')+'</button>' : '')
   );
@@ -20529,7 +20535,7 @@ function renderExerciseLogForm(){
     '<div class="field"><label>'+t('fieldCaloriesBurned')+'</label><input id="exercise-calories-input" type="number" inputmode="numeric" placeholder="-" value="'+esc(ui.caloriesBurned)+'" oninput="exl_str(\'caloriesBurned\',this.value===\'\'?\'\':parseInt(this.value,10))">'+
       (ui.met && !weightKg ? '<div class="hint" style="margin-top:6px;">'+t('exerciseNeedWeightHint')+'</div>' : '')+
     '</div>'+
-    '<div class="field" style="margin-bottom:0;"><label>'+t('fieldNotes')+'</label><textarea placeholder="'+t('fieldNotesPh')+'" oninput="exl_str(\'note\',this.value)">'+esc(ui.note)+'</textarea></div>'+
+    '<div class="field" style="margin-bottom:0;"><label>'+t('fieldNotes')+'</label><textarea class="autogrow" placeholder="'+t('fieldNotesPh')+'" oninput="exl_str(\'note\',this.value)">'+esc(ui.note)+'</textarea></div>'+
     '<button class="btn btn-primary" style="margin-top:14px;" onclick="saveExerciseLogEntry()">'+t('save')+'</button>'+
     (ui.id ? '<button class="btn btn-danger" style="margin-top:10px;width:100%;" onclick="deleteExerciseLogEntry('+aj(ui.id)+')">'+t('delete')+'</button>' : '')+
   '</div>';
@@ -21943,7 +21949,39 @@ function ensureUsdaSearchForCurrentRender(){
   if(_lastUsdaDisplayQuery === q) return; // 有对得上的缓存，页面已经原样恢复出来了
   runAddFoodUsdaSearch(q);
 }
+// README 9.279: 备注(库存/食谱/体重/腰围/血压/运动)和食谱步骤的多行输入框随内容自动长高。
+// 以前这些框是固定 70px/64px 高，只能靠拖拽手柄(iOS上根本没有)，多写几行就得在框里小范围
+// 滚动、移动光标也很难。现在高度=内容高度，整页跟着往下长，光标往下走就是正常的页面滚动。
+// 测量原理：先把高度临时设成 auto 再读 scrollHeight。但临时变矮会让页面变短，浏览器会把
+// 滚动位置夹小，测完必须把页面和所有祖先容器(比如弹窗的 modal-sheet)的 scrollTop 原样
+// 还回去，否则 iOS 上边打字页面边跳。隐藏状态(没有布局盒)量出来是0，直接跳过。
+function autoGrowTextarea(el){
+  if(!el || el.tagName !== 'TEXTAREA') return;
+  if(!el.getClientRects().length) return;
+  var saved = [];
+  for(var p = el.parentElement; p; p = p.parentElement){
+    if(p.scrollTop > 0) saved.push([p, p.scrollTop]);
+  }
+  var se = document.scrollingElement || document.documentElement;
+  var seTop = se.scrollTop;
+  el.style.height = 'auto';
+  var border = el.offsetHeight - el.clientHeight; // 上下边框，box-sizing:border-box 要补上
+  el.style.height = (el.scrollHeight + border) + 'px';
+  for(var i = 0; i < saved.length; i++) saved[i][0].scrollTop = saved[i][1];
+  se.scrollTop = seTop;
+}
+function autoGrowTextareas(root){
+  var list = (root || document).querySelectorAll('textarea.autogrow');
+  for(var i = 0; i < list.length; i++) autoGrowTextarea(list[i]);
+}
+document.addEventListener('input', function(e){
+  var t = e.target;
+  if(t && t.tagName === 'TEXTAREA' && t.classList.contains('autogrow')) autoGrowTextarea(t);
+}, true);
+// 横竖屏/窗口宽度变了，折行数跟着变，重新算一遍
+window.addEventListener('resize', function(){ autoGrowTextareas(document); });
 function afterRender(){
+  autoGrowTextareas(document.getElementById('app'));
   hydratePhotos();
   focusAutofocusElementOnce();
   ensureUsdaSearchForCurrentRender();
