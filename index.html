@@ -972,7 +972,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.279';
+var BUILD_VERSION = '9.280';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -7515,6 +7515,9 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.280', items:[
+    {t:'fix', zh:'点已添加到三餐的条目进入修改数量页面时，数量和单位现在跟添加条目时一样排在同一行（数量在左、单位在右），不再是单位在上、数量在下各占一行；能按克数记录的食谱在添加页里也是同样的一行排法。记忆和默认选中的单位都不变。', en:'On the edit-amount page of an already-logged meal entry, amount and unit now sit on one row (amount left, unit right) like the add page, instead of the unit stacked above the amount. Recipes that can be logged by grams use the same one-row layout on the add page. Remembered and default units are unchanged.'}
+  ]},
   {v:'9.279', items:[
     {t:'fix', zh:'备注栏和食谱步骤的输入框现在会随着输入的行数自动长高，不用再在小框里滚动着看、挪光标——库存编辑页、食谱编辑页（备注和每一步）、体重/腰围/血压/运动记录的备注都一样。', en:'Notes boxes and recipe-step boxes now grow with what you type instead of staying a small fixed height, so you no longer have to scroll inside them or fight to move the cursor - item edit, recipe edit (notes and every step), and the weight / waist / blood-pressure / exercise log notes.'}
   ]},
@@ -14693,8 +14696,13 @@ function renderMealLogEntryDetail(){
      '<div class="field"><label>'+t('fieldMealFat')+'</label><input type="text" inputmode="decimal" value="'+esc(ee.customFat)+'" oninput="onMealEntryCustomInput(\'customFat\',this.value)"></div>'+
      '<div class="field"><label>'+t('fieldMealName')+'</label><input type="text" autocapitalize="words" value="'+esc(ee.customName)+'" oninput="onMealEntryCustomInput(\'customName\',this.value)"></div>')
     :
-    (mealEntryUnitSelectHtml(m, ee)+
-     '<div class="field"><label>'+t('fieldMealAmount')+((ee.unit||m.unit)?(' ('+esc(ee.unit||m.unit)+')'):'')+'</label><input type="text" autofocus id="meal-entry-amount-input" value="'+esc(ee.amountText)+'" oninput="onMealEntryAmountInput(this.value)"></div>');
+    // README 9.280: 数量和单位改成左右并排一行(数量在左、单位在右)，跟添加条目时的数量页
+    // (addFoodAmountBodyHtml)排版一致。以前是单位下拉在上、数量输入框在下各占一行。只有一个可选单位时
+    // mealEntryUnitSelectHtml返回空串，这行里就只剩数量框自己撑满。选中哪个单位/换算/记忆逻辑都没动。
+    ('<div class="field-row">'+
+       '<div class="field"><label>'+t('fieldMealAmount')+((ee.unit||m.unit)?(' ('+esc(ee.unit||m.unit)+')'):'')+'</label><input type="text" autofocus id="meal-entry-amount-input" value="'+esc(ee.amountText)+'" oninput="onMealEntryAmountInput(this.value)"></div>'+
+       mealEntryUnitSelectHtml(m, ee)+
+     '</div>');
 
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'meals\')">'+ic('back',22)+'</button><h1>'+esc(usdaShownName(m))+'</h1></div>'+
@@ -17667,15 +17675,20 @@ function addFoodAmountBodyHtml(af){
   if(isRecipe && !af.amountUnit) af.amountUnit = canUseGrams ? 'g' : 'servings';
   var recipeAmountField = '';
   if(isRecipe){
+    // README 9.280: 能按克数记的食谱，"份数/g"原来是两颗药丸标签单独占一行、数量框在它下面；改成跟库存/USDA
+    // 一样的一行：数量在左、单位下拉在右(选项还是份数和g两个，默认值/切换函数setAddFoodAmountUnit不变)。
+    // 数量框的标签、placeholder沿用原来按单位区分的写法(g显示"数量 (g)"，份数显示"吃了几份")。
     recipeAmountField = canUseGrams ?
-      ('<div class="field"><label>'+t('fieldMealAmountUnit')+'</label><div class="tag-select">'+
-        '<div class="tag-option '+(af.amountUnit==='servings'?'active':'')+'" onclick="setAddFoodAmountUnit(\'servings\')">'+t('servingsUnit')+'</div>'+
-        '<div class="tag-option '+(af.amountUnit==='g'?'active':'')+'" onclick="setAddFoodAmountUnit(\'g\')">g</div>'+
-      '</div></div>'+
-      (af.amountUnit==='g' ?
-        '<div class="field"><label>'+t('fieldMealAmount')+' (g)</label><input type="text" id="af-amount-input" autofocus placeholder="-" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>'
-        :
-        '<div class="field"><label>'+t('servingsEatenLabel')+'</label><input type="text" id="af-amount-input" autofocus placeholder="1" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>'))
+      ('<div class="field-row">'+
+        (af.amountUnit==='g' ?
+          '<div class="field"><label>'+t('fieldMealAmount')+' (g)</label><input type="text" id="af-amount-input" autofocus placeholder="-" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>'
+          :
+          '<div class="field"><label>'+t('servingsEatenLabel')+'</label><input type="text" id="af-amount-input" autofocus placeholder="1" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>')+
+        '<div class="field"><label>'+t('fieldMealAmountUnit')+'</label><select onchange="setAddFoodAmountUnit(this.value)">'+
+          '<option value="servings" '+(af.amountUnit==='servings'?'selected':'')+'>'+t('servingsUnit')+'</option>'+
+          '<option value="g" '+(af.amountUnit==='g'?'selected':'')+'>g</option>'+
+        '</select></div>'+
+      '</div>')
       :
       ('<div class="field"><label>'+t('servingsEatenLabel')+'</label><input type="text" id="af-amount-input" autofocus placeholder="1" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>');
   }
