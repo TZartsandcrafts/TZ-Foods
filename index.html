@@ -859,6 +859,9 @@
   .recipe-order-tag svg{ stroke:#fff; flex-shrink:0; }
   /* README 9.269: "计划中"小标签(还没做过的食谱)：只是一个淡色小标签，不改底色、不加框、不影响顺序 */
   .recipe-plan-tag{ display:inline-block; background:var(--almond-bg); color:var(--deep-caramel); font-size:12px; font-weight:600; line-height:1; padding:4px 8px; border-radius:999px; margin-right:6px; vertical-align:2px; white-space:nowrap; }
+  /* README 9.283: "制作中"小标签跟"计划中"的样式(大小、字号、圆角、无边框)完全一致，只把颜色换成色板里的绿色
+     (--fresh-bg 底、--fresh 字，跟库存里的"新鲜"同一组颜色)，用颜色区分；不改卡片底色。(9.282 的白底细边框方案作废) */
+  .recipe-making-tag{ display:inline-block; background:var(--fresh-bg); color:var(--fresh); font-size:12px; font-weight:600; line-height:1; padding:4px 8px; border-radius:999px; margin-right:6px; vertical-align:2px; white-space:nowrap; }
   .recipe-card-swipe .recipe-card{ -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
   .recipe-card .rname{ font-size:16px; font-weight:500; color:var(--cocoa); white-space:normal; word-break:break-word; line-height:1.35; }
   .recipe-card .rmeta{ font-size:13px; color:var(--deep-caramel); margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -972,7 +975,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.281';
+var BUILD_VERSION = '9.283';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2644,7 +2647,7 @@ var I18N = {
     usdaDetailBasis:'每100g', usdaDetailMissingHint:'本地缓存里没有找到这条食品的营养数据（可能是缓存被清掉了），重新在USDA里搜一次这个食品即可再次查看。', usdaDetailFallbackTitle:'USDA 食品详情',
     // recipe detail
     cookThis:'我做了这道菜', cookConfirmTitle:'确认扣减库存',
-    recipeOrderBtn:'点餐', recipeOrderCancelBtn:'取消点餐', recipeOrderedTag:'点餐中', recipePlanTag:'计划中', recipePlanNoOrderToast:'“计划中”的食谱不支持点餐', recipeOrderedToast:'已点餐，已排到列表最前', recipeOrderCancelledToast:'已取消点餐',
+    recipeOrderBtn:'点餐', recipeOrderCancelBtn:'取消点餐', recipeOrderedTag:'点餐中', recipePlanTag:'计划中', recipePlanNoOrderToast:'“计划中”的食谱不支持点餐', recipeMakingTag:'制作中', recipeMakingNoOrderToast:'“制作中”的食谱不支持点餐', recipeOrderedToast:'已点餐，已排到列表最前', recipeOrderCancelledToast:'已取消点餐',
     recipeCookHistoryTitle:'制作记录', recipeNeverCooked:'还没有制作记录', recipeCookedTimes:'共制作 {n} 次',
     nutriToggleExpand:'展开每100g成品 / 每份', nutriToggleCollapse:'收起',
     cookConfirmHint:'以下食材将按用量从库存扣减，确认无误后点击确认。',
@@ -3011,7 +3014,7 @@ var I18N = {
     usdaDataTypeFoundation:'USDA Lab-Tested', usdaDataTypeSRLegacy:'USDA Data', usdaDataTypeBranded:'Branded',
     usdaDetailBasis:'Per 100g', usdaDetailMissingHint:'This food\\u2019s nutrition data isn\\u2019t in the local cache (it may have been cleared) \\u2014 search for it again on USDA to view it here.', usdaDetailFallbackTitle:'USDA food details',
     cookThis:"I made this dish", cookConfirmTitle:'Confirm inventory deduction',
-    recipeOrderBtn:'Order this', recipeOrderCancelBtn:'Cancel order', recipeOrderedTag:'Ordered', recipePlanTag:'Planned', recipePlanNoOrderToast:'Planned recipes cannot be ordered', recipeOrderedToast:'Ordered - moved to the top of the list', recipeOrderCancelledToast:'Order cancelled',
+    recipeOrderBtn:'Order this', recipeOrderCancelBtn:'Cancel order', recipeOrderedTag:'Ordered', recipePlanTag:'Planned', recipePlanNoOrderToast:'Planned recipes cannot be ordered', recipeMakingTag:'Making', recipeMakingNoOrderToast:'Recipes marked Making cannot be ordered', recipeOrderedToast:'Ordered - moved to the top of the list', recipeOrderCancelledToast:'Order cancelled',
     recipeCookHistoryTitle:'Cooking History', recipeNeverCooked:'Not made yet', recipeCookedTimes:'Made {n} times',
     nutriToggleExpand:'Show per 100g cooked / per serving', nutriToggleCollapse:'Hide',
     cookConfirmHint:'These items will be deducted from inventory based on the amount used. Confirm to proceed.',
@@ -7198,13 +7201,15 @@ function showCopyPill(id, x, y){
     '</button>';
 }
 // README 9.268: 食谱列表长按的气泡，跟库存的"复制条目"气泡是同一套样式/容器/关闭方式，只是按钮换成"点餐"/"取消点餐"。
+// README 9.282: 没做过的食谱(不管是"计划中"还是"制作中")都不支持点餐，提示文字跟着它自己的标签走。
+function recipeNoOrderToastKey(r){ return recipeIngredientCount(r)>0 ? 'recipeMakingNoOrderToast' : 'recipePlanNoOrderToast'; }
 function showRecipePill(id, x, y){
   var root = document.getElementById('copy-pill-root');
   if(!root) return;
   var r = state.recipes.find(function(q){ return q.id===id; });
   if(!r) return;
   // README 9.270: "计划中"(还没做过)的食谱不支持点餐：长按只提示一句，不弹气泡。已经被点餐的照常能取消。
-  if(!r.ordered_at && !recipeCookedIdSet()[id]){ showToast(t('recipePlanNoOrderToast')); return; }
+  if(!r.ordered_at && !recipeCookedIdSet()[id]){ showToast(t(recipeNoOrderToastKey(r))); return; }
   var pillHalfWidth = 80, pillHeight = 46, margin = 10;
   var vw = window.innerWidth, vh = window.innerHeight;
   var left = Math.min(Math.max(x - pillHalfWidth, margin), vw - pillHalfWidth*2 - margin);
@@ -7221,7 +7226,7 @@ function toggleRecipeOrder(id){
   hideCopyPill();
   var r = state.recipes.find(function(q){ return q.id===id; });
   if(!r) return;
-  if(!r.ordered_at && !recipeCookedIdSet()[id]){ showToast(t('recipePlanNoOrderToast')); return; } // README 9.270
+  if(!r.ordered_at && !recipeCookedIdSet()[id]){ showToast(t(recipeNoOrderToastKey(r))); return; } // README 9.270
   if(r.ordered_at){ delete r.ordered_at; } else { r.ordered_at = nowLocalIso(); }
   r.updated_at = nowLocalIso();
   saveRecipes();
@@ -7515,6 +7520,13 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.283', items:[
+    {t:'tweak', zh:'食谱列表的“制作中”标签改成跟“计划中”一样的样式，用色板里的绿色区分（不再是白底细边框）。', en:'The "Making" tag on the recipe list now has the same style as "Planned" and is told apart by a green from the palette (no more white tag with a thin border).'}
+  ]},
+  {v:'9.282', items:[
+    {t:'new', zh:'食谱列表新增“制作中”标签：还没点过“我做了这道菜”、但已经填了食材的食谱显示“制作中”；还没做过、也一个食材都没填的仍然是“计划中”，两个标签不会同时出现。点餐中的食谱仍然只显示“点餐中”，点了“我做了这道菜”后标签消失。', en:'New "Making" tag on the recipe list: recipes you have not yet marked "I made this dish" but that already have ingredients show "Making"; never-cooked recipes with no ingredients stay "Planned" - a recipe never carries both. Ordered recipes still show only "Ordered"; the tag disappears after "I made this dish".'},
+    {t:'tweak', zh:'食谱列表的顺序现在是：点餐中 → 制作中 → 计划中 → 做过的（搜索时仍按相关度排）。“制作中”的食谱和“计划中”一样不支持点餐，长按只提示一句。', en:'Recipe list order is now: Ordered -> Making -> Planned -> cooked (search still ranks by relevance). Like Planned recipes, Making recipes cannot be ordered - a long-press just shows a short notice.'}
+  ]},
   {v:'9.281', items:[
     {t:'fix', zh:'修复 USDA 搜索总是提示“搜索失败”、库存页名称联想没有 USDA 结果：原因是 Worker 在 USDA 返回异常内容时直接崩溃(Cloudflare 1101)。需要重新部署 worker.js；之后偶发的 USDA 故障会自动重试一次，仍失败时能看到具体原因。', en:'Fixed USDA search always failing and the inventory name suggestions showing no USDA results: the Worker crashed (Cloudflare 1101) whenever USDA returned an unexpected response. Requires redeploying worker.js; transient USDA failures now retry once and a clear error is returned if it still fails.'}
   ]},
@@ -11770,20 +11782,22 @@ function recipeIngredientDisplayName(ri){
 // README 9.268: 被点餐的食谱(r.ordered_at 有值)排在最前面，先点的在上；其余保持原来的顺序。
 // README 9.275: 不搜索时顺序是 点餐中(先点的在上) → 计划中(还没做过) → 做过的；各组内部保持原来的顺序。
 // 点了"我做了这道菜"的食谱"计划中"标签消失，同时从计划中那一组落到做过的那一组。搜索时仍按相关度排，只把点餐中的置顶。
+// README 9.282: 没做过的食谱分成两种——已经填了食材的是"制作中"，一个食材都没填的是"计划中"(两个条件互不重叠，
+// 每道食谱最多一个标签)。顺序变成 点餐中 → 制作中 → 计划中 → 做过的，各组内部保持原来的顺序。
 function pinOrderedRecipes(list, groupPlanned){
-  var ordered = [], planned = [], rest = [];
+  var ordered = [], making = [], planned = [], rest = [];
   var cooked = groupPlanned ? recipeCookedIdSet() : null;
   list.forEach(function(r){
     if(r.ordered_at) ordered.push(r);
-    else if(cooked && !cooked[r.id]) planned.push(r);
+    else if(cooked && !cooked[r.id]) (recipeIngredientCount(r)>0 ? making : planned).push(r);
     else rest.push(r);
   });
-  if(!ordered.length && !planned.length) return list;
+  if(!ordered.length && !making.length && !planned.length) return list;
   ordered.sort(function(a,b){
     if(a.ordered_at !== b.ordered_at) return a.ordered_at < b.ordered_at ? -1 : 1;
     return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0);
   });
-  return ordered.concat(planned, rest);
+  return ordered.concat(making, planned, rest);
 }
 function getFilteredRecipes(){
   var list = state.recipes.filter(function(r){
@@ -11867,7 +11881,7 @@ function recipeListItemsHtml(filtered){
           '<div class="recipe-card-row">'+
             '<div class="recipe-cover">'+coverHtml+'</div>'+
             '<div class="recipe-card-body">'+
-              '<div class="rname">'+(r.ordered_at ? '<span class="recipe-order-tag">'+ic('spoon',13)+esc(t('recipeOrderedTag'))+'</span>' : (!cookedSet[r.id] ? '<span class="recipe-plan-tag">'+esc(t('recipePlanTag'))+'</span>' : ''))+esc(r.name)+'</div>'+
+              '<div class="rname">'+(r.ordered_at ? '<span class="recipe-order-tag">'+ic('spoon',13)+esc(t('recipeOrderedTag'))+'</span>' : (!cookedSet[r.id] ? (recipeIngredientCount(r)>0 ? '<span class="recipe-making-tag">'+esc(t('recipeMakingTag'))+'</span>' : '<span class="recipe-plan-tag">'+esc(t('recipePlanTag'))+'</span>') : ''))+esc(r.name)+'</div>'+
               '<div class="rmeta">'+(catLabel?esc(catLabel)+' · ':'')+(r.servings||1)+' '+t('fieldServings')+' · '+recipeIngredientCount(r)+' '+t('sectionIngredients')+'</div>'+
               '<div class="rcal">'+calLine+'</div>'+
             '</div>'+
