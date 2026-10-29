@@ -874,6 +874,8 @@
 .supply-date{ font-size:12px; color:var(--deep-caramel); margin-top:2px; }
 .supply-grid{ position:relative; display:grid; grid-template-columns:repeat(auto-fill,minmax(96px,1fr)); gap:8px; }
 .supply-card{ background:var(--card-bg); border-radius:10px; overflow:hidden; box-shadow:var(--shadow); cursor:pointer; display:flex; flex-direction:column; min-width:0; -webkit-tap-highlight-color:transparent; }
+.supply-card{ -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
+.supply-cover img{ pointer-events:none; -webkit-user-drag:none; }
 .supply-cover{ position:relative; width:100%; aspect-ratio:1/1; background:var(--almond-bg); display:flex; align-items:center; justify-content:center; color:var(--deep-caramel); overflow:hidden; }
 .supply-meal{ position:absolute; top:5px; right:5px; width:22px; height:22px; border-radius:50%; background:var(--warn); color:#fff; font-size:12px; font-weight:700; line-height:1; display:flex; align-items:center; justify-content:center; box-shadow:0 1px 3px rgba(0,0,0,.25); }
 .supply-body{ padding:6px 7px 8px; min-width:0; }
@@ -993,7 +995,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.285';
+var BUILD_VERSION = '9.286';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -6178,7 +6180,7 @@ document.addEventListener('selectstart', function(e){
    navigates into the item detail page underneath the pill. */
 (function initItemLongPress(){
   var LONG_PRESS_MS = 550, MOVE_TOLERANCE = 10;
-  var timer = null, sx = 0, sy = 0, pressItemId = null, pressRecipeId = null;
+  var timer = null, sx = 0, sy = 0, pressItemId = null, pressRecipeId = null, pressSupply = false;
   function cancelTimer(){ if(timer){ clearTimeout(timer); timer = null; } }
   document.addEventListener('touchstart', function(e){
     cancelTimer();
@@ -6191,12 +6193,13 @@ document.addEventListener('selectstart', function(e){
     // originally .item-card-swipe-only, which is why group header rows had neither the pill nor
     // the text-selection guard below - a long press there just fell through to iOS's native
     // text selection instead.
-    var wrap = e.target.closest ? e.target.closest('.item-card-swipe, .item-group-header, .recipe-card-swipe') : null;
+    var wrap = e.target.closest ? e.target.closest('.item-card-swipe, .item-group-header, .recipe-card-swipe, .supply-card') : null;
     if(!wrap) return;
     var t0 = e.touches[0];
     sx = t0.clientX; sy = t0.clientY;
     pressItemId = wrap.getAttribute('data-item-id');
     pressRecipeId = wrap.getAttribute('data-recipe-id'); // README 9.268: 食谱列表也复用这套长按
+    pressSupply = wrap.classList.contains('supply-card'); // README 9.286: 海报卡片长按弹“加餐”气泡
     timer = setTimeout(function(){
       timer = null;
       itemSwipeSwallowClick = true; // swallow the click that touchend is about to fire
@@ -6208,7 +6211,9 @@ document.addEventListener('selectstart', function(e){
       // Auto-clear shortly after if nothing consumed it, so a stray leftover flag can never eat
       // a later, unrelated tap.
       setTimeout(function(){ itemSwipeSwallowClick = false; }, 400);
-      if(pressRecipeId) showRecipePill(pressRecipeId, sx, sy); else showCopyPill(pressItemId, sx, sy);
+      if(pressRecipeId && pressSupply) showSupplyPill(pressRecipeId, sx, sy);
+      else if(pressRecipeId) showRecipePill(pressRecipeId, sx, sy);
+      else showCopyPill(pressItemId, sx, sy);
     }, LONG_PRESS_MS);
   }, {passive:true});
   document.addEventListener('touchmove', function(e){
@@ -7309,6 +7314,23 @@ function showRecipePill(id, x, y){
       ic('spoon',16)+'<span>'+esc(t(r.ordered_at ? 'recipeOrderCancelBtn' : 'recipeOrderBtn'))+'</span>'+
     '</button>';
 }
+// README 9.286: 海报卡片长按的气泡——跟列表里长按点餐的气泡同一套样式/容器/关闭方式，按钮是“加餐”(等同列表左划里的“加餐”，
+// 走同一个 quickMealAddFromRecipe)。海报卡片没有左划，所以加餐入口放在长按上。
+function showSupplyPill(id, x, y){
+  var root = document.getElementById('copy-pill-root');
+  if(!root) return;
+  var r = state.recipes.find(function(q){ return q.id===id; });
+  if(!r) return;
+  var pillHalfWidth = 80, pillHeight = 46, margin = 10;
+  var vw = window.innerWidth, vh = window.innerHeight;
+  var left = Math.min(Math.max(x - pillHalfWidth, margin), vw - pillHalfWidth*2 - margin);
+  var top = Math.min(Math.max(y - pillHeight - 14, margin), vh - pillHeight - margin);
+  root.innerHTML =
+    '<div class="copy-pill-overlay" onclick="hideCopyPill()"></div>'+
+    '<button class="copy-pill" style="left:'+left+'px;top:'+top+'px;" onclick="event.stopPropagation();hideCopyPill();quickMealAddFromRecipe('+aj(id)+')">'+
+      ic('spoon',16)+'<span>'+esc(t('mealAddSwipeBtn'))+'</span>'+
+    '</button>';
+}
 // 点餐 / 取消点餐：只改 ordered_at 和 updated_at(食谱是按条同步的，updated_at 变了才会推到另一部手机，
 // 对方那边的列表也会同步置顶；两个人都能点、也都能做，也可以自己点自己做当作做菜计划)。
 function toggleRecipeOrder(id){
@@ -7609,6 +7631,9 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.286', items:[
+    {t:'new', zh:'“今日供应”海报里的卡片支持长按：长按弹出“加餐”，点一下就能把这道菜直接加到餐次（和食谱列表里左划的“加餐”是同一个功能）。', en:'Cards on the \"Today\'s Menu\" poster now support long-press: press and hold to get \"Add to meal\", the same action as swiping a recipe in the list.'}
+  ]},
   {v:'9.285', items:[
     {t:'new', zh:'食谱页新增“今日供应”海报：在食谱详情页点“供应”，选午餐或晚餐，这道菜就会出现在食谱页搜索框下面的海报里（小卡片，每行2-3张，带分类、名称、缩略图、每100g或每份热量，角标标注午/晚；点餐中/制作中/计划中的标签也会一起带上）。点卡片进入食谱详情。只在当天显示，过了24点自动回到原列表；海报里的食谱当天不再出现在下面的列表里。可在“食谱设置”里选择是否显示海报。', en:'New \"Today\'s Menu\" poster on the Recipes page: tap \"Serve\" on a recipe, pick lunch or dinner, and it appears in a poster under the search box (small cards, 2-3 per row, with category, name, thumbnail and kcal per 100g or per serving, a lunch/dinner badge, plus any Ordered/Making/Planned tag). Tap a card to open the recipe. It only shows for that day and goes back to the normal list after midnight; recipes on the poster are not repeated in the list below. You can turn the poster on or off in Recipe Settings.'},
     {t:'tweak', zh:'食谱详情页的“我做了这道菜”改名为“完成”，放在左边，同一行右边是新的“供应”按钮。', en:'On the recipe page, \"I made this dish\" is now \"Done\" (left) and a new \"Serve\" button sits next to it on the same row.'},
@@ -12022,7 +12047,7 @@ function recipeSupplyPosterHtml(){
       ? (fmtNum(nutri.per100g.calories,0)+' kcal / 100g')
       : (fmtNum(nutri.perServing.calories,0)+' kcal / '+t('perServing').toLowerCase());
     var tag = recipeStatusTagHtml(r, cookedSet);
-    return '<div class="supply-card" onclick="navigate(\'recipeDetail\',{id:'+aj(r.id)+'})">'+
+    return '<div class="supply-card" data-recipe-id="'+esc(r.id)+'" onclick="navigate(\'recipeDetail\',{id:'+aj(r.id)+'})">'+
       '<div class="supply-cover">'+cover+'<span class="supply-meal">'+esc(t(r.supply_meal==='lunch' ? 'recipeSupplyLunchTag' : 'recipeSupplyDinnerTag'))+'</span></div>'+
       '<div class="supply-body">'+
         (tag ? '<div class="supply-tagline">'+tag+'</div>' : '')+
