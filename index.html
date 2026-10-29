@@ -866,6 +866,24 @@
   .recipe-card .rname{ font-size:16px; font-weight:500; color:var(--cocoa); white-space:normal; word-break:break-word; line-height:1.35; }
   .recipe-card .rmeta{ font-size:13px; color:var(--deep-caramel); margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .recipe-card .rcal{ font-size:13px; color:var(--almond); font-weight:500; margin-top:6px; }
+/* README 9.285: 食谱页顶部“今日供应”海报 */
+.supply-poster{ position:relative; margin:4px 0 14px; padding:12px 12px 10px; border-radius:16px; background:var(--almond-bg); border:2px solid var(--almond); box-shadow:var(--shadow); }
+.supply-poster::before{ content:''; position:absolute; inset:4px; border:1px dashed var(--almond); border-radius:12px; opacity:.55; pointer-events:none; }
+.supply-head{ position:relative; text-align:center; margin-bottom:10px; }
+.supply-title{ font-size:17px; font-weight:700; color:var(--cocoa); letter-spacing:2px; }
+.supply-date{ font-size:12px; color:var(--deep-caramel); margin-top:2px; }
+.supply-grid{ position:relative; display:grid; grid-template-columns:repeat(auto-fill,minmax(96px,1fr)); gap:8px; }
+.supply-card{ background:var(--card-bg); border-radius:10px; overflow:hidden; box-shadow:var(--shadow); cursor:pointer; display:flex; flex-direction:column; min-width:0; -webkit-tap-highlight-color:transparent; }
+.supply-cover{ position:relative; width:100%; aspect-ratio:1/1; background:var(--almond-bg); display:flex; align-items:center; justify-content:center; color:var(--deep-caramel); overflow:hidden; }
+.supply-meal{ position:absolute; top:5px; right:5px; width:22px; height:22px; border-radius:50%; background:var(--warn); color:#fff; font-size:12px; font-weight:700; line-height:1; display:flex; align-items:center; justify-content:center; box-shadow:0 1px 3px rgba(0,0,0,.25); }
+.supply-body{ padding:6px 7px 8px; min-width:0; }
+.supply-tagline{ margin-bottom:4px; line-height:1; }
+.supply-tagline span{ margin-right:0; vertical-align:baseline; font-size:11px; padding:3px 6px; }
+.supply-cat{ font-size:11px; color:var(--deep-caramel); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.supply-name{ font-size:14px; font-weight:600; color:var(--cocoa); line-height:1.3; margin-top:1px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; word-break:break-word; }
+.supply-cal{ font-size:11.5px; color:var(--almond); font-weight:500; margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.recipe-supply-tag{ display:inline-flex; align-items:center; gap:4px; background:var(--almond-bg); color:var(--deep-caramel); border:1px solid var(--almond); font-size:12px; font-weight:700; line-height:1; padding:4px 8px 4px 6px; border-radius:999px; margin-right:6px; vertical-align:2px; white-space:nowrap; }
+.recipe-supply-tag svg{ stroke:var(--deep-caramel); flex-shrink:0; }
   .recipe-card-row{ display:flex; align-items:flex-start; gap:12px; }
   .recipe-cover{
     width:46px; height:46px; border-radius:11px; overflow:hidden; background:var(--cream);
@@ -975,7 +993,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.284';
+var BUILD_VERSION = '9.285';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2646,8 +2664,8 @@ var I18N = {
     usdaDataTypeFoundation:'官方实测', usdaDataTypeSRLegacy:'官方数据', usdaDataTypeBranded:'品牌食品',
     usdaDetailBasis:'每100g', usdaDetailMissingHint:'本地缓存里没有找到这条食品的营养数据（可能是缓存被清掉了），重新在USDA里搜一次这个食品即可再次查看。', usdaDetailFallbackTitle:'USDA 食品详情',
     // recipe detail
-    cookThis:'我做了这道菜', cookConfirmTitle:'确认扣减库存',
-    recipeOrderBtn:'点餐', recipeOrderCancelBtn:'取消点餐', recipeOrderedTag:'点餐中', recipePlanTag:'计划中', recipePlanNoOrderToast:'“计划中”的食谱不支持点餐', recipeMakingTag:'制作中', recipeMakingNoOrderToast:'“制作中”的食谱不支持点餐', recipeOrderedToast:'已点餐，已排到列表最前', recipeOrderCancelledToast:'已取消点餐',
+    cookThis:'完成', cookConfirmTitle:'确认扣减库存',
+    recipeSupplyBtn:'供应', recipeSupplyCancelBtn:'取消供应', recipeSupplyTitle:'今日供应', recipeSupplyChooseTitle:'供应哪一餐？', recipeSupplyLunchTag:'午', recipeSupplyDinnerTag:'晚', recipeSupplyAddedToast:'已加入今日供应', recipeSupplyCancelledToast:'已取消今日供应', recipeSupplySettingTitle:'今日供应海报', recipeSupplySettingLabel:'在食谱页顶部显示海报', recipeSupplySettingHint:'在食谱详情页点“供应”并选择午餐或晚餐，这道菜就会只在当天出现在海报里（过了24点自动回到原列表）。搜索或按分类筛选时不显示海报，供应中的食谱会照常出现在列表里。', recipeOrderBtn:'点餐', recipeOrderCancelBtn:'取消点餐', recipeOrderedTag:'点餐中', recipePlanTag:'计划中', recipePlanNoOrderToast:'“计划中”的食谱不支持点餐', recipeMakingTag:'制作中', recipeMakingNoOrderToast:'“制作中”的食谱不支持点餐', recipeOrderedToast:'已点餐，已排到列表最前', recipeOrderCancelledToast:'已取消点餐',
     recipeCookHistoryTitle:'制作记录', recipeNeverCooked:'还没有制作记录', recipeCookedTimes:'共制作 {n} 次',
     nutriToggleExpand:'展开每100g成品 / 每份', nutriToggleCollapse:'收起',
     cookConfirmHint:'以下食材将按用量从库存扣减，确认无误后点击确认。',
@@ -3013,8 +3031,8 @@ var I18N = {
     usdaTranslating:'Translating…', usdaSavedSectionTitle:'Frequently used', usdaCollapsedChip:'View {n} matches', usdaPickConfirmMsg:'Replace the current name and nutrition label with "{name}"?', usdaPickConfirmBtn:'Replace', usdaFavoriteToggle:'Favorite',
     usdaDataTypeFoundation:'USDA Lab-Tested', usdaDataTypeSRLegacy:'USDA Data', usdaDataTypeBranded:'Branded',
     usdaDetailBasis:'Per 100g', usdaDetailMissingHint:'This food\\u2019s nutrition data isn\\u2019t in the local cache (it may have been cleared) \\u2014 search for it again on USDA to view it here.', usdaDetailFallbackTitle:'USDA food details',
-    cookThis:"I made this dish", cookConfirmTitle:'Confirm inventory deduction',
-    recipeOrderBtn:'Order this', recipeOrderCancelBtn:'Cancel order', recipeOrderedTag:'Ordered', recipePlanTag:'Planned', recipePlanNoOrderToast:'Planned recipes cannot be ordered', recipeMakingTag:'Making', recipeMakingNoOrderToast:'Recipes marked Making cannot be ordered', recipeOrderedToast:'Ordered - moved to the top of the list', recipeOrderCancelledToast:'Order cancelled',
+    cookThis:"Done", cookConfirmTitle:'Confirm inventory deduction',
+    recipeSupplyBtn:'Serve', recipeSupplyCancelBtn:'Unserve', recipeSupplyTitle:"Today's Menu", recipeSupplyChooseTitle:'Serve at which meal?', recipeSupplyLunchTag:'L', recipeSupplyDinnerTag:'D', recipeSupplyAddedToast:"Added to today's menu", recipeSupplyCancelledToast:"Removed from today's menu", recipeSupplySettingTitle:"Today's Menu poster", recipeSupplySettingLabel:'Show the poster at the top of Recipes', recipeSupplySettingHint:'Tap "Serve" on a recipe\'s page and pick lunch or dinner: it shows on the poster for that day only and returns to the normal list after midnight. The poster is hidden while searching or filtering by category, and served recipes then appear in the list as usual.', recipeOrderBtn:'Order this', recipeOrderCancelBtn:'Cancel order', recipeOrderedTag:'Ordered', recipePlanTag:'Planned', recipePlanNoOrderToast:'Planned recipes cannot be ordered', recipeMakingTag:'Making', recipeMakingNoOrderToast:'Recipes marked Making cannot be ordered', recipeOrderedToast:'Ordered - moved to the top of the list', recipeOrderCancelledToast:'Order cancelled',
     recipeCookHistoryTitle:'Cooking History', recipeNeverCooked:'Not made yet', recipeCookedTimes:'Made {n} times',
     nutriToggleExpand:'Show per 100g cooked / per serving', nutriToggleCollapse:'Hide',
     cookConfirmHint:'These items will be deducted from inventory based on the amount used. Confirm to proceed.',
@@ -3238,6 +3256,7 @@ var state = {
   restockRules: [],
   restockRulesUpdatedAt: '',
   restockPopupEnabled: true,
+  showSupplyPoster: true, // README 9.285: 食谱页顶部“今日供应”海报，默认显示
   shoppingList: [],            // README 9.231: 购物清单
   restockPopupLastDay: '',     // README 9.231: 启动补货弹窗上次弹出的日期(只这台手机)
   params: {},
@@ -3385,6 +3404,7 @@ async function loadAll(){
   // README 9.224: per-device start page (only these four main tabs are valid; anything else falls back to 库存).
   state.startView = (['home','recipes','meals','health'].indexOf(results[5].startView)!==-1) ? results[5].startView : 'home';
   state.restockPopupEnabled = results[5].restockPopupEnabled !== false; // README 9.225: 默认开启
+  state.showSupplyPoster = results[5].showSupplyPoster !== false; // README 9.285: 默认显示
   // README 9.97: 笔记 feature removed (see changelog) - results[6]/[7] (notes/noteCategories)
   // are still fetched above on purpose, just no longer assigned into state. Confirmed with Lynn
   // there was no actual note data saved, but leaving the storage read itself in place (instead
@@ -3570,7 +3590,7 @@ function saveRecipes(){
   cloudSyncPushRecipeChanges();
   return p;
 }
-function saveSettings(){ return storageSet('settings', {lang:state.lang, reminderDays:state.reminderDays, aiProxyUrl:state.aiProxyUrl, fastingDisplayMode:state.fastingDisplayMode, fastingSettings:state.fastingSettings, visibleMealSlots:state.visibleMealSlots, startView:state.startView, restockPopupEnabled:state.restockPopupEnabled}); }
+function saveSettings(){ return storageSet('settings', {lang:state.lang, reminderDays:state.reminderDays, aiProxyUrl:state.aiProxyUrl, fastingDisplayMode:state.fastingDisplayMode, fastingSettings:state.fastingSettings, visibleMealSlots:state.visibleMealSlots, startView:state.startView, restockPopupEnabled:state.restockPopupEnabled, showSupplyPoster:state.showSupplyPoster}); }
 function saveMealLogs(){ return storageSet('mealLogs', state.mealLogs); }
 function saveMealsets(){
   var p = storageSet('mealsets', state.mealsets);
@@ -7589,6 +7609,11 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.285', items:[
+    {t:'new', zh:'食谱页新增“今日供应”海报：在食谱详情页点“供应”，选午餐或晚餐，这道菜就会出现在食谱页搜索框下面的海报里（小卡片，每行2-3张，带分类、名称、缩略图、每100g或每份热量，角标标注午/晚；点餐中/制作中/计划中的标签也会一起带上）。点卡片进入食谱详情。只在当天显示，过了24点自动回到原列表；海报里的食谱当天不再出现在下面的列表里。可在“食谱设置”里选择是否显示海报。', en:'New \"Today\'s Menu\" poster on the Recipes page: tap \"Serve\" on a recipe, pick lunch or dinner, and it appears in a poster under the search box (small cards, 2-3 per row, with category, name, thumbnail and kcal per 100g or per serving, a lunch/dinner badge, plus any Ordered/Making/Planned tag). Tap a card to open the recipe. It only shows for that day and goes back to the normal list after midnight; recipes on the poster are not repeated in the list below. You can turn the poster on or off in Recipe Settings.'},
+    {t:'tweak', zh:'食谱详情页的“我做了这道菜”改名为“完成”，放在左边，同一行右边是新的“供应”按钮。', en:'On the recipe page, \"I made this dish\" is now \"Done\" (left) and a new \"Serve\" button sits next to it on the same row.'},
+    {t:'tweak', zh:'食谱列表里“做过的”食谱现在按最近一次点“完成”的时间排序，最新做的排在最前；点餐中、制作中、计划中的优先规则不变。', en:'Cooked recipes are now ordered by the last time you tapped Done, newest first; the Ordered / Making / Planned priority is unchanged.'}
+  ]},
   {v:'9.284', items:[
     {t:'tweak', zh:'三餐/食谱“添加食物”里各个tab（库存、食谱、套餐、USDA常用、自定）的排序改了：现在先看“最近用过”，今天用过的排最前，其次昨天……同一天用过的再按使用次数多→少排。以前只按次数，很久以前吃了很多次的东西会压住天天在吃的。USDA里手动收藏的仍然置顶。', en:'Ordering in the Add Food tabs (Inventory, Recipes, Meal sets, USDA favorites, Custom) changed: it now looks at \"most recently used\" first - used today comes first, then yesterday, and so on; items used on the same day are ordered by how many times you have used them. Before, only the count mattered, so things eaten a lot long ago could outrank what you eat every day. Starred USDA favorites still stay on top.'},
     {t:'fix', zh:'修复天天添加的食材（比如鸡蛋）总是排不到库存tab前面：以前使用次数记在某一个批次上，批次用完或换了新批次，次数就断了。现在按“产品”（名称+品牌+条码相同算一个）统一计数，换批次不影响；升级时会用已有的三餐记录把次数和最近用过的时间补回来。', en:'Fixed items you add every day (e.g. eggs) never reaching the top of the Inventory tab: the use count was stored on one specific batch, so it was lost whenever that batch ran out or a new batch came in. Counts are now kept per product (same name + brand + barcode), so new batches no longer matter; on upgrade your existing meal records are used to rebuild the counts and last-used times.'}
@@ -11857,6 +11882,19 @@ function recipeIngredientDisplayName(ri){
 // 点了"我做了这道菜"的食谱"计划中"标签消失，同时从计划中那一组落到做过的那一组。搜索时仍按相关度排，只把点餐中的置顶。
 // README 9.282: 没做过的食谱分成两种——已经填了食材的是"制作中"，一个食材都没填的是"计划中"(两个条件互不重叠，
 // 每道食谱最多一个标签)。顺序变成 点餐中 → 制作中 → 计划中 → 做过的，各组内部保持原来的顺序。
+// README 9.285: 每道食谱最近一次“完成”(点了完成/做过)的时间。来源跟 recipeCookedIdSet 一致：制作记录 + 库存取用记录里关联到这道食谱的；
+// 时间用记录的 created_at(点击那一刻)，没有就退回 date。字符串都是本地ISO，直接比较大小即可。
+function recipeLastCookedMap(){
+  var m = {};
+  function note(id, ts){ if(!id || !ts) return; if(!m[id] || ts > m[id]) m[id] = ts; }
+  state.items.forEach(function(it){
+    (it.usage_log||[]).forEach(function(e){ if(e.destination_type==='recipe' && e.recipe_id) note(e.recipe_id, e.created_at || e.date); });
+  });
+  (state.recipeCookLogs||[]).forEach(function(e){ note(e.recipe_id, e.created_at || e.date); });
+  return m;
+}
+// README 9.285: “做过的”这一组改成按最近一次点“完成”的时间倒序(最新做的在最前)；没有时间的排在最后、保持原来的顺序。
+// 点餐中 → 制作中 → 计划中 的优先规则不变；搜索时仍按相关度。
 function pinOrderedRecipes(list, groupPlanned){
   var ordered = [], making = [], planned = [], rest = [];
   var cooked = groupPlanned ? recipeCookedIdSet() : null;
@@ -11865,7 +11903,14 @@ function pinOrderedRecipes(list, groupPlanned){
     else if(cooked && !cooked[r.id]) (recipeIngredientCount(r)>0 ? making : planned).push(r);
     else rest.push(r);
   });
-  if(!ordered.length && !making.length && !planned.length) return list;
+  if(groupPlanned && rest.length>1){
+    var lastMap = recipeLastCookedMap();
+    rest = rest.map(function(r,i){ return {r:r, i:i, t:lastMap[r.id]||''}; }).sort(function(a,b){
+      if(a.t !== b.t) return a.t < b.t ? 1 : -1;
+      return a.i - b.i;
+    }).map(function(x){ return x.r; });
+  }
+  if(!ordered.length && !making.length && !planned.length) return rest;
   ordered.sort(function(a,b){
     if(a.ordered_at !== b.ordered_at) return a.ordered_at < b.ordered_at ? -1 : 1;
     return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0);
@@ -11922,11 +11967,119 @@ function recipeCookedIdSet(){
   (state.recipeCookLogs||[]).forEach(function(e){ if(e.recipe_id) set[e.recipe_id] = true; });
   return set;
 }
+// README 9.285: 食谱状态标签(点餐中/制作中/计划中)——列表卡片和“今日供应”海报共用，保证两边显示一致。
+function recipeStatusTagHtml(r, cookedSet){
+  if(r.ordered_at) return '<span class="recipe-order-tag">'+ic('spoon',13)+esc(t('recipeOrderedTag'))+'</span>';
+  if(!cookedSet[r.id]) return recipeIngredientCount(r)>0
+    ? '<span class="recipe-making-tag">'+esc(t('recipeMakingTag'))+'</span>'
+    : '<span class="recipe-plan-tag">'+esc(t('recipePlanTag'))+'</span>';
+  return '';
+}
+/* ---------- README 9.285: 今日供应海报 ----------
+   在食谱详情页点“供应”选午餐/晚餐，会在这道食谱上写 supply_date(当天本地日期)、supply_meal(lunch/dinner)、supply_at(时间)，
+   跟 ordered_at 一样只改食谱自己的字段并更新 updated_at，所以会随食谱同步到另一部手机。
+   “只有当天出现”不靠定时清理：只要 supply_date 不等于今天，这道食谱就当没供应过——过了24点(本地时间)自动回到原列表，
+   旧字段留在食谱上无害，下次再点“供应”会被覆盖。点餐中/制作中/计划中/做过的食谱都可以上海报，标签一起带上。 */
+function recipeSupplyActive(r){
+  return !!r && r.supply_date === todayStr() && (r.supply_meal === 'lunch' || r.supply_meal === 'dinner');
+}
+// 海报是否显示：设置里开着，并且当前没在搜索、没在按分类筛选(搜索/筛选时供应中的食谱照常出现在列表里，免得搜不到)。
+function recipeSupplyPosterOn(){
+  return state.showSupplyPoster !== false && !(state.recipesUI.search||'').trim() && !state.recipesUI.groupId;
+}
+function recipeSupplyList(){
+  var list = state.recipes.filter(recipeSupplyActive);
+  list.sort(function(a,b){
+    if(a.supply_meal !== b.supply_meal) return a.supply_meal === 'lunch' ? -1 : 1;
+    var ta = a.supply_at || '', tb = b.supply_at || '';
+    if(ta !== tb) return ta < tb ? -1 : 1;
+    return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0);
+  });
+  return list;
+}
+// 列表实际显示的食谱：海报显示时，供应中的食谱只在海报里、不在下面的列表里重复出现。
+function getRecipesForListDisplay(){
+  var list = getFilteredRecipes();
+  if(recipeSupplyPosterOn()) list = list.filter(function(r){ return !recipeSupplyActive(r); });
+  return list;
+}
+function recipeSupplyDateLabel(){
+  var d = new Date();
+  if(state.lang === 'zh') return (d.getMonth()+1)+'月'+d.getDate()+'日 周'+'日一二三四五六'.charAt(d.getDay());
+  return d.toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'});
+}
+function recipeSupplyPosterHtml(){
+  _recipeListDay = todayStr();
+  if(!recipeSupplyPosterOn()) return '';
+  var list = recipeSupplyList();
+  if(!list.length) return '';
+  var cookedSet = recipeCookedIdSet();
+  var cards = list.map(function(r){
+    var nutri = calcRecipeNutrition(r);
+    var catLabel = recipeCategoryLabel(r);
+    var cover = r.photo_url ? photoImgHtml(r.photo_url, 'width:100%;height:100%;object-fit:cover;') : ic('book',26);
+    var calLine = nutri.per100g
+      ? (fmtNum(nutri.per100g.calories,0)+' kcal / 100g')
+      : (fmtNum(nutri.perServing.calories,0)+' kcal / '+t('perServing').toLowerCase());
+    var tag = recipeStatusTagHtml(r, cookedSet);
+    return '<div class="supply-card" onclick="navigate(\'recipeDetail\',{id:'+aj(r.id)+'})">'+
+      '<div class="supply-cover">'+cover+'<span class="supply-meal">'+esc(t(r.supply_meal==='lunch' ? 'recipeSupplyLunchTag' : 'recipeSupplyDinnerTag'))+'</span></div>'+
+      '<div class="supply-body">'+
+        (tag ? '<div class="supply-tagline">'+tag+'</div>' : '')+
+        (catLabel ? '<div class="supply-cat">'+esc(catLabel)+'</div>' : '')+
+        '<div class="supply-name">'+esc(r.name)+'</div>'+
+        '<div class="supply-cal">'+esc(calLine)+'</div>'+
+      '</div>'+
+    '</div>';
+  }).join('');
+  return '<div class="supply-poster">'+
+    '<div class="supply-head"><div class="supply-title">🍽 '+esc(t('recipeSupplyTitle'))+'</div><div class="supply-date">'+esc(recipeSupplyDateLabel())+'</div></div>'+
+    '<div class="supply-grid">'+cards+'</div>'+
+  '</div>';
+}
+var _recipeListDay = '';
+// 详情页“供应”按钮：今天已经在供应 → 取消；否则弹窗选午餐/晚餐。
+function onRecipeSupplyTap(id){
+  var r = state.recipes.find(function(q){ return q.id===id; });
+  if(!r) return;
+  if(recipeSupplyActive(r)){
+    delete r.supply_date; delete r.supply_meal; delete r.supply_at;
+    r.updated_at = nowLocalIso();
+    saveRecipes();
+    showToast(t('recipeSupplyCancelledToast'));
+    render();
+    return;
+  }
+  showModal(t('recipeSupplyChooseTitle'),
+    '<div class="btn-row">'+
+      '<button class="btn btn-primary" style="flex:1;" onclick="setRecipeSupply('+aj(id)+',\'lunch\')">'+esc(t('mealSlot_lunch'))+'</button>'+
+      '<button class="btn btn-primary" style="flex:1;" onclick="setRecipeSupply('+aj(id)+',\'dinner\')">'+esc(t('mealSlot_dinner'))+'</button>'+
+    '</div>');
+}
+function setRecipeSupply(id, meal){
+  var r = state.recipes.find(function(q){ return q.id===id; });
+  closeModal();
+  if(!r || (meal!=='lunch' && meal!=='dinner')) return;
+  r.supply_date = todayStr();
+  r.supply_meal = meal;
+  r.supply_at = nowLocalIso();
+  r.updated_at = nowLocalIso();
+  saveRecipes();
+  showToast(t('recipeSupplyAddedToast'));
+  render();
+}
+function setSupplyPosterEnabled(on){
+  state.showSupplyPoster = !!on;
+  saveSettings();
+  render();
+}
 function recipeListItemsHtml(filtered){
   if(filtered.length===0){
     if(state.recipes.length===0){
       return '<div class="empty-state">'+ic('book',40)+'<p><strong>'+t('emptyRecipes')+'</strong><br>'+t('emptyRecipesHint')+'</p></div>';
     }
+    // README 9.285: 所有食谱都在海报里时，下面的列表是空的，但不是“没有符合条件”，这时什么都不显示。
+    if(recipeSupplyPosterOn() && recipeSupplyList().length) return '';
     return '<div class="empty-state">'+ic('search',40)+'<p>'+(state.lang==='zh'?'没有符合条件的食谱':'No recipes match your filters')+'</p></div>';
   }
   var cookedSet = recipeCookedIdSet();
@@ -11954,7 +12107,7 @@ function recipeListItemsHtml(filtered){
           '<div class="recipe-card-row">'+
             '<div class="recipe-cover">'+coverHtml+'</div>'+
             '<div class="recipe-card-body">'+
-              '<div class="rname">'+(r.ordered_at ? '<span class="recipe-order-tag">'+ic('spoon',13)+esc(t('recipeOrderedTag'))+'</span>' : (!cookedSet[r.id] ? (recipeIngredientCount(r)>0 ? '<span class="recipe-making-tag">'+esc(t('recipeMakingTag'))+'</span>' : '<span class="recipe-plan-tag">'+esc(t('recipePlanTag'))+'</span>') : ''))+esc(r.name)+'</div>'+
+              '<div class="rname">'+recipeStatusTagHtml(r, cookedSet)+esc(r.name)+'</div>'+
               '<div class="rmeta">'+(catLabel?esc(catLabel)+' · ':'')+(r.servings||1)+' '+t('fieldServings')+' · '+recipeIngredientCount(r)+' '+t('sectionIngredients')+'</div>'+
               '<div class="rcal">'+calLine+'</div>'+
             '</div>'+
@@ -11964,7 +12117,7 @@ function recipeListItemsHtml(filtered){
     }).join('');
 }
 function renderRecipesList(){
-  var filtered = getFilteredRecipes();
+  var filtered = getRecipesForListDisplay(); // README 9.285: 供应中的食谱只在海报里
   var listHtml = recipeListItemsHtml(filtered);
   var filterLabel = '';
   if(state.recipesUI.groupId){
@@ -11980,6 +12133,7 @@ function renderRecipesList(){
       searchBarHtml(state.recipesUI.search, t('recipeSearchPlaceholder'), 'onRecipeSearch', 'recipe-search-input')+
       activeFilterHtml+
     '</div>'+
+    '<div id="recipe-supply-poster">'+recipeSupplyPosterHtml()+'</div>'+
     '<div id="recipe-list-container">'+listHtml+'</div>'+
   '</div>'+
   (state.aiProxyUrl ? '<button class="ai-fab" onclick="openAiSearch(\'recipes\')" aria-label="'+t('aiSearchFabLabel')+'">AI</button>' : '')+
@@ -11990,7 +12144,9 @@ function onRecipeSearch(v){
   clearTimeout(onRecipeSearch._t);
   onRecipeSearch._t = setTimeout(function(){
     var c = document.getElementById('recipe-list-container');
-    if(c) c.innerHTML = recipeListItemsHtml(getFilteredRecipes());
+    if(c) c.innerHTML = recipeListItemsHtml(getRecipesForListDisplay());
+    var pst = document.getElementById('recipe-supply-poster'); // README 9.285: 搜索时海报收起、清空搜索后恢复
+    if(pst) pst.innerHTML = recipeSupplyPosterHtml();
   }, 200);
 }
 function clearRecipeFilters(){ state.recipesUI.groupId=null; state.recipesUI.sub=null; render(); }
@@ -13594,12 +13750,17 @@ function renderRecipeDetail(){
       '</div>'+
       '<div class="item-detail-hero-info">'+
         (r.ordered_at ? '<div style="margin-bottom:6px;"><span class="recipe-order-tag">'+ic('spoon',13)+esc(t('recipeOrderedTag'))+'</span></div>' : '')+
+        (recipeSupplyActive(r) ? '<div style="margin-bottom:6px;"><span class="recipe-supply-tag">'+ic('spoon',13)+esc(t('recipeSupplyTitle'))+' · '+esc(t('mealSlot_'+r.supply_meal))+'</span></div>' : '')+
         '<p style="margin:0;color:var(--deep-caramel);font-size:14px;">'+r.servings+' '+t('fieldServings')+' · '+recipeIngredientCount(r)+' '+t('sectionIngredients')+'</p>'+
         '<div class="item-detail-hero-actions">'+
           '<button class="item-detail-action-btn danger" onclick="event.stopPropagation();confirmDeleteRecipeDetail('+aj(r.id)+')"><span class="icon">'+ic('trash',20)+'</span><span>'+t('delete')+'</span></button>'+
           '<button class="item-detail-action-btn edit" onclick="event.stopPropagation();openRecipeForm('+aj(r.id)+')"><span class="icon">'+ic('edit',20)+'</span><span>'+t('edit')+'</span></button>'+
         '</div>'+
-        '<button class="btn btn-primary" style="width:100%;" onclick="openCookConfirm('+aj(r.id)+')">'+t('cookThis')+'</button>'+
+        // README 9.285: “我做了这道菜”改名“完成”，居左；同一行右侧是“供应”(今天已供应时变成“取消供应”)。
+        '<div style="display:flex;gap:8px;">'+
+          '<button class="btn btn-primary" style="flex:1;" onclick="openCookConfirm('+aj(r.id)+')">'+t('cookThis')+'</button>'+
+          '<button class="btn btn-outline" style="flex:1;" onclick="onRecipeSupplyTap('+aj(r.id)+')">'+esc(t(recipeSupplyActive(r) ? 'recipeSupplyCancelBtn' : 'recipeSupplyBtn'))+'</button>'+
+        '</div>'+
       '</div>'+
     '</div>'+
     '<div class="section-title" style="margin-top:0;">'+t('sectionIngredients')+'</div>'+
@@ -21256,7 +21417,14 @@ function renderRecipesSettings(){
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'recipes\')">'+ic('back',22)+'</button><h1>'+t('recipesSettingsTitle')+'</h1></div>'+
   '<div class="content">'+
-    '<div class="section-title" style="margin-top:0;">'+(state.lang==='zh'?'分类':'Categories')+'</div>'+
+    '<div class="section-title" style="margin-top:0;">'+t('recipeSupplySettingTitle')+'</div>'+
+    '<div class="form-group">'+
+      '<div class="list-row"><div class="row-label">'+t('recipeSupplySettingLabel')+'</div>'+
+        '<label class="switch"><input type="checkbox" '+(state.showSupplyPoster!==false?'checked':'')+' onchange="setSupplyPosterEnabled(this.checked)"><span class="switch-slider"></span></label>'+
+      '</div>'+
+      '<p class="hint" style="margin-top:8px;">'+t('recipeSupplySettingHint')+'</p>'+
+    '</div>'+
+    '<div class="section-title">'+(state.lang==='zh'?'分类':'Categories')+'</div>'+
     recipeCategoryManagerHtml()+
     '<div class="section-title">'+t('sectionBackup')+'</div>'+
     '<div class="form-group">'+
@@ -22165,6 +22333,8 @@ window.addEventListener('pageshow', function(){
 });
 document.addEventListener('visibilitychange', function(){
   if(document.hidden) return;
+  // README 9.285: 食谱页开着过了24点再切回来，海报要换成新的一天(昨天供应的回到列表)。
+  if(state.view==='recipes' && _recipeListDay && _recipeListDay !== todayStr()) render();
   if(state.view==='home') syncHomeStickyControlsOffset();
   if(state.view==='pickInventory' || state.view==='pickExternal' || state.view==='pickRecipe') syncPickStickyOffset();
   if(state.view==='mealAddFood' || state.view==='ingPicker'){ syncMealAddTabsOffset(); syncMealAddSearchOffset(); }
