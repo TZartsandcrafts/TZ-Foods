@@ -975,7 +975,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.283';
+var BUILD_VERSION = '9.284';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -3347,7 +3347,10 @@ async function loadAll(){
     storageGet('customRemoteHidden', {}),
     // README 9.263: USDA 词条标签——本机自己加的(usdaTags)、收到的对方的(usdaTagsRemote，按对方设备号分开存)。
     storageGet('usdaTags', {}),
-    storageGet('usdaTagsRemote', {})
+    storageGet('usdaTagsRemote', {}),
+    // README 9.284: 每个“常用”条目最后一次被实际添加的时间(毫秒)，用来先按“最近用过”排序；以及“旧计数迁移”是否做过的标记。
+    storageGet('pickLast', {}),
+    storageGet('pickFreqV2Done', false)
   ]);
   // README 9.125: categoryGroups is the new two-level (母分类/子分类) structure for inventory
   // categories, architecturally matching state.recipeCategoryGroups but without any color
@@ -3453,6 +3456,11 @@ async function loadAll(){
   state.customRemoteHidden = results[43] || {};
   state.usdaTags = results[44] || {};
   state.usdaTagsRemote = results[45] || {};
+  state.pickLast = results[46] || {};
+  // README 9.284: 一次性迁移(见migratePickFrequencyV2)：库存的使用次数从“按批次id”改成“按产品组”，并用三餐记录补出“最近用过”。
+  if(!results[47]){
+    try{ migratePickFrequencyV2(); storageSet('pickFreqV2Done', true); }catch(e){}
+  }
   // README 9.244: 一次性回溯(见backfillCustomSavedFromMealLogs)，做完记一个标记，以后不再跑。
   if(!_csBackfilled){
     try{ backfillCustomSavedFromMealLogs(); storageSet('customSavedBackfilled', true); }catch(e){}
@@ -3575,6 +3583,7 @@ function saveRecipeCookLogs(){
   return p;
 }
 function savePickFrequency(){ return storageSet('pickFrequency', state.pickFrequency); }
+function savePickLast(){ return storageSet('pickLast', state.pickLast); }
 function saveUsdaSaved(){ return storageSet('usdaSaved', state.usdaSaved); }
 // ===================== README 9.263: USDA 词条标签 =====================
 // USDA 词条名又长又难记，给常用的词条起个好记的标签名。标签挂在 fdcId 上，每台手机各管各的：
@@ -3708,6 +3717,66 @@ function bumpPickFrequency(kind, id){
   var k = kind+':'+id;
   state.pickFrequency[k] = (state.pickFrequency[k]||0)+1;
   savePickFrequency();
+  // README 9.284: 同时记下“最后一次实际添加”的时间，排序时先看这个(见sortByPickFrequency)。
+  state.pickLast = state.pickLast || {};
+  state.pickLast[k] = Date.now();
+  savePickLast();
+}
+// README 9.284: “最近用过”比较的粒度。true=按“天”比(同一天用过的再按使用次数排，次数才有意义)；
+// false=精确到毫秒(谁最后一个用的谁在最前，使用次数基本不再起作用)。想改成后者，把这个值改成false即可。
+var PICK_RECENCY_BY_DAY = true;
+function pickRecencyBucket(key){
+  var ts = (state.pickLast||{})[key];
+  if(!ts) return 0;
+  if(!PICK_RECENCY_BY_DAY) return ts;
+  var d = new Date(ts);
+  return d.getFullYear()*10000 + (d.getMonth()+1)*100 + d.getDate();
+}
+// 本地ISO时间串(如“自定”条目的last字段)的同一套比较口径：按天时只取日期部分。
+function pickIsoRecency(s){
+  s = String(s||'');
+  return PICK_RECENCY_BY_DAY ? s.slice(0,10) : s;
+}
+// README 9.284: 一次性迁移。
+//  1) 库存条目的使用次数原来记在“批次id”上(inventory:<批次id>)，但排序时用的是“代表批次”的id、保存时记的又常常是
+//     用户实际选的那一批——批次一换(比如每天都买的鸡蛋，旧批次用完存档、新批次进来)，次数就断了、永远排不到前面。
+//     现在改成按“产品组”(名称+品牌+条码，跟库存列表里折叠成一行的规则一样)记：invGroup:<产品组key>。
+//     旧的按批次id的次数，能在库存里找到对应批次的合并到它所属的产品组上；找不到的(批次已被彻底删除)丢掉。
+//  2) 用三餐记录补出每个条目“最近一次实际添加”的时间(食谱/外部食材/USDA/库存都补)，库存的次数也按三餐记录数兜底
+//     (取旧次数和记录数里较大的，不会比以前少)。三餐记录被删掉的那部分当然补不回来。
+function migratePickFrequencyV2(){
+  var pf = state.pickFrequency || (state.pickFrequency = {});
+  var pl = state.pickLast || (state.pickLast = {});
+  var itemById = {};
+  (state.items||[]).forEach(function(it){ itemById[it.id] = it; });
+  var counts = {};
+  Object.keys(pf).forEach(function(k){
+    if(k.indexOf('inventory:')!==0) return;
+    var it = itemById[k.slice('inventory:'.length)];
+    if(it){ var gk = 'invGroup:'+itemGroupKey(it); counts[gk] = (counts[gk]||0) + (pf[k]||0); }
+    delete pf[k];
+  });
+  var logCnt = {}, logLast = {};
+  (state.mealLogs||[]).forEach(function(m){
+    if(!m || m.source_id==null || m.source_id==='') return;
+    var key = null, isInv = false;
+    if(m.source_type==='inventory'){
+      var it2 = itemById[m.source_id];
+      if(it2){ key = 'invGroup:'+itemGroupKey(it2); isInv = true; }
+    } else if(m.source_type==='recipe' || m.source_type==='external' || m.source_type==='usda'){
+      key = m.source_type+':'+m.source_id;
+    }
+    if(!key) return;
+    var ts = new Date(m.created_at || ((m.date||'')+'T12:00:00')).getTime();
+    if(isNaN(ts)) return;
+    if(isInv) logCnt[key] = (logCnt[key]||0) + 1;
+    if(!logLast[key] || ts > logLast[key]) logLast[key] = ts;
+  });
+  Object.keys(logCnt).forEach(function(k){ counts[k] = Math.max(counts[k]||0, logCnt[k]); });
+  Object.keys(counts).forEach(function(k){ pf[k] = Math.max(pf[k]||0, counts[k]); });
+  Object.keys(logLast).forEach(function(k){ if(!pl[k]) pl[k] = logLast[k]; });
+  savePickFrequency();
+  savePickLast();
 }
 function saveWeightLogs(){ return storageSet('weightLogs', state.weightLogs); }
 function saveFastingLogs(){ return storageSet('fastingLogs', state.fastingLogs); }
@@ -7520,6 +7589,10 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.284', items:[
+    {t:'tweak', zh:'三餐/食谱“添加食物”里各个tab（库存、食谱、套餐、USDA常用、自定）的排序改了：现在先看“最近用过”，今天用过的排最前，其次昨天……同一天用过的再按使用次数多→少排。以前只按次数，很久以前吃了很多次的东西会压住天天在吃的。USDA里手动收藏的仍然置顶。', en:'Ordering in the Add Food tabs (Inventory, Recipes, Meal sets, USDA favorites, Custom) changed: it now looks at \"most recently used\" first - used today comes first, then yesterday, and so on; items used on the same day are ordered by how many times you have used them. Before, only the count mattered, so things eaten a lot long ago could outrank what you eat every day. Starred USDA favorites still stay on top.'},
+    {t:'fix', zh:'修复天天添加的食材（比如鸡蛋）总是排不到库存tab前面：以前使用次数记在某一个批次上，批次用完或换了新批次，次数就断了。现在按“产品”（名称+品牌+条码相同算一个）统一计数，换批次不影响；升级时会用已有的三餐记录把次数和最近用过的时间补回来。', en:'Fixed items you add every day (e.g. eggs) never reaching the top of the Inventory tab: the use count was stored on one specific batch, so it was lost whenever that batch ran out or a new batch came in. Counts are now kept per product (same name + brand + barcode), so new batches no longer matter; on upgrade your existing meal records are used to rebuild the counts and last-used times.'}
+  ]},
   {v:'9.283', items:[
     {t:'tweak', zh:'食谱列表的“制作中”标签改成跟“计划中”一样的样式，用色板里的绿色区分（不再是白底细边框）。', en:'The "Making" tag on the recipe list now has the same style as "Planned" and is told apart by a green from the palette (no more white tag with a thin border).'}
   ]},
@@ -15282,12 +15355,14 @@ function setInventoryItemPrefs(groupKey, prefsObj){
     saveMealAddItemPrefs();
   }
 }
+// README 9.284: 两个场景都按“产品组”(groupKey=名称+品牌+条码)计数，不再按批次id——批次会用完、存档、换新，
+// 产品组才是库存列表里真正“一行”的那个东西。repId参数保留只是为了不改调用处，已不再使用。
 function bumpInventoryPickFrequency(groupKey, repId){
   if(isRecipeIngredientCtx()) bumpPickFrequency('recipeIngItem', groupKey);
-  else bumpPickFrequency('inventory', repId);
+  else bumpPickFrequency('invGroup', groupKey);
 }
 function inventoryPickFreqKey(groupKey, repId){
-  return isRecipeIngredientCtx() ? ('recipeIngItem:'+groupKey) : ('inventory:'+repId);
+  return isRecipeIngredientCtx() ? ('recipeIngItem:'+groupKey) : ('invGroup:'+groupKey);
 }
 // ===================== README 9.243: 给"已经记进某一餐的套餐"追加食材(一次性) =====================
 // Lynn：已加入某餐次的套餐，在餐次列表里点进去想再加食材，但详情页没有入口——只想加在这一次记录里，
@@ -16197,9 +16272,14 @@ function searchRecipeFoods(q){
 // Stable sort (relies on Array#sort being stable, guaranteed since ES2019 - true in every
 // browser this PWA targets) so ties at the same frequency (most commonly 0, for anything never
 // logged) keep their original relative order instead of jumping around unpredictably.
+// README 9.284: 排序规则 = 先看“最近用过”(最后一次实际添加，见pickRecencyBucket，默认按天比)，同一天(或都没用过)的
+// 再按使用次数多→少，再相同保持原顺序。以前只按次数，天天吃的鸡蛋会被“很久以前吃了很多次”的东西压在后面。
 function sortByPickFrequency(list, keyFn){
   list.sort(function(a,b){
     var ka = keyFn(a), kb = keyFn(b);
+    var ra = ka ? pickRecencyBucket(ka) : 0;
+    var rb = kb ? pickRecencyBucket(kb) : 0;
+    if(ra !== rb) return rb - ra;
     var fa = ka ? (state.pickFrequency[ka]||0) : 0;
     var fb = kb ? (state.pickFrequency[kb]||0) : 0;
     return fb - fa;
@@ -16358,6 +16438,9 @@ function sortUsdaSavedList(list){
   list.sort(function(a,b){
     var sa = a.starred?1:0, sb = b.starred?1:0;
     if(sa!==sb) return sb-sa;
+    // README 9.284: 收藏置顶之后，先按最近用过，再按次数
+    var ra = pickRecencyBucket('usda:'+a.fdcId), rb = pickRecencyBucket('usda:'+b.fdcId);
+    if(ra!==rb) return rb-ra;
     var fa = state.pickFrequency['usda:'+a.fdcId]||0, fb = state.pickFrequency['usda:'+b.fdcId]||0;
     return fb-fa;
   });
@@ -17241,6 +17324,9 @@ function customSavedSortedList(){
   var saved = state.customSaved || {};
   var list = Object.keys(saved).map(function(k){ return saved[k]; });
   list.sort(function(a,b){
+    // README 9.284: 先按最近用过(默认按天)，同一天的再按使用次数，再相同按最后使用时间
+    var da = pickIsoRecency(a.last), db = pickIsoRecency(b.last);
+    if(da!==db) return da < db ? 1 : -1;
     var ca = a.count||0, cb = b.count||0;
     if(ca!==cb) return cb-ca;
     return String(a.last||'') < String(b.last||'') ? 1 : -1;
@@ -17999,7 +18085,7 @@ function saveMealLogEntry(){
   // README 9.134: bumped only here, on an actual successful log - not on every search
   // keystroke or an abandoned pick that never got saved - see bumpPickFrequency's comment.
   if(p.type==='recipe') bumpPickFrequency('recipe', p.id);
-  else if(p.type==='item') bumpPickFrequency('inventory', p.id);
+  else if(p.type==='item') bumpPickFrequency('invGroup', p.groupKey); // README 9.284: 按产品组计数
   else if(p.type==='external') bumpPickFrequency('external', p.id);
   // README 9.177: USDA常用列表的排序依据 - 只在真的存成一条三餐记录时计数,跟"常用"列表本身
   // 的缓存(见pickUsdaFoodForMeal/cacheUsdaFoodDetail)分开处理,不是搜索/浏览就算。
@@ -18209,7 +18295,7 @@ function commitOneQuickPick(af, key){
     state.mealLogs.push(entry);
     if(entry.deductItemId){ pushMealUsageLog(chosen, qa.amount, qa.unit, entry.id, null, af.slot, af.date, entry.created_at); saveItems(); }
     saveMealLogs();
-    bumpPickFrequency('inventory', chosen.id);
+    bumpPickFrequency('invGroup', id); // README 9.284: id就是产品组key
     return true;
   }
   if(kind==='recipe'){
@@ -19504,7 +19590,7 @@ function aiMealWriteEntry(row, cl, date, slot, ts){
     if(res && res.ok){ entry.deductItemId = chosen.id; entry.deductAmount = cl.effAmount; entry.deductUnit = cl.effUnit; saveItems(); _restockCollect(chosen); }
     state.mealLogs.push(entry);
     if(entry.deductItemId){ pushMealUsageLog(chosen, cl.effAmount, cl.effUnit, entry.id, null, slot, date, ts); saveItems(); }
-    bumpPickFrequency('inventory', chosen.id);
+    bumpPickFrequency('invGroup', itemGroupKey(chosen)); // README 9.284: 按产品组计数
   } else if(c.type==='recipe'){
     state.mealLogs.push({id: uid(), date: date, slot: slot, name: cl.recipe.name, amount: cl.effAmount,
       unit: cl.recipeUnit==='g' ? 'g' : t('servingsUnit'), nutrition: cl.nutrition, nutrition_extra: cl.extra, created_at: ts,
