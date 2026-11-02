@@ -995,7 +995,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.286';
+var BUILD_VERSION = '9.287';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -5463,6 +5463,25 @@ function navigate(view, params){
 // 能看到——Lynn反馈的这个bug。跟navigate()末尾同一套"双重保险"写法：一次同步的+一次
 // requestAnimationFrame里再顶一次(防的是键盘收起动画在下一帧才真正完成、把刚设好的滚动位置又
 // 带跑了这个已知的iOS Safari坑，navigate()自己那段注释里也提到过)。
+// README 9.287: 进入“全新打开”的页面(食谱表单、选食材页、三餐加食物页)后，守住“停在页面顶部”。
+// 背景：这几个页面一进来搜索框就autofocus，iOS会弹键盘；键盘弹出/视口缩放动画在下一两帧才完成，
+// 可能把刚设到顶部的滚动位置又带到中段(navigate()自己的注释里记过同一个坑，那边只补了一帧)。
+// 做法：进入后在150ms/400ms各检查一次，只有“页面还是同一个、而且这段时间里用户没有碰过屏幕/键盘”并且页面
+// 不在顶部时才拉回顶部——用户一旦开始自己滚动/点击，就完全不再干预，所以不会跟“返回时恢复原位置”打架。
+var _navUserTouched = false;
+['touchstart', 'wheel', 'mousedown', 'keydown'].forEach(function(ev){
+  window.addEventListener(ev, function(){ _navUserTouched = true; }, {passive:true, capture:true});
+});
+function holdScrollTopAfterEntry(view){
+  _navUserTouched = false;
+  [150, 400].forEach(function(ms){
+    setTimeout(function(){
+      if(state.view !== view || _navUserTouched) return;
+      var y = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
+      if(y > 2) window.scrollTo(0, 0);
+    }, ms);
+  });
+}
 function scrollAppToTop(){
   window.scrollTo(0, 0);
   requestAnimationFrame(function(){ window.scrollTo(0, 0); });
@@ -7631,6 +7650,11 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.287', items:[
+    {t:'fix', zh:'带搜索框的页面向上滚动时，搜索框统一吸顶：新增了存档、统计、价格历史、搜索添加这几个页面；修复了“添加食材”页（食谱/套餐）和运动选择页的搜索框吸顶位置不对。', en:'On pages with a search box, the box now stays pinned at the top while you scroll: added to Archive, Stats, Price History and Search-to-add; fixed the pin position on the Add Ingredient page (recipes / meal sets) and the exercise picker.'},
+    {t:'fix', zh:'新建或编辑食谱时，页面现在每次都停在顶部（以前会随上一次编辑时滚到的位置，有时在顶部、有时在底部）。从“添加食材”页选完回来，仍然回到离开时的位置。', en:'The recipe editor now always opens at the top (it used to reuse where the last edit was scrolled to). Coming back from the Add Ingredient page still returns you to where you left.'},
+    {t:'fix', zh:'编辑食谱点“添加食材”进入选食材页时，现在会停在页面顶部，直接看到搜索框，不用再手动往下划。', en:'Tapping Add Ingredient in the recipe editor now opens the picker at the top so the search box is visible, with no manual scrolling.'}
+  ]},
   {v:'9.286', items:[
     {t:'new', zh:'“今日供应”海报里的卡片支持长按：长按弹出“加餐”，点一下就能把这道菜直接加到餐次（和食谱列表里左划的“加餐”是同一个功能）。', en:'Cards on the \"Today\'s Menu\" poster now support long-press: press and hold to get \"Add to meal\", the same action as swiping a recipe in the list.'}
   ]},
@@ -10881,7 +10905,7 @@ function renderArchiveList(){
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'home\')">'+ic('back',22)+'</button><h1>'+t('archiveTitle')+'</h1><button class="icon-btn" onclick="toggleSidebar(\'home\')">'+ic('menu',20)+'</button></div>'+
   '<div class="content">'+
-    searchBarHtml(state.archiveUI.search, t('searchArchivePlaceholder'), 'onArchiveSearch')+
+    '<div class="pick-sticky-search">'+searchBarHtml(state.archiveUI.search, t('searchArchivePlaceholder'), 'onArchiveSearch')+'</div>'+ // README 9.287: 搜索框吸顶
     '<div id="archive-list-container">'+renderArchiveListHtml(list)+'</div>'+
   '</div>'+
   bottomNav();
@@ -11027,7 +11051,7 @@ function renderStats(){
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'home\')">'+ic('back',22)+'</button><h1>'+t('statsTitle')+'</h1><button class="icon-btn" onclick="toggleSidebar(\'home\')">'+ic('menu',20)+'</button></div>'+
   '<div class="content">'+
-    searchBarHtml(state.statsUI.search, t('searchStatsPlaceholder'), 'onStatsSearchInput', 'stats-search-input')+
+    '<div class="pick-sticky-search">'+searchBarHtml(state.statsUI.search, t('searchStatsPlaceholder'), 'onStatsSearchInput', 'stats-search-input')+'</div>'+ // README 9.287: 搜索框吸顶
     '<div class="sidebar-section-title" style="font-size:14px;margin-top:14px;">'+t('statsRangeLabel')+'</div>'+
     '<div class="sort-pills" style="flex-wrap:wrap;">'+rangePills+'</div>'+
     customDatesHtml+
@@ -11099,7 +11123,7 @@ function renderPriceHistory(){
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'home\')">'+ic('back',22)+'</button><h1>'+t('priceHistoryTitle')+'</h1><button class="icon-btn" onclick="toggleSidebar(\'home\')">'+ic('menu',20)+'</button></div>'+
   '<div class="content">'+
-    searchBarHtml(state.historyUI.search, t('searchHistoryPlaceholder'), 'onHistorySearch')+
+    '<div class="pick-sticky-search">'+searchBarHtml(state.historyUI.search, t('searchHistoryPlaceholder'), 'onHistorySearch')+'</div>'+ // README 9.287: 搜索框吸顶
     '<div id="history-results-container">'+renderHistoryResultsHtml()+'</div>'+
   '</div>'+
   bottomNav();
@@ -11231,7 +11255,7 @@ function renderSearchAddItem(){
     '<h1>'+t('searchAddTitle')+'</h1>'+
   '</div>'+
   '<div class="content">'+
-    '<div class="field"><input id="search-add-input" type="text" autocapitalize="words" placeholder="'+t('searchAddPh')+'" value="'+esc(ui.query)+'" oninput="onSearchAddInput(this.value)"></div>'+
+    '<div class="pick-sticky-search"><div class="field"><input id="search-add-input" type="text" autocapitalize="words" placeholder="'+t('searchAddPh')+'" value="'+esc(ui.query)+'" oninput="onSearchAddInput(this.value)"></div></div>'+ // README 9.287: 搜索框吸顶
     '<div id="search-add-results">'+searchAddResultsHtml(ui)+'</div>'+
     '<button class="btn btn-outline" style="margin-top:6px;width:100%;" onclick="openItemForm(null)">'+t('manualAdd')+'</button>'+
   '</div>'+
@@ -12957,7 +12981,13 @@ function openRecipeForm(id){
   // full-object string compare is cheap enough at this scale and can't drift out of sync the way
   // a hand-maintained flag could if some future edit path forgot to set it.
   state.recipeFormUI.originalSnapshot = JSON.stringify(state.recipeDraft);
+  // README 9.287: 食谱表单用了“离开时记住滚动位置、回来时恢复”(SCROLL_MEMORY_VIEWS，给“添加食材→选完回到原位”用)，
+  // 但这份记忆以前没人清：上一次编辑食谱时滚到哪里就记着哪里，下次新建/编辑另一道食谱进来直接恢复到那个位置——
+  // 所以有时在顶部、有时在底部。这里是“全新打开一份表单”(新建/编辑)，不是“从选食材页回来”，记忆作废、从顶部开始。
+  // (从选食材页/AI加食材回到表单走的是navigate('recipeForm')，不经过这里，照旧恢复原来的位置。)
+  _scrollMemory.recipeForm = 0;
   navigate('recipeForm', {id:id});
+  holdScrollTopAfterEntry('recipeForm');
 }
 // Ingredient groups (e.g. "饺子皮" / "饺子馅") are represented as a pseudo-entry
 // {id, type:'group', name} living right in state.recipeDraft.ingredients at whatever position
@@ -15505,6 +15535,7 @@ function openAddFoodPage(date, slot){
   _addFoodSearchScroll = null; // 全新打开一次选餐页，上次会话遗留的滚动位置作废
   state.mealsUI.addFood = {date:date, slot:slot, tab:'inventory', step:'search', query:'', picked:null, amountText:'', deduct:true, quickPicks:{}, matchTabs:null};
   navigate('mealAddFood');
+  holdScrollTopAfterEntry('mealAddFood'); // README 9.287
 }
 // README 9.200: 三餐加食物(state.mealsUI.addFood/'mealAddFood')和套餐加食材
 // (state.mealsUI.ingPicker/'ingPicker')这两个页面共用同一整套tab/搜索/快速勾选渲染逻辑——
@@ -15622,6 +15653,7 @@ function openIngPicker(pickerKind){
   _addFoodSearchScroll = null;
   state.mealsUI.ingPicker = {pickerKind:pickerKind, tab:'inventory', step:'search', query:'', picked:null, amountText:'', amountUnit:null, quickPicks:{}, matchTabs:null};
   navigate('ingPicker');
+  holdScrollTopAfterEntry('ingPicker'); // README 9.287
 }
 function renderIngPicker(){
   var ip = state.mealsUI.ingPicker;
@@ -22238,7 +22270,9 @@ function focusAutofocusElementOnce(){
   var app = document.getElementById('app');
   var el = app && app.querySelector('[autofocus]');
   if(!el) return;
-  el.focus();
+  // README 9.287: preventScroll——focus()默认会把输入框“滚进视野”，渲染这一刻页面还停在上一个页面的滚动位置，
+  // 这次隐式滚动会和navigate()随后设的滚动位置互相打架；页面位置交给navigate()/restore*统一决定，focus只管聚焦。
+  try{ el.focus({preventScroll:true}); }catch(e){ el.focus(); }
   // README 9.142: same select-the-whole-value fix as showModal's autofocus handling, for the
   // full-page (non-modal) [autofocus] fields - see that comment for the reasoning.
   if(el.value && el.select){
@@ -22305,21 +22339,23 @@ function afterRender(){
   if(state.view === 'ingPicker' && state.mealsUI.ingPicker && state.mealsUI.ingPicker.tab==='scan' && state.mealsUI.ingPicker.step==='search'){
     startScan();
   }
-  if(state.view === 'home'){
-    syncHomeStickyControlsOffset();
-  }
-  if(state.view === 'pickInventory' || state.view === 'pickExternal' || state.view === 'pickRecipe'){
-    syncPickStickyOffset();
-  }
-  if(state.view === 'mealAddFood'){
-    syncMealAddTabsOffset();
-    syncMealAddSearchOffset();
-  }
+  syncStickyOffsets(); // README 9.287
 }
 function syncHomeStickyControlsOffset(){
   var topbar = document.querySelector('.topbar');
-  var stickyControls = document.getElementById('home-sticky-controls');
+  // README 9.287: 改成按class找——库存主页(#home-sticky-controls)和食谱页(#recipes-sticky-controls)用的是同一个
+  // .home-sticky-controls，食谱页以前没人量topbar的真实高度、只靠CSS里的估算值。
+  var stickyControls = document.querySelector('.home-sticky-controls');
   if(topbar && stickyControls) stickyControls.style.top = topbar.offsetHeight + 'px';
+}
+// README 9.287: 所有“吸顶”元素的偏移统一在这里量一遍，不再按页面名字一个个判断——以前每个页面各写一份条件，
+// 漏掉的就没人量：套餐/食谱“添加食材”页(ingPicker)的tab条和搜索框、运动选择页(pickExercise)的搜索框都漏了，
+// 偏移停在默认的top:0，吸顶位置不对(会被页头盖住或叠在一起)。各个sync函数找不到对应元素时什么都不做，可以放心统一调。
+function syncStickyOffsets(){
+  syncHomeStickyControlsOffset();
+  syncPickStickyOffset();
+  syncMealAddTabsOffset();
+  syncMealAddSearchOffset();
 }
 // Shared by both the "pick from inventory" and "external ingredient library" pages - both use
 // the exact same .page-header + sticky-search-bar structure, so one offset calc covers either
@@ -22352,22 +22388,16 @@ function syncMealAddSearchOffset(){
 // position:sticky calculation (a known WebKit quirk, not something specific to this app) -
 // re-measuring on these events, not just after render, is what actually recovers it.
 window.addEventListener('pageshow', function(){
-  if(state.view==='home') syncHomeStickyControlsOffset();
-  if(state.view==='pickInventory' || state.view==='pickExternal' || state.view==='pickRecipe') syncPickStickyOffset();
-  if(state.view==='mealAddFood' || state.view==='ingPicker'){ syncMealAddTabsOffset(); syncMealAddSearchOffset(); }
+  syncStickyOffsets();
 });
 document.addEventListener('visibilitychange', function(){
   if(document.hidden) return;
   // README 9.285: 食谱页开着过了24点再切回来，海报要换成新的一天(昨天供应的回到列表)。
   if(state.view==='recipes' && _recipeListDay && _recipeListDay !== todayStr()) render();
-  if(state.view==='home') syncHomeStickyControlsOffset();
-  if(state.view==='pickInventory' || state.view==='pickExternal' || state.view==='pickRecipe') syncPickStickyOffset();
-  if(state.view==='mealAddFood' || state.view==='ingPicker'){ syncMealAddTabsOffset(); syncMealAddSearchOffset(); }
+  syncStickyOffsets();
 });
 window.addEventListener('resize', function(){
-  if(state.view==='home') syncHomeStickyControlsOffset();
-  if(state.view==='pickInventory' || state.view==='pickExternal' || state.view==='pickRecipe') syncPickStickyOffset();
-  if(state.view==='mealAddFood' || state.view==='ingPicker'){ syncMealAddTabsOffset(); syncMealAddSearchOffset(); }
+  syncStickyOffsets();
 });
 // Close an open unit dropdown (the "数量"/nutrition/price unit pickers) on any click outside
 // it - previously only picking an option or re-tapping the trigger closed it, so it stayed
