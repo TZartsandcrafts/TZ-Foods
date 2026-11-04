@@ -1003,7 +1003,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.288';
+var BUILD_VERSION = '9.289';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -7659,6 +7659,9 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.289', items:[
+    {t:'tweak', zh:'食谱导出长图调整：分类、食材名称和用量、做法、备注、营养的字号都调大了，标题也同步放大；去掉了“份数 · 食材数”那一行；营养只保留一张：有每100g的显示每100g，没有每100g且份数不是1显示每份，没有每100g且份数是1显示成品总重的营养。', en:'Recipe export image tweaks: larger text for category, ingredients, steps, notes and nutrition, with the headings scaled up to match; the servings / ingredient count line is removed; only one nutrition label is kept - per 100g if available, otherwise per serving when servings is not 1, otherwise the whole-dish total.'}
+  ]},
   {v:'9.288', items:[
     {t:'new', zh:'食谱详情页标题右侧新增“导出”按钮：点一下把整道食谱（封面、名称、食材、做法、备注、营养）生成一张从上到下的完整长图，预览后点“保存 / 分享”选“存储图像”就能存到相册（也可以存到“文件”）。', en:'New Export button on the right of the recipe page title: one tap creates a single full-length image of the whole recipe (cover, name, ingredients, steps, notes, nutrition). Preview it, then tap Save / Share and choose Save Image to put it in Photos (or save to Files).'}
   ]},
@@ -13681,21 +13684,23 @@ function rxRender(r, coverImg){
   function hline(x1, x2, yy, color, lw){
     ops.push(function(c){ c.strokeStyle = color; c.lineWidth = lw || 1; c.beginPath(); c.moveTo(x1, yy); c.lineTo(x2, yy); c.stroke(); });
   }
+  // README 9.289: 字号整体放大(正文 16→20、做法/备注 15.5→20、营养行 15→19、分类 13→16)，标题跟着放大，保持层级：
+  // 名称34 > 栏目标题26 > 分组名21 > 正文20 > 步骤小标题/营养说明17。
   function section(title){
-    y += 24;
-    box(PAD, y, 5, 22, 2.5, C.accent);
-    text(title, PAD + 15, y + 11, F(19, 700), C.ink);
-    y += 22 + 14;
+    y += 28;
+    box(PAD, y, 6, 30, 3, C.accent);
+    text(title, PAD + 18, y + 15, F(26, 700), C.ink);
+    y += 30 + 16;
   }
   function paragraphCard(headLabel, body){
-    mc.font = F(15.5, 400);
-    var lines = rxWrapLines(mc, body, CW - 32);
-    var top = y, h = 16 + (headLabel ? 24 : 0) + lines.length * 25 + 14;
-    box(PAD, top, CW, h, 12, C.card, C.line, 1);
-    var ty = top + 16;
-    if(headLabel){ text(headLabel, PAD + 16, ty + 9, F(13, 700), C.sub); ty += 24; }
-    lines.forEach(function(ln, i){ text(ln, PAD + 16, ty + 12.5 + i * 25, F(15.5, 400), C.ink); });
-    y = top + h + 12;
+    mc.font = F(20, 400);
+    var lines = rxWrapLines(mc, body, CW - 40);
+    var top = y, h = 20 + (headLabel ? 32 : 0) + lines.length * 32 + 18;
+    box(PAD, top, CW, h, 14, C.card, C.line, 1);
+    var ty = top + 20;
+    if(headLabel){ text(headLabel, PAD + 20, ty + 10, F(17, 700), C.sub); ty += 32; }
+    lines.forEach(function(ln, i){ text(ln, PAD + 20, ty + 16 + i * 32, F(20, 400), C.ink); });
+    y = top + h + 14;
   }
 
   // ---- 封面 ----
@@ -13714,23 +13719,21 @@ function rxRender(r, coverImg){
     })(coverImg, PAD, y, CW, ch);
     y += ch + 20;
   }
-  // ---- 分类 / 名称 / 份数·食材数 ----
+  // ---- 分类 / 名称 ----(README 9.289: 不再画“份数 · 食材数”那一行)
   var cat = (typeof recipeCategoryLabel === 'function') ? recipeCategoryLabel(r) : '';
   if(cat){
-    mc.font = F(13, 600);
-    var pw = Math.ceil(mc.measureText(cat).width) + 22;
-    box(PAD, y, pw, 26, 13, C.pill);
-    text(cat, PAD + 11, y + 13, F(13, 600), C.sub);
-    y += 26 + 10;
+    mc.font = F(16, 600);
+    var pw = Math.ceil(mc.measureText(cat).width) + 28;
+    box(PAD, y, pw, 34, 17, C.pill);
+    text(cat, PAD + 14, y + 17, F(16, 600), C.sub);
+    y += 34 + 12;
   }
-  mc.font = F(28, 700);
+  mc.font = F(34, 700);
   rxWrapLines(mc, r.name, CW).forEach(function(ln){
-    text(ln, PAD, y + 19, F(28, 700), C.ink);
-    y += 38;
+    text(ln, PAD, y + 23, F(34, 700), C.ink);
+    y += 46;
   });
-  y += 10;
-  text(r.servings + ' ' + t('fieldServings') + ' · ' + recipeIngredientCount(r) + ' ' + t('sectionIngredients'), PAD, y + 10, F(15, 400), C.sub);
-  y += 20;
+  y += 4;
 
   // ---- 食材 ----
   section(t('sectionIngredients'));
@@ -13740,23 +13743,23 @@ function rxRender(r, coverImg){
     if(ri.type === 'group'){
       var gn = (ri.name || '').trim();
       if(!gn) return;
-      y += 8;
-      text(gn, PAD + 4, y + 12, F(16, 700), C.green);
-      y += 30;
+      y += 10;
+      text(gn, PAD + 4, y + 14, F(21, 700), C.green);
+      y += 38;
       return;
     }
     anyIng = true;
     var name = recipeIngredientDisplayName(ri);
     var amt = ri.source_type === 'custom' ? recipeCustomAmtText(ri) : (fmtAmountOf(ri) + ' ' + recipeUnitLabel(ri.unit));
-    mc.font = F(16, 400);
+    mc.font = F(20, 400);
     var amtW = mc.measureText(amt).width;
-    var lines = rxWrapLines(mc, name, CW - 8 - amtW - 16);
+    var lines = rxWrapLines(mc, name, CW - 8 - amtW - 18);
     if(!lines.length) lines = [''];
-    lines.forEach(function(ln, i){ text(ln, PAD + 4, y + 12 + i * 24, F(16, 400), C.ink); });
-    text(amt, PAD + CW - 4, y + 12, F(16, 400), C.sub, 'right');
+    lines.forEach(function(ln, i){ text(ln, PAD + 4, y + 15 + i * 30, F(20, 400), C.ink); });
+    text(amt, PAD + CW - 4, y + 15, F(20, 400), C.sub, 'right');
     if(lines.length === 1){
-      mc.font = F(16, 400);
-      var x1 = PAD + 4 + mc.measureText(lines[0]).width + 8, x2 = PAD + CW - 4 - amtW - 8, yy = y + 18;
+      mc.font = F(20, 400);
+      var x1 = PAD + 4 + mc.measureText(lines[0]).width + 8, x2 = PAD + CW - 4 - amtW - 8, yy = y + 23;
       if(x2 > x1 + 6){
         ops.push(function(c){
           c.fillStyle = '#D9C7A8';
@@ -13764,9 +13767,9 @@ function rxRender(r, coverImg){
         });
       }
     }
-    y += lines.length * 24 + 10;
+    y += lines.length * 30 + 12;
   });
-  if(!anyIng){ text(t('noIngredientsYet'), PAD + 4, y + 12, F(15, 400), C.mute); y += 30; }
+  if(!anyIng){ text(t('noIngredientsYet'), PAD + 4, y + 15, F(18, 400), C.mute); y += 36; }
 
   // ---- 做法 ----
   var steps = (r.steps && r.steps.length) ? r.steps : (r.instructions ? [r.instructions] : []);
@@ -13795,39 +13798,45 @@ function rxRender(r, coverImg){
       if(extra[k] && extra[k].value != null) rows.push({label: t(defs[k].labelKey), val: fmtNum(extra[k].value, 1) + extra[k].unit, level: 0, bold: false});
     });
     var calVal = (n.calories == null) ? '-' : fmtNum(n.calories, 0);
-    var top = y, IN = 16, rowH = 28;
-    var h = 14 + 22 + 6 + 6 + 52 + 6 + rows.length * rowH + 12;
-    box(PAD, top, CW, h, 12, C.card, C.ink, 2.5);
-    var ty = top + 14;
-    text(basisText, PAD + IN, ty + 11, F(14, 400), C.sub);
-    ty += 22 + 6;
-    ops.push((function(yy){ return function(c){ c.fillStyle = C.ink; c.fillRect(PAD + IN, yy, CW - IN * 2, 6); }; })(ty));
-    ty += 6;
-    text(t('nutriCalories'), PAD + IN, ty + 26, F(19, 700), C.ink);
-    text('kcal', PAD + CW - IN, ty + 32, F(15, 400), C.ink, 'right');
-    mc.font = F(15, 400);
+    var top = y, IN = 20, rowH = 36;
+    var h = 18 + 26 + 8 + 8 + 70 + 8 + rows.length * rowH + 14;
+    box(PAD, top, CW, h, 14, C.card, C.ink, 3);
+    var ty = top + 18;
+    text(basisText, PAD + IN, ty + 13, F(17, 400), C.sub);
+    ty += 26 + 8;
+    ops.push((function(yy){ return function(c){ c.fillStyle = C.ink; c.fillRect(PAD + IN, yy, CW - IN * 2, 8); }; })(ty));
+    ty += 8;
+    text(t('nutriCalories'), PAD + IN, ty + 36, F(24, 700), C.ink);
+    text('kcal', PAD + CW - IN, ty + 44, F(20, 400), C.ink, 'right');
+    mc.font = F(20, 400);
     var kw = mc.measureText('kcal').width;
-    text(calVal, PAD + CW - IN - kw - 6, ty + 26, F(38, 700), C.ink, 'right');
-    ty += 52;
-    ops.push((function(yy){ return function(c){ c.fillStyle = C.ink; c.fillRect(PAD + IN, yy, CW - IN * 2, 6); }; })(ty));
-    ty += 6;
+    text(calVal, PAD + CW - IN - kw - 8, ty + 36, F(48, 700), C.ink, 'right');
+    ty += 70;
+    ops.push((function(yy){ return function(c){ c.fillStyle = C.ink; c.fillRect(PAD + IN, yy, CW - IN * 2, 8); }; })(ty));
+    ty += 8;
     rows.forEach(function(row, i){
-      var indent = row.level * 18;
-      text(row.label, PAD + IN + indent, ty + rowH / 2, F(15, row.bold ? 700 : 400), C.ink);
-      text(row.val, PAD + CW - IN, ty + rowH / 2, F(15, row.bold ? 700 : 400), C.ink, 'right');
+      var indent = row.level * 22;
+      text(row.label, PAD + IN + indent, ty + rowH / 2, F(19, row.bold ? 700 : 400), C.ink);
+      text(row.val, PAD + CW - IN, ty + rowH / 2, F(19, row.bold ? 700 : 400), C.ink, 'right');
       if(i < rows.length - 1) hline(PAD + IN, PAD + CW - IN, ty + rowH, C.line, 1);
       ty += rowH;
     });
-    y = top + h + 14;
+    y = top + h + 16;
   }
-  nutritionBox(nutri.total, r.cooked_weight ? (t('recipeTotalWeightShortLabel') + ' ' + fmtNum(r.cooked_weight, 0) + 'g') : t('perTotal'), nutri.extraTotal);
-  if(nutri.per100g) nutritionBox(nutri.per100g, t('per100g'), nutri.extraPer100g);
-  nutritionBox(nutri.perServing, t('perServing'), nutri.extraPerServing);
+  // README 9.289: 只导出一张营养标签——有每100g(成品)的用每100g；没有的话，份数不是1用每份；份数是1就用成品总重(整道菜)的营养。
+  var servingsNum = Number(r.servings) || 1;
+  if(nutri.per100g){
+    nutritionBox(nutri.per100g, t('per100g'), nutri.extraPer100g);
+  } else if(servingsNum !== 1){
+    nutritionBox(nutri.perServing, t('perServing'), nutri.extraPerServing);
+  } else {
+    nutritionBox(nutri.total, r.cooked_weight ? (t('recipeTotalWeightShortLabel') + ' ' + fmtNum(r.cooked_weight, 0) + 'g') : t('perTotal'), nutri.extraTotal);
+  }
 
   // ---- 页脚 ----
-  y += 6;
-  text('食法典 FoodCode · ' + nowLocalIso().slice(0, 10), W / 2, y + 8, F(12, 400), C.mute, 'center');
-  y += 16 + PAD;
+  y += 4;
+  text('食法典 FoodCode · ' + nowLocalIso().slice(0, 10), W / 2, y + 9, F(14, 400), C.mute, 'center');
+  y += 18 + PAD;
 
   // ---- 画 ----
   var H = Math.ceil(y);
