@@ -866,6 +866,14 @@
   .recipe-card .rname{ font-size:16px; font-weight:500; color:var(--cocoa); white-space:normal; word-break:break-word; line-height:1.35; }
   .recipe-card .rmeta{ font-size:13px; color:var(--deep-caramel); margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .recipe-card .rcal{ font-size:13px; color:var(--almond); font-weight:500; margin-top:6px; }
+/* README 9.288: 食谱导出预览(整页浮层) */
+.rx-wrap{ position:fixed; inset:0; z-index:60; background:var(--cream); display:flex; flex-direction:column; }
+.rx-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding:calc(14px + var(--safe-top)) 14px 10px; border-bottom:1px solid var(--line); }
+.rx-title{ font-size:19px; font-weight:600; color:var(--cocoa); }
+.rx-body{ flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; padding:14px; }
+.rx-img{ display:block; width:100%; height:auto; border-radius:12px; box-shadow:var(--shadow); background:#fff; -webkit-touch-callout:default; -webkit-user-select:auto; user-select:auto; }
+.rx-hint{ font-size:12.5px; color:#B79B78; text-align:center; margin:12px 0 4px; }
+.rx-foot{ padding:12px 14px calc(12px + var(--safe-bottom)); border-top:1px solid var(--line); background:var(--cream); }
 /* README 9.285: 食谱页顶部“今日供应”海报 */
 .supply-poster{ position:relative; margin:4px 0 14px; padding:12px 12px 10px; border-radius:16px; background:var(--almond-bg); border:2px solid var(--almond); box-shadow:var(--shadow); }
 .supply-poster::before{ content:''; position:absolute; inset:4px; border:1px dashed var(--almond); border-radius:12px; opacity:.55; pointer-events:none; }
@@ -995,7 +1003,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.287';
+var BUILD_VERSION = '9.288';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2667,7 +2675,7 @@ var I18N = {
     usdaDetailBasis:'每100g', usdaDetailMissingHint:'本地缓存里没有找到这条食品的营养数据（可能是缓存被清掉了），重新在USDA里搜一次这个食品即可再次查看。', usdaDetailFallbackTitle:'USDA 食品详情',
     // recipe detail
     cookThis:'完成', cookConfirmTitle:'确认扣减库存',
-    recipeSupplyBtn:'供应', recipeSupplyCancelBtn:'取消供应', recipeSupplyTitle:'今日供应', recipeSupplyChooseTitle:'供应哪一餐？', recipeSupplyLunchTag:'午', recipeSupplyDinnerTag:'晚', recipeSupplyAddedToast:'已加入今日供应', recipeSupplyCancelledToast:'已取消今日供应', recipeSupplySettingTitle:'今日供应海报', recipeSupplySettingLabel:'在食谱页顶部显示海报', recipeSupplySettingHint:'在食谱详情页点“供应”并选择午餐或晚餐，这道菜就会只在当天出现在海报里（过了24点自动回到原列表）。搜索或按分类筛选时不显示海报，供应中的食谱会照常出现在列表里。', recipeOrderBtn:'点餐', recipeOrderCancelBtn:'取消点餐', recipeOrderedTag:'点餐中', recipePlanTag:'计划中', recipePlanNoOrderToast:'“计划中”的食谱不支持点餐', recipeMakingTag:'制作中', recipeMakingNoOrderToast:'“制作中”的食谱不支持点餐', recipeOrderedToast:'已点餐，已排到列表最前', recipeOrderCancelledToast:'已取消点餐',
+    recipeExportTitle:'导出食谱', recipeExportBtnTitle:'导出为图片', recipeExportGenerating:'正在生成图片…', recipeExportFailed:'生成图片失败，请重试', recipeExportSave:'保存 / 分享', recipeExportHint:'点“保存 / 分享”选择“存储图像”即可存到相册；也可以长按图片保存。', recipeExportDownloaded:'已下载，请在“文件”里查看', recipeSupplyBtn:'供应', recipeSupplyCancelBtn:'取消供应', recipeSupplyTitle:'今日供应', recipeSupplyChooseTitle:'供应哪一餐？', recipeSupplyLunchTag:'午', recipeSupplyDinnerTag:'晚', recipeSupplyAddedToast:'已加入今日供应', recipeSupplyCancelledToast:'已取消今日供应', recipeSupplySettingTitle:'今日供应海报', recipeSupplySettingLabel:'在食谱页顶部显示海报', recipeSupplySettingHint:'在食谱详情页点“供应”并选择午餐或晚餐，这道菜就会只在当天出现在海报里（过了24点自动回到原列表）。搜索或按分类筛选时不显示海报，供应中的食谱会照常出现在列表里。', recipeOrderBtn:'点餐', recipeOrderCancelBtn:'取消点餐', recipeOrderedTag:'点餐中', recipePlanTag:'计划中', recipePlanNoOrderToast:'“计划中”的食谱不支持点餐', recipeMakingTag:'制作中', recipeMakingNoOrderToast:'“制作中”的食谱不支持点餐', recipeOrderedToast:'已点餐，已排到列表最前', recipeOrderCancelledToast:'已取消点餐',
     recipeCookHistoryTitle:'制作记录', recipeNeverCooked:'还没有制作记录', recipeCookedTimes:'共制作 {n} 次',
     nutriToggleExpand:'展开每100g成品 / 每份', nutriToggleCollapse:'收起',
     cookConfirmHint:'以下食材将按用量从库存扣减，确认无误后点击确认。',
@@ -3034,7 +3042,7 @@ var I18N = {
     usdaDataTypeFoundation:'USDA Lab-Tested', usdaDataTypeSRLegacy:'USDA Data', usdaDataTypeBranded:'Branded',
     usdaDetailBasis:'Per 100g', usdaDetailMissingHint:'This food\\u2019s nutrition data isn\\u2019t in the local cache (it may have been cleared) \\u2014 search for it again on USDA to view it here.', usdaDetailFallbackTitle:'USDA food details',
     cookThis:"Done", cookConfirmTitle:'Confirm inventory deduction',
-    recipeSupplyBtn:'Serve', recipeSupplyCancelBtn:'Unserve', recipeSupplyTitle:"Today's Menu", recipeSupplyChooseTitle:'Serve at which meal?', recipeSupplyLunchTag:'L', recipeSupplyDinnerTag:'D', recipeSupplyAddedToast:"Added to today's menu", recipeSupplyCancelledToast:"Removed from today's menu", recipeSupplySettingTitle:"Today's Menu poster", recipeSupplySettingLabel:'Show the poster at the top of Recipes', recipeSupplySettingHint:'Tap "Serve" on a recipe\'s page and pick lunch or dinner: it shows on the poster for that day only and returns to the normal list after midnight. The poster is hidden while searching or filtering by category, and served recipes then appear in the list as usual.', recipeOrderBtn:'Order this', recipeOrderCancelBtn:'Cancel order', recipeOrderedTag:'Ordered', recipePlanTag:'Planned', recipePlanNoOrderToast:'Planned recipes cannot be ordered', recipeMakingTag:'Making', recipeMakingNoOrderToast:'Recipes marked Making cannot be ordered', recipeOrderedToast:'Ordered - moved to the top of the list', recipeOrderCancelledToast:'Order cancelled',
+    recipeExportTitle:'Export recipe', recipeExportBtnTitle:'Export as image', recipeExportGenerating:'Creating image…', recipeExportFailed:'Could not create the image, please try again', recipeExportSave:'Save / Share', recipeExportHint:'Tap Save / Share and choose Save Image to put it in Photos; you can also long-press the image.', recipeExportDownloaded:'Downloaded - check the Files app', recipeSupplyBtn:'Serve', recipeSupplyCancelBtn:'Unserve', recipeSupplyTitle:"Today's Menu", recipeSupplyChooseTitle:'Serve at which meal?', recipeSupplyLunchTag:'L', recipeSupplyDinnerTag:'D', recipeSupplyAddedToast:"Added to today's menu", recipeSupplyCancelledToast:"Removed from today's menu", recipeSupplySettingTitle:"Today's Menu poster", recipeSupplySettingLabel:'Show the poster at the top of Recipes', recipeSupplySettingHint:'Tap "Serve" on a recipe\'s page and pick lunch or dinner: it shows on the poster for that day only and returns to the normal list after midnight. The poster is hidden while searching or filtering by category, and served recipes then appear in the list as usual.', recipeOrderBtn:'Order this', recipeOrderCancelBtn:'Cancel order', recipeOrderedTag:'Ordered', recipePlanTag:'Planned', recipePlanNoOrderToast:'Planned recipes cannot be ordered', recipeMakingTag:'Making', recipeMakingNoOrderToast:'Recipes marked Making cannot be ordered', recipeOrderedToast:'Ordered - moved to the top of the list', recipeOrderCancelledToast:'Order cancelled',
     recipeCookHistoryTitle:'Cooking History', recipeNeverCooked:'Not made yet', recipeCookedTimes:'Made {n} times',
     nutriToggleExpand:'Show per 100g cooked / per serving', nutriToggleCollapse:'Hide',
     cookConfirmHint:'These items will be deducted from inventory based on the amount used. Confirm to proceed.',
@@ -5375,6 +5383,7 @@ function calcRecipeNutrition(recipe, visited){
 
 /* ======================= ICONS (hand-built inline SVG, no external deps) ======================= */
 var ICONS = {
+  download:'<path d="M12 4v11"/><polyline points="7 10 12 15 17 10"/><path d="M5 20h14"/>',
   search:'<circle cx="10" cy="10" r="6"/><line x1="20" y1="20" x2="14.5" y2="14.5"/>',
   back:'<polyline points="15 5 8 12 15 19"/>',
   chevronRight:'<polyline points="9 5 16 12 9 19"/>',
@@ -7650,6 +7659,9 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.288', items:[
+    {t:'new', zh:'食谱详情页标题右侧新增“导出”按钮：点一下把整道食谱（封面、名称、食材、做法、备注、营养）生成一张从上到下的完整长图，预览后点“保存 / 分享”选“存储图像”就能存到相册（也可以存到“文件”）。', en:'New Export button on the right of the recipe page title: one tap creates a single full-length image of the whole recipe (cover, name, ingredients, steps, notes, nutrition). Preview it, then tap Save / Share and choose Save Image to put it in Photos (or save to Files).'}
+  ]},
   {v:'9.287', items:[
     {t:'fix', zh:'带搜索框的页面向上滚动时，搜索框统一吸顶：新增了存档、统计、价格历史、搜索添加这几个页面；修复了“添加食材”页（食谱/套餐）和运动选择页的搜索框吸顶位置不对。', en:'On pages with a search box, the box now stays pinned at the top while you scroll: added to Archive, Stats, Price History and Search-to-add; fixed the pin position on the Add Ingredient page (recipes / meal sets) and the exercise picker.'},
     {t:'fix', zh:'新建或编辑食谱时，页面现在每次都停在顶部（以前会随上一次编辑时滚到的位置，有时在顶部、有时在底部）。从“添加食材”页选完回来，仍然回到离开时的位置。', en:'The recipe editor now always opens at the top (it used to reuse where the last edit was scrolled to). Coming back from the Add Ingredient page still returns you to where you left.'},
@@ -13579,6 +13591,322 @@ function deleteRecipeFromForm(){
   }, {title:t('delete')});
 }
 
+/* ======================= RECIPE EXPORT (README 9.288) =======================
+   把一道食谱画成一张“食谱卡片”长图：封面、名称/分类/份数、食材(按分组，名称……用量)、做法(每步一张卡)、备注、营养(总计/每100g/每份)。
+   不是对网页截图——网页转图片要么得引入外部库(App是单文件、要能离线)，要么用foreignObject，后者在iPhone的Safari上
+   对本地图片/字体经常出问题；直接用canvas按同样的内容重新排版最稳，而且长图的高度可以按内容算出来，天然是“从上到下全部”。
+   制作记录(日历)不导出。导出图固定用浅色配色，不受App深色模式影响。 */
+var _recipeExport = null;      // {blob, url, filename, name}：当前预览的这张图
+var _recipeExportBusy = false;
+// 按宽度换行：英文/数字按“词”整体换，中文/emoji逐字换；句号逗号等不放在行首；超长的英文串会被硬拆。ctx.font要先设好。
+function rxWrapLines(ctx, text, maxW){
+  var lines = [];
+  String(text == null ? '' : text).split('\n').forEach(function(par){
+    if(par === ''){ lines.push(''); return; }
+    var tokens = par.match(/[A-Za-z0-9\u00C0-\u024F'’.,;:!?%\/()+&-]+|\s+|[\s\S]/gu) || [par];
+    var line = '', w = 0;
+    tokens.forEach(function(tk){
+      var isSpace = !tk.trim();
+      if(isSpace && !line) return;
+      var tw = ctx.measureText(tk).width;
+      var noBreakBefore = /^[，。、；：！？）】》”’,.;:!?)\]]/.test(tk);
+      if(line && !isSpace && !noBreakBefore && w + tw > maxW){
+        lines.push(line.replace(/\s+$/, ''));
+        line = ''; w = 0;
+      }
+      if(tw > maxW){
+        Array.from(tk).forEach(function(ch){
+          var cw = ctx.measureText(ch).width;
+          if(line && w + cw > maxW){ lines.push(line); line = ''; w = 0; }
+          line += ch; w += cw;
+        });
+      } else {
+        line += tk; w += tw;
+      }
+    });
+    if(line) lines.push(line.replace(/\s+$/, ''));
+  });
+  return lines;
+}
+function rxRoundPath(c, x, y, w, h, r){
+  r = Math.min(r, w/2, h/2);
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.lineTo(x + w - r, y); c.arcTo(x + w, y, x + w, y + r, r);
+  c.lineTo(x + w, y + h - r); c.arcTo(x + w, y + h, x + w - r, y + h, r);
+  c.lineTo(x + r, y + h); c.arcTo(x, y + h, x, y + h - r, r);
+  c.lineTo(x, y + r); c.arcTo(x, y, x + r, y, r);
+  c.closePath();
+}
+// 把封面图读成<img>：本机图在IndexedDB里(photo:xxx)，远程图要crossOrigin才不会弄脏画布；读不到就不画封面，不影响其它内容。
+function rxLoadImage(ref){
+  return new Promise(function(resolve){
+    if(!ref) return resolve(null);
+    var src;
+    if(PHOTO_IDB.isRef(ref)){
+      var id = ref.slice(6);
+      src = photoCache[id] ? Promise.resolve(photoCache[id]) : PHOTO_IDB.get(id);
+    } else {
+      src = Promise.resolve(ref);
+    }
+    src.then(function(url){
+      if(!url) return resolve(null);
+      var im = new Image();
+      if(!/^data:/.test(url)) im.crossOrigin = 'anonymous';
+      im.onload = function(){ resolve(im); };
+      im.onerror = function(){ resolve(null); };
+      im.src = url;
+    }).catch(function(){ resolve(null); });
+  });
+}
+// 排版分两遍：先用测量画布算出每一块的位置和总高度(得到ops列表)，再按总高度建画布、把ops依次画上去。
+function rxRender(r, coverImg){
+  var W = 600, PAD = 24, CW = W - PAD * 2;
+  var C = {bg:'#F5EBDD', ink:'#4A2E1E', sub:'#8B5A2B', accent:'#C08552', line:'#E3D2B4', card:'#FFFFFF', green:'#6B7A3D', mute:'#9C8A78', pill:'#F3E3D1'};
+  var FONT = '-apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif';
+  function F(size, weight){ return (weight || 400) + ' ' + size + 'px ' + FONT; }
+  var mc = document.createElement('canvas').getContext('2d');
+  var ops = [];
+  var y = PAD;
+  function text(str, x, yy, font, color, align){
+    ops.push(function(c){ c.font = font; c.fillStyle = color; c.textAlign = align || 'left'; c.textBaseline = 'middle'; c.fillText(str, x, yy); });
+  }
+  function box(x, yy, w, h, rad, fill, stroke, lw){
+    ops.push(function(c){
+      rxRoundPath(c, x, yy, w, h, rad);
+      if(fill){ c.fillStyle = fill; c.fill(); }
+      if(stroke){ c.strokeStyle = stroke; c.lineWidth = lw || 1; c.stroke(); }
+    });
+  }
+  function hline(x1, x2, yy, color, lw){
+    ops.push(function(c){ c.strokeStyle = color; c.lineWidth = lw || 1; c.beginPath(); c.moveTo(x1, yy); c.lineTo(x2, yy); c.stroke(); });
+  }
+  function section(title){
+    y += 24;
+    box(PAD, y, 5, 22, 2.5, C.accent);
+    text(title, PAD + 15, y + 11, F(19, 700), C.ink);
+    y += 22 + 14;
+  }
+  function paragraphCard(headLabel, body){
+    mc.font = F(15.5, 400);
+    var lines = rxWrapLines(mc, body, CW - 32);
+    var top = y, h = 16 + (headLabel ? 24 : 0) + lines.length * 25 + 14;
+    box(PAD, top, CW, h, 12, C.card, C.line, 1);
+    var ty = top + 16;
+    if(headLabel){ text(headLabel, PAD + 16, ty + 9, F(13, 700), C.sub); ty += 24; }
+    lines.forEach(function(ln, i){ text(ln, PAD + 16, ty + 12.5 + i * 25, F(15.5, 400), C.ink); });
+    y = top + h + 12;
+  }
+
+  // ---- 封面 ----
+  if(coverImg){
+    var ch = Math.round(CW * 0.72);
+    (function(img, x, yy, w, h){
+      ops.push(function(c){
+        c.save(); rxRoundPath(c, x, yy, w, h, 16); c.clip();
+        var ir = img.width / img.height, tr = w / h, sx, sy, sw, sh;
+        if(ir > tr){ sh = img.height; sw = sh * tr; sx = (img.width - sw) / 2; sy = 0; }
+        else { sw = img.width; sh = sw / tr; sx = 0; sy = (img.height - sh) / 2; }
+        c.drawImage(img, sx, sy, sw, sh, x, yy, w, h);
+        c.restore();
+        rxRoundPath(c, x, yy, w, h, 16); c.strokeStyle = C.line; c.lineWidth = 1; c.stroke();
+      });
+    })(coverImg, PAD, y, CW, ch);
+    y += ch + 20;
+  }
+  // ---- 分类 / 名称 / 份数·食材数 ----
+  var cat = (typeof recipeCategoryLabel === 'function') ? recipeCategoryLabel(r) : '';
+  if(cat){
+    mc.font = F(13, 600);
+    var pw = Math.ceil(mc.measureText(cat).width) + 22;
+    box(PAD, y, pw, 26, 13, C.pill);
+    text(cat, PAD + 11, y + 13, F(13, 600), C.sub);
+    y += 26 + 10;
+  }
+  mc.font = F(28, 700);
+  rxWrapLines(mc, r.name, CW).forEach(function(ln){
+    text(ln, PAD, y + 19, F(28, 700), C.ink);
+    y += 38;
+  });
+  y += 10;
+  text(r.servings + ' ' + t('fieldServings') + ' · ' + recipeIngredientCount(r) + ' ' + t('sectionIngredients'), PAD, y + 10, F(15, 400), C.sub);
+  y += 20;
+
+  // ---- 食材 ----
+  section(t('sectionIngredients'));
+  var ings = r.ingredients || [];
+  var anyIng = false;
+  ings.forEach(function(ri){
+    if(ri.type === 'group'){
+      var gn = (ri.name || '').trim();
+      if(!gn) return;
+      y += 8;
+      text(gn, PAD + 4, y + 12, F(16, 700), C.green);
+      y += 30;
+      return;
+    }
+    anyIng = true;
+    var name = recipeIngredientDisplayName(ri);
+    var amt = ri.source_type === 'custom' ? recipeCustomAmtText(ri) : (fmtAmountOf(ri) + ' ' + recipeUnitLabel(ri.unit));
+    mc.font = F(16, 400);
+    var amtW = mc.measureText(amt).width;
+    var lines = rxWrapLines(mc, name, CW - 8 - amtW - 16);
+    if(!lines.length) lines = [''];
+    lines.forEach(function(ln, i){ text(ln, PAD + 4, y + 12 + i * 24, F(16, 400), C.ink); });
+    text(amt, PAD + CW - 4, y + 12, F(16, 400), C.sub, 'right');
+    if(lines.length === 1){
+      mc.font = F(16, 400);
+      var x1 = PAD + 4 + mc.measureText(lines[0]).width + 8, x2 = PAD + CW - 4 - amtW - 8, yy = y + 18;
+      if(x2 > x1 + 6){
+        ops.push(function(c){
+          c.fillStyle = '#D9C7A8';
+          for(var dx = x1; dx < x2; dx += 5){ c.beginPath(); c.arc(dx, yy, 1, 0, Math.PI * 2); c.fill(); }
+        });
+      }
+    }
+    y += lines.length * 24 + 10;
+  });
+  if(!anyIng){ text(t('noIngredientsYet'), PAD + 4, y + 12, F(15, 400), C.mute); y += 30; }
+
+  // ---- 做法 ----
+  var steps = (r.steps && r.steps.length) ? r.steps : (r.instructions ? [r.instructions] : []);
+  steps = steps.filter(function(st){ return st && st.trim(); });
+  if(steps.length){
+    section(t('fieldInstructions'));
+    steps.forEach(function(st, idx){ paragraphCard(t('stepLabel') + ' ' + (idx + 1), st); });
+  }
+  // ---- 备注 ----
+  if(r.notes && r.notes.trim()){
+    section(t('fieldNotes'));
+    paragraphCard('', r.notes);
+  }
+  // ---- 营养 ----
+  var nutri = calcRecipeNutrition(r);
+  section(t('nutritionSummary'));
+  var labels = nutriLabels(), units = nutriUnits(), defs = nutriExtraDefs();
+  function nutritionBox(n, basisText, extra){
+    n = n || emptyNutrition();
+    var rows = NUTRI_TIER1_ROWS.filter(function(row){ return !row.optional || n[row.key] != null; }).map(function(row){
+      var v = n[row.key];
+      return {label: labels[row.key], val: (v == null) ? '-' : (fmtNum(v, 1) + units[row.key]), level: row.level || 0, bold: !!row.bold};
+    });
+    extra = extra || {};
+    NUTRI_EXTRA_CORE_KEYS.concat(NUTRI_EXTRA_OPTIONAL_KEYS).forEach(function(k){
+      if(extra[k] && extra[k].value != null) rows.push({label: t(defs[k].labelKey), val: fmtNum(extra[k].value, 1) + extra[k].unit, level: 0, bold: false});
+    });
+    var calVal = (n.calories == null) ? '-' : fmtNum(n.calories, 0);
+    var top = y, IN = 16, rowH = 28;
+    var h = 14 + 22 + 6 + 6 + 52 + 6 + rows.length * rowH + 12;
+    box(PAD, top, CW, h, 12, C.card, C.ink, 2.5);
+    var ty = top + 14;
+    text(basisText, PAD + IN, ty + 11, F(14, 400), C.sub);
+    ty += 22 + 6;
+    ops.push((function(yy){ return function(c){ c.fillStyle = C.ink; c.fillRect(PAD + IN, yy, CW - IN * 2, 6); }; })(ty));
+    ty += 6;
+    text(t('nutriCalories'), PAD + IN, ty + 26, F(19, 700), C.ink);
+    text('kcal', PAD + CW - IN, ty + 32, F(15, 400), C.ink, 'right');
+    mc.font = F(15, 400);
+    var kw = mc.measureText('kcal').width;
+    text(calVal, PAD + CW - IN - kw - 6, ty + 26, F(38, 700), C.ink, 'right');
+    ty += 52;
+    ops.push((function(yy){ return function(c){ c.fillStyle = C.ink; c.fillRect(PAD + IN, yy, CW - IN * 2, 6); }; })(ty));
+    ty += 6;
+    rows.forEach(function(row, i){
+      var indent = row.level * 18;
+      text(row.label, PAD + IN + indent, ty + rowH / 2, F(15, row.bold ? 700 : 400), C.ink);
+      text(row.val, PAD + CW - IN, ty + rowH / 2, F(15, row.bold ? 700 : 400), C.ink, 'right');
+      if(i < rows.length - 1) hline(PAD + IN, PAD + CW - IN, ty + rowH, C.line, 1);
+      ty += rowH;
+    });
+    y = top + h + 14;
+  }
+  nutritionBox(nutri.total, r.cooked_weight ? (t('recipeTotalWeightShortLabel') + ' ' + fmtNum(r.cooked_weight, 0) + 'g') : t('perTotal'), nutri.extraTotal);
+  if(nutri.per100g) nutritionBox(nutri.per100g, t('per100g'), nutri.extraPer100g);
+  nutritionBox(nutri.perServing, t('perServing'), nutri.extraPerServing);
+
+  // ---- 页脚 ----
+  y += 6;
+  text('食法典 FoodCode · ' + nowLocalIso().slice(0, 10), W / 2, y + 8, F(12, 400), C.mute, 'center');
+  y += 16 + PAD;
+
+  // ---- 画 ----
+  var H = Math.ceil(y);
+  var scale = 2, MAXPX = 16000000; // iOS Safari画布面积上限约16.7M像素，留点余量；特别长的食谱自动降低清晰度
+  if(W * scale * H * scale > MAXPX) scale = Math.max(1, Math.sqrt(MAXPX / (W * H)));
+  var cv = document.createElement('canvas');
+  cv.width = Math.floor(W * scale); cv.height = Math.floor(H * scale);
+  var c = cv.getContext('2d');
+  c.scale(cv.width / W, cv.height / H);
+  c.fillStyle = C.bg; c.fillRect(0, 0, W, H);
+  ops.forEach(function(op){ op(c); });
+  return new Promise(function(resolve, reject){
+    if(cv.toBlob){
+      cv.toBlob(function(b){ b ? resolve(b) : reject(new Error('toBlob failed')); }, 'image/jpeg', 0.92);
+    } else {
+      try{
+        var bin = atob(cv.toDataURL('image/jpeg', 0.92).split(',')[1]), arr = new Uint8Array(bin.length);
+        for(var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        resolve(new Blob([arr], {type:'image/jpeg'}));
+      }catch(e){ reject(e); }
+    }
+  });
+}
+function exportRecipeImage(id){
+  var r = state.recipes.find(function(x){ return x.id === id; });
+  if(!r || _recipeExportBusy) return;
+  _recipeExportBusy = true;
+  showToast(t('recipeExportGenerating'));
+  rxLoadImage(r.photo_url).then(function(img){ return rxRender(r, img); }).then(function(blob){
+    _recipeExportBusy = false;
+    showRecipeExportPreview(r, blob);
+  }).catch(function(e){
+    _recipeExportBusy = false;
+    showToast(t('recipeExportFailed'));
+  });
+}
+// 先预览、再点“保存/分享”：iOS要求navigator.share必须在点击的那一下里直接调用，生成图片是异步的，生成完再调share会被拒；
+// 所以分两步——第一下点导出生成，第二下点“保存/分享”才弹系统分享面板(里面有“存储图像”进相册、“存储到文件”)。
+// 预览图本身也可以长按直接存到相册。
+function showRecipeExportPreview(r, blob){
+  if(_recipeExport && _recipeExport.url) URL.revokeObjectURL(_recipeExport.url);
+  var safeName = String(r.name || 'recipe').replace(/[\\\/:*?"<>|\s]+/g, '_').slice(0, 40) || 'recipe';
+  _recipeExport = {blob: blob, url: URL.createObjectURL(blob), filename: safeName + '.jpg', name: r.name};
+  var root = document.getElementById('modal-root');
+  if(!_modalScrollLocked) lockBodyScrollForModal();
+  root.innerHTML = '<div class="rx-wrap">'+
+    '<div class="rx-head"><div class="rx-title">'+esc(t('recipeExportTitle'))+'</div>'+
+      '<button class="icon-btn" onclick="closeRecipeExport()">'+ic('x',18)+'</button></div>'+
+    '<div class="rx-body"><img class="rx-img" src="'+_recipeExport.url+'" alt="">'+
+      '<p class="rx-hint">'+esc(t('recipeExportHint'))+'</p></div>'+
+    '<div class="rx-foot"><button class="btn btn-primary" style="width:100%;" onclick="saveRecipeExport()">'+esc(t('recipeExportSave'))+'</button></div>'+
+  '</div>';
+}
+function closeRecipeExport(){
+  closeModal();
+  if(_recipeExport && _recipeExport.url){ URL.revokeObjectURL(_recipeExport.url); }
+  _recipeExport = null;
+}
+function saveRecipeExport(){
+  var ex = _recipeExport;
+  if(!ex) return;
+  var file = null;
+  try{ file = new File([ex.blob], ex.filename, {type:'image/jpeg'}); }catch(e){}
+  if(file && navigator.share && navigator.canShare && navigator.canShare({files:[file]})){
+    navigator.share({files:[file], title:ex.name}).catch(function(err){
+      if(err && err.name === 'AbortError') return; // 用户自己关掉了分享面板
+      rxDownload(ex);
+    });
+  } else {
+    rxDownload(ex);
+  }
+}
+function rxDownload(ex){
+  var a = document.createElement('a');
+  a.href = ex.url; a.download = ex.filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  showToast(t('recipeExportDownloaded'));
+}
+
 /* ======================= RECIPE DETAIL ======================= */
 // One Nutrition-Facts-style box (same look as an inventory item's label - nutritionFactsBoxHtml)
 // for a recipe's computed nutrition, since recipes have up to three different totals (whole
@@ -13785,6 +14113,8 @@ function renderRecipeDetail(){
   '<div class="page-header">'+
     '<button class="back-btn" onclick="navigate('+aj(backTo.view)+','+aj(backTo.params||{})+')">'+ic('back',22)+'</button>'+
     '<h1>'+esc(r.name)+'</h1>'+
+    // README 9.288: 导出为长图
+    '<button class="icon-btn" onclick="exportRecipeImage('+aj(r.id)+')" aria-label="'+esc(t('recipeExportBtnTitle'))+'" title="'+esc(t('recipeExportBtnTitle'))+'">'+ic('download',20)+'</button>'+
   '</div>'+
   '<div class="content">'+
     // README 9.142: hero layout now matches itemDetail's upper section (renderItemDetail) -
