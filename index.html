@@ -939,6 +939,11 @@
      外层(overflow:hidden 会把内层自带的圆角边框裁掉一截)，内层去掉自己的边框/阴影/圆角。 */
   .ing-swipe{ border:1px solid var(--line); border-radius:11px; margin-bottom:9px; background:var(--card-bg); }
   .ing-swipe .item-card.ing-row{ flex-direction:row; align-items:center; gap:10px; border:none; border-radius:0; box-shadow:none; padding:12px 14px; margin-bottom:0; }
+  /* README 9.290: 左划删除的通用“列表行”——外观跟原来的 .list-row 一样(带边框的白色圆角行)，只是多了左划出现删除键的行为；
+     套餐模板/三餐加餐套餐明细/已记录套餐子食材/体重血压腰围运动断食历史/购物清单/外部食材行都用它。 */
+  .row-swipe{ border:1px solid var(--line); border-radius:12px; margin-bottom:9px; background:var(--card-bg); }
+  .row-swipe .item-card{ flex-direction:row; align-items:center; justify-content:space-between; gap:10px; border:none; border-radius:0; box-shadow:none; padding:15px 16px; margin-bottom:0; }
+  .row-swipe .row-label{ font-size:16px; color:var(--cocoa); }
   .ing-swipe.dragging-row{ background:var(--cream); box-shadow:0 6px 16px rgba(90,60,30,0.18); opacity:0.92; }
   .ing-swipe.dragging-row .item-card.ing-row{ background:var(--cream); }
   /* font-size kept at 16px (not the 14.5px the read-only .ing-group-header prints at) for the
@@ -1003,7 +1008,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.289';
+var BUILD_VERSION = '9.290';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -7540,6 +7545,7 @@ function shoppingToggle(id){
   saveShoppingList();
   render();
 }
+function shoppingDeleteFromSwipe(id){ closeItemSwipeRow(id); shoppingDelete(id); } // README 9.290
 function shoppingDelete(id){
   state.shoppingList = (state.shoppingList||[]).filter(function(x){ return x.id!==id; });
   saveShoppingList();
@@ -7571,13 +7577,16 @@ function shoppingStockInfoHtml(e){
 }
 function shoppingRowHtml(e){
   var done = !!e.checked;
-  return '<div class="list-row shop-row">'+
-    '<button class="shop-check'+(done?' on':'')+'" onclick="shoppingToggle('+aj(e.id)+')">'+(done?ic('check',16):'')+'</button>'+
-    '<div style="flex:1;min-width:0;" onclick="shoppingToggle('+aj(e.id)+')">'+
-      '<div class="row-label'+(done?' shop-done':'')+'" style="font-size:15px;">'+esc(e.name)+'</div>'+
-      shoppingStockInfoHtml(e)+
+  // README 9.290: 行尾的“×”小按钮改成左划出现“删除”，跟其它列表一致；点勾选框/名称仍是切换已购。
+  return '<div class="item-card-swipe row-swipe" data-item-id="'+esc(e.id)+'">'+
+    '<div class="item-swipe-actions"><button class="swipe-action-btn action-delete" onclick="event.stopPropagation();shoppingDeleteFromSwipe('+aj(e.id)+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button></div>'+
+    '<div class="item-card shop-row" style="justify-content:flex-start;">'+
+      '<button class="shop-check'+(done?' on':'')+'" onclick="shoppingToggle('+aj(e.id)+')">'+(done?ic('check',16):'')+'</button>'+
+      '<div style="flex:1;min-width:0;" onclick="shoppingToggle('+aj(e.id)+')">'+
+        '<div class="row-label'+(done?' shop-done':'')+'" style="font-size:15px;">'+esc(e.name)+'</div>'+
+        shoppingStockInfoHtml(e)+
+      '</div>'+
     '</div>'+
-    '<button class="icon-btn" onclick="shoppingDelete('+aj(e.id)+')">'+ic('x',16)+'</button>'+
   '</div>';
 }
 function renderShoppingList(){
@@ -7659,6 +7668,9 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.290', items:[
+    {t:'tweak', zh:'统一“删除”的操作方式：左划条目出现“删除”键。套餐模板编辑页的食材、三餐加餐里套餐的食材、已记录套餐里的食材，以前要点进数量弹窗才能删，现在都可以直接左划删除；体重/血压/腰围/运动/断食历史列表、购物清单（原来是行尾的“×”）、食谱添加食材页里的外部食材（原来是行内小图标，现在左划出现“删除”“编辑”）也一并统一。点条目本身仍然是打开编辑。', en:'Delete now works the same way everywhere: swipe a row left to reveal Delete. Ingredients in the meal-set template editor, in the meal-set draft when adding a meal, and inside a logged meal set used to need a tap into the amount dialog; they can now be swiped. Weight / blood pressure / waist / exercise / fasting history, the shopping list (formerly a trailing x) and external ingredients in the recipe ingredient picker (formerly small inline icons, now Delete and Edit on swipe) follow the same pattern. Tapping a row still opens it for editing.'}
+  ]},
   {v:'9.289', items:[
     {t:'tweak', zh:'食谱导出长图调整：分类、食材名称和用量、做法、备注、营养的字号都调大了，标题也同步放大；去掉了“份数 · 食材数”那一行；营养只保留一张：有每100g的显示每100g，没有每100g且份数不是1显示每份，没有每100g且份数是1显示成品总重的营养。', en:'Recipe export image tweaks: larger text for category, ingredients, steps, notes and nutrition, with the headings scaled up to match; the servings / ingredient count line is removed; only one nutrition label is kept - per 100g if available, otherwise per serving when servings is not 1, otherwise the whole-dish total.'}
   ]},
@@ -12735,7 +12747,11 @@ function renderMealsetForm(){
     var unitLabel = it.source_type==='mealset' ? (state.lang==='zh'?'份':'x') : recipeUnitLabel(it.unit);
     // README 9.200: 自定条目是固定营养值，没有"数量+单位"这个概念，右边这一列直接留空。
     var amtHtml = it.source_type==='custom' ? '' : (fmtAmountOf(it)+' '+esc(unitLabel));
-    return '<div class="ing-row" onclick="editMealsetTplItem('+idx+')"><div class="ing-info"><span class="ing-name">'+esc(mealsetItemShownName(it))+mealsetItemTagHtml(it)+'</span><span class="ing-amt">'+amtHtml+'</span></div></div>';
+    // README 9.290: 跟食谱编辑页的食材行同一套——左划出现“删除”，点行本体照旧打开数量编辑框(弹窗里的删除键保留)。
+    return '<div class="item-card-swipe ing-swipe" data-item-id="mt'+idx+'">'+
+      '<div class="item-swipe-actions"><button class="swipe-action-btn action-delete" onclick="event.stopPropagation();deleteMealsetTplItemFromSwipe('+idx+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button></div>'+
+      '<div class="item-card ing-row" onclick="editMealsetTplItem('+idx+')"><div class="ing-info"><span class="ing-name">'+esc(mealsetItemShownName(it))+mealsetItemTagHtml(it)+'</span><span class="ing-amt">'+amtHtml+'</span></div></div>'+
+    '</div>';
   }).join('') || '<p class="hint" style="margin:0;">'+t('mealsetItemsEmptyHint')+'</p>';
   return '' +
   '<div class="page-header">'+
@@ -12935,6 +12951,11 @@ function confirmEditMealsetTplItemMultiplier(idx){
   var it = state.mealsetDraft.items[idx];
   if(it){ it.amount = amount; setAmountTextOn(it, _amtRaw, amount); }
   closeModal();
+  render();
+}
+function deleteMealsetTplItemFromSwipe(idx){
+  closeItemSwipeRow('mt'+idx);
+  state.mealsetDraft.items.splice(idx,1);
   render();
 }
 function deleteMealsetTplItemFromModal(idx){
@@ -15286,9 +15307,13 @@ function renderMealLogEntryDetail(){
   if(m.source_type==='mealset'){
     consumeMealsetAppend(id); // README 9.243: 从"添加食材"选餐页回来时，把选好的食材并进这条记录
     var itemsHtml = (m.subItems||[]).map(function(si, idx){
-      return '<div class="list-row" style="cursor:pointer;" onclick="editMealsetLogSubItem('+aj(id)+','+idx+')">'+
-        '<div class="row-label">'+esc(usdaShownName(si))+(si.amount!=null?('<div class="hint" style="margin-top:2px;">'+fmtAmountOf(si)+esc(si.unit)+'</div>'):'')+'</div>'+
-        '<div>'+Math.round((si.nutrition&&si.nutrition.calories)||0)+' kcal</div>'+
+      // README 9.290: 已记录套餐里的每个食材也改成左划出现“删除”(点行本体照旧打开数量编辑框)。
+      return '<div class="item-card-swipe row-swipe" data-item-id="ms'+idx+'">'+
+        '<div class="item-swipe-actions"><button class="swipe-action-btn action-delete" onclick="event.stopPropagation();deleteMealsetLogSubItemFromSwipe('+aj(id)+','+idx+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button></div>'+
+        '<div class="item-card" onclick="editMealsetLogSubItem('+aj(id)+','+idx+')">'+
+          '<div class="row-label">'+esc(usdaShownName(si))+(si.amount!=null?('<div class="hint" style="margin-top:2px;">'+fmtAmountOf(si)+esc(si.unit)+'</div>'):'')+'</div>'+
+          '<div style="flex-shrink:0;">'+Math.round((si.nutrition&&si.nutrition.calories)||0)+' kcal</div>'+
+        '</div>'+
       '</div>';
     }).join('');
     // README 9.204: 之前这个分支只有一个整行宽的删除键，缺了查看详情/移动复制到其它日期这两个
@@ -15536,6 +15561,7 @@ function confirmEditMealsetLogSubItem(entryId, idx){
   closeModal();
   render();
 }
+function deleteMealsetLogSubItemFromSwipe(entryId, idx){ closeItemSwipeRow('ms'+idx); deleteMealsetLogSubItem(entryId, idx); } // README 9.290
 function deleteMealsetLogSubItem(entryId, idx){
   var m = state.mealLogs.find(function(x){ return x.id===entryId; });
   if(!m) return;
@@ -16250,10 +16276,13 @@ function selectMealsetForLog(id){
 function mealsetDraftHtml(af){
   var items = af.mealsetLogItems||[];
   var rows = items.map(function(it, idx){
-    return '<div class="list-row" style="cursor:pointer;" onclick="editMealsetDraftItemAmount('+idx+')">'+
-      '<div class="row-label">'+esc(usdaShownName(it))+'<div class="hint" style="margin-top:2px;">'+fmtAmountOf(it)+esc(it.unit==='份'?'份':it.unit)+'</div></div>'+
-      '<div style="display:flex;align-items:center;gap:8px;flex-shrink:0;"><span>'+Math.round(it.nutrition.calories||0)+' kcal</span>'+
-      '<button class="icon-btn" onclick="event.stopPropagation();deleteMealsetDraftItem('+idx+')" aria-label="'+t('delete')+'">'+ic('x',15)+'</button></div>'+
+    // README 9.290: 行内的“×”小按钮改成左划出现“删除”，跟其它列表一致。
+    return '<div class="item-card-swipe row-swipe" data-item-id="md'+idx+'">'+
+      '<div class="item-swipe-actions"><button class="swipe-action-btn action-delete" onclick="event.stopPropagation();deleteMealsetDraftItemFromSwipe('+idx+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button></div>'+
+      '<div class="item-card" onclick="editMealsetDraftItemAmount('+idx+')">'+
+        '<div class="row-label">'+esc(usdaShownName(it))+'<div class="hint" style="margin-top:2px;">'+fmtAmountOf(it)+esc(it.unit==='份'?'份':it.unit)+'</div></div>'+
+        '<div style="flex-shrink:0;"><span>'+Math.round(it.nutrition.calories||0)+' kcal</span></div>'+
+      '</div>'+
     '</div>';
   }).join('');
   var total = emptyNutrition();
@@ -16275,6 +16304,7 @@ function deleteMealsetDraftItem(idx){
   render();
 }
 function deleteMealsetDraftItemFromModal(idx){ closeModal(); deleteMealsetDraftItem(idx); }
+function deleteMealsetDraftItemFromSwipe(idx){ closeItemSwipeRow('md'+idx); deleteMealsetDraftItem(idx); } // README 9.290
 function editMealsetDraftItemAmount(idx){
   var af = state.mealsUI.addFood;
   var it = af.mealsetLogItems[idx];
@@ -16739,6 +16769,8 @@ function addFoodRecipeResultsHtml(local){
 // 列表分组行、9.138之前"共X批"用的是同一个.dup-badge样式)，提示"这个产品还有好几批"。
 // 点击整行直接进数量页——具体选哪个批次、哪个位置，交给那边的批次下拉框处理(addFoodAmountBodyHtml
 // 那边新加的逻辑，默认选最早到期的那批，见pickLocalFoodForMeal)。
+function deleteExternalIngredientFromSwipe(id){ closeItemSwipeRow('ex'+id); deleteExternalIngredientConfirm(id); } // README 9.290
+function editExternalIngredientFromSwipe(id){ closeItemSwipeRow('ex'+id); editExternalIngredientModal(id); }
 function addFoodInventoryResultsHtml(data){
   if(!data.groups.length && !data.externals.length) return '<p class="hint">'+t('noMealLoggedHint')+'</p>';
   var groupsHtml = data.groups.map(function(gr){ return addFoodInventoryRowHtml(gr); }).join('');
@@ -16752,13 +16784,23 @@ function addFoodInventoryResultsHtml(data){
     var qa = computeQuickAddNutritionForExternal(ing.id);
     var key = 'external:'+ing.id;
     var right = qa ? quickAddRightHtml(key, qa.amount, qa.unit, qa.nutrition.calories, !!quickPicks[key]) : ic('chevronRight',16);
-    var manageBtns = showManageBtns ?
-      ('<button class="icon-btn" onclick="event.stopPropagation();deleteExternalIngredientConfirm('+aj(ing.id)+')" aria-label="'+t('delete')+'">'+ic('trash',17)+'</button>'+
-       '<button class="icon-btn" onclick="event.stopPropagation();editExternalIngredientModal('+aj(ing.id)+')" aria-label="'+t('edit')+'">'+ic('edit',17)+'</button>')
-      : '';
+    // README 9.290: 食谱“添加食材”场景里，外部食材行行内的“删除/编辑”两个小图标改成左划出现“删除”“编辑”(跟食谱列表的左划键一致)；
+    // 三餐/套餐场景本来就没有这两个按钮，保持原来的普通行。
+    if(showManageBtns){
+      return '<div class="item-card-swipe row-swipe" data-item-id="ex'+esc(ing.id)+'">'+
+        '<div class="item-swipe-actions">'+
+          '<button class="swipe-action-btn action-delete" onclick="event.stopPropagation();deleteExternalIngredientFromSwipe('+aj(ing.id)+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button>'+
+          '<button class="swipe-action-btn action-edit" onclick="event.stopPropagation();editExternalIngredientFromSwipe('+aj(ing.id)+')">'+ic('edit',20)+'<span>'+esc(t('edit'))+'</span></button>'+
+        '</div>'+
+        '<div class="item-card">'+
+          '<div class="row-label" style="cursor:pointer;flex:1;min-width:0;" onclick="pickLocalFoodForMeal(\'external\','+aj(ing.id)+')">'+esc(ing.name)+'<div class="hint" style="margin-top:2px;">'+esc(t('sourceExternal'))+'</div></div>'+
+          right+
+        '</div>'+
+      '</div>';
+    }
     return '<div class="list-row">'+
       '<div class="row-label" style="cursor:pointer;flex:1;min-width:0;" onclick="pickLocalFoodForMeal(\'external\','+aj(ing.id)+')">'+esc(ing.name)+'<div class="hint" style="margin-top:2px;">'+esc(t('sourceExternal'))+'</div></div>'+
-      manageBtns+right+
+      right+
     '</div>';
   }).join('');
   return groupsHtml + externalsHtml;
@@ -20692,11 +20734,14 @@ function renderFastingHistory(){
   var rows = logs.map(function(f){
     var dur = fastDurationHours(f);
     var met = dur >= f.targetHours;
-    return '<div class="list-row" onclick="openFastLogModal('+aj(f.id)+')" style="cursor:pointer;">'+
-      '<div class="row-label">'+esc(fmtDateDots(f.startedAt.slice(0,10)))+
-        '<div class="hint" style="margin-top:2px;">'+f.startedAt.slice(11,16)+' → '+f.endedAt.slice(11,16)+' · '+t('fieldTargetHours')+' '+fmtNum(f.targetHours,f.targetHours%1===0?0:1)+'h</div>'+
+    return '<div class="item-card-swipe row-swipe" data-item-id="'+esc(f.id)+'">'+
+      '<div class="item-swipe-actions"><button class="swipe-action-btn action-delete" onclick="event.stopPropagation();deleteFastLogFromSwipe('+aj(f.id)+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button></div>'+
+      '<div class="item-card" onclick="openFastLogModal('+aj(f.id)+')">'+
+        '<div class="row-label">'+esc(fmtDateDots(f.startedAt.slice(0,10)))+
+          '<div class="hint" style="margin-top:2px;">'+f.startedAt.slice(11,16)+' → '+f.endedAt.slice(11,16)+' · '+t('fieldTargetHours')+' '+fmtNum(f.targetHours,f.targetHours%1===0?0:1)+'h</div>'+
+        '</div>'+
+        '<div style="flex-shrink:0;color:'+(met?'var(--fresh)':'var(--deep-caramel)')+';">'+fmtFastHMS(dur)+'</div>'+
       '</div>'+
-      '<div style="color:'+(met?'var(--fresh)':'var(--deep-caramel)')+';">'+fmtFastHMS(dur)+'</div>'+
     '</div>';
   }).join('') || '<div class="empty-state">'+ic('clock',36)+'<p>'+t('fastingNoneYet')+'</p></div>';
   return '' +
@@ -20731,6 +20776,21 @@ function saveFastLogEntry(){
   closeModal();
   showToast(t('fastSavedToast'));
   render();
+}
+// README 9.290: 历史列表左划“删除”——都先收起这一行，再走各自原来的确认弹窗；记录的删除逻辑本身没变。
+function deleteFastLogFromSwipe(id){ closeItemSwipeRow(id); deleteFastLogEntry(id); }
+function deleteWeightLogFromSwipe(id){ closeItemSwipeRow(id); deleteWeightLogEntry(id); }
+function deleteBpLogFromSwipe(id){ closeItemSwipeRow(id); deleteBpLogEntry(id); }
+function deleteWaistLogFromSwipe(id){ closeItemSwipeRow(id); deleteWaistLogEntry(id); }
+// 运动记录原来的删除函数删完会跳回 exerciseLogUI.returnTo(从编辑页进来才有这个值)，在历史列表里左划删除应该留在原地，所以单独写。
+function deleteExerciseLogFromSwipe(id){
+  closeItemSwipeRow(id);
+  showConfirmModal(t('deleteExerciseConfirm'), function(){
+    state.exerciseLogs = state.exerciseLogs.filter(function(x){ return x.id!==id; });
+    saveExerciseLogs();
+    closeModal();
+    render();
+  }, {title:t('delete')});
 }
 function deleteFastLogEntry(id){
   showConfirmModal(t('deleteFastConfirm'), function(){
@@ -21044,9 +21104,12 @@ function deleteBpLogEntry(id){
 function renderBpHistory(){
   var logs = sortedBpLogs().slice().reverse();
   var rows = logs.map(function(e){
-    return '<div class="list-row" onclick="openBpLogModal('+aj(e.id)+')" style="cursor:pointer;">'+
-      '<div class="row-label">'+esc(fmtDateDots(e.date))+(e.note?('<div class="hint" style="margin-top:2px;">'+esc(e.note)+'</div>'):'')+'</div>'+
-      '<div>'+fmtBp(e)+'</div>'+
+    return '<div class="item-card-swipe row-swipe" data-item-id="'+esc(e.id)+'">'+
+      '<div class="item-swipe-actions"><button class="swipe-action-btn action-delete" onclick="event.stopPropagation();deleteBpLogFromSwipe('+aj(e.id)+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button></div>'+
+      '<div class="item-card" onclick="openBpLogModal('+aj(e.id)+')">'+
+        '<div class="row-label">'+esc(fmtDateDots(e.date))+(e.note?('<div class="hint" style="margin-top:2px;">'+esc(e.note)+'</div>'):'')+'</div>'+
+        '<div style="flex-shrink:0;">'+fmtBp(e)+'</div>'+
+      '</div>'+
     '</div>';
   }).join('') || '<div class="empty-state">'+ic('droplet',36)+'<p>'+t('healthNoBpYet')+'</p></div>';
   return '' +
@@ -21112,9 +21175,12 @@ function renderWaistHistory(){
       '<span style="font-size:12.5px;margin-left:8px;color:'+(delta>0?'var(--danger)':(delta<0?'var(--fresh)':'var(--deep-caramel)'))+';">'+
       (delta>0?'▲':(delta<0?'▼':'—'))+' '+fmtNum(Math.abs(delta),1)+'</span>'
     );
-    return '<div class="list-row" onclick="openWaistLogModal('+aj(e.id)+')" style="cursor:pointer;">'+
-      '<div class="row-label">'+esc(fmtDateDots(e.date))+(e.note?('<div class="hint" style="margin-top:2px;">'+esc(e.note)+'</div>'):'')+'</div>'+
-      '<div style="display:flex;align-items:center;">'+fmtWaist(e)+deltaHtml+'</div>'+
+    return '<div class="item-card-swipe row-swipe" data-item-id="'+esc(e.id)+'">'+
+      '<div class="item-swipe-actions"><button class="swipe-action-btn action-delete" onclick="event.stopPropagation();deleteWaistLogFromSwipe('+aj(e.id)+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button></div>'+
+      '<div class="item-card" onclick="openWaistLogModal('+aj(e.id)+')">'+
+        '<div class="row-label">'+esc(fmtDateDots(e.date))+(e.note?('<div class="hint" style="margin-top:2px;">'+esc(e.note)+'</div>'):'')+'</div>'+
+        '<div style="display:flex;align-items:center;flex-shrink:0;">'+fmtWaist(e)+deltaHtml+'</div>'+
+      '</div>'+
     '</div>';
   }).join('') || '<div class="empty-state">'+ic('ruler',36)+'<p>'+t('healthNoWaistYet')+'</p></div>';
   return '' +
@@ -21357,9 +21423,12 @@ function switchExerciseToCustomFromPicker(){
 function renderExerciseHistory(){
   var logs = sortedExerciseLogs().slice().reverse();
   var rows = logs.map(function(e){
-    return '<div class="list-row" onclick="openExerciseLogForm('+aj(e.id)+',\'exerciseHistory\')" style="cursor:pointer;">'+
-      '<div class="row-label">'+esc(fmtDateDots(e.date))+(e.note?('<div class="hint" style="margin-top:2px;">'+esc(e.note)+'</div>'):'')+'</div>'+
-      '<div>'+fmtExercise(e)+'</div>'+
+    return '<div class="item-card-swipe row-swipe" data-item-id="'+esc(e.id)+'">'+
+      '<div class="item-swipe-actions"><button class="swipe-action-btn action-delete" onclick="event.stopPropagation();deleteExerciseLogFromSwipe('+aj(e.id)+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button></div>'+
+      '<div class="item-card" onclick="openExerciseLogForm('+aj(e.id)+',\'exerciseHistory\')">'+
+        '<div class="row-label">'+esc(fmtDateDots(e.date))+(e.note?('<div class="hint" style="margin-top:2px;">'+esc(e.note)+'</div>'):'')+'</div>'+
+        '<div style="flex-shrink:0;">'+fmtExercise(e)+'</div>'+
+      '</div>'+
     '</div>';
   }).join('') || '<div class="empty-state">'+ic('activity',36)+'<p>'+t('healthNoExerciseYet')+'</p></div>';
   return '' +
@@ -21464,9 +21533,12 @@ function renderWeightHistory(){
       '<span style="font-size:12.5px;margin-left:8px;color:'+(delta>0?'var(--danger)':(delta<0?'var(--fresh)':'var(--deep-caramel)'))+';">'+
       (delta>0?'▲':(delta<0?'▼':'—'))+' '+fmtNum(Math.abs(delta),2)+'</span>'
     );
-    return '<div class="list-row" onclick="openWeightLogModal('+aj(e.id)+')" style="cursor:pointer;">'+
-      '<div class="row-label">'+esc(fmtDateDots(e.date))+(e.note?('<div class="hint" style="margin-top:2px;">'+esc(e.note)+'</div>'):'')+'</div>'+
-      '<div style="display:flex;align-items:center;">'+fmtWeight(e.weightKg)+deltaHtml+'</div>'+
+    return '<div class="item-card-swipe row-swipe" data-item-id="'+esc(e.id)+'">'+
+      '<div class="item-swipe-actions"><button class="swipe-action-btn action-delete" onclick="event.stopPropagation();deleteWeightLogFromSwipe('+aj(e.id)+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button></div>'+
+      '<div class="item-card" onclick="openWeightLogModal('+aj(e.id)+')">'+
+        '<div class="row-label">'+esc(fmtDateDots(e.date))+(e.note?('<div class="hint" style="margin-top:2px;">'+esc(e.note)+'</div>'):'')+'</div>'+
+        '<div style="display:flex;align-items:center;flex-shrink:0;">'+fmtWeight(e.weightKg)+deltaHtml+'</div>'+
+      '</div>'+
     '</div>';
   }).join('') || '<div class="empty-state">'+ic('scale',36)+'<p>'+t('healthNoWeightYet')+'</p></div>';
   return '' +
