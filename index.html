@@ -1008,7 +1008,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.290';
+var BUILD_VERSION = '9.292';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2545,6 +2545,10 @@ var I18N = {
     consumeWholeUnitLabel:'按份消耗', consumeWholeUnitHint:'开启后，取用/食谱只能整份增减这份食材（如整桶泡面），不能按克/毫升记录',
     searchPlaceholder:'搜索食品名称 / 品牌', clearSearchBtn:'清空',
     recipeSearchPlaceholder:'搜索食谱名称 / 分类 / 食材',
+    recipeSearchCreateTitle:'新建食谱',
+    recipeSearchCreateMsg:'没有找到“{name}”，要新建这道食谱吗？',
+    recipeSearchCreateBtn:'新建',
+    recipeSearchCreateEmptyBtn:'新建食谱“{name}”',
     filterAll:'全部',
     // README 9.188: filterWholeCategory("该分类下全部")这个key不再用了——库存sidebar点母分类
     // 名字本身现在直接筛选整个分类，不需要额外一行文字来做这件事了(见catGroupsHtml的注释)。
@@ -2645,7 +2649,7 @@ var I18N = {
     scanLookingUp:'正在查询商品信息…', scanNotFound:'未查询到商品信息，请手动填写',
     scanFoundLocal:'在本地历史记录中找到', scanFoundOFF:'已从开放食品数据库获取信息',
     scanUnsupported:'此浏览器不支持自动扫码识别，请手动输入条码或直接手动添加食材',
-    scanLoadingLib:'首次使用扫码，正在加载识别组件（需要联网，几秒钟）…',
+    scanLoadingLib:'正在下载识别组件（只需下载一次，需要联网）…',
     scanLibLoadError:'识别组件加载失败（请检查网络），可手动输入条码',
     scanCameraError:'无法访问摄像头，请检查权限设置，或手动输入条码',
     barcodeInputPh:'输入条码数字后查询',
@@ -2921,6 +2925,10 @@ var I18N = {
     remainingQtyLabel:'Remaining',
     searchPlaceholder:'Search name / brand', clearSearchBtn:'Clear',
     recipeSearchPlaceholder:'Search recipes / category / ingredients',
+    recipeSearchCreateTitle:'New recipe',
+    recipeSearchCreateMsg:'No recipe found for "{name}". Create it?',
+    recipeSearchCreateBtn:'Create',
+    recipeSearchCreateEmptyBtn:'New recipe "{name}"',
     filterAll:'All',
     filterWholeCategoryRecipe:'All',
     sortLabel:'Sort', sortExpiry:'Expiry', sortName:'Name', sortPurchase:'Purchase date', sortCreated:'Date added',
@@ -3014,7 +3022,7 @@ var I18N = {
     scanLookingUp:'Looking up product…', scanNotFound:'No product found, please fill in manually',
     scanFoundLocal:'Found in local history', scanFoundOFF:'Fetched from Open Food Facts',
     scanUnsupported:'This browser does not support auto barcode scanning. Please enter the barcode manually or add the item manually.',
-    scanLoadingLib:'Loading the scanner component for the first time (needs network, a few seconds)…',
+    scanLoadingLib:'Downloading the scanner component (one-time, needs network)…',
     scanLibLoadError:'Scanner component failed to load (check your network) — you can still enter the barcode manually',
     scanCameraError:'Could not access camera. Check permissions or enter barcode manually.',
     barcodeInputPh:'Enter barcode digits to look up',
@@ -6689,11 +6697,14 @@ function getFilteredSortedItems(){
 // search boxes update their results via a debounced targeted DOM patch rather than a full
 // render() (see e.g. onArchiveSearch), so the button itself needs to work independently of
 // whichever update strategy the page it's on happens to use.
-function searchBarHtml(value, placeholder, onInputFnName, inputId, autofocus){
+// README 9.292: 第6个参数onEnterFnName(可选)——给了就在按回车/键盘“搜索”键时调用它(参数是输入框当前文字)，
+// 并把键盘右下角的键标成“搜索”；输入法拼音还没确认(isComposing/keyCode 229)时的回车不算。其它页面不传，行为不变。
+function searchBarHtml(value, placeholder, onInputFnName, inputId, autofocus, onEnterFnName){
   var idAttr = inputId ? (' id="'+esc(inputId)+'"') : '';
   var afAttr = autofocus ? ' autofocus' : '';
+  var enterAttr = onEnterFnName ? (' enterkeyhint="search" onkeydown="if(event.key===\'Enter\'&&!event.isComposing&&event.keyCode!==229){event.preventDefault();'+onEnterFnName+'(this.value)}"') : '';
   return '<div class="search-bar">'+ic('search',19)+
-    '<input type="text"'+idAttr+afAttr+' placeholder="'+esc(placeholder)+'" value="'+esc(value)+'" oninput="'+onInputFnName+'(this.value);toggleSearchClearBtn(this)">'+
+    '<input type="text"'+idAttr+afAttr+enterAttr+' placeholder="'+esc(placeholder)+'" value="'+esc(value)+'" oninput="'+onInputFnName+'(this.value);toggleSearchClearBtn(this)">'+
     '<button type="button" class="search-clear-btn" style="display:'+(value?'flex':'none')+';" onclick="clearSearchInput(this,'+aj(onInputFnName)+')" aria-label="'+t('clearSearchBtn')+'">'+ic('x',14)+'</button>'+
   '</div>';
 }
@@ -7668,6 +7679,12 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.292', items:[
+    {t:'new', zh:'食谱页搜不到食谱时可以直接新建：在搜索框输入关键词后，如果现有食谱里没有结果，按键盘上的“搜索”键会弹出“要新建这道食谱吗？”，点“新建”就进入新建食谱页，搜索的关键词已经填在食谱名称里，光标停在名称末尾（关键词可能只是菜名的一部分，可以直接接着改）。没有结果时列表里也多了一个“新建食谱”按钮，效果一样。', en:'Create a recipe straight from a search with no results: type a keyword on the Recipes page, and if nothing matches, pressing the keyboard Search key asks "Create this recipe?". Tap Create to open the new-recipe page with the keyword already in the recipe name and the cursor at the end of it (the keyword may only be part of the dish name, so you can keep editing). The empty list also shows a "New recipe" button that does the same thing.'}
+  ]},
+  {v:'9.291', items:[
+    {t:'fix', zh:'扫码打开太慢的问题（库存页的扫码、三餐加餐/套餐加食材里的“扫描”标签都是同一套，一并修好）：以前每次打开扫码都要现从网上下载识别组件（而且下载地址指向“最新版”，网络慢时要等将近半分钟）。现在组件固定用一个已验证的版本，下载一次后保存在手机里，以后打开扫码几乎不用等；App 启动后空闲时会提前在后台下好。顶部那句“首次使用扫码…”也改了，只有真的在下载时才会出现。', en:'Fixed the slow barcode scanner (the inventory scan page and the Scan tab in meal / meal-set food pickers share the same scanner, so all are fixed): the scanner component used to be downloaded from the network every time you opened the scanner (from a moving "latest" address, sometimes taking close to half a minute). It now uses one pinned, verified version, is saved on the phone after the first download, and is pre-fetched in the background shortly after the app starts. The "first time" hint now only appears when something is actually being downloaded.'}
+  ]},
   {v:'9.290', items:[
     {t:'tweak', zh:'统一“删除”的操作方式：左划条目出现“删除”键。套餐模板编辑页的食材、三餐加餐里套餐的食材、已记录套餐里的食材，以前要点进数量弹窗才能删，现在都可以直接左划删除；体重/血压/腰围/运动/断食历史列表、购物清单（原来是行尾的“×”）、食谱添加食材页里的外部食材（原来是行内小图标，现在左划出现“删除”“编辑”）也一并统一。点条目本身仍然是打开编辑。', en:'Delete now works the same way everywhere: swipe a row left to reveal Delete. Ingredients in the meal-set template editor, in the meal-set draft when adding a meal, and inside a logged meal set used to need a tap into the amount dialog; they can now be swiped. Weight / blood pressure / waist / exercise / fasting history, the shopping list (formerly a trailing x) and external ingredients in the recipe ingredient picker (formerly small inline icons, now Delete and Edit on swipe) follow the same pattern. Tapping a row still opens it for editing.'}
   ]},
@@ -11447,31 +11464,151 @@ function detectLoop(video, detector){
     if(scanCtx.detecting) scanCtx.raf = requestAnimationFrame(function(){ detectLoop(video, detector); });
   });
 }
+// README 9.291: 扫码识别组件(ZXing)的加载重写。
+// 旧写法每次都 <script src="https://unpkg.com/@zxing/...@latest"> 现下载：①"@latest"不是固定版本，
+// unpkg 每次要先解析再跳转，而且上游在2026年4月/7月发了新版(体积也变大了)，等于识别组件悄悄换了；
+// ②跨域脚本不走Service Worker缓存、PWA冷启动后浏览器也未必留着，所以几乎每次都要重新下载；
+// ③两个文件是串行下载的，unpkg 慢的时候叠加起来就是将近半分钟。
+// 新写法：固定到之前一直在用的已验证版本(library 0.21.3 + browser 0.1.5)；jsDelivr 和 unpkg 同时
+// 请求、谁先到用谁；下载到的脚本文本存进 IndexedDB('foodcode-libs')，之后直接从本机读；
+// App 启动几秒后空闲时提前下好(prefetchZXing)。
+var ZXING_LIBS = {
+  lib: {
+    key: 'zxing-library@0.21.3',
+    urls: [
+      'https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js',
+      'https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js'
+    ]
+  },
+  browser: {
+    key: 'zxing-browser@0.1.5',
+    urls: [
+      'https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/umd/zxing-browser.min.js',
+      'https://unpkg.com/@zxing/browser@0.1.5/umd/zxing-browser.min.js'
+    ]
+  }
+};
 var _zxingLoadPromise = null;
-function loadScript(src){
+var _zxingTextPromises = {};
+function zxLibDb(){
   return new Promise(function(resolve, reject){
+    try{
+      var r = indexedDB.open('foodcode-libs', 1);
+      r.onupgradeneeded = function(){ r.result.createObjectStore('scripts'); };
+      r.onsuccess = function(){ resolve(r.result); };
+      r.onerror = function(){ reject(r.error); };
+    }catch(e){ reject(e); }
+  });
+}
+function zxLibGet(key){
+  return zxLibDb().then(function(db){
+    return new Promise(function(resolve){
+      try{
+        var q = db.transaction('scripts','readonly').objectStore('scripts').get(key);
+        q.onsuccess = function(){ resolve(q.result || null); };
+        q.onerror = function(){ resolve(null); };
+      }catch(e){ resolve(null); }
+    });
+  }).catch(function(){ return null; });
+}
+function zxLibPut(key, val){
+  return zxLibDb().then(function(db){
+    return new Promise(function(resolve){
+      try{
+        var tx = db.transaction('scripts','readwrite');
+        tx.objectStore('scripts').put(val, key);
+        tx.oncomplete = function(){ resolve(); };
+        tx.onerror = function(){ resolve(); };
+        tx.onabort = function(){ resolve(); };
+      }catch(e){ resolve(); }
+    });
+  }).catch(function(){});
+}
+// 多个地址同时请求，第一个成功的赢，其余立刻中止；全部失败或超时才算失败。
+function zxFetchText(urls){
+  return new Promise(function(resolve, reject){
+    var ctrls = [], failed = 0, done = false;
+    var timer = setTimeout(function(){ finish(new Error('timeout')); }, 15000);
+    function finish(err, text){
+      if(done) return;
+      done = true;
+      clearTimeout(timer);
+      ctrls.forEach(function(c){ try{ c.abort(); }catch(e){} });
+      if(err) reject(err); else resolve(text);
+    }
+    urls.forEach(function(u){
+      var c = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+      if(c) ctrls.push(c);
+      fetch(u, c ? {signal:c.signal} : undefined).then(function(r){
+        if(!r.ok) throw new Error('http '+r.status);
+        return r.text();
+      }).then(function(txt){
+        if(txt && txt.length > 50000) finish(null, txt); // 太短说明拿到的不是脚本本体(错误页之类)
+        else throw new Error('bad response');
+      }).catch(function(e){
+        failed++;
+        if(failed >= urls.length) finish(e);
+      });
+    });
+  });
+}
+// 取某个库的脚本文本：先看本机，没有再联网下载并存起来。同一个库同时只发一份请求。
+function zxGetLibText(kind){
+  if(_zxingTextPromises[kind]) return _zxingTextPromises[kind];
+  var cfg = ZXING_LIBS[kind];
+  _zxingTextPromises[kind] = zxLibGet(cfg.key).then(function(hit){
+    if(hit) return hit;
+    return zxFetchText(cfg.urls).then(function(txt){ zxLibPut(cfg.key, txt); return txt; });
+  }).catch(function(e){ delete _zxingTextPromises[kind]; throw e; });
+  return _zxingTextPromises[kind];
+}
+function zxRunScript(text){
+  return new Promise(function(resolve, reject){
+    var url = URL.createObjectURL(new Blob([text], {type:'text/javascript'}));
     var s = document.createElement('script');
-    s.src = src;
-    s.onload = function(){ resolve(); };
-    s.onerror = function(){ reject(new Error('script load failed: '+src)); };
+    s.onload = function(){ URL.revokeObjectURL(url); resolve(); };
+    s.onerror = function(){ URL.revokeObjectURL(url); reject(new Error('script run failed')); };
+    s.src = url;
     document.head.appendChild(s);
   });
 }
 function loadZXing(){
   if(window.ZXingBrowser) return Promise.resolve();
   if(_zxingLoadPromise) return _zxingLoadPromise;
-  // Load the core library first (defines ZXing.DecodeHintType, needed for the TRY_HARDER
-  // hint below) then the browser layer (defines ZXingBrowser.BrowserMultiFormatReader).
-  _zxingLoadPromise = loadScript('https://unpkg.com/@zxing/library@latest')
-    .then(function(){ return loadScript('https://unpkg.com/@zxing/browser@latest'); })
+  // 两个库的文本并行取，但执行必须按顺序：先 library(定义 ZXing.DecodeHintType，下面 TRY_HARDER 要用)，
+  // 再 browser(定义 ZXingBrowser.BrowserMultiFormatReader)。
+  _zxingLoadPromise = Promise.all([zxGetLibText('lib'), zxGetLibText('browser')])
+    .then(function(texts){
+      return zxRunScript(texts[0]).then(function(){ return zxRunScript(texts[1]); });
+    })
+    .then(function(){
+      if(!window.ZXingBrowser) throw new Error('ZXingBrowser missing after load');
+    })
     .catch(function(e){ _zxingLoadPromise = null; throw e; });
   return _zxingLoadPromise;
 }
+// 只下载存起来，不执行。原生有 BarcodeDetector 的设备(安卓Chrome)用不到，直接跳过；省流量模式也跳过。
+function prefetchZXing(){
+  try{
+    if('BarcodeDetector' in window) return;
+    if(navigator.onLine === false) return;
+    var c = navigator.connection;
+    if(c && c.saveData) return;
+    zxGetLibText('lib').catch(function(){});
+    zxGetLibText('browser').catch(function(){});
+  }catch(e){}
+}
+setTimeout(prefetchZXing, 5000);
 async function startZXingScan(video, mySession){
-  setScanStatus(t('scanLoadingLib'));
+  // README 9.291: 组件已经在本机时一瞬间就好，不必闪一下提示；超过0.4秒还没好才说"正在下载"。
+  var loadingHintTimer = setTimeout(function(){
+    if(mySession === scanCtx.session) setScanStatus(t('scanLoadingLib'));
+  }, 400);
   try{
     await loadZXing();
+    clearTimeout(loadingHintTimer);
   }catch(e){
+    clearTimeout(loadingHintTimer);
     if(mySession !== scanCtx.session) return;
     setScanStatus(t('scanLibLoadError'));
     return;
@@ -12156,7 +12293,10 @@ function recipeListItemsHtml(filtered){
     }
     // README 9.285: 所有食谱都在海报里时，下面的列表是空的，但不是“没有符合条件”，这时什么都不显示。
     if(recipeSupplyPosterOn() && recipeSupplyList().length) return '';
-    return '<div class="empty-state">'+ic('search',40)+'<p>'+(state.lang==='zh'?'没有符合条件的食谱':'No recipes match your filters')+'</p></div>';
+    var emptyKw = (state.recipesUI.search||'').trim();
+    // README 9.292: 有搜索词时多一个“新建食谱”按钮，跟按键盘“搜索”键是同一个确认弹窗(键盘收起后也能新建)。
+    var emptyCreateBtn = emptyKw ? '<button class="btn btn-outline" style="margin-top:14px;" onclick="promptCreateRecipeFromSearch()">'+esc(t('recipeSearchCreateEmptyBtn').replace('{name}', emptyKw))+'</button>' : '';
+    return '<div class="empty-state">'+ic('search',40)+'<p>'+(state.lang==='zh'?'没有符合条件的食谱':'No recipes match your filters')+'</p>'+emptyCreateBtn+'</div>';
   }
   var cookedSet = recipeCookedIdSet();
   return filtered.map(function(r){
@@ -12206,7 +12346,7 @@ function renderRecipesList(){
   '<div class="topbar"><div><h1>📖 '+t('recipesTitle')+'</h1></div>'+menuButtonHtml('recipes', true)+'</div>'+
   '<div class="content">'+
     '<div class="home-sticky-controls" id="recipes-sticky-controls">'+
-      searchBarHtml(state.recipesUI.search, t('recipeSearchPlaceholder'), 'onRecipeSearch', 'recipe-search-input')+
+      searchBarHtml(state.recipesUI.search, t('recipeSearchPlaceholder'), 'onRecipeSearch', 'recipe-search-input', false, 'onRecipeSearchEnter')+
       activeFilterHtml+
     '</div>'+
     '<div id="recipe-supply-poster">'+recipeSupplyPosterHtml()+'</div>'+
@@ -12224,6 +12364,25 @@ function onRecipeSearch(v){
     var pst = document.getElementById('recipe-supply-poster'); // README 9.285: 搜索时海报收起、清空搜索后恢复
     if(pst) pst.innerHTML = recipeSupplyPosterHtml();
   }, 200);
+}
+// README 9.292: 食谱搜索没有结果时，按键盘“搜索”键(或点列表里的“新建食谱”按钮)弹出确认，点“新建”直接进入新建食谱页，
+// 搜索的关键词预填在食谱名称里、光标停在名称末尾(关键词可能只是菜名的一部分，方便接着改)。
+// 为什么不是“搜不到就自动弹”：边打字边搜时每多打一个字都可能暂时没结果，自动弹会一直打断输入；按“搜索”键才表示“我打完了”。
+// 有结果时按“搜索”键什么都不做(跟以前一样)。
+function onRecipeSearchEnter(v){
+  state.recipesUI.search = v;
+  if(!(v||'').trim()) return;
+  if(getFilteredRecipes().length) return;
+  promptCreateRecipeFromSearch();
+}
+function promptCreateRecipeFromSearch(){
+  var kw = (state.recipesUI.search||'').trim();
+  if(!kw) return;
+  if(document.activeElement && document.activeElement !== document.body && document.activeElement.blur) document.activeElement.blur(); // 先收键盘，别盖住弹窗
+  showConfirmModal(t('recipeSearchCreateMsg').replace('{name}', kw), function(){
+    // 这个回调就在“点新建”的点击事件里同步执行，所以 openRecipeForm 里的 focus() 能让 iOS 直接弹出键盘。
+    openRecipeForm(null, {name: kw});
+  }, {title: t('recipeSearchCreateTitle'), confirmLabel: t('recipeSearchCreateBtn'), danger:false});
 }
 function clearRecipeFilters(){ state.recipesUI.groupId=null; state.recipesUI.sub=null; render(); }
 function sidebarSetRecipeFilter(groupId, sub){
@@ -12970,7 +13129,7 @@ function deleteMealsetTplItemFromModal(idx){
 // ipConfirmAmountPick)，不再是一个单独的view。
 
 /* ======================= RECIPE FORM ======================= */
-function openRecipeForm(id){
+function openRecipeForm(id, opts){
   // Remember where we were opened from, so the back arrow / cancel / swipe-right gesture
   // return to the same place - same idea as openItemForm's returnTo: editing a recipe from
   // its detail page returns to that detail page; opening from the recipe list (edit-swipe or
@@ -12999,6 +13158,9 @@ function openRecipeForm(id){
     state.recipeDraft = {id:uid(), name:'', servings:null, steps:[''], ingredients:[], cooked_weight:null, category_group:state.recipesUI.groupId||'', category_sub:state.recipesUI.sub||'', photo_url:'', notes:'', created_at:todayStr(), updated_at:nowLocalIso()};
   }
   state.recipeDraft._isNew = !id;
+  // README 9.292: 从食谱搜索“没有结果→新建”进来时，把搜索词预填进食谱名称(opts.name)；下面快照在预填之后才拍，
+  // 所以进来马上点返回不算“有改动”，不会弹“放弃修改”确认。
+  if(!id && opts && opts.name) state.recipeDraft.name = opts.name;
   // Mirrors itemFormUI's photo bookkeeping (see openItemForm): originalPhotoUrl lets cancel()
   // tell "a photo already saved on this recipe" apart from "a brand-new upload from this
   // editing session that never got saved", and pendingPhotoDeleteRefs holds IndexedDB refs
@@ -13024,6 +13186,15 @@ function openRecipeForm(id){
   _scrollMemory.recipeForm = 0;
   navigate('recipeForm', {id:id});
   holdScrollTopAfterEntry('recipeForm');
+  // README 9.292: 预填了名称时，光标停在名称输入框末尾(不是全选)——关键词可能只是菜名的一部分，接着打字就是补全，
+  // 想改前面的字也只要点一下。不用 autofocus 属性是因为 focusAutofocusElementOnce 会把已有内容全选，下一个字就把关键词盖掉了。
+  if(!id && opts && opts.name){
+    var nameEl = document.getElementById('recipe-name-input');
+    if(nameEl){
+      try{ nameEl.focus({preventScroll:true}); }catch(e){ nameEl.focus(); }
+      try{ var n = nameEl.value.length; nameEl.setSelectionRange(n, n); }catch(e){}
+    }
+  }
 }
 // Ingredient groups (e.g. "饺子皮" / "饺子馅") are represented as a pseudo-entry
 // {id, type:'group', name} living right in state.recipeDraft.ingredients at whatever position
@@ -13414,7 +13585,7 @@ function renderRecipeForm(){
   '</div>'+
   '<div class="content">'+
     '<div class="form-group">'+
-      '<div class="field"><label>'+t('fieldRecipeName')+' *</label><input type="text" autocapitalize="words" value="'+esc(d.name)+'" placeholder="'+t('fieldRecipeNamePh')+'" oninput="r_str(\'name\',this.value)"></div>'+
+      '<div class="field"><label>'+t('fieldRecipeName')+' *</label><input type="text" id="recipe-name-input" autocapitalize="words" value="'+esc(d.name)+'" placeholder="'+t('fieldRecipeNamePh')+'" oninput="r_str(\'name\',this.value)"></div>'+
       '<div class="field-row" style="margin-bottom:0;">'+
         '<div class="field" style="margin-bottom:0;"><label>'+t('fieldServings')+'</label><input type="number" inputmode="decimal" value="'+(d.servings==null?'':d.servings)+'" placeholder="-" oninput="r_num(\'servings\',this.value)"></div>'+
         '<div class="field" style="margin-bottom:0;"><label>'+t('fieldCookedWeight')+'</label><input type="number" inputmode="decimal" value="'+(d.cooked_weight==null?'':d.cooked_weight)+'" placeholder="-" oninput="r_num(\'cooked_weight\',this.value)"></div>'+
