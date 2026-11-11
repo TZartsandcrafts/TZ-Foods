@@ -16,6 +16,11 @@
 // network (and refreshes the cache for later); the cache is only ever used as an offline
 // fallback, never as a "good enough, don't bother checking" substitute for the real thing.
 var CACHE_NAME = 'foodcode-shell-v5';
+// README 9.294: 缓存清理只动自己前缀的缓存。GitHub Pages 上同一个账号下的所有 App 是同一个域名(同源)，
+// Cache Storage 是整个域名共用的一个命名空间；以前 activate 里"删掉所有名字不是 CACHE_NAME 的缓存"，
+// 会把同域名下其它 App(书记、植物志等)的离线缓存一并删掉，而且别的 App 如果也是这种写法，也会反过来删掉这里的。
+// 现在只清理以 CACHE_PREFIX 开头、但不是当前版本的旧缓存。
+var CACHE_PREFIX = 'foodcode-shell-';
 // v5 (README 9.224): the fetch below now uses cache:'no-cache' instead of 'no-store'. Both guarantee
 // a launch never runs a stale build (the server is asked every time), but 'no-store' also threw away the
 // browser's stored copy, so EVERY launch re-downloaded the whole ~2MB index.html even when nothing had
@@ -40,7 +45,7 @@ self.addEventListener('activate', function(event){
   event.waitUntil(
     caches.keys().then(function(keys){
       return Promise.all(
-        keys.filter(function(k){ return k !== CACHE_NAME; })
+        keys.filter(function(k){ return k.indexOf(CACHE_PREFIX) === 0 && k !== CACHE_NAME; })
             .map(function(k){ return caches.delete(k); })
       );
     }).then(function(){ return self.clients.claim(); })
