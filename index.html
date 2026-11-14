@@ -1008,7 +1008,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.294';
+var BUILD_VERSION = '9.295';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -7845,6 +7845,9 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.295', items:[
+    {t:'fix', zh:'改了套餐模板之后，选餐界面不再显示“上次添加的内容”：以前改了模板保存后，选餐列表里这个套餐的热量等信息有时仍是上次添加时的样子，让人以为模板没改成功。现在只要保存了套餐模板、删除了套餐模板、或者另一部手机把这个套餐改了同步过来，这个套餐的“上次添加记忆”就清掉，下一次从模板现在的内容重新开始记；如果别的套餐里嵌套了这个套餐，那些套餐的记忆也一起清掉。', en:'After you change a meal-set template, the meal picker no longer shows what you added last time: previously the picker could keep showing the old calories for a set after the template was saved, which looked like the edit had failed. Now saving or deleting a template, or receiving an edited version from your other phone, clears that set\'s "last added" memory so it starts over from the template as it is now; sets that nest this set are cleared too.'}
+  ]},
   {v:'9.293', items:[
     {t:'fix', zh:'修复“存储空间可能已满，保存失败”：以前所有数据都存在浏览器一个只有约 5MB 的小存储里，库存、食谱、三餐记录越攒越多就会写满，写满后编辑的内容保存不下来（还会显示“已保存”，过一会儿又变回旧的）。现在改存到容量大得多的存储里，第一次打开新版会自动把原来的数据搬过去（原来的那份先留着当保险）。', en:'Fixed "Storage may be full, save failed": all data used to live in a small browser store of about 5MB, which fills up as inventory, recipes and meal logs grow, so edits could not be saved (while the app still said Saved, then reverted a moment later). Data now lives in a much larger store; the first launch of this version moves your existing data over automatically and keeps the old copy as a safety net.'},
     {t:'new', zh:'如果以后保存真的失败，会弹出明确的提示，并且不会再用旧数据覆盖你刚改的内容。设置页新增“存储与备份”：可以看各类数据各占多少、导出全部文字数据（包含三餐、健康记录）、从备份恢复。', en:'If a save ever does fail, a clear warning now appears and your just-made edits are no longer overwritten by older data. Settings has a new Storage & backup section: see how much each kind of data uses, export all text data (including meals and health records) and restore from a backup.'}
@@ -13167,6 +13170,29 @@ function refreshMealsetItemSnapshots(mealset){
     };
   });
 }
+// README 9.295: 统一原则——只要套餐模板变了，这个套餐的“上次添加记忆”(mealsetLastItems)就整个作废，下次从模板现在的内容重新开始记。
+// 所有会改套餐模板的入口都走这一个函数：①保存套餐模板(saveMealsetForm) ②删除套餐模板(deleteMealsetFromForm)
+// ③云同步收到另一部手机改的/删的套餐(applyRemoteMealset)。“上次添加记忆”只存在本机、不同步，所以第③种以前一直漏掉
+// ——另一部手机把模板改了，这部手机上的记忆还是旧的。嵌套的套餐也算：套餐A里嵌套了套餐B，B 变了，A 的记忆也过时，一起清。
+// 清的时候顺手把选餐页里已经勾上的“套餐快速勾选”也取消，不然勾着的那个套餐没有记忆了、点“添加”会被悄悄跳过。
+function mealsetIdsAffectedBy(id){
+  var out = [id];
+  (state.mealsets||[]).forEach(function(m){ if(m.id!==id && mealsetUsesMealset(m, id)) out.push(m.id); });
+  return out;
+}
+function invalidateMealsetLastItems(id){
+  if(!id) return;
+  var last = state.mealsetLastItems = state.mealsetLastItems || {};
+  var changed = false;
+  mealsetIdsAffectedBy(id).forEach(function(mid){
+    if(last[mid]){ delete last[mid]; changed = true; }
+    ['addFood','ingPicker'].forEach(function(k){
+      var c = state.mealsUI && state.mealsUI[k];
+      if(c && c.quickPicks && c.quickPicks['mealset:'+mid]) delete c.quickPicks['mealset:'+mid];
+    });
+  });
+  if(changed) saveMealsetLastItems();
+}
 // README 9.249: 一次性清理——以前改了套餐模板没清"上次用量"，已经留下的过时记忆：套餐已经不存在了、或者记忆里的食材
 // 跟模板现在的食材(按来源，不看数量)对不上的，直接丢掉(下次从模板开始)。只改了数量、食材没换的，无从判断，不动。
 function sweepStaleMealsetLastItems(){
@@ -13192,10 +13218,10 @@ function saveMealsetForm(){
   // README 9.249: 改了套餐模板的食材清单(增删/换食材/改数量单位)，这个套餐的"上次用量"记忆(mealsetLastItems，
   // 勾选快速添加直接用它)就过时了——不清掉的话，快速添加出来的永远是改之前的内容。模板没变(只改了名字/图标等)不动它，
   // 免得丢掉你上次手动调整过的用量。
-  if(idx!==-1 && mealsetItemsSignature(state.mealsets[idx].items) !== mealsetItemsSignature(d.items)){
-    if(state.mealsetLastItems && state.mealsetLastItems[d.id]){ delete state.mealsetLastItems[d.id]; saveMealsetLastItems(); }
-  }
+  // README 9.295: 9.249 只在“食材清单有变化”时才清，但这个判断有漏洞(比如嵌套的套餐变了、数量写法不同但算出来一样……)，
+  // 而且清不清还要让人猜；改成统一原则：保存一个已有的套餐模板 = 它的“上次添加记忆”作废，下次从模板重新开始记。
   if(idx===-1) state.mealsets.push(d); else state.mealsets[idx]=d;
+  if(idx!==-1) invalidateMealsetLastItems(d.id);
   saveMealsets();
   showToast(t('mealsetSavedToast'));
   var target = (state.params && state.params.from) || {view:'mealAddFood'};
@@ -13206,7 +13232,7 @@ function deleteMealsetFromForm(){
   showConfirmModal(t('deleteMealsetConfirm'), function(){
     state.mealsets = state.mealsets.filter(function(m){ return m.id!==d.id; });
     saveMealsets();
-    if(state.mealsetLastItems && state.mealsetLastItems[d.id]){ delete state.mealsetLastItems[d.id]; saveMealsetLastItems(); }
+    invalidateMealsetLastItems(d.id);
     closeModal();
     var target = (state.params && state.params.from) || {view:'mealAddFood'};
     navigate(target.view, target.params);
@@ -24527,6 +24553,7 @@ function applyRemoteMealset(data){
     if(idx>=0 && remoteTs >= localTs){
       state.mealsets.splice(idx,1);
       CLOUD.mealsetPushMap[data.id] = '__deleted__';
+      invalidateMealsetLastItems(data.id); // README 9.295
       return true;
     }
     return false;
@@ -24543,6 +24570,7 @@ function applyRemoteMealset(data){
     delete merged._deleted;
     state.mealsets[idx] = merged;
     CLOUD.mealsetPushMap[data.id] = remoteTs;
+    invalidateMealsetLastItems(data.id); // README 9.295: 另一部手机改了这个套餐，本机的“上次添加记忆”过时了
     return true;
   }
   return false;
