@@ -1008,7 +1008,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.295';
+var BUILD_VERSION = '9.296';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -2518,7 +2518,7 @@ var I18N = {
     mealScanNotInInventoryTitle:'库存里没有这个食品', mealScanNotInInventoryMsg:'要不要顺便添加到库存？',
     mealScanAddToInventoryBtn:'添加到库存', mealScanOneTimeBtn:'仅记录这一次',
     newMealsetBtn:'新建套餐', mealsetNoItemsHint:'还没有套餐，点击上方新建一个',
-    mealsetSearchPlaceholder:'搜索套餐名称', mealsetSearchNoResults:'没有匹配的套餐，换个关键词试试',
+    mealsetSearchPlaceholder:'搜索套餐名称', mealsetSearchNoResults:'没有匹配的套餐，换个关键词试试', customSearchPlaceholder:'搜索自定义食物的名称', customSearchNoResults:'没有匹配的自定义食物，换个关键词试试',
     mealsetFormTitleNew:'新建套餐', mealsetFormTitleEdit:'编辑套餐', mealsetNameLabel:'套餐名称',
     mealsetItemsEmptyHint:'还没有添加任何食材',
     // README 9.200: 套餐加食材统一tab页面新增文案。
@@ -2899,7 +2899,7 @@ var I18N = {
     mealScanNotInInventoryTitle:'Not in your inventory', mealScanNotInInventoryMsg:"Want to add it to your inventory while you're at it?",
     mealScanAddToInventoryBtn:'Add to inventory', mealScanOneTimeBtn:'Just log this once',
     newMealsetBtn:'New mealset', mealsetNoItemsHint:'No mealsets yet — create one above',
-    mealsetSearchPlaceholder:'Search mealset name', mealsetSearchNoResults:'No matching mealsets, try a different keyword',
+    mealsetSearchPlaceholder:'Search mealset name', mealsetSearchNoResults:'No matching mealsets, try a different keyword', customSearchPlaceholder:'Search custom food names', customSearchNoResults:'No matching custom foods, try a different keyword',
     mealsetFormTitleNew:'New mealset', mealsetFormTitleEdit:'Edit mealset', mealsetNameLabel:'Mealset name',
     mealsetItemsEmptyHint:'No items added yet',
     // README 9.200: new copy for the unified 套餐加食材 (add-ingredient) picker page.
@@ -7845,6 +7845,9 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.296', items:[
+    {t:'fix', zh:'“自定”页现在也能搜索了：以前在添加食材（三餐、食谱、套餐里的“添加食材”都是同一个页面）的搜索框里输入关键词，库存、食谱、套餐、USDA 都会参与搜索，唯独“自定”里记住的条目搜不到，“自定”标签上也不会出现“这里有匹配”的小圆点。现在“自定”页顶部有了搜索框（跟其它页共用同一个关键词），列表按名称过滤；在别的页输入关键词时，如果“自定”里有匹配，标签上会出现小圆点，只有“自定”有匹配时还会自动跳过去。', en:'The Custom tab is now searchable: in the add-food page (shared by meals, recipe ingredients and meal-set ingredients) a keyword searched inventory, recipes, meal sets and USDA but never the custom entries you had saved, and the Custom tab never showed the "match here" dot. Custom now has a search box (sharing the same keyword as the other tabs) that filters the list by name; typing on another tab shows the dot on Custom when something matches, and jumps there automatically when Custom is the only match.'}
+  ]},
   {v:'9.295', items:[
     {t:'fix', zh:'改了套餐模板之后，选餐界面不再显示“上次添加的内容”：以前改了模板保存后，选餐列表里这个套餐的热量等信息有时仍是上次添加时的样子，让人以为模板没改成功。现在只要保存了套餐模板、删除了套餐模板、或者另一部手机把这个套餐改了同步过来，这个套餐的“上次添加记忆”就清掉，下一次从模板现在的内容重新开始记；如果别的套餐里嵌套了这个套餐，那些套餐的记忆也一起清掉。', en:'After you change a meal-set template, the meal picker no longer shows what you added last time: previously the picker could keep showing the old calories for a set after the template was saved, which looked like the edit had failed. Now saving or deleting a template, or receiving an edited version from your other phone, clears that set\'s "last added" memory so it starts over from the template as it is now; sets that nest this set are cleared too.'}
   ]},
@@ -17257,7 +17260,7 @@ function sortByPickFrequency(list, keyFn){
 // 自己本来就有的同步搜索函数(searchInventoryFoods/searchRecipeFoods/state.mealsets自身的名字
 // 过滤/searchUsdaSaved)，不重新发明一套匹配逻辑，也不产生任何额外的网络请求——USDA真正联网
 // 搜索的时机/防抖逻辑完全不受这个功能影响，见下面对af.tab==='usda'分支的说明。
-var MEAL_ADD_CROSS_TAB_ORDER = ['inventory','recipe','mealset','usda'];
+var MEAL_ADD_CROSS_TAB_ORDER = ['inventory','recipe','mealset','usda','custom']; // README 9.296: 加上 custom(放最后，没有精确匹配时不会抢在前面的tab之前)
 function crossTabMatchInfo(query){
   var q = (query||'').trim();
   var info = {counts:{}, exact:{}};
@@ -17284,6 +17287,10 @@ function crossTabMatchInfo(query){
     return (f.description||'').toLowerCase()===qlower || (f.brandName||'').toLowerCase()===qlower
       || usdaMyTags(f.fdcId).concat(usdaRemoteTags(f.fdcId)).some(function(tg){ return tg.text.toLowerCase()===qlower; });
   });
+  // README 9.296: “自定”里记住的条目也参与(只按名称)。
+  var customList = customSavedSearch(q);
+  info.counts.custom = customList.length;
+  info.exact.custom = customList.some(function(f){ return (f.name||'').toLowerCase()===qlower; });
   return info;
 }
 // 返回true表示已经切过tab了(切tab的setMealAddFoodTab内部已经完整render+补聚焦，调用方不用
@@ -17316,11 +17323,17 @@ var addFoodUsdaSearchSeq = 0; // 用来丢弃"用户又继续打字/切走了"�
 function onAddFoodQueryInput(val){
   var af = activeAddCtx();
   af.query = val;
-  if(af.tab==='inventory' || af.tab==='recipe' || af.tab==='mealset' || af.tab==='usda'){
+  if(af.tab==='inventory' || af.tab==='recipe' || af.tab==='mealset' || af.tab==='usda' || af.tab==='custom'){
     if(evaluateCrossTabSearch(af, val)) return; // 已经切tab完成了，这里不用再做别的
     refreshMealAddTabsBar(); // 留在原地，但matchTabs可能变了，小圆点提示需要跟着刷新
   } else {
     af.matchTabs = null;
+  }
+  if(af.tab==='custom'){
+    // README 9.296: “自定”tab的搜索，跟套餐tab一样是本地同步过滤。
+    var cuEl = document.getElementById('add-food-custom-list');
+    if(cuEl) cuEl.innerHTML = customSavedListInnerHtml();
+    return;
   }
   if(af.tab==='mealset'){
     // README 9.176: 套餐tab新加的关键词搜索，跟库存/食谱一样是本地同步过滤，不用等异步。
@@ -18325,14 +18338,28 @@ function customSavedRowHtml(f){
     '</div>'+
   '</div>';
 }
-function customSavedListInnerHtml(){
+// README 9.296: “自定”tab 以前完全不参与关键词搜索(没有搜索框、跨tab匹配的小圆点/自动跳转也没算它)。
+// 现在跟库存/食谱/套餐一样：关键词是 af.query(切tab时跟着走)，按名称不分大小写做子串匹配；匹配的范围就是这个tab
+// 里能看到的全部(自己记住的 + 对方共享过来的、没被本机删掉的，见 customSavedSortedList)。
+function customSavedSearch(query){
+  var q = (query||'').trim().toLowerCase();
   var list = customSavedSortedList();
-  if(!list.length) return '<p class="hint" style="margin:14px 2px;">'+esc(t('customSavedEmptyHint'))+'</p>';
+  if(!q) return list;
+  return list.filter(function(f){ return (f.name||'').toLowerCase().indexOf(q)>=0; });
+}
+function customSavedListInnerHtml(){
+  var af = activeAddCtx();
+  var q = ((af && af.query)||'').trim();
+  var all = customSavedSortedList();
+  if(!all.length) return '<p class="hint" style="margin:14px 2px;">'+esc(t('customSavedEmptyHint'))+'</p>';
+  var list = customSavedSearch(q);
+  if(!list.length) return '<p class="hint" style="margin:14px 2px;">'+esc(t('customSearchNoResults'))+'</p>';
   return '<p class="hint" style="margin:4px 2px 6px;">'+esc(t('customSavedSectionTitle'))+'</p>'+
     list.map(customSavedRowHtml).join('');
 }
 function customSavedTabHtml(af){
   return '<button class="btn btn-outline" style="width:100%;margin-bottom:16px;" onclick="openNewCustomEdit()">'+ic('plus',15)+' '+esc(t('newCustomBtn'))+'</button>'+
+    '<div class="meal-add-search-sticky"><input id="add-food-search-input" type="text" autocapitalize="none" placeholder="'+esc(t('customSearchPlaceholder'))+'" value="'+esc(af.query)+'" oninput="onAddFoodQueryInput(this.value)" style="width:100%;box-sizing:border-box;font-size:16px;padding:12px 14px;border-radius:11px;border:1px solid var(--line);"></div>'+
     '<div id="add-food-custom-list">'+customSavedListInnerHtml()+'</div>';
 }
 function openCustomSavedEdit(id){
