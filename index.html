@@ -1008,7 +1008,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.297';
+var BUILD_VERSION = '9.298';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -7876,6 +7876,10 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.298', items:[
+    {t:'fix', zh:'删除外部食材不会再影响用到它的食谱和套餐了：删除之前，会先把每个用到它的食谱、套餐里的这一行当时的营养固定下来，所以删完这些食谱、套餐的营养不变（以前如果那个食谱很久没保存过，删除后这一行的营养会算不进去）。删除时的确认提示也会告诉你有几个食谱、几个套餐在用它。已经记录的三餐一直不受外部食材的编辑和删除影响。', en:'Deleting an external ingredient no longer affects the recipes and meal sets that use it: before deleting, the nutrition of that row in each recipe and meal set is frozen, so their nutrition stays the same (previously a recipe that had not been saved for a long time could lose that row\'s nutrition). The delete confirmation now also tells you how many recipes and meal sets use it. Meals you already logged have never been affected by editing or deleting an external ingredient.'},
+    {t:'new', zh:'编辑外部食材时，如果改了营养值或单位换算，而它被食谱、套餐用到，保存前会提醒你“它们的营养会按新数值重新计算”，可以返回继续改，或者仍然保存。', en:'When you edit an external ingredient\'s nutrition or unit conversions and it is used by recipes or meal sets, you now get a reminder before saving that their nutrition will be recalculated with the new values; you can go back or save anyway.'}
+  ]},
   {v:'9.297', items:[
     {t:'new', zh:'外部食材可以自己设置单位换算了：编辑（或新建）外部食材时多了“单位换算”，可以添加比如“1 杯 = 240 g”“1 个 = 50 g”。设置之后，添加食材的数量页会出现单位下拉（g、你设置的单位、再加 ml/tsp/tbsp/cup/kg/l 等标准单位），食谱、套餐里点进外部食材那一行改用量时也能选这些单位，营养按克数换算。以前加进来的外部食材（比如 water）不用重新添加，编辑它、加上换算就行；没设置换算的外部食材用法跟以前完全一样。', en:'External ingredients can now have their own unit conversions: when editing (or creating) an external ingredient there is a new Unit conversions section where you can add things like 1 cup = 240 g or 1 piece = 50 g. Once set, the amount page offers a unit dropdown (g, your units, then standard units such as ml/tsp/tbsp/cup/kg/l), and the same units are available when you edit the amount of that ingredient in a recipe or meal set; nutrition is calculated from the grams. Existing external ingredients (such as water) do not need to be re-added, just edit them and add conversions; ones without conversions behave exactly as before.'}
   ]},
@@ -12840,8 +12844,71 @@ function addIngredientToRecipe(sourceType, sourceId, nameSnapshot, amount, unit,
   }
   return entry;
 }
+// README 9.298: 哪些食谱/套餐直接用了这个外部食材(只算直接引用，不展开嵌套)。
+function externalIngredientUsage(id){
+  return {
+    recipes: (state.recipes||[]).filter(function(r){ return (r.ingredients||[]).some(function(ri){ return ri.source_type==='external' && ri.source_id===id; }); }),
+    mealsets: (state.mealsets||[]).filter(function(m){ return (m.items||[]).some(function(it){ return it.source_type==='external' && it.source_id===id; }); })
+  };
+}
+function externalUsageNamesText(usage){
+  var zh = state.lang==='zh';
+  var names = usage.recipes.map(function(r){ return r.name; }).concat(usage.mealsets.map(function(m){ return m.name; })).filter(Boolean);
+  var shown = names.slice(0,5).join(zh?'、':', ');
+  return shown + (names.length>5 ? (zh?'等':' …') : '');
+}
+// README 9.298: 删除之前先把每个用到它的食谱/套餐里这一行“当时的营养”写进这一行自己的快照(ri.snapshot / it.snapshot)，
+// 这样删完以后食谱、套餐的营养不变。以前快照只在“保存食谱/套餐”时才更新，很久没保存过的食谱没有快照(或快照是旧的)，
+// 删除后这一行会算不进去。食谱/套餐的 updated_at 也要更新，不然云同步不会把新快照推给另一部手机，
+// 而另一部手机会跟着删掉这个外部食材。只动用到它的那些行，其它行不碰。
+function freezeExternalIngredientUsage(id){
+  var ing = state.ingredients.find(function(i){ return i.id===id; });
+  if(!ing) return;
+  var usage = externalIngredientUsage(id);
+  var recipesChanged = false, mealsetsChanged = false;
+  usage.recipes.forEach(function(r){
+    var touched = false;
+    (r.ingredients||[]).forEach(function(ri){
+      if(ri.source_type!=='external' || ri.source_id!==id) return;
+      var c = computeIngredientRowContribution(ri, ing);
+      if(!c) return;
+      ri.snapshot = {nutrition:c.nutrition, nutrition_extra:c.nutrition_extra, name:ing.name, captured_at:nowLocalIso()};
+      touched = true;
+    });
+    if(touched){ r.updated_at = nowLocalIso(); recipesChanged = true; }
+  });
+  usage.mealsets.forEach(function(m){
+    var touched = false;
+    (m.items||[]).forEach(function(it){
+      if(it.source_type!=='external' || it.source_id!==id) return;
+      var c = computeIngredientRowContribution(it, ing);
+      if(!c) return;
+      it.snapshot = {nutrition:c.nutrition, nutrition_extra:c.nutrition_extra, name:ing.name, captured_at:nowLocalIso()};
+      touched = true;
+    });
+    if(touched){ m.updated_at = nowLocalIso(); mealsetsChanged = true; }
+  });
+  if(recipesChanged) saveRecipes();
+  if(mealsetsChanged) saveMealsets();
+}
 function deleteExternalIngredientConfirm(id){
-  showConfirmModal(t('deleteConfirm'), function(){
+  var ing = state.ingredients.find(function(i){ return i.id===id; });
+  var zh = state.lang==='zh';
+  var usage = externalIngredientUsage(id);
+  var nR = usage.recipes.length, nM = usage.mealsets.length;
+  var msg;
+  if(nR || nM){
+    var parts = [];
+    if(nR) parts.push(zh ? nR+' 个食谱' : nR+' recipe'+(nR>1?'s':''));
+    if(nM) parts.push(zh ? nM+' 个套餐' : nM+' meal set'+(nM>1?'s':''));
+    msg = zh
+      ? '“'+(ing?ing.name:'')+'”被 '+parts.join('、')+'用到（'+externalUsageNamesText(usage)+'）。删除后，这些食谱和套餐里仍然保留这一行，营养按删除前的数值固定下来；已经记录的三餐不受影响。确定删除吗？'
+      : '"'+(ing?ing.name:'')+'" is used by '+parts.join(' and ')+' ('+externalUsageNamesText(usage)+'). After deleting, those recipes and meal sets keep the row and its nutrition is frozen at the values before deletion; meals you already logged are not affected. Delete it?';
+  } else {
+    msg = zh ? '确定要删除“'+(ing?ing.name:'')+'”吗？没有食谱和套餐用到它，已经记录的三餐不受影响。此操作无法撤销。' : 'Delete "'+(ing?ing.name:'')+'"? No recipe or meal set uses it, and meals you already logged are not affected. This cannot be undone.';
+  }
+  showConfirmModal(msg, function(){
+    freezeExternalIngredientUsage(id);
     state.ingredients = state.ingredients.filter(function(i){ return i.id!==id; });
     saveIngredients();
     render();
@@ -13124,6 +13191,36 @@ function saveExternalIngredientEdit(){
   if(!name){ showToast(state.lang==='zh'?'请输入食材名称':'Please enter a name'); return; }
   var cuRes = extIngCollectUnits(ui);
   if(cuRes.error){ showToast(cuRes.error); return; }
+  // README 9.298: 食谱、套餐是“实时引用”外部食材的(改了营养值，用到它的食谱/套餐营养跟着变——这是有意的，
+  // 方便更正填错的营养值)；已经记录的三餐存的是当时的营养，不受影响。所以改了营养值或单位换算、又有食谱/套餐在用它时，
+  // 保存前提醒一下会影响哪些，可以返回继续改。只改名字不影响营养，不提醒。
+  var changedCalc = JSON.stringify(ing.nutrition||{})!==JSON.stringify(ui.nutrition||{}) ||
+    JSON.stringify(ing.nutrition_extra||{})!==JSON.stringify(ui.nutrition_extra||{}) ||
+    JSON.stringify(ing.custom_units||[])!==JSON.stringify(cuRes.units);
+  var usage = externalIngredientUsage(ing.id);
+  var nR = usage.recipes.length, nM = usage.mealsets.length;
+  if(changedCalc && (nR || nM)){
+    var zh = state.lang==='zh', parts = [];
+    if(nR) parts.push(zh ? nR+' 个食谱' : nR+' recipe'+(nR>1?'s':''));
+    if(nM) parts.push(zh ? nM+' 个套餐' : nM+' meal set'+(nM>1?'s':''));
+    var msg = zh
+      ? '“'+ing.name+'”被 '+parts.join('、')+'用到（'+externalUsageNamesText(usage)+'）。保存后，它们的营养会按新的营养值/单位换算重新计算；已经记录的三餐不受影响。'
+      : '"'+ing.name+'" is used by '+parts.join(' and ')+' ('+externalUsageNamesText(usage)+'). After saving, their nutrition is recalculated with the new values / unit conversions; meals you already logged are not affected.';
+    showModal(zh ? '保存修改' : 'Save changes',
+      '<p class="hint" style="margin-bottom:16px;">'+esc(msg)+'</p>'+
+      '<div class="btn-row"><button class="btn btn-outline" onclick="renderExternalIngredientModal()">'+(zh?'返回修改':'Back')+'</button>'+
+      '<button class="btn btn-primary" onclick="applyExternalIngredientEdit()">'+(zh?'仍然保存':'Save anyway')+'</button></div>');
+    return;
+  }
+  applyExternalIngredientEdit();
+}
+function applyExternalIngredientEdit(){
+  var ui = state.extIngUI;
+  var ing = state.ingredients.find(function(i){ return i.id===ui.id; });
+  if(!ing) return;
+  var name = (ui.name||'').trim();
+  var cuRes = extIngCollectUnits(ui);
+  if(!name || cuRes.error) return;
   ing.name = name;
   ing.nutrition = ui.nutrition;
   ing.nutrition_extra = ui.nutrition_extra;
