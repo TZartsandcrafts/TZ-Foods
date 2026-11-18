@@ -1008,7 +1008,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.296';
+var BUILD_VERSION = '9.297';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -4951,7 +4951,38 @@ function restoreArchivedItem(id){
 // unit) down to a count in primary units, then resolves THAT to weight/volume using whichever of
 // the primary unit itself or its pack spec actually carries the weight/volume information -
 // instead of losing the source item's pack info by recursing with sourceItem cleared to null.
-function amountToBasisUnits(amount, unit, sourceItem){
+// README 9.297: 外部食材自己的单位换算——ing.custom_units = [{unit:'杯', grams:240}, ...]，意思是 1 杯 = 240 g。
+// 外部食材的营养固定是每100g，所以自定义单位一律换算成克(type:'weight')。名字不分大小写、忽略首尾空格；
+// 自定义的优先于标准单位——比如设了 1 cup = 120 g(面粉)，就以它为准，不再用 cup≈240ml≈240g 的近似。
+// g/kg 是固定的重量单位，不能被覆盖(编辑页也不允许填)。
+function extUnitKey(u){ return (u||'').trim().toLowerCase(); }
+function externalCustomUnitGrams(ing, unit){
+  var list = ing && ing.custom_units;
+  if(!list || !list.length) return null;
+  var k = extUnitKey(unit);
+  if(k==='g' || k==='kg') return null;
+  for(var i=0;i<list.length;i++){
+    if(extUnitKey(list[i].unit)===k && list[i].grams>0) return list[i].grams;
+  }
+  return null;
+}
+// 外部食材数量页/编辑弹窗里的单位选项：g 在最前面，然后是它自己的换算单位，再是剩下的标准单位
+// (STD_UNIT_TIEBREAK_ORDER 的顺序)；标准单位里被自定义覆盖了同名的(比如自己设了 cup)不重复出现。
+function externalUnitOptions(ing){
+  var opts = ['g'];
+  ((ing && ing.custom_units) || []).forEach(function(cu){
+    if(cu && cu.unit && cu.grams>0 && !opts.some(function(o){ return extUnitKey(o)===extUnitKey(cu.unit); })) opts.push(cu.unit);
+  });
+  STD_UNIT_TIEBREAK_ORDER.forEach(function(u){
+    if(!opts.some(function(o){ return extUnitKey(o)===extUnitKey(u); })) opts.push(u);
+  });
+  return opts;
+}
+function amountToBasisUnits(amount, unit, sourceItem, extIng){
+  if(extIng){
+    var cg = externalCustomUnitGrams(extIng, unit);
+    if(cg!=null) return {type:'weight', value:amount*cg};
+  }
   if(weightUnitToG(unit)!=null) return {type:'weight', value:amount*weightUnitToG(unit)};
   if(volumeUnitToMl(unit)!=null) return {type:'volume', value:amount*volumeUnitToMl(unit)};
   if(sourceItem){
@@ -5230,7 +5261,7 @@ function recomputeMealsetLogItemNutrition(item){
   // 源找不到时才用快照，源还在只是单位换算不出来，不用快照掩盖。
   if(!src) return item.snapshot ? {nutrition:item.snapshot.nutrition, nutrition_extra:item.snapshot.nutrition_extra||{}} : {nutrition:emptyNutrition(), nutrition_extra:{}};
   var basisInfo = ingredientBasisInfo(src);
-  var used = amountToBasisUnits(item.amount, item.unit, item.source_type==='inventory'?src:null);
+  var used = amountToBasisUnits(item.amount, item.unit, item.source_type==='inventory'?src:null, item.source_type==='external'?src:null);
   if(used==null) used = countBasisMatch(src, item.amount, item.unit);
   if(used==null) return {nutrition:emptyNutrition(), nutrition_extra:{}};
   return {nutrition:scaleNutrition(src.nutrition, basisInfo, used), nutrition_extra:scaleNutritionExtraCore(src.nutrition_extra, basisInfo, used)};
@@ -5377,7 +5408,7 @@ function countBasisMatch(src, amount, unit){
 function computeIngredientRowContribution(ri, src){
   var perBasis = src.nutrition || emptyNutrition();
   var basisInfo = ingredientBasisInfo(src);
-  var used = amountToBasisUnits(ri.amount, ri.unit, ri.source_type==='inventory'?src:null);
+  var used = amountToBasisUnits(ri.amount, ri.unit, ri.source_type==='inventory'?src:null, ri.source_type==='external'?src:null);
   if(used == null) used = countBasisMatch(src, ri.amount, ri.unit);
   if(used == null) return null;
   var nutrition = scaleNutrition(perBasis, basisInfo, used);
@@ -7845,6 +7876,9 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.297', items:[
+    {t:'new', zh:'外部食材可以自己设置单位换算了：编辑（或新建）外部食材时多了“单位换算”，可以添加比如“1 杯 = 240 g”“1 个 = 50 g”。设置之后，添加食材的数量页会出现单位下拉（g、你设置的单位、再加 ml/tsp/tbsp/cup/kg/l 等标准单位），食谱、套餐里点进外部食材那一行改用量时也能选这些单位，营养按克数换算。以前加进来的外部食材（比如 water）不用重新添加，编辑它、加上换算就行；没设置换算的外部食材用法跟以前完全一样。', en:'External ingredients can now have their own unit conversions: when editing (or creating) an external ingredient there is a new Unit conversions section where you can add things like 1 cup = 240 g or 1 piece = 50 g. Once set, the amount page offers a unit dropdown (g, your units, then standard units such as ml/tsp/tbsp/cup/kg/l), and the same units are available when you edit the amount of that ingredient in a recipe or meal set; nutrition is calculated from the grams. Existing external ingredients (such as water) do not need to be re-added, just edit them and add conversions; ones without conversions behave exactly as before.'}
+  ]},
   {v:'9.296', items:[
     {t:'fix', zh:'“自定”页现在也能搜索了：以前在添加食材（三餐、食谱、套餐里的“添加食材”都是同一个页面）的搜索框里输入关键词，库存、食谱、套餐、USDA 都会参与搜索，唯独“自定”里记住的条目搜不到，“自定”标签上也不会出现“这里有匹配”的小圆点。现在“自定”页顶部有了搜索框（跟其它页共用同一个关键词），列表按名称过滤；在别的页输入关键词时，如果“自定”里有匹配，标签上会出现小圆点，只有“自定”有匹配时还会自动跳过去。', en:'The Custom tab is now searchable: in the add-food page (shared by meals, recipe ingredients and meal-set ingredients) a keyword searched inventory, recipes, meal sets and USDA but never the custom entries you had saved, and the Custom tab never showed the "match here" dot. Custom now has a search box (sharing the same keyword as the other tabs) that filters the list by name; typing on another tab shows the dot on Custom when something matches, and jumps there automatically when Custom is the only match.'}
   ]},
@@ -12837,7 +12871,7 @@ function openNewExternalIngredientModal(){
   // fallback does for the item form) so the dropdown is already showing when the modal opens.
   var carriedName = (state.pickSearch||'').trim();
   usdaDropdownCache['exting-name-usda-dropdown'] = ''; // don't carry a stale dropdown in from a previous session
-  state.extIngUI = {mode:'new', id:null, name:carriedName, nutrition:{}, nutrition_extra:{}, amount:null, unit:'g', expandedGroups:{}, openDropdown:null, freshRefDismissed:false};
+  state.extIngUI = {mode:'new', id:null, name:carriedName, nutrition:{}, nutrition_extra:{}, custom_units:[], amount:null, unit:'g', expandedGroups:{}, openDropdown:null, freshRefDismissed:false};
   renderExternalIngredientModal();
   if(carriedName) usdaAutocompleteInput('exting-name-usda-dropdown', carriedName, 'onExtIngUsdaAutocompletePick', true);
 }
@@ -12854,6 +12888,7 @@ function editExternalIngredientModal(id){
     mode:'edit', id:id, name:ing.name,
     nutrition: JSON.parse(JSON.stringify(ing.nutrition||{})),
     nutrition_extra: JSON.parse(JSON.stringify(ing.nutrition_extra||{})),
+    custom_units: (ing.custom_units||[]).map(function(cu){ return {unit:cu.unit, grams:String(cu.grams)}; }),
     amount:null, unit:'g', expandedGroups:{}, openDropdown:null, freshRefDismissed:false 
   };
   renderExternalIngredientModal();
@@ -12895,7 +12930,7 @@ function renderExternalIngredientModal(){
   var isNew = ui.mode==='new';
   var amountUnitHtml = isNew ?
     '<div class="field" style="margin-top:14px;"><label>'+t('ingAmountLabel')+'</label><input type="text" placeholder="-" value="'+(ui.amount==null?'':ui.amount)+'" oninput="onExtIngAmountInput(this.value)"></div>'+
-    '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select">'+WEIGHT_UNITS.concat(VOLUME_UNITS).map(function(u){ return '<div class="tag-option '+(u===ui.unit?'active':'')+'" onclick="onExtIngUnitPick('+aj(u)+')">'+u+'</div>'; }).join('')+'</div></div>'
+    '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select">'+extIngCreateUnitOptions().map(function(u){ return '<div class="tag-option '+(u===ui.unit?'active':'')+'" onclick="onExtIngUnitPick('+aj(u)+')">'+u+'</div>'; }).join('')+'</div></div>'
     : '';
   showModal(isNew ? t('createNewIngredient') : t('editIngredientTitle'),
     '<div class="field" style="position:relative;"><label>'+t('newIngName')+'</label><input type="text" autocapitalize="words" value="'+esc(ui.name)+'" placeholder="'+t('newIngName')+'" oninput="onExtIngNameInput(this.value)" onfocus="onExtIngNameFocus()" onblur="onExtIngNameBlur()">'+
@@ -12906,6 +12941,7 @@ function renderExternalIngredientModal(){
     externalIngNutriFieldsHtml()+
     externalIngNutriExtraGroupHtml('vitamins', t('nutriGroupVitamins'), NUTRI_VITAMIN_KEYS)+
     externalIngNutriExtraGroupHtml('minerals', t('nutriGroupMinerals'), NUTRI_MINERAL_KEYS)+
+    extIngUnitsSectionHtml()+
     amountUnitHtml+
     (isNew
       ? '<button class="btn btn-primary" style="margin-top:14px;" onclick="createExternalIngredientAndAdd()">'+t('add')+'</button>'
@@ -13004,14 +13040,79 @@ function onExtIngExtraUnitChange(key, unit){
   state.extIngUI.openDropdown = null;
   renderExternalIngredientModal();
 }
+// README 9.297: 外部食材编辑/新建弹窗里的“单位换算”区：每行“1 [单位] = [克数] g”，可以添加、删除多行。
+// 输入时只更新 state.extIngUI(不重新渲染弹窗，免得打字打到一半失去焦点)；添加/删除行才重新渲染。
+function extIngCreateUnitOptions(){ // 新建时顺手“添加到食谱”那一步的单位药丸：标准的重量/体积单位 + 刚设置的换算单位
+  var opts = WEIGHT_UNITS.concat(VOLUME_UNITS);
+  ((state.extIngUI && state.extIngUI.custom_units) || []).forEach(function(cu){
+    var u = (cu.unit||'').trim();
+    if(u && parseAmountInput(String(cu.grams||''))>0 && !opts.some(function(o){ return extUnitKey(o)===extUnitKey(u); })) opts.push(u);
+  });
+  return opts;
+}
+function extIngUnitsSectionHtml(){
+  var ui = state.extIngUI, zh = state.lang==='zh';
+  var rows = (ui.custom_units||[]).map(function(cu, i){
+    return '<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;">'+
+      '<span style="font-size:14px;">1</span>'+
+      '<input type="text" autocapitalize="none" placeholder="'+esc(zh?'单位，如 杯':'unit, e.g. cup')+'" value="'+esc(cu.unit)+'" oninput="onExtIngUnitField('+i+',\'unit\',this.value)" style="flex:1;min-width:0;">'+
+      '<span>=</span>'+
+      '<input type="text" inputmode="decimal" placeholder="240" value="'+esc(cu.grams)+'" oninput="onExtIngUnitField('+i+',\'grams\',this.value)" style="width:76px;">'+
+      '<span>g</span>'+
+      '<button type="button" class="icon-btn" onclick="removeExtIngUnit('+i+')" aria-label="'+esc(t('delete'))+'">'+ic('x',16)+'</button>'+
+    '</div>';
+  }).join('');
+  return '<div class="field" style="margin-top:14px;"><label>'+esc(zh?'单位换算（选填）':'Unit conversions (optional)')+'</label>'+rows+
+    '<button type="button" class="btn btn-outline btn-sm" onclick="addExtIngUnit()">'+ic('plus',14)+' '+esc(zh?'添加单位':'Add unit')+'</button>'+
+    '<p class="hint" style="margin-top:6px;">'+esc(zh?'比如 1 杯 = 240 g、1 个 = 50 g。设置后，添加和编辑用量时可以直接选这些单位，营养按克数换算。名字跟标准单位相同（比如 cup）会以你设置的为准。':'For example 1 cup = 240 g or 1 piece = 50 g. Once set, you can pick these units when adding or editing amounts, and nutrition is calculated from the grams. A name equal to a standard unit (such as cup) overrides it.')+'</p></div>';
+}
+function addExtIngUnit(){
+  var ui = state.extIngUI; ui.custom_units = ui.custom_units || [];
+  ui.custom_units.push({unit:'', grams:''});
+  renderExternalIngredientModal();
+}
+function removeExtIngUnit(i){
+  var ui = state.extIngUI; if(!ui.custom_units) return;
+  ui.custom_units.splice(i,1);
+  if(ui.unit && ui.unit!=='g' && extIngCreateUnitOptions().indexOf(ui.unit)===-1) ui.unit = 'g';
+  renderExternalIngredientModal();
+}
+function onExtIngUnitField(i, key, val){
+  var ui = state.extIngUI; if(!ui.custom_units || !ui.custom_units[i]) return;
+  ui.custom_units[i][key] = val;
+}
+// 把弹窗里填的行整理成最终要存的 [{unit, grams}]：全空的行忽略；填了一半、克数不是正数、名字是 g/kg、名字重复都不让保存。
+function extIngCollectUnits(ui){
+  var zh = state.lang==='zh', out = [], seen = {};
+  var rows = ui.custom_units || [];
+  for(var i=0;i<rows.length;i++){
+    var u = (rows[i].unit||'').trim();
+    var gStr = String(rows[i].grams==null ? '' : rows[i].grams).trim();
+    if(!u && !gStr) continue;
+    if(!u || !gStr) return {error: zh ? '单位换算里有一行没填完整' : 'A unit conversion row is incomplete'};
+    var g = parseAmountInput(gStr);
+    if(!(g>0)) return {error: zh ? '“'+u+'”的克数要大于 0' : 'Grams for "'+u+'" must be greater than 0'};
+    var k = extUnitKey(u);
+    if(k==='g' || k==='kg') return {error: zh ? 'g、kg 是固定单位，不用设置换算' : 'g and kg are fixed units and need no conversion'};
+    if(seen[k]) return {error: zh ? '单位重复：'+u : 'Duplicate unit: '+u};
+    seen[k] = 1;
+    out.push({unit:u, grams:g});
+  }
+  return {units: out};
+}
 function createExternalIngredientAndAdd(){
   var ui = state.extIngUI;
   var name = (ui.name||'').trim();
   if(!name){ showToast(state.lang==='zh'?'请输入食材名称':'Please enter a name'); return; }
+  var cuRes = extIngCollectUnits(ui);
+  if(cuRes.error){ showToast(cuRes.error); return; }
   var ing = {id:uid(), name:name, nutrition:ui.nutrition, nutrition_extra:ui.nutrition_extra, created_at:todayStr(), updated_at:nowLocalIso()};
+  if(cuRes.units.length) ing.custom_units = cuRes.units; // README 9.297
+  var addUnit = ui.unit || 'g';
+  if(externalUnitOptions(ing).indexOf(addUnit)===-1 && (WEIGHT_UNITS.concat(VOLUME_UNITS)).indexOf(addUnit)===-1) addUnit = 'g'; // 选的是刚被删掉的换算单位
   state.ingredients.push(ing);
   saveIngredients();
-  addIngredientToRecipe('external', ing.id, ing.name, ui.amount||100, ui.unit||'g');
+  addIngredientToRecipe('external', ing.id, ing.name, ui.amount||100, addUnit);
   closeModal();
   navigate('recipeForm');
 }
@@ -13021,9 +13122,12 @@ function saveExternalIngredientEdit(){
   if(!ing) return;
   var name = (ui.name||'').trim();
   if(!name){ showToast(state.lang==='zh'?'请输入食材名称':'Please enter a name'); return; }
+  var cuRes = extIngCollectUnits(ui);
+  if(cuRes.error){ showToast(cuRes.error); return; }
   ing.name = name;
   ing.nutrition = ui.nutrition;
   ing.nutrition_extra = ui.nutrition_extra;
+  if(cuRes.units.length) ing.custom_units = cuRes.units; else delete ing.custom_units; // README 9.297
   ing.updated_at = nowLocalIso();
   saveIngredients();
   closeModal();
@@ -13275,6 +13379,9 @@ function editMealsetTplItem(idx){
     // 的usda分支不认单位，永远把amount当克数用)，这里的单位可选项限定为重量单位，避免选了ml等
     // 体积单位之后数值被当成克数误用。
     unitOpts = usdaUnitOptions(usdaDensityOf(it), true);
+  } else if(it.source_type==='external'){
+    // README 9.297: 外部食材自己的换算单位
+    unitOpts = externalUnitOptions(state.ingredients.find(function(x){ return x.id===it.source_id; }));
   } else {
     unitOpts = WEIGHT_UNITS.concat(VOLUME_UNITS);
   }
@@ -13550,6 +13657,9 @@ function editRecipeIngredient(idx){
     // README 9.202: 理由同套餐那边(editMealsetTplItem)的usda分支——USDA快照始终按克数算，
     // 只给重量单位可选。
     unitOpts = usdaUnitOptions(usdaDensityOf(ri), true);
+  } else if(ri.source_type==='external'){
+    // README 9.297: 外部食材自己的换算单位
+    unitOpts = externalUnitOptions(state.ingredients.find(function(x){ return x.id===ri.source_id; }));
   } else {
     unitOpts = WEIGHT_UNITS.concat(VOLUME_UNITS);
   }
@@ -15860,6 +15970,9 @@ function editMealsetLogSubItem(entryId, idx){
     unitOpts = item ? recipeUnitOptionsForItem(item) : [si.unit];
   } else if(si.source_type==='usda'){
     unitOpts = usdaUnitOptions(usdaDensityOf(si), true);
+  } else if(si.source_type==='external'){
+    // README 9.297: 外部食材自己的换算单位
+    unitOpts = externalUnitOptions(state.ingredients.find(function(x){ return x.id===si.source_id; }));
   } else {
     unitOpts = WEIGHT_UNITS.concat(VOLUME_UNITS);
   }
@@ -16698,6 +16811,9 @@ function editMealsetDraftItemAmount(idx){
     // README 9.200: 理由同editMealsetTplItem的usda分支——USDA快照始终按克数(重量)算，只给重量
     // 单位可选，避免选中体积单位后数值被误当克数使用。
     unitOpts = usdaUnitOptions(usdaDensityOf(it), true);
+  } else if(it.source_type==='external'){
+    // README 9.297: 外部食材自己的换算单位
+    unitOpts = externalUnitOptions(state.ingredients.find(function(x){ return x.id===it.source_id; }));
   } else {
     unitOpts = WEIGHT_UNITS.concat(VOLUME_UNITS);
   }
@@ -17031,7 +17147,7 @@ function computeQuickAddNutritionForExternal(ingId){
   var last = (state.mealAddLastAmount||{})['external:'+ingId];
   if(!last || !last.amount) return null;
   var basisInfo = ingredientBasisInfo(ing);
-  var used = amountToBasisUnits(last.amount, last.unit, null);
+  var used = amountToBasisUnits(last.amount, last.unit, null, ing);
   if(used==null) used = countBasisMatch(ing, last.amount, last.unit);
   if(used==null) return null;
   return {
@@ -17814,6 +17930,9 @@ function pickLocalFoodForMeal(type, id){
   } else {
     var ing = state.ingredients.find(function(x){ return x.id===id; });
     af.picked = {type:'external', id:id, name:ing.name};
+    // README 9.297: 单位默认用这个外部食材上次记的单位(不在选项里数量页会自己退回 g)；以前这里没重置，会带着上一个选择的单位
+    var lastE = (state.mealAddLastAmount||{})['external:'+id];
+    af.amountUnit = (lastE && lastE.unit) || null;
   }
   af.step = 'amount';
   render();
@@ -18672,9 +18791,9 @@ function computeAddFoodPreviewNutrition(af){
     : p.type==='offquick' ? p.fakeSrc
     : state.ingredients.find(function(x){ return x.id===p.id; });
   if(!src) return null;
-  var unitPicked = (af.amountUnit && (p.type==='item' || p.type==='offquick')) ? af.amountUnit : 'g';
+  var unitPicked = (af.amountUnit && (p.type==='item' || p.type==='offquick' || p.type==='external')) ? af.amountUnit : 'g'; // README 9.297: 外部食材现在也能选单位
   var basisInfo = ingredientBasisInfo(src);
-  var used = amountToBasisUnits(amt2, unitPicked, p.type==='item' ? src : null);
+  var used = amountToBasisUnits(amt2, unitPicked, p.type==='item' ? src : null, p.type==='external' ? src : null);
   if(used == null) used = countBasisMatch(src, amt2, unitPicked);
   if(used == null) return null;
   return scaleNutrition(src.nutrition, basisInfo, used);
@@ -18811,6 +18930,16 @@ function addFoodAmountBodyHtml(af){
         usdaUnits.map(function(u){ return '<option value="'+esc(u)+'" '+(af.amountUnit===u?'selected':'')+'>'+esc(u)+'</option>'; }).join('')+
       '</select></div>') : '';
   }
+  // README 9.297: 外部食材的数量页也有单位下拉了：g + 它自己设置的换算单位 + 标准单位；上次用的单位不在选项里
+  // (比如换算被删了)就退回 g。
+  var extSrc = (p.type==='external') ? state.ingredients.find(function(x){ return x.id===p.id; }) : null;
+  if(p.type==='external'){
+    var extUnits = externalUnitOptions(extSrc);
+    if(!af.amountUnit || extUnits.indexOf(af.amountUnit)===-1) af.amountUnit = 'g';
+    itemUnitField = '<div class="field"><label>'+t('fieldMealAmountUnit')+'</label><select onchange="setAddFoodAmountUnit(this.value)">'+
+      extUnits.map(function(u){ return '<option value="'+esc(u)+'" '+(af.amountUnit===u?'selected':'')+'>'+esc(u)+'</option>'; }).join('')+
+    '</select></div>';
+  }
   if(isItem && itemSrc){
     var itemUnits = orderedUnitOptionsForItem(itemSrc);
     // README 9.185: 上次记的单位(pickLocalFoodForMeal里从state.mealAddItemPrefs读出来的
@@ -18904,7 +19033,7 @@ function addFoodAmountBodyHtml(af){
       // 露出空白的另一栏。9.189: 标签从"重量"改成更通用的"数量"——单位不一定是重量单位(可以是
       // ml/件/份等)，"数量"更准确，纯文案调整。
       '<div class="field-row">'+
-        '<div class="field"><label>'+t('fieldMealAmount')+((isItem||p.type==='offquick'||p.type==='usda') ? (' ('+esc(af.amountUnit||'g')+')') : ' (g)')+'</label><input type="text" id="af-amount-input" autofocus placeholder="-" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>'+
+        '<div class="field"><label>'+t('fieldMealAmount')+((isItem||p.type==='offquick'||p.type==='usda'||p.type==='external') ? (' ('+esc(af.amountUnit||'g')+')') : ' (g)')+'</label><input type="text" id="af-amount-input" autofocus placeholder="-" value="'+esc(af.amountText)+'" oninput="onAddFoodAmountInput(this.value)"></div>'+
         itemUnitField+
       '</div>'+
       (usdaUnits && usdaUnits.length===1 ? '<p class="hint" style="margin:-4px 2px 10px;">'+t('usdaNoVolumeHint')+'</p>' : '')
@@ -19026,9 +19155,9 @@ function saveMealLogEntry(){
     var src = p.type==='item' ? state.items.find(function(x){ return x.id===p.id; })
       : p.type==='offquick' ? p.fakeSrc
       : state.ingredients.find(function(x){ return x.id===p.id; });
-    var unitPicked = (af.amountUnit && (p.type==='item' || p.type==='offquick')) ? af.amountUnit : 'g';
+    var unitPicked = (af.amountUnit && (p.type==='item' || p.type==='offquick' || p.type==='external')) ? af.amountUnit : 'g'; // README 9.297: 外部食材现在也能选单位
     var basisInfo = ingredientBasisInfo(src);
-    var used = amountToBasisUnits(amt2, unitPicked, p.type==='item' ? src : null);
+    var used = amountToBasisUnits(amt2, unitPicked, p.type==='item' ? src : null, p.type==='external' ? src : null);
     if(used == null) used = countBasisMatch(src, amt2, unitPicked);
     if(used == null){ showToast(t('unitConversionUnavailable')); return; }
     nutrition = scaleNutrition(src.nutrition, basisInfo, used);
@@ -19189,9 +19318,9 @@ function ipConfirmAmountPick(){
     var src = p.type==='item' ? state.items.find(function(x){ return x.id===p.id; })
       : p.type==='offquick' ? p.fakeSrc
       : state.ingredients.find(function(x){ return x.id===p.id; });
-    var unitPicked = (af.amountUnit && (p.type==='item' || p.type==='offquick')) ? af.amountUnit : 'g';
+    var unitPicked = (af.amountUnit && (p.type==='item' || p.type==='offquick' || p.type==='external')) ? af.amountUnit : 'g'; // README 9.297: 外部食材现在也能选单位
     var basisInfo = ingredientBasisInfo(src);
-    var used = amountToBasisUnits(amt2, unitPicked, p.type==='item' ? src : null);
+    var used = amountToBasisUnits(amt2, unitPicked, p.type==='item' ? src : null, p.type==='external' ? src : null);
     if(used == null) used = countBasisMatch(src, amt2, unitPicked);
     if(used == null){ showToast(t('unitConversionUnavailable')); return; }
     nutrition = scaleNutrition(src.nutrition, basisInfo, used);
