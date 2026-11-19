@@ -1008,7 +1008,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.300';
+var BUILD_VERSION = '9.301';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -3810,6 +3810,33 @@ function usdaRemoteTags(fdcId){
   out.sort(function(a,b){ return (b.ts||0) - (a.ts||0); });
   return out;
 }
+// ===================== README 9.301: 每次添加时选用哪个名字 =====================
+// 记录(三餐/套餐子项/食谱食材/套餐食材)上多一个字段 usda_label：字符串=这条记录选用的名字(添加时的那个标签的文字，之后标签改字、
+// 删除、再加新标签都不影响它)；''=明确选了"用 USDA 原词条名"；没有这个字段(老记录、快速勾选添加的)=老规则，按最新标签显示。
+function usdaLabelOverride(obj){ return (obj && typeof obj.usda_label==='string') ? obj.usda_label : null; }
+// 搜索词命中了什么：{kind:'tag', tag} / {kind:'orig'} / null(都不是直接命中，比如中文翻译成英文才搜到的)。标签优先于原词条名。
+function usdaQueryHit(fdcId, description, brandName, query){
+  var q = String(query||'').trim().toLowerCase();
+  if(!q) return null;
+  var tags = usdaMyTags(fdcId).concat(usdaRemoteTags(fdcId));
+  var tg = tags.find(function(x){ return String(x.text).toLowerCase()===q; }) || tags.find(function(x){ return String(x.text).toLowerCase().indexOf(q)>=0; });
+  if(tg) return {kind:'tag', tag:tg};
+  if(String(description||'').toLowerCase().indexOf(q)>=0 || String(brandName||'').toLowerCase().indexOf(q)>=0) return {kind:'orig'};
+  return null;
+}
+// 数量页默认选中哪个标签(返回标签id；null=不选任何标签=用原词条名)
+function usdaDefaultLabelId(fdcId, description, brandName, query){
+  var hit = usdaQueryHit(fdcId, description, brandName, query);
+  if(hit) return hit.kind==='tag' ? hit.tag.id : null;
+  var mine = usdaMyTags(fdcId); if(mine.length) return mine[0].id;
+  var theirs = usdaRemoteTags(fdcId); return theirs.length ? theirs[0].id : null;
+}
+function usdaTagTextById(fdcId, tagId){
+  if(!tagId) return '';
+  var all = usdaMyTags(fdcId).concat(usdaRemoteTags(fdcId));
+  var tg = all.find(function(x){ return x.id===tagId; });
+  return tg ? tg.text : '';
+}
 function usdaDisplayTag(fdcId){
   var mine = usdaMyTags(fdcId);
   if(mine.length) return mine[0].text;
@@ -3860,8 +3887,10 @@ function usdaTagsInnerHtml(af){
   var fdcId = af.picked.fdcId;
   var mine = usdaMyTags(fdcId), theirs = usdaRemoteTags(fdcId);
   var html = '';
+  var selId = af.picked.usdaLabelId || null;
   mine.forEach(function(tg){
     html += '<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">'+
+      '<div class="bulk-checkbox '+(selId===tg.id?'checked':'')+'" style="margin-top:0;flex-shrink:0;" onclick="onUsdaLabelPick('+aj(tg.id)+')">'+(selId===tg.id?ic('check',14):'')+'</div>'+
       '<input type="text" autocapitalize="words" value="'+esc(tg.text)+'" style="flex:1;min-width:0;" onchange="onUsdaTagRename('+aj(fdcId)+','+aj(tg.id)+',this.value)">'+
       '<button class="icon-btn" onclick="onUsdaTagRemove('+aj(fdcId)+','+aj(tg.id)+')" aria-label="'+esc(t('delete'))+'">'+ic('trash',18)+'</button>'+
     '</div>';
@@ -3872,7 +3901,7 @@ function usdaTagsInnerHtml(af){
   '</div>';
   if(theirs.length){
     html += '<p class="hint" style="margin:12px 0 6px;">'+esc(t('usdaTagRemoteTitle'))+'</p><div style="display:flex;flex-wrap:wrap;gap:6px;">'+
-      theirs.map(function(tg){ return '<span style="background:var(--cream);border:1px solid var(--line);border-radius:14px;padding:4px 10px;font-size:14px;">'+esc(tg.text)+'</span>'; }).join('')+
+      theirs.map(function(tg){ var on = selId===tg.id; return '<span style="cursor:pointer;background:'+(on?'var(--caramel-light)':'var(--cream)')+';border:1px solid var(--line);border-radius:14px;padding:4px 10px;font-size:14px;" onclick="onUsdaLabelPick('+aj(tg.id)+')">'+esc(tg.text)+'</span>'; }).join('')+
     '</div>';
   }
   html += '<p class="hint" style="margin:10px 0 0;">'+esc(t(!mine.length && theirs.length ? 'usdaTagHintOnlyRemote' : 'usdaTagHint'))+'</p>';
@@ -3895,7 +3924,15 @@ function onUsdaTagAdd(fdcId){
   if(r==='dup'){ showToast(t('usdaTagDup')); return; }
   if(r==='empty') return;
   af.usdaTagDraft = '';
+  // README 9.301: 刚添加的标签自动选中(最新添加的排第一)
+  var _nm = usdaMyTags(fdcId); if(_nm.length && af.picked) af.picked.usdaLabelId = _nm[0].id;
   refreshUsdaTagsBlock(true);
+}
+// README 9.301: 点一个标签=这次用它；再点一次已选中的=取消，什么都不选就用 USDA 原词条名
+function onUsdaLabelPick(tagId){
+  var af = activeAddCtx(); if(!af || !af.picked) return;
+  af.picked.usdaLabelId = (af.picked.usdaLabelId===tagId) ? null : tagId;
+  refreshUsdaTagsBlock(false);
 }
 function onUsdaTagRename(fdcId, tagId, text){
   var r = renameUsdaTag(fdcId, tagId, text);
@@ -3904,6 +3941,7 @@ function onUsdaTagRename(fdcId, tagId, text){
 }
 function onUsdaTagRemove(fdcId, tagId){
   removeUsdaTag(fdcId, tagId);
+  var _af = activeAddCtx(); if(_af && _af.picked && _af.picked.usdaLabelId===tagId) _af.picked.usdaLabelId = null; // 删掉的是选中的 → 回到原词条名
   refreshUsdaTagsBlock(false);
 }
 function saveCustomSaved(){
@@ -5304,7 +5342,7 @@ function buildMealsetLogItems(mealset, multiplier, visited){
             // 就只能返回空营养。之前的问题是：这份草稿/已存记录里的usda/custom条目一旦被编辑
             // (改数量触发confirmEditMealsetDraftItem/confirmEditMealsetLogSubItem的
             // recomputeMealsetLogItemNutrition重算)，营养就被静默清零——加上这几个字段之后修复。
-            nutrition_snapshot_per100g: si.nutrition_snapshot_per100g, nutrition_extra_snapshot_per100g: si.nutrition_extra_snapshot_per100g, usda_density_g_per_ml: si.usda_density_g_per_ml,
+            nutrition_snapshot_per100g: si.nutrition_snapshot_per100g, nutrition_extra_snapshot_per100g: si.nutrition_extra_snapshot_per100g, usda_density_g_per_ml: si.usda_density_g_per_ml, usda_label: si.usda_label,
             nutrition_snapshot: si.nutrition_snapshot, nutrition_extra_snapshot: si.nutrition_extra_snapshot
           });
         });
@@ -5322,7 +5360,7 @@ function buildMealsetLogItems(mealset, multiplier, visited){
       nutrition: computed.nutrition, nutrition_extra: computed.nutrition_extra, deduct: it.source_type==='inventory',
       // README 9.203: 同上一条注释——这两行是这次一并修的bug，让usda/custom条目在草稿/已存记录
       // 里被编辑数量后还能正确重算，不会清零。
-      nutrition_snapshot_per100g: it.nutrition_snapshot_per100g, nutrition_extra_snapshot_per100g: it.nutrition_extra_snapshot_per100g, usda_density_g_per_ml: it.usda_density_g_per_ml,
+      nutrition_snapshot_per100g: it.nutrition_snapshot_per100g, nutrition_extra_snapshot_per100g: it.nutrition_extra_snapshot_per100g, usda_density_g_per_ml: it.usda_density_g_per_ml, usda_label: it.usda_label,
       nutrition_snapshot: it.nutrition_snapshot, nutrition_extra_snapshot: it.nutrition_extra_snapshot
     });
   });
@@ -7878,6 +7916,10 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.301', items:[
+    {t:'new', zh:'USDA 食材起了不止一个名字（标签）时，现在可以选这次用哪个了：数量页“标签”栏里，每个标签前有一个小圆圈，点哪个这次就用哪个名字（再点一次取消；什么都不选就用 USDA 原词条名）。选好之后，这条三餐记录、食谱或套餐里的这一行就一直用这个名字，以后改标签、删标签、再加新标签都不会影响它。', en:'When a USDA food has more than one name (tag), you can now pick which one to use: on the amount page each tag has a small circle (tap again to unselect; selecting none uses the original USDA name). That meal entry, recipe or meal set row keeps the chosen name even if you later edit, delete or add tags.'},
+    {t:'tweak', zh:'默认选哪个名字，看你是怎么搜到它的：搜的是某个标签，就默认选那个标签；搜的是 USDA 原词条名（比如英文），默认一个都不选、用原词条名；其它情况（比如直接从常用列表点进来）默认是最新添加的标签。搜索结果里的标题也按这个规则显示，一个食材仍然只占一行。', en:'The default name depends on how you found the food: searching a tag selects that tag; searching the original USDA name selects none (original name); otherwise the newest tag. Search result titles follow the same rule, still one row per food.'}
+  ]},
   {v:'9.300', items:[
     {t:'fix', zh:'给 USDA 食材起了名字（标签）之后，在“添加食材”的 USDA 页搜这个名字，现在会马上从“常用”里找出来，不用再等“翻译中…”（以前中文关键词要先翻译成英文，翻译完才去本地找）。没有对应标签的中文词，仍然先翻译再搜；本地结果下面的“继续搜索 USDA 数据库”点一下才会去翻译、联网。', en:'Searching a name (tag) you gave a USDA food now finds it in Frequently used instantly, without waiting for \'Translating…\'. Chinese terms with no matching tag are still translated first; the Continue searching USDA entry translates only when tapped.'}
   ]},
@@ -12279,8 +12321,9 @@ function usdaOriginalName(sourceId, snapshot){
   var sv = (state.usdaSaved||{})[sourceId];
   return snapshot || (sv && sv.description) || '';
 }
-function usdaOrigNameHintHtml(sourceId, snapshot){
-  var tag = usdaDisplayTag(sourceId);
+function usdaOrigNameHintHtml(sourceId, snapshot, obj){
+  var _ov = usdaLabelOverride(obj); // README 9.301: 记录自己选了名字的，按它自己的名字比
+  var tag = _ov!==null ? _ov : usdaDisplayTag(sourceId);
   if(!tag) return '';
   var orig = usdaOriginalName(sourceId, snapshot);
   if(!orig || orig===tag) return '';
@@ -12289,12 +12332,20 @@ function usdaOrigNameHintHtml(sourceId, snapshot){
 // 有 source_type/source_id/name 三项的东西(三餐记录、套餐里的子项、草稿行)显示用的名字
 function usdaShownName(obj, nameField){
   var nm = obj[nameField || 'name'];
-  if(obj && obj.source_type==='usda' && obj.source_id!=null && obj.source_id!=='') return usdaDisplayName(obj.source_id, nm || usdaOriginalName(obj.source_id, ''));
+  if(obj && obj.source_type==='usda' && obj.source_id!=null && obj.source_id!==''){
+    var _ov = usdaLabelOverride(obj); // README 9.301
+    if(_ov!==null) return _ov || nm || usdaOriginalName(obj.source_id, '');
+    return usdaDisplayName(obj.source_id, nm || usdaOriginalName(obj.source_id, ''));
+  }
   return nm;
 }
 function mealsetItemShownName(item){
   var nm = mealsetItemDisplayName(item);
-  return (item.source_type==='usda' && item.source_id!=null && item.source_id!=='') ? usdaDisplayName(item.source_id, nm) : nm;
+  if(item.source_type==='usda' && item.source_id!=null && item.source_id!==''){
+    var _ov = usdaLabelOverride(item); // README 9.301
+    return _ov!==null ? (_ov || nm) : usdaDisplayName(item.source_id, nm);
+  }
+  return nm;
 }
 // README 9.265: 搜索用：这条食材的所有"叫法"(都转小写)。显示名按标签，但搜的时候标签(本机的和对方的)和 USDA 原词条名
 // 任何一个都能搜到——输入标签或原词条名都行。
@@ -12304,11 +12355,16 @@ function recipeIngredientSearchNames(ri){
     var orig = usdaOriginalName(ri.source_id, ri.name_snapshot);
     if(orig) out.push(orig.toLowerCase());
     usdaMyTags(ri.source_id).concat(usdaRemoteTags(ri.source_id)).forEach(function(tg){ out.push(tg.text.toLowerCase()); });
+    if(usdaLabelOverride(ri)) out.push(usdaLabelOverride(ri).toLowerCase()); // README 9.301
   }
   return out;
 }
 function recipeIngredientDisplayName(ri){
-  if(ri.source_type==='usda') return usdaDisplayName(ri.source_id, usdaOriginalName(ri.source_id, ri.name_snapshot) || '?'); // README 9.264
+  if(ri.source_type==='usda'){
+    var _ov = usdaLabelOverride(ri); // README 9.301
+    var _orig = usdaOriginalName(ri.source_id, ri.name_snapshot) || '?';
+    return _ov!==null ? (_ov || _orig) : usdaDisplayName(ri.source_id, _orig); // README 9.264
+  }
   var src = getIngredientSource(ri);
   return src ? src.name : (ri.name_snapshot || '?');
 }
@@ -13495,7 +13551,7 @@ function editMealsetTplItem(idx){
     // README 9.203: usda来源多加一个"查看详情"入口——本地缓存(state.usdaSaved)里存着完整营养表，
     // 之前这里只能改数量/单位，看不到完整数据。closeModal()先关掉这个弹窗再跳转，回来时(从
     // usdaFoodDetail页头返回箭头/右划)正好落回套餐模板编辑页本身。
-    (it.source_type==='usda' ? usdaOrigNameHintHtml(it.source_id, it.name_snapshot || it.name)+'<button class="btn btn-outline btn-sm" style="width:100%;margin-bottom:10px;" onclick="viewUsdaSourceDetail('+aj(it.source_id)+','+aj(mealsetItemDisplayName(it))+','+aj({view:'mealsetForm'})+')">'+ic('note',15)+' '+t('viewSourceDetail')+'</button>' : '')+
+    (it.source_type==='usda' ? usdaOrigNameHintHtml(it.source_id, it.name_snapshot || it.name, it)+'<button class="btn btn-outline btn-sm" style="width:100%;margin-bottom:10px;" onclick="viewUsdaSourceDetail('+aj(it.source_id)+','+aj(mealsetItemDisplayName(it))+','+aj({view:'mealsetForm'})+')">'+ic('note',15)+' '+t('viewSourceDetail')+'</button>' : '')+
     '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" id="ing-amount" autofocus placeholder="'+t('ingAmountPh')+'" value="'+fmtAmountOf(it)+'"></div>'+
     '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u){ return '<div class="tag-option '+(u===it.unit?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+esc(recipeUnitLabel(u))+'</div>'; }).join('')+'</div></div>'+
     '<div class="btn-row" style="margin-top:14px;">'+
@@ -13770,7 +13826,7 @@ function editRecipeIngredient(idx){
   }
   if(unitOpts.indexOf(ri.unit)===-1) unitOpts.unshift(ri.unit);
   showModal(esc(recipeIngredientDisplayName(ri)),
-    (ri.source_type==='usda' ? usdaOrigNameHintHtml(ri.source_id, ri.name_snapshot)+'<button class="btn btn-outline btn-sm" style="width:100%;margin-bottom:10px;" onclick="viewUsdaSourceDetail('+aj(ri.source_id)+','+aj(recipeIngredientDisplayName(ri))+','+aj({view:'recipeForm'})+')">'+ic('note',15)+' '+t('viewSourceDetail')+'</button>' : '')+
+    (ri.source_type==='usda' ? usdaOrigNameHintHtml(ri.source_id, ri.name_snapshot, ri)+'<button class="btn btn-outline btn-sm" style="width:100%;margin-bottom:10px;" onclick="viewUsdaSourceDetail('+aj(ri.source_id)+','+aj(recipeIngredientDisplayName(ri))+','+aj({view:'recipeForm'})+')">'+ic('note',15)+' '+t('viewSourceDetail')+'</button>' : '')+
     '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" id="ing-amount" autofocus placeholder="'+t('ingAmountPh')+'" value="'+fmtAmountOf(ri)+'"></div>'+
     '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u){ return '<div class="tag-option '+(u===ri.unit?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+esc(recipeUnitLabel(u))+'</div>'; }).join('')+'</div></div>'+
     (ri.source_type==='recipe' ? recipeIngUseExistingToggleHtml(ri.use_existing?'existing':'fresh') : '')+
@@ -15962,7 +16018,7 @@ function renderMealLogEntryDetail(){
   return '' +
   '<div class="page-header"><button class="back-btn" onclick="navigate(\'meals\')">'+ic('back',22)+'</button><h1>'+esc(usdaShownName(m))+'</h1></div>'+
   '<div class="content">'+
-    (m.source_type==='usda' ? usdaOrigNameHintHtml(m.source_id, m.name) : '')+
+    (m.source_type==='usda' ? usdaOrigNameHintHtml(m.source_id, m.name, m) : '')+
     mainFieldsHtml+
     '<div id="meal-entry-nutrition-preview">'+mealEntryNutritionPreviewHtml(previewN)+'</div>'+
     '<button class="btn btn-primary" style="width:100%;margin-top:16px;margin-bottom:20px;" onclick="saveMealLogEntryEdit()">'+t('save')+'</button>'+
@@ -16568,7 +16624,7 @@ function consumeMealsetAppend(entryId){
   var ts = nowLocalIso();
   var newSubs = items.map(function(it){
     return {id: it.id||uid(), source_type:it.source_type, source_id:it.source_id, name:it.name, amount:it.amount, unit:it.unit, nutrition:it.nutrition, nutrition_extra:it.nutrition_extra||{},
-      nutrition_snapshot_per100g: it.nutrition_snapshot_per100g, nutrition_extra_snapshot_per100g: it.nutrition_extra_snapshot_per100g, usda_density_g_per_ml: it.usda_density_g_per_ml,
+      nutrition_snapshot_per100g: it.nutrition_snapshot_per100g, nutrition_extra_snapshot_per100g: it.nutrition_extra_snapshot_per100g, usda_density_g_per_ml: it.usda_density_g_per_ml, usda_label: it.usda_label,
       nutrition_snapshot: it.nutrition_snapshot, nutrition_extra_snapshot: it.nutrition_extra_snapshot};
   });
   _restockCollected = [];
@@ -16924,7 +16980,7 @@ function editMealsetDraftItemAmount(idx){
   }
   if(unitOpts.indexOf(it.unit)===-1) unitOpts.unshift(it.unit);
   showModal(esc(usdaShownName(it)),
-    (it.source_type==='usda' ? usdaOrigNameHintHtml(it.source_id, it.name_snapshot || it.name)+'<button class="btn btn-outline btn-sm" style="width:100%;margin-bottom:10px;" onclick="viewUsdaSourceDetail('+aj(it.source_id)+','+aj(it.name)+','+aj({view:'mealAddFood'})+')">'+ic('note',15)+' '+t('viewSourceDetail')+'</button>' : '')+
+    (it.source_type==='usda' ? usdaOrigNameHintHtml(it.source_id, it.name_snapshot || it.name, it)+'<button class="btn btn-outline btn-sm" style="width:100%;margin-bottom:10px;" onclick="viewUsdaSourceDetail('+aj(it.source_id)+','+aj(it.name)+','+aj({view:'mealAddFood'})+')">'+ic('note',15)+' '+t('viewSourceDetail')+'</button>' : '')+
     '<div class="field"><label>'+t('ingAmountLabel')+'</label><input type="text" id="ing-amount" autofocus placeholder="'+t('ingAmountPh')+'" value="'+fmtAmountOf(it)+'"></div>'+
     '<div class="field"><label>'+t('ingUnitLabel')+'</label><div class="tag-select" id="ing-unit-pills">'+unitOpts.map(function(u){ return '<div class="tag-option '+(u===it.unit?'active':'')+'" data-u="'+u+'" onclick="selectPillIn(this,\'ing-unit-pills\')">'+esc(recipeUnitLabel(u))+'</div>'; }).join('')+'</div></div>'+
     '<div class="btn-row" style="margin-top:14px;">'+
@@ -16994,7 +17050,7 @@ function commitMealsetLogEntry(date, slot, mealsetId, mealsetName, items){
       // m.subItems的地方（新记一顿套餐时，saveMealsetLogEntryFinal/commitOneQuickPick都走这里），
       // 之前这个白名单式的.map()没有把这几个快照字段带过来，等于绕开了那次修复——新记的套餐里
       // usda/自定条目照样会在编辑数量后清零。这次一并补上。
-      nutrition_snapshot_per100g: it.nutrition_snapshot_per100g, nutrition_extra_snapshot_per100g: it.nutrition_extra_snapshot_per100g, usda_density_g_per_ml: it.usda_density_g_per_ml,
+      nutrition_snapshot_per100g: it.nutrition_snapshot_per100g, nutrition_extra_snapshot_per100g: it.nutrition_extra_snapshot_per100g, usda_density_g_per_ml: it.usda_density_g_per_ml, usda_label: it.usda_label,
       nutrition_snapshot: it.nutrition_snapshot, nutrition_extra_snapshot: it.nutrition_extra_snapshot};
   });
   var entryId = uid();
@@ -17033,6 +17089,7 @@ function commitMealsetLogEntry(date, slot, mealsetId, mealsetName, items){
       if(it.source_type==='usda'){
         li.nutrition_snapshot_per100g = it.nutrition_snapshot_per100g; li.nutrition_extra_snapshot_per100g = it.nutrition_extra_snapshot_per100g;
         li.usda_density_g_per_ml = it.usda_density_g_per_ml;
+        if(typeof it.usda_label==='string') li.usda_label = it.usda_label; // README 9.301
       } else if(it.source_type==='custom'){
         li.nutrition_snapshot = it.nutrition_snapshot || it.nutrition; li.nutrition_extra_snapshot = it.nutrition_extra_snapshot || it.nutrition_extra;
       }
@@ -17311,7 +17368,7 @@ function computeQuickAddForMealset(mealsetId){
     var computed = recomputeMealsetLogItemNutrition(li);
     return {id:uid(), source_type:li.source_type, source_id:li.source_id, name:mealsetItemDisplayName(li), amount:li.amount, amount_text:li.amount_text, unit:li.unit, nutrition:computed.nutrition, nutrition_extra:computed.nutrition_extra,
       // README 9.217: 把快照字段带下去，这批条目之后进草稿/存成记录时，改数量才不会清零。
-      nutrition_snapshot_per100g: li.nutrition_snapshot_per100g, nutrition_extra_snapshot_per100g: li.nutrition_extra_snapshot_per100g, usda_density_g_per_ml: li.usda_density_g_per_ml,
+      nutrition_snapshot_per100g: li.nutrition_snapshot_per100g, nutrition_extra_snapshot_per100g: li.nutrition_extra_snapshot_per100g, usda_density_g_per_ml: li.usda_density_g_per_ml, usda_label: li.usda_label,
       nutrition_snapshot: li.nutrition_snapshot, nutrition_extra_snapshot: li.nutrition_extra_snapshot};
   });
   var totalCal = 0;
@@ -17816,7 +17873,9 @@ function usdaResultRowHtml(f){
   var qa = (saved && saved.lastAmount) ? computeQuickAddNutritionForUsda(f.fdcId) : null;
   var key = 'usda:'+f.fdcId;
   // README 9.263: 有标签的词条(本机的或对方的)，搜索结果行也显示标签名，原词条名挪到下面的小字里，方便确认是哪一条
-  var _tag = usdaDisplayTag(f.fdcId);
+  // README 9.301: 有搜索词时，标题跟着搜索词命中的名字走(命中某个标签→那个标签；命中原词条名→原词条名；都不是→最新标签)，一个食材仍然只占一行
+  var _afq = activeAddCtx();
+  var _tag = usdaTagTextById(f.fdcId, usdaDefaultLabelId(f.fdcId, f.description, f.brandName, (_afq && _afq.tab==='usda') ? _afq.query : ''));
   if(_tag) sub = esc(f.description)+' · '+sub;
   return '<div class="list-row">'+
     '<div class="row-label" style="cursor:pointer;flex:1;min-width:0;" onclick="pickUsdaFoodForMeal('+aj(f.fdcId)+')">'+esc(_tag || f.description)+'<div class="hint" style="margin-top:2px;">'+sub+'</div></div>'+
@@ -18262,6 +18321,9 @@ async function pickUsdaFoodForMeal(fdcId){
     var _sv = (state.usdaSaved||{})[fdcId] || {};
     af.picked.missing = _sv.missing || usdaMissingCore(nutrition, null);
     af.picked.filled = _sv.filled || null;
+    // README 9.301: 默认选哪个名字——按进来时的搜索词命中了什么；从"同类"换过来的没有搜索词可参考，按最新标签
+    af.picked.usdaLabelId = af._pendingOrig ? usdaDefaultLabelId(fdcId, name, null, '')
+      : usdaDefaultLabelId(fdcId, name, (_sv && _sv.brandName) || null, af.tab==='usda' ? af.query : '');
     af.picked.orig = af._pendingOrig || null; af._pendingOrig = null;
     af.usdaFill = {mode:null, busy:false, err:'', similar:null};
     af.amountText = '100';
@@ -19319,6 +19381,7 @@ function saveMealLogEntry(){
     source_type: p.type==='item' ? 'inventory' : p.type, source_id: (p.type==='usda' ? p.fdcId : p.id) || null
   };
   if(deductItemId){ entry.deductItemId=deductItemId; entry.deductAmount=deductAmount; entry.deductUnit=deductUnit; }
+  if(p.type==='usda') entry.usda_label = usdaTagTextById(p.fdcId, p.usdaLabelId); // README 9.301: 这次选用的名字(''=原词条名)
   setAmountTextOn(entry, af.amountText, amount); // README 9.266: 记下输入的原样写法(分数/小数)
   state.mealLogs.push(entry);
   if(deductItemId){
@@ -19463,6 +19526,7 @@ function ipConfirmAmountPick(){
   if(af.pickerKind==='mealsetTemplate' || af.pickerKind==='recipeIngredients'){
     var tplItem = {id:uid(), source_type:sourceType, source_id:sourceId, name_snapshot:name, amount:amount, unit:unit};
     setAmountTextOn(tplItem, af.amountText, amount); // README 9.266
+    if(sourceType==='usda') tplItem.usda_label = usdaTagTextById(p.fdcId, p.usdaLabelId); // README 9.301
     if(sourceType==='usda' && usdaPer100g){
       tplItem.nutrition_snapshot_per100g = usdaPer100g.nutrition;
       tplItem.nutrition_extra_snapshot_per100g = usdaPer100g.nutrition_extra;
@@ -19498,6 +19562,7 @@ function ipConfirmAmountPick(){
     var outerAf = state.mealsUI.addFood;
     var draftPush = {id:uid(), source_type:sourceType, source_id:sourceId, name:name, amount:amount, unit:unit, nutrition:nutrition, nutrition_extra:nutritionExtra};
     setAmountTextOn(draftPush, af.amountText, amount); // README 9.266
+    if(sourceType==='usda') draftPush.usda_label = usdaTagTextById(p.fdcId, p.usdaLabelId); // README 9.301
     if(sourceType==='custom'){ draftPush.nutrition_snapshot = nutrition; draftPush.nutrition_extra_snapshot = nutritionExtra; }
     // README 9.217: usda条目也要带per100g快照(9.203/9.204只补了buildMealsetLogItems/commitMealsetLogEntry
     // 两处，漏了这个直接往草稿里加usda条目的入口)，否则之后改数量/存成"上次用量"营养都会丢。
