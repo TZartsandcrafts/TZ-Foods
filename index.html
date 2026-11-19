@@ -1008,7 +1008,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.298';
+var BUILD_VERSION = '9.299';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -5723,6 +5723,7 @@ function render(){
     case 'settings': html = renderSettings(); break;
     case 'inventorySettings': html = renderInventorySettings(); break;
     case 'recipesSettings': html = renderRecipesSettings(); break;
+    case 'extIngredients': html = renderExtIngredients(); break; // README 9.299
     case 'mealsSettings': html = renderMealsSettings(); break;
     case 'healthSettings': html = renderHealthSettings(); break;
     case 'manageTags': html = renderManageTags(); break;
@@ -5760,7 +5761,7 @@ function render(){
 function bottomNav(){
   var v = state.view;
   var isHome = (v==='home'||v==='itemForm'||v==='itemDetail'||v==='archive'||v==='stats'||v==='priceHistory'||v==='shoppingList'||v==='itemViewOnly'||v==='statFilteredList'||v==='usageLog'||v==='usageLogAdd'||v==='inventorySettings');
-  var isRecipes = (v==='recipes'||v==='recipeForm'||v==='recipeDetail'||v==='pickInventory'||v==='pickExternal'||v==='pickRecipe'||v==='recipesSettings');
+  var isRecipes = (v==='recipes'||v==='recipeForm'||v==='recipeDetail'||v==='pickInventory'||v==='pickExternal'||v==='pickRecipe'||v==='recipesSettings'||v==='extIngredients');
   var isMeals = (v==='meals'||v==='fastingHistory'||v==='mealsSettings'||v==='planSettings'||v==='macroPresetPicker'||v==='mealAddFood'||v==='mealLogEntryDetail');
   var isHealth = (v==='health'||v==='bpHistory'||v==='waistHistory'||v==='exerciseHistory'||v==='exerciseLogForm'||v==='pickExercise'||v==='weightHistory'||v==='healthSettings'||v==='personalInfo');
   return '' +
@@ -5782,7 +5783,7 @@ function bottomNav(){
 //   choice, which wouldn't make sense there.
 function addMenuOptionsForCurrentSection(){
   var v = state.view;
-  var isRecipes = (v==='recipes'||v==='recipeForm'||v==='recipeDetail'||v==='pickInventory'||v==='pickExternal'||v==='pickRecipe'||v==='recipesSettings');
+  var isRecipes = (v==='recipes'||v==='recipeForm'||v==='recipeDetail'||v==='pickInventory'||v==='pickExternal'||v==='pickRecipe'||v==='recipesSettings'||v==='extIngredients');
   var isMeals = (v==='meals'||v==='fastingHistory'||v==='mealsHistory'||v==='mealsSettings'||v==='planSettings'||v==='macroPresetPicker'||v==='mealAddFood'||v==='mealLogEntryDetail');
   var isHealth = (v==='health'||v==='bpHistory'||v==='waistHistory'||v==='exerciseHistory'||v==='exerciseLogForm'||v==='pickExercise'||v==='weightHistory'||v==='healthSettings'||v==='personalInfo');
   if(isRecipes) return null; // signals "no menu - do the direct action instead"
@@ -6167,6 +6168,7 @@ function openSettings(fromView){
     if(state.view==='fastingHistory') return {view:'meals'};
     if(state.view==='inventorySettings') return {view:'home'};
     if(state.view==='recipesSettings') return {view:'recipes'};
+    if(state.view==='extIngredients') return {view:'recipesSettings'}; // README 9.299
     if(state.view==='mealsSettings') return {view:'meals'};
     if(state.view==='healthSettings') return {view:'health'};
     return null;
@@ -7876,6 +7878,9 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.299', items:[
+    {t:'new', zh:'新增“外部食材”管理页：食谱页右上角设置里多了“外部食材”，点进去可以看到全部外部食材（以前只能在食谱“添加食材”页的库存标签里搜到，而且列表最多显示 20 个），能搜索；每一行显示每 100g 的热量、设置了哪些单位换算、被几个食谱和几个套餐用到。点一行或左划“编辑”可以改营养值和单位换算，左划“删除”可以删除（提示里会说明有几个食谱、套餐在用它）。', en:'New External ingredients page: Recipes settings now has an External ingredients entry that lists all of them (previously they could only be found via search in the Inventory tab of the add-ingredient page, which showed at most 20), with search. Each row shows calories per 100 g, any unit conversions, and how many recipes and meal sets use it. Tap a row or swipe Edit to change nutrition and conversions; swipe Delete to remove it (the prompt tells you how many recipes and meal sets use it).'}
+  ]},
   {v:'9.298', items:[
     {t:'fix', zh:'删除外部食材不会再影响用到它的食谱和套餐了：删除之前，会先把每个用到它的食谱、套餐里的这一行当时的营养固定下来，所以删完这些食谱、套餐的营养不变（以前如果那个食谱很久没保存过，删除后这一行的营养会算不进去）。删除时的确认提示也会告诉你有几个食谱、几个套餐在用它。已经记录的三餐一直不受外部食材的编辑和删除影响。', en:'Deleting an external ingredient no longer affects the recipes and meal sets that use it: before deleting, the nutrition of that row in each recipe and meal set is frozen, so their nutrition stays the same (previously a recipe that had not been saved for a long time could lose that row\'s nutrition). The delete confirmation now also tells you how many recipes and meal sets use it. Meals you already logged have never been affected by editing or deleting an external ingredient.'},
     {t:'new', zh:'编辑外部食材时，如果改了营养值或单位换算，而它被食谱、套餐用到，保存前会提醒你“它们的营养会按新数值重新计算”，可以返回继续改，或者仍然保存。', en:'When you edit an external ingredient\'s nutrition or unit conversions and it is used by recipes or meal sets, you now get a reminder before saving that their nutrition will be recalculated with the new values; you can go back or save anyway.'}
@@ -22553,6 +22558,75 @@ async function restoreAllData(data, keys){
   }
 }
 
+/* ======================= 外部食材管理页 (README 9.299) =======================
+   外部食材(不在库存里的食材：名称 + 每100g营养 + 可选的单位换算)以前只能在食谱“添加食材”页的库存标签里搜到(列表最多显示20个)，
+   没有专门浏览/管理的页面。这里加一个：入口在食谱页设置里；全部列出 + 搜索；每行显示每100g热量、单位换算、被几个食谱/套餐用到；
+   点一行或左划“编辑”改营养/换算，左划“删除”删除(复用 9.298 的删除确认和“删除前冻结”)。*/
+function openExtIngManager(){
+  state.extIngMgr = {query:''};
+  navigate('extIngredients');
+}
+function extIngUsageCounts(){
+  var rc = {}, mc = {};
+  (state.recipes||[]).forEach(function(r){
+    var seen = {};
+    (r.ingredients||[]).forEach(function(ri){ if(ri.source_type==='external' && ri.source_id && !seen[ri.source_id]){ seen[ri.source_id]=1; rc[ri.source_id]=(rc[ri.source_id]||0)+1; } });
+  });
+  (state.mealsets||[]).forEach(function(m){
+    var seen = {};
+    (m.items||[]).forEach(function(it){ if(it.source_type==='external' && it.source_id && !seen[it.source_id]){ seen[it.source_id]=1; mc[it.source_id]=(mc[it.source_id]||0)+1; } });
+  });
+  return {recipes: rc, mealsets: mc};
+}
+function extMgrListHtml(){
+  var zh = state.lang==='zh';
+  var q = ((state.extIngMgr && state.extIngMgr.query) || '').trim().toLowerCase();
+  var all = state.ingredients.slice().sort(function(a,b){ return (a.name||'').localeCompare(b.name||'', zh?'zh':'en'); });
+  if(!all.length) return '<p class="hint" style="margin:14px 2px;">'+esc(zh?'还没有外部食材。在食谱“添加食材”页的库存标签里，点右下角的“+”可以新建。':'No external ingredients yet. In the add-ingredient page of a recipe, open the Inventory tab and tap the + button to create one.')+'</p>';
+  var list = q ? all.filter(function(i){ return (i.name||'').toLowerCase().indexOf(q)>=0; }) : all;
+  if(!list.length) return '<p class="hint" style="margin:14px 2px;">'+esc(zh?'没有匹配的外部食材，换个关键词试试':'No matching external ingredients, try a different keyword')+'</p>';
+  var uc = extIngUsageCounts();
+  return '<p class="hint" style="margin:4px 2px 6px;">'+esc(zh?('共 '+list.length+' 个'+(q?'（匹配）':'')):(list.length+(q?' matching':' in total')))+'</p>'+
+    list.map(function(ing){
+      var kcal = ing.nutrition && ing.nutrition.calories!=null ? Math.round(ing.nutrition.calories*10)/10 : null;
+      var bits = [(kcal!=null ? kcal+' kcal/100g' : (zh?'没有热量数据':'no calorie data'))];
+      if(ing.custom_units && ing.custom_units.length){
+        bits.push(ing.custom_units.map(function(cu){ return '1'+cu.unit+'='+cu.grams+'g'; }).join(zh?'，':', '));
+      }
+      var r = uc.recipes[ing.id]||0, m = uc.mealsets[ing.id]||0;
+      var use = (!r && !m) ? (zh?'没有食谱或套餐在用':'not used') : ((r ? (zh?(r+' 个食谱'):(r+' recipe'+(r>1?'s':''))) : '') + (r&&m ? (zh?'、':', ') : '') + (m ? (zh?(m+' 个套餐'):(m+' meal set'+(m>1?'s':''))) : '') + (zh?' 在用':' using it'));
+      bits.push(use);
+      return '<div class="item-card-swipe row-swipe" data-item-id="ex'+esc(ing.id)+'">'+
+        '<div class="item-swipe-actions">'+
+          '<button class="swipe-action-btn action-delete" onclick="event.stopPropagation();deleteExternalIngredientFromSwipe('+aj(ing.id)+')">'+ic('trash',20)+'<span>'+esc(t('delete'))+'</span></button>'+
+          '<button class="swipe-action-btn action-edit" onclick="event.stopPropagation();editExternalIngredientFromSwipe('+aj(ing.id)+')">'+ic('edit',20)+'<span>'+esc(t('edit'))+'</span></button>'+
+        '</div>'+
+        '<div class="item-card">'+
+          '<div class="row-label" style="cursor:pointer;flex:1;min-width:0;" onclick="editExternalIngredientModal('+aj(ing.id)+')">'+esc(ing.name)+'<div class="hint" style="margin-top:2px;">'+esc(bits.join(' · '))+'</div></div>'+
+          ic('chevronRight',16)+
+        '</div>'+
+      '</div>';
+    }).join('');
+}
+function onExtMgrSearch(v){
+  state.extIngMgr = state.extIngMgr || {query:''};
+  state.extIngMgr.query = v;
+  var el = document.getElementById('ext-mgr-list');
+  if(el) el.innerHTML = extMgrListHtml();
+}
+function renderExtIngredients(){
+  var zh = state.lang==='zh';
+  state.extIngMgr = state.extIngMgr || {query:''};
+  return '' +
+  '<div class="page-header"><button class="back-btn" onclick="navigate(\'recipesSettings\')">'+ic('back',22)+'</button><h1>'+esc(zh?'外部食材':'External ingredients')+'</h1></div>'+
+  '<div class="content">'+
+    '<p class="hint" style="margin-bottom:12px;">'+esc(zh?'外部食材是不在库存里的食材，只存名称、每 100g 的营养和可选的单位换算。食谱、套餐里是“实时引用”它的：改了营养值，用到它的食谱和套餐跟着变；已经记录的三餐不受影响。左划可以编辑或删除。':'External ingredients are ingredients that are not in your inventory: just a name, nutrition per 100 g and optional unit conversions. Recipes and meal sets reference them live: change the nutrition and the recipes and meal sets that use it change with it; meals you already logged are not affected. Swipe left to edit or delete.')+'</p>'+
+    searchBarHtml(state.extIngMgr.query, zh?'搜索外部食材名称':'Search external ingredients', 'onExtMgrSearch', 'ext-mgr-search')+
+    '<div id="ext-mgr-list">'+extMgrListHtml()+'</div>'+
+  '</div>'+
+  bottomNav();
+}
+
 /* ======================= PER-PAGE SETTINGS (README 9.109) =======================
    Each of the 4 main pages now has its own settings page, reached via the gear icon in that
    page's own sidebar (the concentric-circle icon, kept distinct from the real cog icon the
@@ -22678,6 +22752,10 @@ function renderRecipesSettings(){
     '</div>'+
     '<div class="section-title">'+(state.lang==='zh'?'分类':'Categories')+'</div>'+
     recipeCategoryManagerHtml()+
+    '<div class="section-title">'+(state.lang==='zh'?'外部食材':'External ingredients')+'</div>'+
+    '<div class="form-group">'+
+      '<div class="list-row" style="cursor:pointer;" onclick="openExtIngManager()"><div class="row-label">'+(state.lang==='zh'?'管理外部食材':'Manage external ingredients')+'<div class="hint" style="margin-top:2px;">'+(state.lang==='zh'?('共 '+state.ingredients.length+' 个'):(state.ingredients.length+' in total'))+'</div></div>'+ic('chevronRight',16)+'</div>'+
+    '</div>'+
     '<div class="section-title">'+t('sectionBackup')+'</div>'+
     '<div class="form-group">'+
       '<p class="hint" style="margin-bottom:14px;">'+t('backupHint')+'</p>'+
