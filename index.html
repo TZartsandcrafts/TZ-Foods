@@ -1008,7 +1008,7 @@ var DEFAULT_NOTE_CATEGORIES = ['心得体会','采购经验','保存技巧','食
 // confusing "did my change actually reach this phone?" debugging (README 9.59/9.60/9.68's cloud
 // sync follow-up), a visible version string is a much faster way to confirm whether a device is
 // actually running the current code than inferring it indirectly from Firestore console state.
-var BUILD_VERSION = '9.299';
+var BUILD_VERSION = '9.300';
 var DEFAULT_AI_PROXY_URL = 'https://tz-foodcode.taizaibook.workers.dev';
 // Same idea as DEFAULT_AI_PROXY_URL above: baked-in fallback so cloud sync keeps working (and
 // doesn't need Firebase console dug back up) even if localStorage ever gets wiped. Still just
@@ -7878,6 +7878,9 @@ function maybeShowRestockPopupOnLaunch(){
 // 以后每次发版，在 RELEASE_NOTES 最前面加一条；文字用白话写给用户看("数量页的字变大了"，而不是"字号 14→17")。
 // type: new=新功能  fix=修复  tweak=调整。
 var RELEASE_NOTES = [
+  {v:'9.300', items:[
+    {t:'fix', zh:'给 USDA 食材起了名字（标签）之后，在“添加食材”的 USDA 页搜这个名字，现在会马上从“常用”里找出来，不用再等“翻译中…”（以前中文关键词要先翻译成英文，翻译完才去本地找）。没有对应标签的中文词，仍然先翻译再搜；本地结果下面的“继续搜索 USDA 数据库”点一下才会去翻译、联网。', en:'Searching a name (tag) you gave a USDA food now finds it in Frequently used instantly, without waiting for \'Translating…\'. Chinese terms with no matching tag are still translated first; the Continue searching USDA entry translates only when tapped.'}
+  ]},
   {v:'9.299', items:[
     {t:'new', zh:'新增“外部食材”管理页：食谱页右上角设置里多了“外部食材”，点进去可以看到全部外部食材（以前只能在食谱“添加食材”页的库存标签里搜到，而且列表最多显示 20 个），能搜索；每一行显示每 100g 的热量、设置了哪些单位换算、被几个食谱和几个套餐用到。点一行或左划“编辑”可以改营养值和单位换算，左划“删除”可以删除（提示里会说明有几个食谱、套餐在用它）。', en:'New External ingredients page: Recipes settings now has an External ingredients entry that lists all of them (previously they could only be found via search in the Inventory tab of the add-ingredient page, which showed at most 20), with search. Each row shows calories per 100 g, any unit conversions, and how many recipes and meal sets use it. Tap a row or swipe Edit to change nutrition and conversions; swipe Delete to remove it (the prompt tells you how many recipes and meal sets use it).'}
   ]},
@@ -17648,6 +17651,17 @@ async function runAddFoodUsdaSearch(rawQuery){
   _lastUsdaDisplayQuery = null; // 新一轮搜索开始，旧缓存作废(结果回来后renderUsdaResultRows会重新标上)
   var el = document.getElementById('add-food-usda-results');
   if(el) el.innerHTML = '<p class="hint" style="padding:8px 0 0;">'+t(containsChinese(rawQuery)?'usdaTranslating':'usdaSearchLoading')+'</p>';
+  // README 9.300: 先在本机"常用"里按原话(标签)匹配，命中就立刻显示，不用先等翻译请求。中文关键词如果以前翻译过
+  // (state.usdaTranslationCache)，英文检索词也一并拿来匹配原词条名；没翻译过的就只靠标签匹配，空着英文那一路。
+  var cachedTerm = containsChinese(rawQuery) ? ((state.usdaTranslationCache||{})[rawQuery] || '') : rawQuery;
+  var quickMatches = searchUsdaSaved(cachedTerm, rawQuery);
+  if(quickMatches.length){
+    // 还没翻译过时，"继续搜索USDA数据库"入口先带着中文原话，点的时候才翻译(continueUsdaLiveSearch里处理)
+    renderUsdaResultRows(quickMatches.map(function(f){
+      return {fdcId:f.fdcId, description:f.description, dataType:f.dataType, brandName:f.brandName};
+    }), cachedTerm || rawQuery);
+    return;
+  }
   var term = await resolveUsdaSearchTerm(rawQuery);
   if(seq!==addFoodUsdaSearchSeq) return; // 这段时间用户已经又打字了，这次结果作废
 
@@ -17695,8 +17709,15 @@ async function runUsdaLiveSearch(term, seq){
 // term是runAddFoodUsdaSearch里已经翻译过的最终检索词，直接复用，不用再走一次中译英。用新的
 // seq把addFoodUsdaSearchSeq往前推一格，这样如果这次网络请求还没回来用户就已经又打字触发了新
 // 一轮搜索，这次的结果会被runUsdaLiveSearch里现成的seq比对逻辑正常丢弃。
-function continueUsdaLiveSearch(term){
+// README 9.300: term 可能还是中文原话(本地命中时没等翻译)，这里点了才翻译；已经是英文/翻译过的，resolveUsdaSearchTerm 直接原样/查缓存返回。
+async function continueUsdaLiveSearch(term){
   var seq = ++addFoodUsdaSearchSeq;
+  if(containsChinese(term)){
+    var el = document.getElementById('add-food-usda-results');
+    if(el) el.innerHTML = '<p class="hint" style="padding:8px 0 0;">'+t('usdaTranslating')+'</p>';
+    term = await resolveUsdaSearchTerm(term);
+    if(seq!==addFoodUsdaSearchSeq) return;
+  }
   runUsdaLiveSearch(term, seq);
 }
 // README 9.177: 记住当前#add-food-usda-results里实际展示的是哪份列表(不含星标状态),这样星标
